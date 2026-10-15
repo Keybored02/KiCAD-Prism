@@ -1323,6 +1323,12 @@ def _m049_limit_marks(conn) -> None:
     )
 
 
+def _m050_drop_headers_seen(conn) -> None:
+    """The header names a provider sent were only for finding out which providers report limits."""
+
+    conn.execute("ALTER TABLE connectors DROP COLUMN IF EXISTS headers_seen;", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1373,6 +1379,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (47, "arrival_promises", _m047_arrival_promises),
     (48, "rate_limits", _m048_rate_limits),
     (49, "limit_marks", _m049_limit_marks),
+    (50, "drop_headers_seen", _m050_drop_headers_seen),
 ]
 
 

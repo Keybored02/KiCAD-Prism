@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
@@ -361,15 +361,6 @@ class ConnectorService:
                     (error_code[:64], connector_id),
                 )
 
-    def record_headers(self, connector_id: str, found: Mapping[str, str], names: Sequence[str]) -> None:
-        """At Test connection: what the provider's answer said about its limits, and which headers it sent at all."""
-
-        with self._store.connection() as conn:
-            conn.execute(
-                "UPDATE connectors SET rate_limits = %s::jsonb, rate_limits_at = NOW(), headers_seen = %s::jsonb WHERE id = %s",
-                (json.dumps(dict(found)), json.dumps(list(names)), connector_id),
-            )
-
     def keyring(self):
         """The credential keyring, for sealing what belongs to a connector (``oauth.py``)."""
 
@@ -507,7 +498,6 @@ class ConnectorService:
             "terms_reviewed_by": row["terms_reviewed_by"],
             "terms_reviewed_at": _iso(row["terms_reviewed_at"]),
             "rate_limits": dict(row["rate_limits"] or {}),
-            "headers_seen": list(row["headers_seen"] or []),
             "reset_from_provider": bool(row["reset_from_provider"]),
             "reset_suggestion": dict(reset_guess) if reset_guess else None,
             "rate_limits_at": _iso(row["rate_limits_at"]),

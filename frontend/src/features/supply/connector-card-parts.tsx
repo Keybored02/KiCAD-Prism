@@ -61,21 +61,17 @@ export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefine
   );
 }
 
-/** What the provider says about its own limits, as it sent it, and when its day seems to reset. */
+/** What the provider says about its own limits, when it says any, and when its day seems to reset. */
 export function ReportedLimits({ connector, isAdmin, onApply }: { connector: SupplyConnector; isAdmin: boolean; onApply: () => void }) {
   const entries = Object.entries(connector.rate_limits ?? {});
   const guess = connector.reset_suggestion;
-  if (!connector.rate_limits_at && !guess) return null;
+  if (entries.length === 0 && !guess && !connector.reset_from_provider) return null;
   return (
     <>
-      {connector.rate_limits_at ? (
+      {entries.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           <dt className="text-muted-foreground">Limits it reports</dt>
-          {entries.length > 0 ? (
-            entries.map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)
-          ) : (
-            <dd>None. Checked {formatWhen(connector.rate_limits_at)}{connector.headers_seen?.length ? `. Headers it sent: ${connector.headers_seen.join(", ")}` : ""}</dd>
-          )}
+          {entries.map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)}
         </div>
       ) : null}
       {connector.reset_from_provider ? (

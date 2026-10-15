@@ -254,8 +254,6 @@ class SafeHttpClient:
         self._max_redirects = max_redirects
         # What the last answer that reported any limits said (see ``limit_headers``).
         self.last_limits: dict[str, str] = {}
-        # The names (never the values) of the headers of the last answer, to see what a provider reports at all.
-        self.last_header_names: list[str] = []
         # Called with the limit headers of every answer that has any.
         self.on_limits: Callable[[dict[str, str]], None] | None = None
 
@@ -291,7 +289,6 @@ class SafeHttpClient:
             response = self._send_once(method, url, send_headers, body)
             if response.status not in _REDIRECT_STATUSES:
                 found = limit_headers(response.headers)
-                self.last_header_names = sorted(str(name).lower()[:60] for name in response.headers)[:60]
                 if found:
                     self.last_limits = found
                     if self.on_limits is not None:

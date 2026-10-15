@@ -63,11 +63,9 @@ export interface SupplyConnector {
   /** When the provider's day begins, and in which time zone. */
   reset_time?: string;
   reset_tz?: string;
-  /** Rate-limit headers the provider sent at the last test, by lower-case name. */
+  /** Rate-limit headers the provider sent with its last answer, by lower-case name (DigiKey only, so far). */
   rate_limits?: Record<string, string>;
   rate_limits_at?: string | null;
-  /** Names of the headers the provider sent at the last test, to see what it reports at all. */
-  headers_seen?: string[];
   /** The reset time was taken from what the provider reported, so its own count of calls is trusted. */
   reset_from_provider?: boolean;
   /** When the provider's day seems to reset (UTC), once readings from different days agree. */
