@@ -1,5 +1,6 @@
+import { Link } from "react-router-dom";
+
 import { Input } from "@/components/ui/input";
-import { BomPlanButton } from "./bom-plan-button";
 import { CheckOnceButton } from "./check-once-button";
 import { rollupSentences } from "./bom-rollup-text";
 import { RollupChip } from "./supply-icons";
@@ -64,7 +65,7 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
       {sentences.map((sentence) => <RollupChip key={sentence.kind} sentence={sentence} />)}
       {supply.truncated ? <span className="text-warning">Only the first 2,000 distinct parts are looked up.</span> : null}
       <span className="ml-auto flex items-center gap-1.5">
-        {supply.canWatch && lookup && lookup.rollup.tracked > 0 ? <BomPlanButton supply={supply} /> : null}
+        {supply.projectId ? <Link to="?section=supply" className="text-primary hover:underline">Project supply</Link> : null}
         {supply.projectId && unread.length > 0 ? (
           <CheckOnceButton projectId={supply.projectId} lines={unread} onFinished={supply.refresh} />
         ) : null}

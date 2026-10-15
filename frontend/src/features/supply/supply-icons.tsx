@@ -86,3 +86,14 @@ export function JlcIcon({ jlc }: { jlc: JlcClass | null | undefined }) {
     </span>
   );
 }
+
+/** A number with an icon; the words are its tooltip and its text for screen readers. */
+export function StatChip({ icon: Icon, value, text, className }: { icon: LucideIcon; value: string; text: string; className?: string }) {
+  return (
+    <span title={text} className={cn("inline-flex items-center gap-1 tabular-nums", className)}>
+      <Icon aria-hidden className="h-3.5 w-3.5" />
+      <span aria-hidden>{value}</span>
+      <span className="sr-only">{text}</span>
+    </span>
+  );
+}

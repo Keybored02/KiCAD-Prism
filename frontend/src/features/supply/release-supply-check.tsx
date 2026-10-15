@@ -3,7 +3,10 @@ import { useCallback } from "react";
 import type { ReleaseCheck } from "@/types/supply";
 import { CheckOnceButton } from "./check-once-button";
 import { getReleaseCheck } from "./release-check-api";
+import { HeartPulse, TriangleAlert } from "lucide-react";
+
 import { StatusDot } from "./status-dot";
+import { StatChip } from "./supply-icons";
 import { STATUS_LABEL } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
@@ -21,8 +24,8 @@ export function ReleaseSupplySummary({ projectId, buildId }: { projectId: string
   return (
     <p className="flex items-center gap-2 text-xs" aria-label="Supply check summary">
       <StatusDot status={data.status} />
-      <span>{data.health === null ? "No supply data on this BOM yet" : `Supply health ${data.health.toFixed(1)} of 10`}</span>
-      {data.needing_a_look > 0 ? <span className="text-muted-foreground">{data.needing_a_look} to look at</span> : null}
+      <StatChip icon={HeartPulse} value={data.health === null ? "?" : data.health.toFixed(1)} text={data.health === null ? "No supply data on this BOM yet" : `Supply health ${data.health.toFixed(1)} of 10`} />
+      {data.needing_a_look > 0 ? <StatChip icon={TriangleAlert} value={String(data.needing_a_look)} text={`${data.needing_a_look} to look at`} className="text-warning" /> : null}
     </p>
   );
 }

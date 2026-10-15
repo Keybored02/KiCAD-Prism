@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { ProjectSupplyPart } from "@/types/supply";
 import { StatusDot } from "./status-dot";
 import { formatStock } from "./supply-format";
-import { JlcIcon, LifecycleIcon, TrackedIcon, WaitingIcon } from "./supply-icons";
+import { DataAgeIcon, JlcIcon, LifecycleIcon, TrackedIcon, WaitingIcon } from "./supply-icons";
 
 const partLink = (partId: string) => `/?section=supply&supplyView=parts&part=${encodeURIComponent(partId)}`;
 
@@ -20,6 +20,7 @@ export function ProjectSupplyParts({ parts }: { parts: ProjectSupplyPart[] }) {
             <th className="p-2 text-right">In stock</th>
             <th className="p-2 text-right">Lead time</th>
             <th className="w-8 p-2"><span className="sr-only">Lifecycle</span></th>
+            <th className="w-8 p-2"><span className="sr-only">Read</span></th>
             <th className="w-8 p-2"><span className="sr-only">Tracking</span></th>
             <th className="p-2 text-right">Notes</th>
           </tr>
@@ -40,6 +41,7 @@ export function ProjectSupplyParts({ parts }: { parts: ProjectSupplyPart[] }) {
               <td className={`p-2 text-right tabular-nums ${part.short ? "text-destructive" : ""}`}>{part.part_id ? formatStock(part.stock) : ""}</td>
               <td className="p-2 text-right tabular-nums">{part.lead_time_days ? `${part.lead_time_days} d` : ""}</td>
               <td className="p-2">{part.lifecycle ? <LifecycleIcon lifecycle={part.lifecycle} /> : null}</td>
+              <td className="p-2"><DataAgeIcon fetchedAt={part.fetched_at ?? null} /></td>
               <td className="p-2">
                 <span className="flex gap-1">
                   {part.tier ? <TrackedIcon tier={part.tier} /> : null}

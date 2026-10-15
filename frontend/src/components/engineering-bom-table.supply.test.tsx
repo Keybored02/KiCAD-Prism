@@ -3,6 +3,7 @@
  * rollup above and the actions on it.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User, UserRole } from "@/types/auth";
@@ -83,6 +84,7 @@ function lookupFor(build: number): SupplyBomLookup {
 function renderTable(role: UserRole | null, projectId?: string, atHead = true) {
   const user: User | null = role ? { name: role, email: `${role}@example.com`, role } : null;
   render(
+    <MemoryRouter>
     <EngineeringBomTable
       semanticIndex={index}
       components={COMPONENTS}
@@ -93,7 +95,8 @@ function renderTable(role: UserRole | null, projectId?: string, atHead = true) {
       user={user}
       atHead={atHead}
       projectId={projectId}
-    />,
+    />
+    </MemoryRouter>,
   );
 }
 

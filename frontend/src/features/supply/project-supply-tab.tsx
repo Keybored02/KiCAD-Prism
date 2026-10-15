@@ -1,16 +1,17 @@
 import { useCallback, useState } from "react";
-import { AlertTriangle, Ban, Banknote, Boxes, HeartPulse, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Ban, Banknote, Boxes, Clock, HeartPulse, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canOpenSupply } from "@/lib/roles";
+import { canEditSupply, canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
+import { ProjectPlanButton } from "./project-plan-button";
 import { ProjectSupplyBuilds, ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
 import { getProjectSupply } from "./supply-api";
-import { formatPrice } from "./supply-format";
+import { formatAgo, formatPrice } from "./supply-format";
 import { TrackProjectButton } from "./track-project-dialog";
 import { useLoaded } from "./use-loaded";
 
@@ -31,14 +32,17 @@ function Stats({ supply }: { supply: ProjectSupply }) {
   const parts = supply.parts ?? [];
   if (!rollup) return null;
   const waiting = parts.filter((part) => part.waiting).length;
+  const reads = parts.flatMap((part) => (part.fetched_at ? [part.fetched_at] : [])).sort();
+  const oldest = reads[0] ?? null;
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
       <Stat icon={HeartPulse} label="Health" value={rollup.health === null ? "No data" : `${rollup.health.toFixed(1)} of 10`} bad={rollup.health_status !== "ok" && rollup.health !== null} />
       <Stat icon={Boxes} label="Parts" value={`${rollup.tracked} of ${rollup.lines} tracked`} />
       <Stat icon={AlertTriangle} label="At risk" value={String(rollup.at_risk)} bad={rollup.at_risk > 0} />
       <Stat icon={PackageMinus} label="Short for a board" value={String(rollup.short)} bad={rollup.short > 0} />
       <Stat icon={Banknote} label="Per board" value={rollup.cost_per_board && rollup.currency ? formatPrice(rollup.cost_per_board, rollup.currency) : "No total"} />
       <Stat icon={Hourglass} label="Waiting for room" value={String(waiting)} bad={waiting > 0} />
+      <Stat icon={Clock} label="Oldest read" value={oldest ? formatAgo(oldest) : "None yet"} />
       <Stat icon={Ban} label="End of life" value={String(parts.filter((part) => part.lifecycle && part.lifecycle !== "active" && part.lifecycle !== "unknown").length)} />
     </div>
   );
@@ -72,7 +76,10 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
             {supply.variants.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         ) : null}
-        <span className="ml-auto"><TrackProjectButton projectId={projectId} onChanged={loaded.retry} /></span>
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          {supply.available && canEditSupply(role) ? <ProjectPlanButton projectId={projectId} parts={supply.parts ?? []} onDone={loaded.retry} /> : null}
+          <TrackProjectButton projectId={projectId} onChanged={loaded.retry} />
+        </span>
       </div>
       {supply.available ? (
         <>

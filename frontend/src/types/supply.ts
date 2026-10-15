@@ -995,6 +995,7 @@ export interface ScheduleSettings {
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */
 export interface ProjectSupplyPart {
   jlc?: JlcClass | null;
+  fetched_at?: string | null;
   key: string;
   manufacturer: string;
   mpn: string;

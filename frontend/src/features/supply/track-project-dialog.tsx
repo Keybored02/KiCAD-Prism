@@ -39,6 +39,8 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
 
   // Distributors for the choice: the ones every project uses by default, plus any assembly-only one a person adds.
   const defaults = useMemo(() => connectors.flatMap((item) => (item.assembly_only ? [] : [item.id])), [connectors]);
+  const assembly = useMemo(() => connectors.filter((item) => item.assembly_only), [connectors]);
+  const regular = useMemo(() => connectors.filter((item) => !item.assembly_only), [connectors]);
   const ids = chosen ?? defaults;
   const followed = useMemo(() => new Set(variants), [variants]);
   const bought = useMemo(() => new Set(ids), [ids]);
@@ -103,7 +105,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
             </fieldset>
             <fieldset className="space-y-1">
               <legend className="text-xs text-muted-foreground">Bought from</legend>
-              {connectors.filter((item) => !item.assembly_only).map((item) => (
+              {regular.map((item) => (
                 <div key={item.id} className="flex items-center gap-2">
                   <Checkbox id={`con-${item.id}`} checked={bought.has(item.id)} onCheckedChange={(on) => toggleConnector(item.id, on === true)} />
                   <Label htmlFor={`con-${item.id}`} className="font-normal">
@@ -112,7 +114,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
                 </div>
               ))}
             </fieldset>
-            {connectors.filter((item) => item.assembly_only).map((item) => (
+            {assembly.map((item) => (
               <fieldset key={item.id} className="space-y-1">
                 <legend className="text-xs text-muted-foreground">Built at {item.display_name}?</legend>
                 <p className="text-xs text-muted-foreground">Its parts are then also read there, for what it can place and at what price. Its stock is never counted.</p>

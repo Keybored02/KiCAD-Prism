@@ -5,7 +5,7 @@ import type { SemanticComponent } from "@/types/prism-selection";
 import type { User } from "@/types/auth";
 import type { SupplyBomLookup, SupplyBomWatchResult } from "@/types/supply";
 import { buildLines, lineInput, type BomLineDetail } from "./bom-supply";
-import { lookupSupplyBom, planSupplyBuild, watchSupplyBomLines } from "./supply-api";
+import { lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
 // A lookup takes this many lines; a BOM with more shows the first ones and says so.
@@ -36,7 +36,6 @@ export interface BomSupply {
   /** Reload the figures without the loading state. */
   refresh: () => Promise<void>;
   /** Ask for this build's parts as demand under a name, replacing what the name asked for before. */
-  planBuild: (name: string, needBy: string | null) => Promise<{ parts: number; replaced: number }>;
 }
 
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
@@ -79,11 +78,6 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     return totals;
   }, [refresh]);
 
-  const planBuild = useCallback(
-    (name: string, needBy: string | null) => planSupplyBuild({ name, projectId, lines: lines.map(lineInput), buildQuantity, attritionPercent, needBy }),
-    [lines, projectId, buildQuantity, attritionPercent],
-  );
-
   const status = requestKey === null ? "idle" : loadStatus;
   return {
     enabled,
@@ -102,6 +96,5 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     retry,
     watchLines,
     refresh,
-    planBuild,
   };
 }
