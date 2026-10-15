@@ -65,7 +65,7 @@ class SupplyHealthTests(unittest.TestCase):
                     "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, 'c1', %s, %s, 'x', 'Acme', 'exact')", (f"l{index}", f"S{index}", part))
                 conn.execute(
-                    "INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak) VALUES (%s, 'normal', %s, %s, %s)",
+                    "INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak) VALUES (%s, 'daily', %s, %s, %s)",
                     (f"l{index}", due, NOW - timedelta(hours=30 - index), errors))
 
     def test_an_administrator_sees_what_polling_has_done_and_how_late_it_runs(self) -> None:

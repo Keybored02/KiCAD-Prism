@@ -70,20 +70,20 @@ def conditions_for(
     datasheet: Mapping[str, Any] | None = None,
     notice: Mapping[str, Any] | None = None,
 ) -> dict[str, Condition]:
-    """The lines a watched part has crossed, from its summary row and, when there are any, its insight and price trend."""
+    """The lines a tracked part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
     found: dict[str, Condition] = {}
-    watch = item["watch"]
-    if watch is None:
+    if item["tracking"] is None:
         return found
+    threshold = item["watch"]["threshold"] if item["watch"] else None
     stock = item["stock"]
     if item["problem"]:
         found[PART_LOST] = Condition(Status.ERROR.value, {"problem": item["problem"]})
     if stock is not None:
         if stock == 0:
             found[OUT_OF_STOCK] = Condition(Status.ERROR.value, {"stock": 0})
-        elif watch["threshold"] is not None and stock <= watch["threshold"]:
-            found[BELOW_THRESHOLD] = Condition(Status.WARNING.value, {"stock": stock, "threshold": watch["threshold"]})
+        elif threshold is not None and stock <= threshold:
+            found[BELOW_THRESHOLD] = Condition(Status.WARNING.value, {"stock": stock, "threshold": threshold})
     if insight is not None and stock and BELOW_THRESHOLD not in found:
         days = insights.rupture_expected_within(dict(insight))
         if days is not None:
@@ -125,14 +125,16 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         return
     current = {}
     for item in parts_view.summaries_for(conn, ids):
-        watch = item["watch"]
-        # A projection needs history, which costs queries: only for watched parts with stock to lose.
+        tracked = item["tracking"] is not None
+        # A projection needs history, which costs queries: only for tracked parts with stock to lose.
         insight = None
-        if watch is not None and item["stock"]:
-            insight = parts_view.insight_from(parts_view.history(conn, item["id"], now), watch["threshold"], now)
-        price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if watch is not None else None
-        sheet = _recent_datasheet_change(conn, item["id"], now) if watch is not None else None
-        notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if watch is not None else None
+        if tracked and item["stock"]:
+            insight = parts_view.insight_from(
+                parts_view.history(conn, item["id"], now), item["watch"]["threshold"] if item["watch"] else None, now
+            )
+        price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if tracked else None
+        sheet = _recent_datasheet_change(conn, item["id"], now) if tracked else None
+        notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if tracked else None
         current[item["id"]] = conditions_for(item, insight, price, sheet, notice)
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(

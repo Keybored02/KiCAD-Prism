@@ -147,7 +147,7 @@ class SchedulingTests(unittest.TestCase):
             for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "quota_ledger", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.clock = Clock()
-        self.cid = self.connectors.create(actor="a@example.com", provider="demo_grouped", currency="EUR", interactive_reserve_pct=0)["id"]
+        self.cid = self.connectors.create(actor="a@example.com", provider="demo_grouped", currency="EUR", interactive_reserve_pct=10)["id"]
         self.asked: list = []
 
     def rows(self, sql, *params):
@@ -156,7 +156,7 @@ class SchedulingTests(unittest.TestCase):
 
     def watch(self, mpn):
         with self.store.connection() as conn:
-            return self.watches.add_watch(conn, "Acme", mpn, "a@example.com")[0]
+            return self.watches.add_watch(conn, "Acme", mpn, "a@example.com", tier=1)[0]
 
     def listing(self, part_id, sku):
         with self.store.connection() as conn:
@@ -231,7 +231,7 @@ class SchedulingTests(unittest.TestCase):
         with self.store.connection() as conn:
             (row,) = [item for item in capacity.connector_capacity(conn) if item["connector_id"] == self.cid]
         self.assertEqual(row["listings"], 3)
-        self.assertAlmostEqual(row["calls_per_day"], 24 / 6, places=3)
+        self.assertAlmostEqual(row["calls_per_day"], 1.0, places=3, msg="one call a day reads all of a part's listings")
 
     # --- searching by group ---------------------------------------------------
 
@@ -253,13 +253,13 @@ class SchedulingTests(unittest.TestCase):
         summary = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).run(self.cid)
         self.assertEqual((summary.searched, summary.stopped), (3, "budget"))
 
-    def test_found_parts_wait_a_month_for_a_new_search_and_missing_ones_a_week(self) -> None:
+    def test_tier_one_parts_are_searched_again_every_month_found_or_not(self) -> None:
         self.watch("AAA")
         self.watch("NONE-1")
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)
         discoverer.run(self.cid)
         self.clock.now += timedelta(days=8)
-        self.assertEqual(discoverer.run(self.cid).searched, 1, "only the part nobody carries")
+        self.assertEqual(discoverer.run(self.cid).searched, 0, "nobody is searched for again within the month")
         self.clock.now += timedelta(days=23)
         self.assertEqual(discoverer.run(self.cid).searched, 2)
 

@@ -14,9 +14,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import accounts, datasheets, details, fx, ledger, market, notice_files, quota, retention, tracking, worker_seen
+from app.services.supply import (
+    accounts, datasheets, details, fx, ledger, market, notice_files, quota, retention, schedule_settings, tracking, worker_seen,
+)
 from app.services.supply.connectors import ConnectorService
-from app.services.supply.discoverer import DUE_SEARCH, REDO_AFTER, REDO_FOUND_AFTER, Discoverer
+from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
 from app.services.supply.poller import Poller
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH
@@ -55,6 +57,23 @@ def _has_budget(conn, row, now: datetime) -> bool:
     ) > 0
 
 
+def _has_spare(conn, row, now: datetime) -> bool:
+    """Whether a connector has spare budget to spend right now (see ``quota.spare_allowance``)."""
+
+    try:
+        if not registry.get_spec(row["provider"]).metered:
+            return False
+    except registry.UnknownProvider:
+        return False
+    account = accounts.resolve(conn, row["id"])
+    state = ledger.get_state(
+        conn, account.ledger_id, daily_budget=account.daily_budget, reserve_pct=account.reserve_pct, now=now,
+        reset_time=account.reset_time, reset_tz=account.reset_tz,
+    )
+    week = schedule_settings.work_week(schedule_settings.load(conn))
+    return quota.spare_allowance(state, now, week, reset_time=account.reset_time, tz=account.reset_tz) > 0
+
+
 _warned_providers: set[str] = set()
 
 
@@ -79,22 +98,27 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     due = conn.execute(
         f"""
         SELECT DISTINCT l.connector_id AS id FROM listings l
-        JOIN watches w ON w.part_id = l.part_id
+        JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN connectors c ON c.id = l.connector_id
+        LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.match_state IN ('exact', 'manual') AND {active}
+          AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
+          AND (pk.listing_id IS NULL OR pk.listing_id = l.id)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)
         """,
-        {"now": now},
+        {"now": now, **cutoffs(now)},
     ).fetchall()
     unsearched = conn.execute(
         f"""
         SELECT DISTINCT c.id, c.provider FROM connectors c
-        CROSS JOIN watches w
-        LEFT JOIN discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
+        CROSS JOIN part_tiers pt
+        LEFT JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
+        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
         WHERE {active} AND ({DUE_SEARCH})
         """,
-        {"now": now, "found": now - REDO_FOUND_AFTER, "missing": now - REDO_AFTER},
+        {"now": now, **cutoffs(now)},
     ).fetchall()
 
     ids = [row["id"] for row in due]
@@ -107,12 +131,23 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
             searchable = False
         if searchable and row["id"] not in ids:
             ids.append(row["id"])
-    if not ids:
-        return []
     funded = conn.execute(
         "SELECT id, provider, daily_budget, interactive_reserve_pct FROM connectors WHERE id = ANY(%s)", (ids,)
     ).fetchall()
-    return sorted(row["id"] for row in funded if _has_budget(conn, row, now))
+    result = {row["id"] for row in funded if _has_budget(conn, row, now)}
+    # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget.
+    spare = conn.execute(
+        f"""
+        SELECT DISTINCT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM connectors c
+        WHERE {active} AND c.id <> ALL(%(known)s) AND (
+            EXISTS (SELECT 1 FROM admissions a WHERE a.connector_id = c.id AND a.state = 'waiting')
+            OR EXISTS (SELECT 1 FROM admissions a JOIN part_tiers pt ON pt.part_id = a.part_id
+                       WHERE a.connector_id = c.id AND a.state = 'admitted' AND pt.tier = 2))
+        """,
+        {"now": now, "known": sorted(result)},
+    ).fetchall()
+    result |= {row["id"] for row in spare if _has_spare(conn, row, now)}
+    return sorted(result)
 
 
 def schedule_due_supply_jobs(
@@ -230,6 +265,28 @@ def _sync_tracking(conn) -> None:
         logging.getLogger(__name__).info("Tracking not synced", exc_info=True)
 
 
+def _spend_spare(
+    connectors: ConnectorService, connector_id: str, *, poller: Poller | None = None, discoverer: Discoverer | None = None
+) -> None:
+    """Use budget that would otherwise go unused, once all committed work is done. In order: searches and reads for parts
+    waiting for room, then tier-2 parts ahead of their time. Best effort, and each stops where the spare allowance does."""
+
+    try:
+        with connectors.store.connection() as conn:
+            kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
+        poller = poller or Poller(connectors)
+        discoverer = discoverer or Discoverer(connectors)
+        if "waiting" in kinds:
+            discoverer.run(connector_id, waiting=True)
+            poller.poll_connector(connector_id, spare="waiting")
+        if "tier2_early" in kinds:
+            poller.poll_connector(connector_id, spare="tier2_early")
+        if "notices" in kinds:
+            details.run_spare(connectors, connector_id)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Spare work not done", exc_info=True)
+
+
 def run_supply_poll_job(context: Any) -> Any:
     """Job handler: search for new listings, then ask about the ones that are due."""
 
@@ -244,6 +301,8 @@ def run_supply_poll_job(context: Any) -> Any:
         found = Discoverer(connectors).run(connector_id)
         context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
         polled = Poller(connectors).poll_connector(connector_id)
+        if polled.stopped in (None, "nothing_due"):
+            _spend_spare(connectors, connector_id)
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
         discovery_stopped, poll_stopped = found.stopped, polled.stopped

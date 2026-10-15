@@ -177,7 +177,7 @@ class ConnectorCheckTests(unittest.TestCase):
 
     def watch_with_listing(self, mpn: str, cid: str, tier: str | None) -> None:
         with self.store.connection() as conn:
-            watch = self.watches.add_watch(conn, "Acme", mpn, ACTOR)[0]
+            watch = self.watches.add_watch(conn, "Acme", mpn, ACTOR, tier=1)[0]
             listing_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
@@ -192,23 +192,23 @@ class ConnectorCheckTests(unittest.TestCase):
     def test_capacity_counts_calls_a_day_and_says_when_the_budget_will_not_keep_up(self) -> None:
         cid = self.connector(daily_budget=100, interactive_reserve_pct=0)
         for index in range(3):
-            self.watch_with_listing(f"HOT{index}", cid, "hot")
+            self.watch_with_listing(f"DAILY{index}", cid, "daily")
         for index in range(2):
-            self.watch_with_listing(f"NORMAL{index}", cid, "normal")
+            self.watch_with_listing(f"WEEKLY{index}", cid, "weekly")
         (row,) = self.call("GET", "/api/supply/capacity").json
-        # Batches of 2, two calls a batch: hot is 2 batches x 2 calls x 16 reads a day, normal is 1 x 2 x 1.
-        self.assertEqual((row["listings"], row["calls_per_day"], row["usable_per_day"]), (5, 66, 100))
+        # Batches of 2, two calls a batch: daily is 2 batches x 2 calls, weekly is 1 batch x 2 calls once in seven days.
+        self.assertEqual((row["listings"], row["calls_per_day"], row["usable_per_day"]), (5, 5, 100))
         self.assertEqual((row["fits"], row["shortfall_pct"], row["searches_pending"]), (True, 0, 0))
 
-        self.connectors.update(cid, actor=ACTOR, daily_budget=33)
+        self.connectors.update(cid, actor=ACTOR, daily_budget=4)
         (tight,) = self.call("GET", "/api/supply/capacity").json
-        self.assertEqual((tight["fits"], tight["usable_per_day"], tight["shortfall_pct"]), (False, 33, 50))
+        self.assertEqual((tight["fits"], tight["usable_per_day"], tight["shortfall_pct"]), (False, 4, 20))
 
-    def test_capacity_holds_back_the_interactive_reserve_and_plans_unpolled_listings_as_warm(self) -> None:
+    def test_capacity_holds_back_the_interactive_reserve_and_plans_unpolled_listings_daily(self) -> None:
         cid = self.connector(daily_budget=100, interactive_reserve_pct=10)
         self.watch_with_listing("NEW", cid, None)
         (row,) = self.call("GET", "/api/supply/capacity").json
-        self.assertEqual((row["calls_per_day"], row["usable_per_day"]), (8, 90), "1 batch x 2 calls x 4 reads a day")
+        self.assertEqual((row["calls_per_day"], row["usable_per_day"]), (2, 90), "1 batch x 2 calls, once a day")
 
     def test_capacity_reports_searches_still_to_do_and_leaves_out_free_and_disabled_connectors(self) -> None:
         cid = self.connector()

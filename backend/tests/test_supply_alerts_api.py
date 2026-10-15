@@ -71,7 +71,7 @@ class SupplyAlertsTests(unittest.TestCase):
                 conn.execute(f"DELETE FROM {table}")
         self.now = START
         self.cid = self.connectors.create(
-            actor=SEED_ACTOR, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
+            actor=SEED_ACTOR, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=10)["id"]
 
     # --- helpers ----------------------------------------------------------
 
@@ -227,7 +227,7 @@ class SupplyAlertsTests(unittest.TestCase):
         poller = self.poller.Poller(self.connectors, store=self.store, provider_for=provider, clock=clock)
         poller.poll_connector(self.cid)
         self.assertEqual(self.listed(), [], "first reading")
-        clock_now["t"] = START + td(hours=2)
+        clock_now["t"] = START + td(days=8)  # a part watched without a tier is read weekly
         poller.poll_connector(self.cid)
         (alert,) = self.listed()
         self.assertEqual((alert["part_id"], alert["kind"]), (watch["part_id"], "out_of_stock"))

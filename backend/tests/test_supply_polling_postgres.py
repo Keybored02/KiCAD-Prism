@@ -87,6 +87,7 @@ class PollingTests(unittest.TestCase):
         return self.poller_module.Poller(self.connectors, store=self.store, provider_for=self.provider_for, clock=self.clock)
 
     def watch(self, mpn: str = "ABC123", **kwargs):
+        kwargs.setdefault("tier", 1)  # read daily, as a tracked project's parts are
         with self.store.connection() as conn:
             return self.watches.add_watch(conn, "Acme", mpn, ACTOR, **kwargs)[0]
 
@@ -244,8 +245,8 @@ class PollingTests(unittest.TestCase):
         poller.poll_connector(cid)
         self.assertEqual(poller.poll_connector(cid).stopped, "nothing_due")
         self.clock.advance(hours=2)
-        self.assertEqual(poller.poll_connector(cid).stopped, "nothing_due", "a normal listing waits 24 hours")
-        self.clock.advance(hours=26)
+        self.assertEqual(poller.poll_connector(cid).stopped, "nothing_due", "a daily listing waits for the next day")
+        self.clock.advance(days=2)
         summary = poller.poll_connector(cid)
         self.assertEqual((summary.calls, summary.polled), (1, 1))
         self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 2)
@@ -317,7 +318,7 @@ class PollingTests(unittest.TestCase):
     def test_a_connector_with_no_budget_polls_nothing_and_a_free_one_never_spends(self) -> None:
         paid = self.connector("demo_small", daily_budget=0)
         self.add_listing(self.watch("A1").part_id, paid, "FAKE-A1-CT")
-        self.assertEqual(self.poller().poll_connector(paid).stopped, "budget")
+        self.assertEqual(self.poller().poll_connector(paid).stopped, "nothing_due", "with no budget nothing is admitted, so it waits")
         self.assertEqual(self.rows("SELECT * FROM offers"), [])
 
         free = self.connector("csv")
@@ -487,18 +488,18 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(self.poller().poll_connector(cid).stopped, "inactive")
         self.assertEqual(self.rows("SELECT * FROM offers"), [])
 
-    # --- speed rises with risk -------------------------------------------
+    # --- risk sets the order, not the rate ---------------------------------
 
-    def test_a_threshold_breach_puts_the_listing_on_the_fastest_tier(self) -> None:
+    def test_a_threshold_breach_makes_the_listing_urgent_but_not_more_frequent(self) -> None:
         cid = self.connector()
         watch = self.watch(threshold=10_000_000)
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         self.poller().poll_connector(cid)
         state = self.state_of("FAKE-ABC123-CT")
-        self.assertEqual(state["tier"], "hot")
-        self.assertLessEqual(state["next_poll_at"], self.clock.now + timedelta(hours=1, minutes=45))
+        self.assertEqual((state["tier"], state["urgency"]), ("daily", 0))
+        self.assertGreater(state["next_poll_at"], self.clock.now + timedelta(hours=11), "still once a day")
 
-    def test_a_pin_and_an_obsolete_part_change_the_tier(self) -> None:
+    def test_a_pin_and_an_obsolete_part_are_urgent(self) -> None:
         cid = self.connector()
         pinned = self.watch("P1", pinned=True)
         self.add_listing(pinned.part_id, cid, "FAKE-P1-CT")
@@ -507,13 +508,30 @@ class PollingTests(unittest.TestCase):
         quiet = self.watch("Q1")
         self.add_listing(quiet.part_id, cid, "FAKE-Q1-CT")
         self.poller().poll_connector(cid)
-        self.assertEqual(self.state_of("FAKE-P1-CT")["tier"], "hot")
-        self.assertIn(self.state_of("FAKE-EOL-1-CT")["tier"], ("warm", "hot"))
+        self.assertEqual(self.state_of("FAKE-P1-CT")["urgency"], 0)
+        self.assertIn(self.state_of("FAKE-EOL-1-CT")["urgency"], (0, 1))
         # Everything just changed for the first time, so even a quiet part starts warm.
-        self.assertEqual(self.state_of("FAKE-Q1-CT")["tier"], "warm")
+        self.assertEqual(self.state_of("FAKE-Q1-CT")["urgency"], 1)
         self.clock.advance(days=2)
         self.poller().poll_connector(cid)
-        self.assertEqual(self.state_of("FAKE-Q1-CT")["tier"], "warm", "it moved again, being a sawtooth market")
+        self.assertEqual(self.state_of("FAKE-Q1-CT")["urgency"], 1, "it moved again, being a sawtooth market")
+
+    def test_when_the_budget_cannot_cover_everything_the_urgent_go_first_then_tier_one(self) -> None:
+        cid = self.connector("demo_small", daily_budget=2, interactive_reserve_pct=0)
+        quiet = self.watch("QUIET", tier=2, rate="weekly")
+        urgent = self.watch("URGENT", threshold=10_000_000)
+        for watch, sku in ((quiet, "FAKE-QUIET-CT"), (urgent, "FAKE-URGENT-CT")):
+            self.add_listing(watch.part_id, cid, sku)
+        self.clock.now = START.replace(hour=23, minute=59)  # the whole day's allowance has accrued
+        self.poller().poll_connector(cid)
+        self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 2)
+        self.clock.advance(days=2)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET urgency = 2 WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'FAKE-QUIET-CT')")
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=1),))
+        with self.store.connection() as conn:
+            due = self.poller_module.due_listings(conn, cid, self.clock.now, 10)
+        self.assertEqual([item.sku for item in due], ["FAKE-URGENT-CT", "FAKE-QUIET-CT"])
 
 
 if __name__ == "__main__":

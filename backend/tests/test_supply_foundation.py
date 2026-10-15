@@ -279,26 +279,26 @@ class QuotaTests(unittest.TestCase):
             quota.background_allowance(quota.QuotaState(10, 0, 0), datetime(2026, 3, 1))
 
     def test_capacity_fits(self) -> None:
-        estimate = quota.estimate_capacity({"hot": 10, "normal": 100}, max_batch=50, daily_budget=100)
-        self.assertEqual(estimate.calls_per_day, 18)
+        estimate = quota.estimate_capacity({"daily": 500, "weekly": 700}, max_batch=50, daily_budget=100)
+        self.assertEqual(estimate.calls_per_day, 12, "10 batches a day and 14 a week")
         self.assertTrue(estimate.fits)
         self.assertEqual(estimate.shortfall_pct, 0)
 
     def test_capacity_shortfall_is_reported(self) -> None:
-        estimate = quota.estimate_capacity({"hot": 10, "normal": 100}, max_batch=50, daily_budget=10)
+        estimate = quota.estimate_capacity({"daily": 500, "weekly": 700}, max_batch=50, daily_budget=10)
         self.assertFalse(estimate.fits)
         self.assertEqual(estimate.usable_per_day, 9)
-        self.assertEqual(estimate.shortfall_pct, 50)
+        self.assertEqual(estimate.shortfall_pct, 25)
 
     def test_single_part_providers_need_far_more_calls(self) -> None:
-        batch = quota.estimate_capacity({"warm": 200}, max_batch=50, daily_budget=1000)
-        single = quota.estimate_capacity({"warm": 200}, max_batch=1, daily_budget=1000)
-        self.assertEqual(batch.calls_per_day, 16)
-        self.assertEqual(single.calls_per_day, 800)
+        batch = quota.estimate_capacity({"daily": 200}, max_batch=50, daily_budget=1000)
+        single = quota.estimate_capacity({"daily": 200}, max_batch=1, daily_budget=1000)
+        self.assertEqual(batch.calls_per_day, 4)
+        self.assertEqual(single.calls_per_day, 200)
 
     def test_a_provider_that_needs_two_calls_a_batch_needs_twice_the_calls(self) -> None:
-        estimate = quota.estimate_capacity({"warm": 200}, max_batch=50, daily_budget=1000, calls_per_batch=2)
-        self.assertEqual(estimate.calls_per_day, 32)
+        estimate = quota.estimate_capacity({"daily": 200}, max_batch=50, daily_budget=1000, calls_per_batch=2)
+        self.assertEqual(estimate.calls_per_day, 8)
 
     def test_empty_watchlist_needs_nothing(self) -> None:
         estimate = quota.estimate_capacity({}, max_batch=1, daily_budget=0)

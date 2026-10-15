@@ -46,7 +46,7 @@ class SupplyJobTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         from app.services.postgres_database import database
-        from app.services.supply import discoverer, jobs, poller, watches
+        from app.services.supply import admission, discoverer, jobs, poller, watches
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.providers import registry
         from app.services.supply.providers.base import CredentialField, ProviderConfig, ProviderSpec
@@ -55,6 +55,7 @@ class SupplyJobTests(unittest.TestCase):
         from app.services.trackers.secrets import CredentialKeyring
 
         cls.database, cls.discoverer, cls.jobs, cls.poller = database, discoverer, jobs, poller
+        cls.admission = admission
         cls.watches, cls.registry = watches, registry
         cls.FakeProvider, cls.ProviderConfig = FakeProvider, ProviderConfig
         cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_jobs_test_{uuid.uuid4().hex[:8]}"})()
@@ -91,7 +92,7 @@ class SupplyJobTests(unittest.TestCase):
     # --- helpers ----------------------------------------------------------
 
     def connector(self, provider: str = "fake", **overrides) -> str:
-        values = dict(actor=ACTOR, provider=provider, currency="EUR", interactive_reserve_pct=0)
+        values = dict(actor=ACTOR, provider=provider, currency="EUR", interactive_reserve_pct=10)
         values.update(overrides)
         return self.connectors.create(**values)["id"]
 
@@ -105,9 +106,10 @@ class SupplyJobTests(unittest.TestCase):
     def poller_(self):
         return self.poller.Poller(self.connectors, store=self.store, provider_for=self.provider_for, clock=self.clock)
 
-    def watch(self, mpn: str = "ABC123"):
+    def watch(self, mpn: str = "ABC123", **kwargs):
+        kwargs.setdefault("tier", 1)  # read daily, as a tracked project's parts are
         with self.store.connection() as conn:
-            return self.watches.add_watch(conn, "Acme", mpn, ACTOR)[0]
+            return self.watches.add_watch(conn, "Acme", mpn, ACTOR, **kwargs)[0]
 
     def rows(self, sql: str, *params):
         with self.store.connection() as conn:
@@ -142,14 +144,32 @@ class SupplyJobTests(unittest.TestCase):
         self.clock.advance(days=23)
         self.assertEqual(self.discoverer_().run(cid).searched, 1)
 
-    def test_a_part_not_found_is_searched_again_after_a_week(self) -> None:
+    def test_a_part_not_found_is_searched_again_on_the_same_cadence_as_one_found(self) -> None:
         cid = self.connector()
         self.watch("NONE-1")
         self.discoverer_().run(cid)
-        self.clock.advance(days=6)
-        self.assertEqual(self.discoverer_().run(cid).searched, 0)
-        self.clock.advance(days=2)
+        self.clock.advance(days=8)
+        self.assertEqual(self.discoverer_().run(cid).searched, 0, "tier 1 searches again every month, found or not")
+        self.clock.advance(days=23)
         self.assertEqual(self.discoverer_().run(cid).searched, 1)
+
+    def test_a_tier_two_part_is_searched_again_every_quarter(self) -> None:
+        cid = self.connector()
+        self.watch("SLOW", tier=2, rate="weekly")
+        self.discoverer_().run(cid)
+        self.clock.advance(days=40)
+        self.assertEqual(self.discoverer_().run(cid).searched, 0)
+        self.clock.advance(days=51)
+        self.assertEqual(self.discoverer_().run(cid).searched, 1)
+
+    def test_a_first_search_comes_from_the_pool_and_a_repeat_from_the_committed_share(self) -> None:
+        cid = self.connector()
+        self.watch()
+        self.discoverer_().run(cid)
+        self.clock.advance(days=31)
+        self.discoverer_().run(cid)
+        got = {(r["purpose"], r["kind"]): int(r["n"]) for r in self.rows("SELECT purpose, kind, SUM(calls) AS n FROM call_counts GROUP BY purpose, kind")}
+        self.assertEqual(got, {("oneoff", "search"): 1, ("tier1", "search"): 1})
 
     def test_a_part_the_distributor_does_not_carry_is_not_searched_again_at_once(self) -> None:
         cid = self.connector()
@@ -160,7 +180,7 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.discoverer_().run(cid).searched, 0)
 
     def test_searches_spend_the_budget_and_stop_with_it(self) -> None:
-        cid = self.connector(daily_budget=2)  # 2 calls a day: 2 accrue by noon
+        cid = self.connector(daily_budget=20)  # a pool of 2 calls for first searches
         for n in range(4):
             self.watch(f"P{n}")
         summary = self.discoverer_().run(cid)
@@ -332,6 +352,28 @@ class SupplyJobTests(unittest.TestCase):
         (call,) = queue.calls
         self.assertEqual(sorted(call["payload"]["connector_ids"]), sorted([uk, de]))
         self.assertEqual(call["artifact_key"], f"supply-poll:{uk}", "keyed by the account's first connector, not by each connector")
+
+    def test_parts_waiting_for_room_are_work_for_spare_budget_only(self) -> None:
+        cid = self.connectors.create(
+            actor=ACTOR, provider="demo_keyed", storefront="uk", credentials={"api_key": "K9"}, daily_budget=4, interactive_reserve_pct=50
+        )["id"]  # a committed share of 2 calls holds 15 tier-1 parts, and a pool of 2 leaves 1 spare after its floor
+        for n in range(16):
+            part = self.watch(f"W{n:02d}")
+            with self.store.connection() as conn:
+                conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
+                             (part.part_id, cid, self.clock.now))
+                conn.execute(
+                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (f"w{n}", cid, f"SKU-W{n}", part.part_id))
+                conn.execute("INSERT INTO poll_state (listing_id, tier, next_poll_at) VALUES (%s, 'daily', %s)",
+                             (f"w{n}", self.clock.now + timedelta(days=3)))
+            with self.store.connection() as conn:
+                self.admission.sync(conn)
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM admissions WHERE state = 'waiting'")[0]["n"], 1)
+        self.assertEqual(self.clock.now.weekday(), 6, "a Sunday: no working hours")
+        self.assertEqual(self.work(), [cid], "spare budget is open, and a part waits for room")
+        self.clock.advance(days=1, hours=-1)  # Monday 11:00, working hours: nothing is spare
+        self.assertEqual(self.work(), [])
 
     def test_the_scan_queues_nothing_when_there_is_nothing_to_do(self) -> None:
         self.connector()

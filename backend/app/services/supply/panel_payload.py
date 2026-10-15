@@ -46,7 +46,7 @@ def _summary(item: Mapping[str, Any], offers: Sequence[Mapping[str, Any]]) -> di
         "price_quantity": item["price_quantity"],
         "currency": item["currency"],
         "fetched_at": item["fetched_at"],
-        "watched": item["watch"] is not None,
+        "watched": item["tracking"] is not None,
     }
 
 

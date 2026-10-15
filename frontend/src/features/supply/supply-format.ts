@@ -17,10 +17,9 @@ export const LIFECYCLE_LABEL: Record<SupplyLifecycle, string> = {
 };
 
 const TIER_LABEL: Record<SupplyTier, string> = {
-  hot: "Every 1 to 2 hours",
-  warm: "Every 6 hours",
-  normal: "Daily",
-  cold: "Weekly",
+  daily: "Read daily",
+  weekly: "Read weekly",
+  monthly: "Read monthly",
 };
 
 export function tierLabel(tier: SupplyTier | null): string {

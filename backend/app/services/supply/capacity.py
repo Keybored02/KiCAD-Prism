@@ -15,7 +15,7 @@ from app.services.supply import quota
 from app.services.supply.providers import registry
 
 # A listing not polled yet is read at once and then settles; plan for the middle.
-_UNPOLLED_TIER = "warm"
+_UNPOLLED_TIER = "daily"
 
 
 def connector_capacity(conn) -> list[dict[str, Any]]:
@@ -30,7 +30,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         SELECT connector_id, tier, COUNT(*) AS n, COUNT(DISTINCT part_id) AS parts FROM (
             SELECT l.connector_id, l.part_id, COALESCE(ps.tier, %s) AS tier
             FROM listings l
-            JOIN watches w ON w.part_id = l.part_id
+            JOIN part_tiers w ON w.part_id = l.part_id
             LEFT JOIN poll_state ps ON ps.listing_id = l.id
             WHERE l.match_state IN ('exact', 'manual')
         ) listed GROUP BY connector_id, tier
@@ -44,7 +44,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         for row in conn.execute(
             """
             SELECT c.id AS connector_id, COUNT(*) AS n
-            FROM connectors c CROSS JOIN watches w
+            FROM connectors c CROSS JOIN part_tiers w
             LEFT JOIN discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
             WHERE d.part_id IS NULL GROUP BY c.id
             """

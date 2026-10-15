@@ -15,7 +15,7 @@ from app.services.supply import demand, facts, insights, outlook, params, parts,
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
-from app.services.supply.tiers import Tier
+from app.services.supply.tiers import SCHEDULES
 from app.services.supply.vocabulary import Lifecycle
 
 Scope = Literal["watched", "in_use", "all"]
@@ -34,7 +34,8 @@ MAX_LIMIT = 200
 MAX_CANDIDATES = 5000
 HISTORY_DAYS = 90
 _COUNTED = ("exact", "manual")
-_TIER_ORDER = [tier.value for tier in (Tier.HOT, Tier.WARM, Tier.NORMAL, Tier.COLD)]
+# Most often first: the schedule a part is read on.
+_TIER_ORDER = list(SCHEDULES)
 _STATUS_RANK = {status.value: rank for rank, status in enumerate(STATUS_ORDER)}
 
 
@@ -43,6 +44,14 @@ def _like(text: str) -> str:
 
     escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
+
+
+def _tracking_dto(row) -> dict[str, Any] | None:
+    """Whether Prism follows the part and why: tier 1 or 2, how often, and the reasons (a project, a person, a component)."""
+
+    if row["tracking_tier"] is None:
+        return None
+    return {"tier": int(row["tracking_tier"]), "rate": row["tracking_rate"], "reasons": row["tracking_reasons"]}
 
 
 def _watch_dto(row) -> dict[str, Any] | None:
@@ -116,8 +125,10 @@ _IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
 
 _ROW_SELECT = (
     "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
+    "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons, "
     "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
     "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
+    "LEFT JOIN part_tiers pt ON pt.part_id = p.id "
 )
 
 
@@ -167,6 +178,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "mpn": row["mpn"],
             "manufacturer": row["manufacturer"],
             "watch": _watch_dto(row),
+            "tracking": _tracking_dto(row),
             "status": part_status(combined.total if combined else None, row["threshold"], lifecycle, problem).value,
             "problem": problem,
             "stock": combined.total if combined else None,
@@ -214,7 +226,7 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
 def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
     """Every matching part (up to ``MAX_CANDIDATES``), the ones that need a look first, and the true count."""
 
-    conditions = [{"all": "TRUE", "watched": "w.id IS NOT NULL", "in_use": "(" + _IN_USE + ")"}[scope]]
+    conditions = [{"all": "TRUE", "watched": "pt.part_id IS NOT NULL", "in_use": "(" + _IN_USE + ")"}[scope]]
     params: list[Any] = usage.role_params(role) if scope == "in_use" else []
     text = query.strip()
     if text:
@@ -223,7 +235,7 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
     where = " AND ".join(conditions)
     total = conn.execute(
         f"SELECT COUNT(*) AS n FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        f"LEFT JOIN watches w ON w.part_id = p.id WHERE {where}", params,
+        f"LEFT JOIN watches w ON w.part_id = p.id LEFT JOIN part_tiers pt ON pt.part_id = p.id WHERE {where}", params,
     ).fetchone()["n"]
     rows = conn.execute(
         _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*usage.role_params(role), *params, MAX_CANDIDATES],
@@ -359,9 +371,11 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
     watch_row = conn.execute(
-        "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging FROM watches w WHERE w.part_id = %s",
+        "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
+        "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons "
+        "FROM parts p LEFT JOIN watches w ON w.part_id = p.id LEFT JOIN part_tiers pt ON pt.part_id = p.id WHERE p.id = %s",
         (part_id,),
-    ).fetchone() or {"watch_id": None, "threshold": None, "pinned": False, "owner": "", "watch_packaging": "any"}
+    ).fetchone()
 
     rows = conn.execute(
         """
@@ -433,6 +447,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name},
         "watch": _watch_dto(watch_row),
+        "tracking": _tracking_dto(watch_row),
         "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),

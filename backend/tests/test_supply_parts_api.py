@@ -106,7 +106,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         return response.json
 
     def fake_connector(self, **overrides) -> str:
-        values = dict(actor=SEED_ACTOR, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)
+        values = dict(actor=SEED_ACTOR, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=10)
         values.update(overrides)
         return self.connectors.create(**values)["id"]
 
@@ -196,6 +196,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         watch = self.watch_via_api("ABC-123")
         connector = self.fake_connector()
         self.collect(connector)
+        self.connectors.update(connector, actor=SEED_ACTOR, interactive_reserve_pct=0)  # nothing is left to ask with today
         response = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
         self.assertEqual(response.json["read"], 0)
         self.assertEqual(response.json["problems"], [{"connector": "Sim", "reason": "Sim has used today's allowance for asking."}])
@@ -360,7 +361,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(float(item["unit_price"]), float(at_reference))
         self.assertEqual(item["price_quantity"], pricing.REFERENCE_QUANTITY)
         self.assertIn(item["status"], ("ok", "warning"))
-        self.assertIn(item["tier"], ("hot", "warm", "normal"))
+        self.assertEqual(item["tier"], "weekly", "read on the schedule of its tracking rate")
         self.assertEqual(item["fetched_at"], self.now.isoformat())
 
     def test_status_follows_what_the_market_says(self) -> None:

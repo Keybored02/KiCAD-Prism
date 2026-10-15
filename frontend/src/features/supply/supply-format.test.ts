@@ -31,7 +31,7 @@ describe("formatting", () => {
 
   it("describes polling tiers", () => {
     expect(tierLabel(null)).toBe("Not polled yet");
-    expect(tierLabel("hot")).toBe("Every 1 to 2 hours");
+    expect(tierLabel("daily")).toBe("Read daily");
   });
 });
 

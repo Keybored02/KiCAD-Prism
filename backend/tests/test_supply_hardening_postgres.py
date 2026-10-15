@@ -67,7 +67,7 @@ class HardeningTests(unittest.TestCase):
     # --- helpers ----------------------------------------------------------
 
     def connector(self, provider: str = "fake", **overrides) -> str:
-        values = dict(actor=ACTOR, provider=provider, currency="EUR", interactive_reserve_pct=0)
+        values = dict(actor=ACTOR, provider=provider, currency="EUR", interactive_reserve_pct=10)
         values.update(overrides)
         return self.connectors.create(**values)["id"]
 
@@ -79,6 +79,7 @@ class HardeningTests(unittest.TestCase):
         return self.poller_module.Poller(self.connectors, store=self.store, provider_for=self.provider_for, clock=self.clock)
 
     def watch(self, mpn: str = "ABC123", **kwargs):
+        kwargs.setdefault("tier", 1)  # read daily, as a tracked project's parts are
         with self.store.connection() as conn:
             return self.watches.add_watch(conn, "Acme", mpn, ACTOR, **kwargs)[0]
 
@@ -137,22 +138,22 @@ class HardeningTests(unittest.TestCase):
         self.assertGreater(second["last_change_at"], first["last_change_at"], "NRND is news even when stock and price did not move")
         self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 2)
 
-    def test_a_missing_listing_keeps_its_tier(self) -> None:
+    def test_a_missing_listing_keeps_its_schedule_and_urgency(self) -> None:
         cid = self.connector()
         watch = self.watch(pinned=True)
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         self.poller().poll_connector(cid)
-        self.assertEqual(self.rows("SELECT tier FROM poll_state")[0]["tier"], "hot")
+        self.assertEqual(self.rows("SELECT tier, urgency FROM poll_state")[0]["urgency"], 0)
 
         class DropsAll:
             def __init__(self, inner): self.inner = inner
             def get_offers(self, skus): return []
 
         self.behaviour = DropsAll
-        self.clock.advance(hours=3)
+        self.clock.advance(days=2)
         self.poller().poll_connector(cid)
-        (state,) = self.rows("SELECT tier, missing_streak FROM poll_state")
-        self.assertEqual((state["tier"], state["missing_streak"]), ("hot", 1))
+        (state,) = self.rows("SELECT tier, urgency, missing_streak FROM poll_state")
+        self.assertEqual((state["tier"], state["urgency"], state["missing_streak"]), ("daily", 0, 1))
 
     def test_a_sample_remembers_marketplace_stock(self) -> None:
         cid = self.connector()
@@ -193,7 +194,7 @@ class HardeningTests(unittest.TestCase):
     # --- budget and cooldown ----------------------------------------------
 
     def test_a_connector_with_no_budget_for_now_queues_no_job(self) -> None:
-        cid = self.connector(daily_budget=10)
+        cid = self.connector(daily_budget=10, interactive_reserve_pct=0)
         self.watch()
         self.assertEqual(self.work(), [cid])
         while self.ledger.spend_call(self.store, self.connectors.get(cid), now=self.clock.now):

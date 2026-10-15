@@ -1,9 +1,10 @@
 """Details a distributor gives on request, one listing at a time: change notices (DigiKey) and substances (Mouser).
 
-They change rarely and each costs a call, so each counted listing of a watched part or a part on a project BOM is
-read at most once a week, a few per poll job, within the connector's daily budget and after its polling. A failure
-is recorded against the listing and tried again the next week; it never pauses the connector. A rate limit or an
-outage stops the pass for this run.
+They change rarely and each costs a call, so each is read once per part, from one of its listings (the picked one, else
+the first): notices weekly for tier-1 and tier-2 parts, substances monthly for tier-1 parts only. Notices of parts nobody
+tracks are read only from spare budget, at most weekly. A few per poll job, within the connector's daily budget and after
+its polling. A failure is recorded against the listing and tried again the next turn; it never pauses the connector. A
+rate limit or an outage stops the pass for this run.
 
 DigiKey notices need a person's sign-in (``oauth.py``); without one the pass skips them and says so. Notices are
 kept in ``pcns`` through ``pcn.record_external``. Mouser's substance list is kept as the ``reach_svhc`` fact, and the
@@ -21,7 +22,9 @@ from app.services.supply import alerts, compliance, facts, ledger, oauth, pcn, t
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 
-REDO_AFTER = timedelta(days=7)
+# How often each kind is read for a part.
+EVERY = {"notices": timedelta(days=7), "substances": timedelta(days=30)}
+REDO_AFTER = EVERY["notices"]
 MAX_PER_RUN = 5
 
 
@@ -32,22 +35,54 @@ class DetailsSummary:
     stopped: str | None = None
 
 
-def due(conn, connector_id: str, kind: str, now: datetime, limit: int) -> list[dict[str, Any]]:
-    """Counted listings at the connector, of watched parts or parts on a project BOM, not read for ``kind`` this week."""
+def due(conn, connector_id: str, kind: str, now: datetime, limit: int, *, untracked: bool = False) -> list[dict[str, Any]]:
+    """One listing per part at the connector whose ``kind`` is due: not read for the part within its interval.
 
+    Tracked parts are those admitted at this connector (every part at a connector that costs nothing); substances only
+    for tier 1. With ``untracked``, the parts nobody tracks that the connector has an offer for, for spare budget.
+    """
+
+    if untracked:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT ON (l.part_id) l.id, l.sku, l.part_id, l.raw_manufacturer, 2 AS tier
+            FROM listings l
+            JOIN offers o ON o.listing_id = l.id
+            WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+              AND NOT EXISTS (SELECT 1 FROM part_tiers pt WHERE pt.part_id = l.part_id)
+              AND NOT EXISTS (
+                  SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                  WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.checked_at > %(since)s)
+            ORDER BY l.part_id, l.sku
+            LIMIT %(limit)s
+            """,
+            {"connector": connector_id, "kind": kind, "since": now - EVERY[kind], "limit": limit},
+        ).fetchall()
+        return [dict(row) for row in rows]
     rows = conn.execute(
-        f"""
-        SELECT l.id, l.sku, l.part_id, l.raw_manufacturer FROM listings l
-        JOIN parts p ON p.id = l.part_id
-        LEFT JOIN detail_checks d ON d.listing_id = l.id AND d.kind = %s
-        WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
-          AND (EXISTS (SELECT 1 FROM watches w WHERE w.part_id = l.part_id)
-               OR EXISTS (SELECT 1 FROM {usage.ALL_USES} u WHERE u.match_key = p.match_key))
-          AND (d.listing_id IS NULL OR d.checked_at <= %s)
-        ORDER BY d.checked_at NULLS FIRST, l.sku
-        LIMIT %s
+        """
+        SELECT * FROM (
+            SELECT DISTINCT ON (l.part_id) l.id, l.sku, l.part_id, l.raw_manufacturer, pt.tier,
+                   (SELECT MAX(d.checked_at) FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                    WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s) AS last_checked
+            FROM listings l
+            JOIN part_tiers pt ON pt.part_id = l.part_id
+            JOIN connectors c ON c.id = l.connector_id
+            LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+            LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+            WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+              AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
+              AND (%(kind)s <> 'substances' OR pt.tier = 1)
+            ORDER BY l.part_id, (pk.listing_id = l.id) DESC NULLS LAST, l.sku
+        ) per_part
+        WHERE last_checked IS NULL OR last_checked <= %(since)s
+        ORDER BY last_checked NULLS FIRST, sku
+        LIMIT %(limit)s
         """,
-        (kind, connector_id, now - REDO_AFTER, limit),
+        {
+            "connector": connector_id, "kind": kind, "since": now - EVERY[kind], "limit": limit,
+            "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
+        },
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -88,8 +123,13 @@ def run(
     return _substances(service, connector, now, provider, limit)
 
 
-def _spend(service, connector, now: datetime, interactive: bool = False, *, kind: str = ledger.KIND_NOTICES) -> bool:
-    return not connector["metered"] or ledger.spend_call(service.store, connector, now=now, interactive=interactive, kind=kind)
+def _spend(
+    service, connector, now: datetime, interactive: bool = False, *, kind: str = ledger.KIND_NOTICES, tier: int = 2, spare: bool = False
+) -> bool:
+    purpose = ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare else f"tier{tier}"
+    return not connector["metered"] or ledger.spend_call(
+        service.store, connector, now=now, interactive=interactive, kind=kind, purpose=purpose, spare=spare
+    )
 
 
 def _notices(service, connector, now, provider, token_for, limit) -> DetailsSummary:
@@ -98,7 +138,24 @@ def _notices(service, connector, now, provider, token_for, limit) -> DetailsSumm
     return _read_notices(service, connector, rows, now, provider, token_for)
 
 
-def _read_notices(service, connector, rows, now, provider, token_for, *, interactive: bool = False) -> DetailsSummary:
+def run_spare(
+    service, connector_id: str, *, now: datetime | None = None, provider: Any | None = None,
+    token_for: Callable[..., str] = oauth.access_token, limit: int = MAX_PER_RUN,
+) -> DetailsSummary:
+    """Read notices of parts nobody tracks, from spare budget only, at most weekly per part."""
+
+    now = now or datetime.now(timezone.utc)
+    connector = service.get(connector_id)
+    if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
+        return DetailsSummary(stopped="inactive")
+    if CAP_PCN not in registry.get_spec(connector["provider"]).capabilities or trouble.cooling_down(service.store, connector_id, now):
+        return DetailsSummary()
+    with service.store.connection() as conn:
+        rows = due(conn, connector_id, "notices", now, limit, untracked=True)
+    return _read_notices(service, connector, rows, now, provider, token_for, spare=True)
+
+
+def _read_notices(service, connector, rows, now, provider, token_for, *, interactive: bool = False, spare: bool = False) -> DetailsSummary:
     """Read the notices of these listings of one connector, one call each."""
 
     connector_id = connector["id"]
@@ -116,7 +173,7 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
     provider = provider or service.load_provider(connector_id)
     read = new = 0
     for row in rows:
-        if not _spend(service, connector, now, interactive):
+        if not _spend(service, connector, now, interactive, tier=row.get("tier", 2), spare=spare):
             return DetailsSummary(read, new, "budget")
         try:
             notices = provider.change_notices(row["sku"], token)
@@ -237,7 +294,7 @@ def _substances(service, connector, now, provider, limit) -> DetailsSummary:
     provider = provider or service.load_provider(connector_id)
     read = changed = 0
     for row in rows:
-        if not _spend(service, connector, now, kind=ledger.KIND_SUBSTANCES):
+        if not _spend(service, connector, now, kind=ledger.KIND_SUBSTANCES, tier=row.get("tier", 1)):
             return DetailsSummary(read, changed, "budget")
         try:
             found = provider.substances(row["sku"], row["raw_manufacturer"] or "")

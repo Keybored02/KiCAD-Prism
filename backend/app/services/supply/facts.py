@@ -12,7 +12,7 @@ read the wording into a few classes for summaries. A wording they do not know is
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.services.supply.providers import registry
@@ -90,17 +90,31 @@ def clean(pairs: Iterable[tuple[str, str]]) -> dict[str, str]:
 
 # Facts that come from a read of their own (``details.py``), not with offers: an offer read leaves them alone.
 SEPARATE = ("reach_svhc",)
+# An unchanged fact is touched again only when its observation is this old.
+OBSERVED_REFRESH = timedelta(days=1)
 
 
 def replace(conn, part_id: str, provider: str, pairs: Iterable[tuple[str, str]], now: datetime) -> None:
-    """Make ``provider``'s facts for the part exactly ``pairs`` (``SEPARATE`` ones aside). An empty set removes what it said."""
+    """Make ``provider``'s facts for the part exactly ``pairs`` (``SEPARATE`` ones aside). An empty set removes what it said.
+
+    Only what changed is written. A fact that still says the same thing has its observation date moved forward at most
+    once a day, so reading a part many times adds no writes.
+    """
 
     kept = {name: value for name, value in clean(pairs).items() if name not in SEPARATE}
-    conn.execute(
-        "DELETE FROM part_facts WHERE part_id = %s AND provider = %s AND NOT (name = ANY(%s)) AND NOT (name = ANY(%s))",
-        (part_id, provider, list(kept), list(SEPARATE)),
-    )
+    stored = {
+        row["name"]: row
+        for row in conn.execute(
+            "SELECT name, value, observed_at FROM part_facts WHERE part_id = %s AND provider = %s", (part_id, provider)
+        ).fetchall()
+    }
+    gone = [name for name in stored if name not in kept and name not in SEPARATE]
+    if gone:
+        conn.execute("DELETE FROM part_facts WHERE part_id = %s AND provider = %s AND name = ANY(%s)", (part_id, provider, gone))
     for name, value in kept.items():
+        current = stored.get(name)
+        if current is not None and current["value"] == value and current["observed_at"] > now - OBSERVED_REFRESH:
+            continue
         conn.execute(
             """
             INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, %s, %s, %s, %s)

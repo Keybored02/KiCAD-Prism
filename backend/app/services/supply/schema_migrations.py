@@ -709,6 +709,18 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m036_poll_schedules(conn) -> None:
+    """A listing's schedule is daily, weekly or monthly (its part's tracking rate), not a risk tier; ``urgency`` orders the day's queue."""
+
+    conn.execute("ALTER TABLE poll_state DROP CONSTRAINT IF EXISTS poll_state_tier_check", prepare=False)
+    conn.execute("UPDATE poll_state SET tier = 'daily' WHERE tier IN ('hot', 'warm', 'normal', 'cold')", prepare=False)
+    conn.execute(
+        "ALTER TABLE poll_state ADD CONSTRAINT poll_state_tier_check CHECK (tier IN ('daily', 'weekly', 'monthly'))", prepare=False
+    )
+    conn.execute("ALTER TABLE poll_state ADD COLUMN IF NOT EXISTS urgency SMALLINT NOT NULL DEFAULT 2", prepare=False)
+    conn.execute("ALTER TABLE quota_ledger ADD COLUMN IF NOT EXISTS spare_spent INTEGER NOT NULL DEFAULT 0", prepare=False)
+
+
 def _m035_tracking(conn) -> None:
     """Tracking tiers, the call budget's accounting and packaging picks (see ``tracking.py``, ``budget.py``).
 
@@ -1050,6 +1062,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (33, "connector_keep_days", _m033_connector_keep_days),
     (34, "variant_usage_keys", _m034_variant_usage_keys),
     (35, "tracking", _m035_tracking),
+    (36, "poll_schedules", _m036_poll_schedules),
 ]
 
 

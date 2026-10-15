@@ -93,7 +93,7 @@ class DetailsTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.part_a = parts.ensure_part(conn, "Texas Instruments", "LM358DR", ADMIN).id
             self.part_b = parts.ensure_part(conn, "Texas Instruments", "LM358DRG4", ADMIN).id
-            watches.add_watch(conn, "Texas Instruments", "LM358DR", ADMIN)
+            watches.add_watch(conn, "Texas Instruments", "LM358DR", ADMIN, tier=1)
             watches.add_watch(conn, "Texas Instruments", "LM358DRG4", ADMIN)
         self.dk_a = self.listing(self.digikey, "296-1395-1-ND", self.part_a)
         self.dk_b = self.listing(self.digikey, "296-9999-1-ND", self.part_b)
@@ -249,7 +249,7 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual((by_cas["7439-92-1"]["declared_by"], by_cas["7439-92-1"]["from_distributor"]), ("Mouser", True))
         self.assertEqual(by_cas["7439-92-1"]["listed_as"], "Lead")
         with self.store.connection() as conn:
-            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
+            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=31),))
         details.run(self.connectors, self.mouser, now=NOW, provider=Provider())
         self.assertEqual(self.rows("SELECT cas FROM part_substances"), [{"cas": "84-74-2"}], "what Mouser no longer lists goes")
         self.assertEqual(self.rows("SELECT value FROM part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])

@@ -63,7 +63,7 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
     price_quantity: 100,
     currency: "EUR",
     fetched_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    tier: "normal",
+    tier: "daily",
     used_in: 0,
     ...overrides,
   };
@@ -87,7 +87,7 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
           moq: 1, order_multiple: 1, price_breaks: [[1, "0.52"], [100, "0.31"]], currency: "EUR", lead_time_days: null,
           lifecycle: "active", discontinued: false, rohs: true, marketplace: false, product_url: "https://example.invalid/p",
         },
-        poll: { tier: "normal", next_poll_at: null, last_polled_at: null, error_streak: 0, last_error_code: "" },
+        poll: { tier: "daily", next_poll_at: null, last_polled_at: null, error_streak: 0, last_error_code: "" },
       },
       {
         id: "l2", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358DR", packaging: "tape_reel",

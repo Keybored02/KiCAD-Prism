@@ -487,7 +487,8 @@ export type ConfirmAliasInput =
 
 export type SupplyStatus = "ok" | "warning" | "error" | "fatal" | "unknown";
 export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
-export type SupplyTier = "hot" | "warm" | "normal" | "cold";
+/** How often a listing is read: its part's tracking rate. */
+export type SupplyTier = "daily" | "weekly" | "monthly";
 export type PartsScope = "watched" | "in_use" | "all";
 /** One group of parts the Overview counts; empty is no narrowing. */
 export type PartsFilter = "" | "at_risk" | "out_of_stock" | "lifecycle";

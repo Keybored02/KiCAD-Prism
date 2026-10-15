@@ -1,20 +1,18 @@
-"""Finding listings for watched parts, on a schedule.
+"""Finding listings for followed parts, on a schedule.
 
-A watch has no listings until a distributor has been asked about the part. This
-asks, once per part per connector. A part a distributor carries is looked up again
-after ``REDO_FOUND_AFTER`` (new packagings appear rarely); one it does not carry,
-after ``REDO_AFTER``, in case it has been added since. A search costs a call like
-any other, so it spends the budget and stops when the budget does. A provider that
-can look up several numbers in one call (``search_batch``) is asked for a group of
-parts at once. Parts a distributor does not carry are recorded as searched, so they
-are not searched on every scan.
+A followed part has no listings until a distributor has been asked about it. A part is searched at a connector once it
+is admitted there (``admission.py``), the first time from the pool the budget keeps for one-off work (a person's
+reads), and again every month at tier 1 and every quarter at tier 2, found or not, from the committed share. A search
+costs a call like any other, so it spends the budget and stops when the budget does. A provider that can look up
+several numbers in one call (``search_batch``) is asked for a group of parts at once. Parts a distributor does not
+carry are recorded as searched, so they are not searched on every scan.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Any, Callable
 
 from app.services.supply import admission, ledger, parts, trouble
 from app.services.supply.connectors import ConnectorService
@@ -24,8 +22,8 @@ from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
 
-REDO_AFTER = timedelta(days=7)
-REDO_FOUND_AFTER = timedelta(days=30)
+# How long after a search a part is searched again, by tracking tier.
+RESEARCH_AFTER = {1: timedelta(days=30), 2: timedelta(days=90)}
 MAX_PER_RUN = 10
 
 STOPPED_INACTIVE = "inactive"
@@ -42,31 +40,62 @@ class DiscoverySummary:
     stopped: str | None = None
 
 
-# Which watched parts are due a search at connector ``c``: never searched, or searched longer ago than the wait that
-# fits what was found (``%(found)s`` and ``%(missing)s`` are the two cut-off times). Shared with the job scheduler.
+# Which followed parts are due a search at connector ``c``: admitted there, and never searched or searched longer ago than
+# their tier waits (``%(tier1)s`` and ``%(tier2)s`` are the cut-off times); a connector that costs nothing needs no
+# admission (``%(free)s`` lists those providers). Aliases: c connectors, pt part_tiers, a admissions, d discovery_runs.
+# Shared with the job scheduler.
 DUE_SEARCH = """
-    d.part_id IS NULL OR d.last_run_at <= CASE
-        WHEN EXISTS (SELECT 1 FROM listings x WHERE x.part_id = w.part_id AND x.connector_id = c.id
-                     AND x.match_state IN ('exact', 'manual'))
-        THEN %(found)s::timestamptz ELSE %(missing)s::timestamptz END
+    (a.state = 'admitted' OR c.provider = ANY(%(free)s)) AND (d.part_id IS NULL OR d.last_run_at <= CASE pt.tier
+        WHEN 1 THEN %(tier1)s::timestamptz ELSE %(tier2)s::timestamptz END)
 """
 
 
-def pending_parts(conn, connector_id: str, now: datetime, limit: int) -> list[str]:
-    """Watched parts to search for at this connector, the longest waiting first."""
+def cutoffs(now: datetime) -> dict[str, Any]:
+    return {
+        "tier1": now - RESEARCH_AFTER[1], "tier2": now - RESEARCH_AFTER[2],
+        "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class PendingPart:
+    part_id: str
+    tier: int
+    first: bool
+
+
+def pending_waiting(conn, connector_id: str, limit: int) -> list[PendingPart]:
+    """Parts that wait for room here and have never been searched: their searches come from spare budget."""
+
+    rows = conn.execute(
+        """
+        SELECT pt.part_id, pt.tier FROM part_tiers pt
+        JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = %s AND a.state = 'waiting'
+        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = a.connector_id
+        WHERE d.part_id IS NULL ORDER BY pt.tier, pt.part_id LIMIT %s
+        """,
+        (connector_id, limit),
+    ).fetchall()
+    return [PendingPart(row["part_id"], int(row["tier"]), True) for row in rows]
+
+
+def pending_parts(conn, connector_id: str, now: datetime, limit: int) -> list[PendingPart]:
+    """Followed parts to search for at this connector: those never searched first, then the longest waiting."""
 
     rows = conn.execute(
         f"""
-        SELECT w.part_id FROM watches w
+        SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first
+        FROM part_tiers pt
         JOIN connectors c ON c.id = %(connector)s
-        LEFT JOIN discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
+        LEFT JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
+        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
         WHERE {DUE_SEARCH}
-        ORDER BY COALESCE(d.last_run_at, '-infinity'::timestamptz), w.created_at, w.id
+        ORDER BY (d.part_id IS NULL) DESC, pt.tier, COALESCE(d.last_run_at, '-infinity'::timestamptz), pt.part_id
         LIMIT %(limit)s
         """,
-        {"connector": connector_id, "found": now - REDO_FOUND_AFTER, "missing": now - REDO_AFTER, "limit": limit},
+        {"connector": connector_id, "limit": limit, **cutoffs(now)},
     ).fetchall()
-    return [row["part_id"] for row in rows]
+    return [PendingPart(row["part_id"], int(row["tier"]), bool(row["first"])) for row in rows]
 
 
 class Discoverer:
@@ -83,7 +112,9 @@ class Discoverer:
         self._provider_for = provider_for or connectors.load_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def run(self, connector_id: str, *, limit: int = MAX_PER_RUN) -> DiscoverySummary:
+    def run(self, connector_id: str, *, limit: int = MAX_PER_RUN, waiting: bool = False) -> DiscoverySummary:
+        """Search for the parts due one. With ``waiting``, search for the parts that wait for room, from spare budget only."""
+
         now = self._clock()
         connector = self._connectors.get(connector_id)
         if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
@@ -95,38 +126,58 @@ class Discoverer:
             return DiscoverySummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         group_size = max(spec.search_batch, 1)
         with self._store.connection() as conn:
-            part_ids = pending_parts(conn, connector_id, now, limit * group_size)
-        if not part_ids:
+            pending = (
+                pending_waiting(conn, connector_id, limit * group_size) if waiting
+                else pending_parts(conn, connector_id, now, limit * group_size)
+            )
+        if not pending:
             return DiscoverySummary(connector_id)
 
         provider = self._provider_for(connector_id)
         service = DiscoveryService(lambda _id: provider, self._store)
         searched = listings = 0
         stopped: str | None = None
-        for start in range(0, len(part_ids), group_size):
-            group = part_ids[start:start + group_size]
-            if spec.metered and not ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH):
-                stopped = STOPPED_BUDGET
-                break
-            try:
-                results = self._search(service, provider, group, connector_id, batched=group_size > 1)
-            except ProviderError as exc:
-                stopped = trouble.react(self._connectors, self._store, connector_id, exc, now)
-                break
-            for part_id, result in results.items():
-                searched += 1
-                listings += result.total
-                with self._store.connection() as conn:
-                    conn.execute(
-                        "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
-                        "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
-                        (part_id, connector_id, now, result.total),
+        # A first search is a one-off cost of taking a part on, paid from the pool; a repeat comes from the committed share.
+        for first in (True, False):
+            todo = [item for item in pending if item.first is first]
+            for start in range(0, len(todo), group_size):
+                group = todo[start:start + group_size]
+                purpose = ledger.PURPOSE_ONE_OFF if first else f"tier{min(item.tier for item in group)}"
+                if spec.metered and not self._spend(connector, first, purpose, spare_only=waiting):
+                    stopped = STOPPED_BUDGET
+                    break
+                try:
+                    results = self._search(service, provider, [item.part_id for item in group], connector_id, batched=group_size > 1)
+                except ProviderError as exc:
+                    return DiscoverySummary(
+                        connector_id, searched=searched, listings=listings, stopped=trouble.react(self._connectors, self._store, connector_id, exc, now)
                     )
+                for part_id, result in results.items():
+                    searched += 1
+                    listings += result.total
+                    with self._store.connection() as conn:
+                        conn.execute(
+                            "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
+                            "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
+                            (part_id, connector_id, now, result.total),
+                        )
         if searched:
             # What the searches found replaces the estimate admission was made on.
             with self._store.connection() as conn:
                 admission.sync(conn)
         return DiscoverySummary(connector_id, searched=searched, listings=listings, stopped=stopped)
+
+    def _spend(self, connector, first: bool, purpose: str, *, spare_only: bool = False) -> bool:
+        """A first search is paid from the pool and, when that is empty, from spare budget; a repeat from the committed share."""
+
+        now = self._clock()
+        if spare_only:
+            return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)
+        if first:
+            return ledger.spend_call(
+                self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=purpose
+            ) or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose, spare=True)
+        return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose)
 
     def _search(self, service: DiscoveryService, provider: SupplyProvider, group: list[str], connector_id: str, *, batched: bool):
         """One search call for ``group``; the result for each part, keyed by part id."""

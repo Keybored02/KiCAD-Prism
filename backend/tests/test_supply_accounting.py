@@ -110,6 +110,52 @@ class DayTests(unittest.TestCase):
         self.assertGreater(len(delays), 10)
 
 
+class SpareTests(unittest.TestCase):
+    WEEK = None
+
+    def setUp(self) -> None:
+        from app.services.supply import quota
+
+        self.quota = quota
+        self.week = quota.WorkWeek("UTC", (0, 1, 2, 3, 4), "08:00", "19:00")
+
+    def state(self, spent=0, interactive=0, spare=0, budget=1000, reserve_pct=10):
+        return self.quota.QuotaState(budget, max(spent, interactive + spare), interactive, reserve_pct, spare)
+
+    def at(self, weekday_date, hour, minute=0):
+        return datetime(2026, 3, weekday_date, hour, minute, tzinfo=timezone.utc)  # 2 = Monday, 7 = Saturday
+
+    def test_nothing_is_spare_during_working_hours(self) -> None:
+        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(2, 11), self.week), 0)
+
+    def test_the_pools_unused_part_is_spare_after_hours_but_its_floor_stays(self) -> None:
+        # A pool of 100; a quarter, 25, stays for people.
+        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(2, 20), self.week), 75)
+        self.assertEqual(self.quota.spare_allowance(self.state(interactive=40), self.at(2, 20), self.week), 35)
+        self.assertEqual(self.quota.spare_allowance(self.state(interactive=90), self.at(2, 20), self.week), 0)
+        self.assertEqual(self.quota.spare_allowance(self.state(spare=75), self.at(2, 20), self.week), 0, "spare already spent counts")
+
+    def test_a_non_working_day_is_spare_all_day(self) -> None:
+        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(7, 11), self.week), 75)
+        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(8, 3), self.week), 75)
+
+    def test_everything_left_is_released_in_the_last_hours_before_the_reset_but_the_floor(self) -> None:
+        self.assertEqual(self.quota.spare_allowance(self.state(spent=400), self.at(2, 21, 30), self.week), 575)
+        self.assertEqual(self.quota.spare_allowance(self.state(spent=400), self.at(2, 20, 30), self.week), 75, "not yet the last hours")
+        self.assertEqual(self.quota.spare_allowance(self.state(spent=990), self.at(2, 22), self.week), 0)
+
+    def test_the_last_hours_follow_the_providers_reset(self) -> None:
+        # A day that resets at 07:00 ends at 07:00, so 05:00 is inside its last three hours.
+        got = self.quota.spare_allowance(self.state(spent=400), self.at(2, 5), self.week, reset_time="07:00", tz="UTC")
+        self.assertEqual(got, 575)
+
+    def test_the_week_is_the_workspaces_in_its_time_zone(self) -> None:
+        rome = self.quota.WorkWeek("Europe/Rome", (0, 1, 2, 3, 4), "08:00", "19:00")
+        # 17:30 UTC is 18:30 in Rome: still work.
+        self.assertTrue(self.quota.is_working_time(self.at(2, 17, 30), rome))
+        self.assertFalse(self.quota.is_working_time(self.at(2, 18, 30), rome))
+
+
 class ErrorBackoffTests(unittest.TestCase):
     def test_server_errors_back_off_exponentially_with_a_spread(self) -> None:
         from app.services.supply import trouble

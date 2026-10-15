@@ -16,12 +16,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-# Defaults for the polling tiers; the poller owns them once it exists.
+# How often each schedule reads a listing, for estimating what a watchlist costs.
 TIER_INTERVAL_HOURS: Mapping[str, float] = {
-    "hot": 1.5,
-    "warm": 6.0,
-    "normal": 24.0,
-    "cold": 168.0,
+    "daily": 24.0,
+    "weekly": 168.0,
+    "monthly": 720.0,
 }
 
 # Percent of the background budget available from the first minute of the day.
@@ -79,12 +78,14 @@ class QuotaState:
     spent_today: int
     interactive_spent_today: int
     reserve_pct: int = 10
+    # Calls made from budget that would otherwise go unused; they never count against the committed share.
+    spare_spent_today: int = 0
 
     def __post_init__(self) -> None:
-        if self.daily_budget < 0 or self.spent_today < 0 or self.interactive_spent_today < 0:
+        if self.daily_budget < 0 or self.spent_today < 0 or self.interactive_spent_today < 0 or self.spare_spent_today < 0:
             raise ValueError("quota figures must not be negative")
-        if self.interactive_spent_today > self.spent_today:
-            raise ValueError("interactive spending cannot exceed total spending")
+        if self.interactive_spent_today + self.spare_spent_today > self.spent_today:
+            raise ValueError("interactive and spare spending cannot exceed total spending")
         if not 0 <= self.reserve_pct <= 50:
             raise ValueError("reserve must be between 0 and 50 percent")
 
@@ -112,7 +113,7 @@ def background_allowance(
     # (900 * 0.55 is 495.00000000000006) and ceil would round it up.
     fraction_numerator = OPENING_BURST_PCT * _SECONDS_PER_DAY + (100 - OPENING_BURST_PCT) * seconds
     target = -(-background_budget * fraction_numerator // (100 * _SECONDS_PER_DAY))
-    background_spent = state.spent_today - state.interactive_spent_today
+    background_spent = state.spent_today - state.interactive_spent_today - state.spare_spent_today
     left_in_day = state.daily_budget - state.spent_today
     return max(0, min(target - background_spent, left_in_day))
 
@@ -123,6 +124,59 @@ def interactive_allowance(state: QuotaState) -> int:
     reserve = interactive_reserve(state.daily_budget, state.reserve_pct)
     left_in_day = state.daily_budget - state.spent_today
     return max(0, min(reserve - state.interactive_spent_today, left_in_day))
+
+
+@dataclass(frozen=True, slots=True)
+class WorkWeek:
+    """When the workspace is at work, which is when the budget's pool is likely to be wanted by people."""
+
+    tz: str = "UTC"
+    days: tuple[int, ...] = (0, 1, 2, 3, 4)  # Monday is 0
+    start: str = "08:00"
+    end: str = "19:00"
+
+
+# Budget not used by a provider's reset is lost, so in its last hours everything left is released.
+SPARE_FINAL_HOURS = 3
+# The part of the pool kept for people even when spare is released.
+INTERACTIVE_FLOOR_SHARE = 0.25
+
+
+def _minutes(text: str) -> int:
+    hours, minutes = (int(part) for part in text.split(":"))
+    return hours * 60 + minutes
+
+
+def is_working_time(now: datetime, week: WorkWeek) -> bool:
+    try:
+        local = now.astimezone(ZoneInfo(week.tz))
+    except (ZoneInfoNotFoundError, ValueError):
+        local = now.astimezone(timezone.utc)
+    if local.weekday() not in week.days:
+        return False
+    return _minutes(week.start) <= local.hour * 60 + local.minute < _minutes(week.end)
+
+
+def spare_allowance(
+    state: QuotaState, now: datetime, week: WorkWeek, *, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ,
+) -> int:
+    """Calls that may be spent on spare work right now.
+
+    * In the last hours before the provider's reset: everything left but the interactive floor, since it is lost otherwise.
+    * Outside working hours and on non-working days: the pool's unused part but its floor, since nobody is asking.
+    * During working hours: nothing.
+    """
+
+    reserve = interactive_reserve(state.daily_budget, state.reserve_pct)
+    floor = math.ceil(reserve * INTERACTIVE_FLOOR_SHARE)
+    left_in_day = max(0, state.daily_budget - state.spent_today)
+    final = _SECONDS_PER_DAY - seconds_into_day(now, reset_time, tz) <= SPARE_FINAL_HOURS * 3600
+    if final:
+        return max(0, left_in_day - floor)
+    if is_working_time(now, week):
+        return 0
+    pool_unused = max(0, reserve - state.interactive_spent_today - state.spare_spent_today)
+    return max(0, min(pool_unused - floor, left_in_day))
 
 
 @dataclass(frozen=True, slots=True)

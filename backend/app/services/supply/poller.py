@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, demand, facts, insights, ledger, parts_view, pricing, quota, stock, tiers, trouble
+from app.services.supply import alerts, demand, facts, insights, ledger, parts_view, pricing, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -35,6 +35,8 @@ MAX_BATCHES_PER_RUN = 20
 # usually has two or three packagings).
 GROUP_LISTINGS = 3
 MISSES_BEFORE_GONE = 3
+# A listing's reading is kept at least this often, changed or not, so a flat line is still a line.
+SAMPLE_EVERY = timedelta(days=1)
 
 STOPPED_INACTIVE = "inactive"
 STOPPED_COOLING_DOWN = "cooling_down"
@@ -50,6 +52,8 @@ class DueListing:
     error_streak: int
     missing_streak: int
     last_change_at: datetime | None
+    # The part's tracking tier (2 for a part nobody tracks), which says what the read is charged to.
+    tier: int = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,21 +65,21 @@ class PollSummary:
     stopped: str | None = None
 
 
-# When the budget cannot serve everything, the most urgent tier goes first. A listing never read goes before
-# all of them, and one overdue by more than twice its interval is served ahead of its tier so nothing starves.
-_TIER_RANK = {"hot": 0, "warm": 1, "normal": 2, "cold": 3}
+# When the budget cannot serve everything, tier 1 comes before tier 2; within a tier a listing never read goes first, then
+# the most urgent (low stock, near the threshold, ending life, projected to run out), then the one waiting longest.
 _SERVICE_ORDER = (
-    "(ps.listing_id IS NOT NULL), "
-    "(ps.listing_id IS NULL OR ps.next_poll_at > %s::timestamptz - (2 * CASE ps.tier "
-    + " ".join(f"WHEN '{tier}' THEN {quota.TIER_INTERVAL_HOURS[tier]}" for tier in _TIER_RANK)
-    + " END) * interval '1 hour'), "
-    "CASE ps.tier " + " ".join(f"WHEN '{tier}' THEN {rank}" for tier, rank in _TIER_RANK.items()) + " END NULLS FIRST, "
+    "pt.tier, (ps.listing_id IS NOT NULL), COALESCE(ps.urgency, 0), "
     "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
 )
 
 
-def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: str | None = None) -> list[DueListing]:
-    """Counted listings of watched parts that have never been polled or whose time has come.
+def due_listings(
+    conn, connector_id: str, now: datetime, limit: int, only_part: str | None = None, *, metered: bool = True
+) -> list[DueListing]:
+    """Counted listings of followed parts that have never been polled or whose time has come.
+
+    A part is read at a connector once it is admitted there (a connector that is not metered admits everything), and
+    only the listing a person picked when one is picked.
 
     ``only_part`` asks for that part's counted listings whatever their schedule, watched or not:
     it is a person asking to read one part now.
@@ -85,7 +89,8 @@ def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: 
         rows = conn.execute(
             """
             SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
-                   COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at
+                   COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
+                   COALESCE((SELECT pt.tier FROM part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
             FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
             WHERE l.connector_id = %s AND l.part_id = %s AND l.match_state IN ('exact', 'manual')
             ORDER BY l.sku LIMIT %s
@@ -93,25 +98,66 @@ def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: 
             (connector_id, only_part, limit),
         ).fetchall()
         return [
-            DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"])
+            DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
             for r in rows
         ]
     rows = conn.execute(
         f"""
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
-               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at
+               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier
         FROM listings l
-        JOIN watches w ON w.part_id = l.part_id
+        JOIN part_tiers pt ON pt.part_id = l.part_id
+        LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+          AND (NOT %s OR a.state = 'admitted')
+          AND (pk.listing_id IS NULL OR pk.listing_id = l.id)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
         ORDER BY {_SERVICE_ORDER}
         LIMIT %s
         """,
-        (connector_id, now, now, limit),
+        (connector_id, metered, now, limit),
     ).fetchall()
     return [
-        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"])
+        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
+        for r in rows
+    ]
+
+
+def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str) -> list[DueListing]:
+    """Listings to read from spare budget.
+
+    ``waiting``: counted listings of parts that wait for room here, not read since their rate asks.
+    ``tier2_early``: tier-2 listings admitted here that are not yet due, the soonest due first.
+    """
+
+    if kind == "waiting":
+        where = "a.state = 'waiting' AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)"
+        order = "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
+    elif kind == "tier2_early":
+        where = "a.state = 'admitted' AND pt.tier = 2 AND ps.listing_id IS NOT NULL AND ps.next_poll_at > %(now)s"
+        order = "ps.next_poll_at, l.sku"
+    else:
+        raise ValueError(f"unknown spare work: {kind}")
+    rows = conn.execute(
+        f"""
+        SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
+               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier
+        FROM listings l
+        JOIN part_tiers pt ON pt.part_id = l.part_id
+        JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+          AND (pk.listing_id IS NULL OR pk.listing_id = l.id) AND {where}
+        ORDER BY {order}
+        LIMIT %(limit)s
+        """,
+        {"connector": connector_id, "now": now, "limit": limit},
+    ).fetchall()
+    return [
+        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
         for r in rows
     ]
 
@@ -143,7 +189,8 @@ def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[Du
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
-               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at
+               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
+               COALESCE((SELECT pt.tier FROM part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
         FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual') AND NOT (l.id = ANY(%s))
         ORDER BY l.sku
@@ -151,7 +198,7 @@ def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[Du
         (connector_id, part_ids, sorted(have)),
     ).fetchall()
     extra = [
-        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"])
+        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
         for r in rows
     ]
     return list(due) + extra
@@ -172,20 +219,29 @@ class Poller:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         # The rupture projection of a part, worked out once per poll: its listings are recorded one after another.
         self._rupture: dict[str, int | None] = {}
+        # The provider's day for the connector being polled, which sets when a daily listing is next due.
+        self._reset: tuple[str, str] = ("00:00", "UTC")
 
-    def poll_connector(self, connector_id: str, *, interactive: bool = False, only_part: str | None = None) -> PollSummary:
+    def poll_connector(
+        self, connector_id: str, *, interactive: bool = False, only_part: str | None = None, spare: str | None = None
+    ) -> PollSummary:
+        """Read what is due. With ``spare`` (a kind from ``spare_listings``) read that spare work instead, from spare budget."""
+
         now = self._clock()
         self._rupture.clear()
         connector = self._connectors.get(connector_id)
         if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
             return PollSummary(connector_id, stopped=STOPPED_INACTIVE)
         spec = registry.get_spec(connector["provider"])
+        self._reset = (connector["reset_time"], connector["reset_tz"])
 
         if trouble.cooling_down(self._store, connector_id, now):
             return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         with self._store.connection() as conn:
-            due = due_listings(
-                conn, connector_id, now, (GROUP_LISTINGS if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN, only_part
+            limit = (GROUP_LISTINGS if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN
+            due = (
+                spare_listings(conn, connector_id, now, limit, spare) if spare
+                else due_listings(conn, connector_id, now, limit, only_part, metered=spec.metered)
             )
             if spec.groups_by_part:
                 due = with_siblings(conn, connector_id, due)
@@ -196,8 +252,13 @@ class Poller:
         calls = polled = gone = 0
         stopped: str | None = None
         for batch in _by_part(due) if spec.groups_by_part else _chunks(due, spec.max_batch):
+            purpose = (
+                ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare
+                else f"tier{min(row.tier for row in batch)}"
+            )
             if spec.metered and not ledger.spend_call(
-                self._store, connector, now=now, interactive=interactive, units=spec.calls_per_offers_batch
+                self._store, connector, now=now, interactive=interactive, units=spec.calls_per_offers_batch,
+                kind=ledger.KIND_OFFERS, purpose=purpose, spare=bool(spare),
             ):
                 stopped = STOPPED_BUDGET
                 break
@@ -207,7 +268,9 @@ class Poller:
                 # A group that needed more calls than the one it paid for (two products) pays the rest now.
                 extra = getattr(provider, "last_batch_calls", 1) - spec.calls_per_offers_batch if spec.groups_by_part else 0
                 if extra > 0:
-                    ledger.record_calls(self._store, connector_id, extra, now=now, interactive=interactive)
+                    ledger.record_calls(
+                        self._store, connector_id, extra, now=now, interactive=interactive, kind=ledger.KIND_OFFERS, purpose=purpose
+                    )
                     calls += extra
             except ProviderError as exc:
                 if not isinstance(exc, (RateLimited, AuthError, Blocked)):
@@ -232,7 +295,7 @@ class Poller:
                 conn.execute(
                     """
                     INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak, last_error_code)
-                    VALUES (%s, 'normal', %s, %s, %s, %s)
+                    VALUES (%s, 'daily', %s, %s, %s, %s)
                     ON CONFLICT (listing_id) DO UPDATE SET
                         next_poll_at = EXCLUDED.next_poll_at, last_polled_at = EXCLUDED.last_polled_at,
                         error_streak = EXCLUDED.error_streak, last_error_code = EXCLUDED.last_error_code
@@ -282,7 +345,7 @@ class Poller:
             moq=offer.moq, order_multiple=offer.order_multiple,
         )
         previous = conn.execute(
-            "SELECT stock, unit_price, lifecycle, discontinued FROM samples WHERE listing_id = %s "
+            "SELECT sampled_at, stock, unit_price, lifecycle, discontinued FROM samples WHERE listing_id = %s "
             "ORDER BY sampled_at DESC LIMIT 1", (row.id,)
         ).fetchone()
         changed = previous is None or (
@@ -314,15 +377,18 @@ class Poller:
                 offer.marketplace, offer.product_url, offer.reach_affected,
             ),
         )
-        conn.execute(
-            """
-            INSERT INTO samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
-                                 lifecycle, discontinued, marketplace)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
-            """,
-            (row.id, offer.fetched_at, offer.stock, sum(item.quantity for item in offer.incoming), price,
-             offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace),
-        )
+        # A reading is kept when something changed since the last, or the last is a day old; a re-read of an unchanged
+        # listing the same day adds nothing.
+        if changed or previous["sampled_at"] <= offer.fetched_at - SAMPLE_EVERY:
+            conn.execute(
+                """
+                INSERT INTO samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
+                                     lifecycle, discontinued, marketplace)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
+                """,
+                (row.id, offer.fetched_at, offer.stock, sum(item.quantity for item in offer.incoming), price,
+                 offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace),
+            )
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
         # Compliance and trade facts come with the answer; keeping them costs no call.
         facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
@@ -330,8 +396,8 @@ class Poller:
             remember_datasheet(conn, row.part_id, offer.datasheet_url)
 
         last_change = now if changed else row.last_change_at
-        tier = self._tier_for(conn, row, offer.lifecycle, last_change, now)
-        self._write_state(conn, row.id, tier, now, last_change, key=row.id)
+        urgency = self._urgency_for(conn, row, offer.lifecycle, last_change, now)
+        self._write_state(conn, row.id, self._schedule_of(conn, row.part_id), urgency, now, last_change, key=row.id, reset=self._reset)
 
     def _record_missing(self, conn, row: DueListing, now: datetime) -> int:
         misses = row.missing_streak + 1
@@ -346,13 +412,21 @@ class Poller:
                 (row.part_id, row.id, json.dumps({"sku": row.sku})),
             )
             return 1
-        # Asking again soon does not change how urgent the listing is.
-        current = conn.execute("SELECT tier FROM poll_state WHERE listing_id = %s", (row.id,)).fetchone()
-        tier = tiers.Tier(current["tier"]) if current else tiers.Tier.NORMAL
-        self._write_state(conn, row.id, tier, now, row.last_change_at, key=row.id, missing=misses)
+        # Asking again soon does not change how urgent the listing is or how often it is read.
+        current = conn.execute("SELECT tier, urgency FROM poll_state WHERE listing_id = %s", (row.id,)).fetchone()
+        schedule = current["tier"] if current else self._schedule_of(conn, row.part_id)
+        urgency = tiers.Urgency(current["urgency"]) if current else tiers.Urgency.NORMAL
+        self._write_state(conn, row.id, schedule, urgency, now, row.last_change_at, key=row.id, missing=misses, reset=self._reset)
         return 0
 
-    def _tier_for(self, conn, row: DueListing, lifecycle: Lifecycle, last_change: datetime | None, now: datetime) -> tiers.Tier:
+    @staticmethod
+    def _schedule_of(conn, part_id: str) -> str:
+        """How often the part is read: its tracking rate. A part nobody tracks (read once on request) is not on a schedule."""
+
+        row = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+        return row["rate"] if row else "monthly"
+
+    def _urgency_for(self, conn, row: DueListing, lifecycle: Lifecycle, last_change: datetime | None, now: datetime) -> tiers.Urgency:
         watch = conn.execute("SELECT threshold, pinned FROM watches WHERE part_id = %s", (row.part_id,)).fetchone()
         rupture = None
         if watch is not None:
@@ -360,9 +434,8 @@ class Poller:
                 insight = parts_view.insight_from(parts_view.history(conn, row.part_id, now), watch["threshold"], now)
                 self._rupture[row.part_id] = insights.rupture_expected_within(insight)
             rupture = self._rupture[row.part_id]
-        return tiers.choose_tier(tiers.TierInputs(
+        return tiers.urgency(tiers.UrgencyInputs(
             now=now,
-            watched=watch is not None,
             pinned=bool(watch and watch["pinned"]),
             lifecycle=lifecycle,
             total_stock=stock.part_stock(conn, row.part_id).total,
@@ -373,20 +446,22 @@ class Poller:
         ))
 
     @staticmethod
-    def _write_state(conn, listing_id: str, tier: tiers.Tier, now: datetime, last_change: datetime | None,
-                     *, key: str, missing: int = 0) -> None:
-        # A listing that is merely missing is asked again within the hour, not on its tier.
-        when = now + min(tiers.interval(tier), timedelta(hours=1)) if missing else tiers.next_poll_at(now, tier, key=key)
+    def _write_state(conn, listing_id: str, schedule: str, urgency: tiers.Urgency, now: datetime, last_change: datetime | None,
+                     *, key: str, reset: tuple[str, str], missing: int = 0) -> None:
+        # A listing that is merely missing is asked again within the hour, not on its schedule.
+        when = (
+            now + min(tiers.interval(schedule), timedelta(hours=1)) if missing
+            else tiers.next_poll_at(now, schedule, key=key, reset_time=reset[0], tz=reset[1])
+        )
         conn.execute(
             """
-            INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, last_change_at,
+            INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at, last_change_at,
                                     error_streak, missing_streak, last_error_code)
-            VALUES (%s, %s, %s, %s, %s, 0, %s, '')
+            VALUES (%s, %s, %s, %s, %s, %s, 0, %s, '')
             ON CONFLICT (listing_id) DO UPDATE SET
-                tier = EXCLUDED.tier, next_poll_at = EXCLUDED.next_poll_at, last_polled_at = EXCLUDED.last_polled_at,
-                last_change_at = EXCLUDED.last_change_at, error_streak = 0,
+                tier = EXCLUDED.tier, urgency = EXCLUDED.urgency, next_poll_at = EXCLUDED.next_poll_at,
+                last_polled_at = EXCLUDED.last_polled_at, last_change_at = EXCLUDED.last_change_at, error_streak = 0,
                 missing_streak = EXCLUDED.missing_streak, last_error_code = ''
             """,
-            (listing_id, tier.value, when, now, last_change, missing),
+            (listing_id, schedule, int(urgency), when, now, last_change, missing),
         )
-

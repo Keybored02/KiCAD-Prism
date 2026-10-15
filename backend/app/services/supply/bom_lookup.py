@@ -267,7 +267,7 @@ def lookup(
             part_need = needs[part_id]
             leader = first_line[part_id]
             entry |= {
-                "watched": item["watch"] is not None,
+                "watched": item["tracking"] is not None,
                 "status": item["status"],
                 "problem": item["problem"],
                 "stock": stock,
@@ -422,7 +422,7 @@ def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
     part_ids = sorted({part_id for state, part_id, _ in resolved.values() if state == TRACKED and part_id})
     summary = {item["id"]: item for item in parts_view.summaries_for(conn, part_ids)} if part_ids else {}
     return {
-        key: {"status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["watch"] is not None}
+        key: {"status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["tracking"] is not None}
         for key, (state, part_id, _how) in resolved.items()
         if state == TRACKED and part_id in summary
     }

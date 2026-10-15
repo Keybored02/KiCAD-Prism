@@ -318,7 +318,7 @@ def due_parts(conn, now: datetime, limit: int) -> list[dict[str, Any]]:
                (w.part_id IS NOT NULL) AS watched
         FROM parts p
         LEFT JOIN datasheet_checks c ON c.part_id = p.id
-        LEFT JOIN watches w ON w.part_id = p.id
+        LEFT JOIN part_tiers w ON w.part_id = p.id
         WHERE p.datasheet_url <> ''
           AND (w.part_id IS NOT NULL OR EXISTS (
                 SELECT 1 FROM {usage.ALL_USES} u WHERE u.match_key = p.match_key))
