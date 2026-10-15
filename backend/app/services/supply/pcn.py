@@ -171,7 +171,7 @@ def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[s
     rows = conn.execute(
         """
         SELECT n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
-               n.source, n.published_on, (n.file_sha256 <> '') AS has_file,
+               n.source, n.published_on, (n.file_sha256 <> '') AS has_file, n.parsed, n.parse_state,
                (SELECT COUNT(*) FROM pcn_parts x WHERE x.pcn_id = n.id) AS parts
         FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id
         WHERE pp.part_id = %s AND (n.state = 'open' OR %s)
@@ -190,6 +190,8 @@ def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[s
             "state": r["state"], "created_by": r["created_by"], "created_at": r["created_at"].isoformat(), "parts": int(r["parts"]),
             "source": r["source"], "source_label": SOURCE_LABEL.get(r["source"], r["source"]), "published_on": day(r["published_on"]),
             "has_file": bool(r["has_file"]),
+            # What was read from the file, for a person to confirm. Only while it waits for that.
+            "read_from_file": r["parsed"] if r["parse_state"] == "parsed" else None,
         }
         for r in rows
     ]

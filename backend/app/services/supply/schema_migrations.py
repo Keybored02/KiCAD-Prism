@@ -1238,6 +1238,20 @@ def _m044_alert_rules(conn) -> None:
     )
 
 
+def _m045_notice_parse(conn) -> None:
+    """What was read from a kept notice PDF, apart from the notice, until a person confirms it (see ``notice_parse.py``)."""
+
+    conn.execute(
+        """
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parsed JSONB;
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parse_state TEXT NOT NULL DEFAULT '';
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parse_failures INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parsed_at TIMESTAMPTZ;
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1283,6 +1297,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (42, "sample_order_terms", _m042_sample_order_terms),
     (43, "bom_cost_history", _m043_bom_cost_history),
     (44, "alert_rules", _m044_alert_rules),
+    (45, "notice_parse", _m045_notice_parse),
 ]
 
 

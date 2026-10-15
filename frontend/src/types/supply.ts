@@ -156,6 +156,16 @@ export interface SupplyNotice {
   published_on: string | null;
   /** Whether Prism kept a copy of the notice's PDF. */
   has_file?: boolean;
+  /** What was read from the kept file, waiting for a person to confirm it. It counts for nothing until then. */
+  read_from_file?: NoticeReading | null;
+}
+
+export interface NoticeReading {
+  kind: SupplyNoticeKind;
+  last_time_buy: string | null;
+  last_time_ship: string | null;
+  known_parts: Array<{ part_id: string; mpn: string }>;
+  other_numbers: string[];
 }
 
 export interface SupplyMarketMetric {

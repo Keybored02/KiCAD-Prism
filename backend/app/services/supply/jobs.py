@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, datasheets, details, fx, ledger, market, notice_files, oneoff, project_supply, quota, retention, schedule_settings, tracking, worker_seen,
+    accounts, datasheets, details, fx, ledger, market, notice_files, notice_parse, oneoff, project_supply, quota, retention, schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
@@ -227,6 +227,10 @@ def _keep_notice_files(store: SupplyStore) -> None:
         notice_files.run_due(store)
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Notice files not kept", exc_info=True)
+    try:
+        notice_parse.run_due(store)
+    except Exception:  # noqa: BLE001 - what is read is a suggestion; the notice does not depend on it
+        logging.getLogger(__name__).info("Notice files not read", exc_info=True)
 
 
 def _read_details(connectors: ConnectorService, connector_id: str) -> str | None:

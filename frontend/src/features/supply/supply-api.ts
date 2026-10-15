@@ -578,6 +578,14 @@ export function closeNotice(noticeId: string): Promise<void> {
   return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
 }
 
+export function confirmNoticeReading(noticeId: string, choice: { dates: boolean; kind: boolean; part_ids: string[] }): Promise<void> {
+  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/confirm-read`, "POST", choice, "Could not confirm what was read");
+}
+
+export function dismissNoticeReading(noticeId: string): Promise<void> {
+  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/dismiss-read`, "POST", undefined, "Could not dismiss what was read");
+}
+
 export function getSupplyPlan(signal?: AbortSignal): Promise<SupplyPlan> {
   return fetchJson(`${BASE}/planning`, { signal }, "Could not load the plan");
 }

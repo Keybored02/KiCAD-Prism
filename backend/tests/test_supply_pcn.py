@@ -153,6 +153,53 @@ class PcnDatabaseTests(unittest.TestCase):
             self.assertEqual((row["file_failures"], row["file_status"], row["file_sha256"]), (notice_files.GIVE_UP_AFTER, "not_a_pdf", ""))
             self.assertEqual(self.call("GET", f"/api/supply/notices/{other['id']}/file", role="qa").status, 404)
 
+    def test_a_kept_notice_is_read_and_nothing_counts_until_a_person_confirms(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from app.services.supply import datasheets, notice_parse
+
+        text = (
+            "Product Change Notification. End of life of ABC-1 and ABC-2 (XYZ-9-UNKNOWN). "
+            "Last Time Buy: 15 December 2026. Last time ship date: 2027-03-31. Orders dated 03/04/2026 are not affected."
+        )
+        with self.store.connection() as conn:
+            other = self.parts.ensure_part(conn, "Acme", "ABC-2", "seed@example.com").id
+        created = self.add(title="Notice", kind="change", last_time_buy=None, notice_url="https://acme.example/pcn.pdf").json
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(datasheets, "archive_root", lambda: Path(root)):
+            sha = datasheets.keep_file(b"%PDF-1.4 notice")
+            with self.store.connection() as conn:
+                conn.execute("UPDATE pcns SET file_sha256 = %s WHERE id = %s", (sha, created["id"]))
+            with mock.patch.object(datasheets, "extract", lambda data: SimpleNamespace(pages=1, text=text)):
+                self.assertEqual(notice_parse.run_due(self.store), {"parsed": 1})
+                self.assertEqual(notice_parse.run_due(self.store), {}, "read once")
+        listed = self.call("GET", f"/api/supply/parts/{self.part}/notices", role="qa").json["items"][0]
+        self.assertIsNone(listed["last_time_buy"], "a reading counts for nothing yet")
+        read = listed["read_from_file"]
+        self.assertEqual((read["kind"], read["last_time_buy"], read["last_time_ship"]), ("last_time_buy", "2026-12-15", "2027-03-31"))
+        self.assertEqual(sorted(item["mpn"] for item in read["known_parts"]), ["ABC-1", "ABC-2"])
+        self.assertIn("XYZ-9-UNKNOWN", read["other_numbers"])
+        self.assertEqual(self.call("POST", f"/api/supply/notices/{created['id']}/confirm-read", role="qa", body={"dates": True}).status, 403)
+        wrong = self.call("POST", f"/api/supply/notices/{created['id']}/confirm-read", body={"part_ids": ["nope"]})
+        self.assertEqual(wrong.status, 400)
+        done = self.call("POST", f"/api/supply/notices/{created['id']}/confirm-read", body={"dates": True, "kind": True, "part_ids": [other]})
+        self.assertEqual(done.status, 204, done.text)
+        counted = self.call("GET", f"/api/supply/parts/{other}/notices", role="qa").json["items"][0]
+        self.assertEqual((counted["kind"], counted["last_time_buy"], counted["last_time_ship"], counted["read_from_file"]), ("last_time_buy", "2026-12-15", "2027-03-31", None))
+        self.assertEqual(self.call("POST", f"/api/supply/notices/{created['id']}/dismiss-read").status, 400, "already confirmed")
+
+    def test_dates_are_read_only_when_they_are_unambiguous_and_belong_to_their_label(self) -> None:
+        from app.services.supply import notice_parse
+
+        read = notice_parse.read_text("Last time buy Dec 31, 2026. Last time ship: 30 Sept 2027.")
+        self.assertEqual((read["last_time_buy"], read["last_time_ship"]), ("2026-12-31", "2027-09-30"))
+        ambiguous = notice_parse.read_text("Last time buy 03/04/2026 and last ship 4-5-2026")
+        self.assertEqual((ambiguous["last_time_buy"], ambiguous["last_time_ship"]), (None, None))
+        only_ship = notice_parse.read_text("Last time ship 2027-01-02")
+        self.assertEqual((only_ship["last_time_buy"], only_ship["last_time_ship"]), (None, "2027-01-02"))
+        self.assertEqual(notice_parse.read_text("Last time buy: nothing. Last time ship 5 May 2027")["last_time_buy"], None, "not the ship date")
+
     def test_what_is_refused_says_why(self) -> None:
         cases = [
             ({"kind": "other"}, "kind must be one of"),
