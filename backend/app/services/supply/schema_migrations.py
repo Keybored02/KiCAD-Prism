@@ -1174,6 +1174,14 @@ def _m021_distributor_details(conn) -> None:
     )
 
 
+def _m041_catch_up(conn) -> None:
+    """Run migrations 35 to 40 again. They were edited after they had run on some databases (``error_streak``, ``spare_spent``,
+    later trigger changes), and each is written to be run twice."""
+
+    for migrate in (_m035_tracking, _m036_poll_schedules, _m037_release_snapshot_jobs, _m038_part_summaries, _m039_summary_dirty_log, _m040_read_requests):
+        migrate(conn)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1215,6 +1223,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (38, "part_summaries", _m038_part_summaries),
     (39, "summary_dirty_log", _m039_summary_dirty_log),
     (40, "read_requests", _m040_read_requests),
+    (41, "catch_up", _m041_catch_up),
 ]
 
 
