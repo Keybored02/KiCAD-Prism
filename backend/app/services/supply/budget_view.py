@@ -93,7 +93,7 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
             reset_time=account.reset_time, reset_tz=account.reset_tz,
         )
         committed = budget.committed_calls(account.daily_budget, account.reserve_pct)
-        reset_in = 86400 - quota.seconds_into_day(now, account.reset_time, account.reset_tz)
+        reset_in = quota.seconds_to_reset(now, account.reset_time, account.reset_tz)
         result.append({
             "connector_id": row["id"],
             "name": row["display_name"],

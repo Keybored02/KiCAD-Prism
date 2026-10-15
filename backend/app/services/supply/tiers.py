@@ -127,7 +127,7 @@ def next_poll_at(
     day = quota.provider_day(now, reset_time, tz)
     spread = _spread(f"{key}|{day.isoformat()}")
     if schedule == "daily":
-        next_day_start = now + timedelta(seconds=86400 - quota.seconds_into_day(now, reset_time, tz))
+        next_day_start = now + timedelta(seconds=quota.seconds_to_reset(now, reset_time, tz))
         return next_day_start + DAILY_WINDOW * spread
     return now + INTERVAL[schedule] + SPREAD[schedule] * (spread - 0.5)
 

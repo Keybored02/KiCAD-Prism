@@ -85,6 +85,29 @@ class DayTests(unittest.TestCase):
         self.assertEqual(quota.seconds_into_day(at, "23:00", "UTC"), 1800)
         self.assertEqual(quota.day_hour(at, "23:00", "UTC"), 0)
 
+    def test_a_day_is_23_or_25_hours_where_the_clocks_change(self) -> None:
+        from app.services.supply import quota
+
+        spring = datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)  # Rome moves its clocks forward at 01:00 UTC
+        autumn = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
+        ordinary = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(quota.day_length(spring, "00:00", "Europe/Rome"), 23 * 3600)
+        self.assertEqual(quota.day_length(autumn, "00:00", "Europe/Rome"), 25 * 3600)
+        self.assertEqual(quota.day_length(ordinary, "00:00", "Europe/Rome"), 24 * 3600)
+        self.assertEqual(quota.day_length(spring, "00:00", "UTC"), 24 * 3600)
+        # 12:00 UTC is 14:00 in Rome after the change: 13 hours into a 23-hour day, so 10 hours to the reset.
+        self.assertEqual(quota.seconds_into_day(spring, "00:00", "Europe/Rome"), 13 * 3600)
+        self.assertEqual(quota.seconds_to_reset(spring, "00:00", "Europe/Rome"), 10 * 3600)
+        self.assertEqual(quota.seconds_to_reset(autumn, "00:00", "Europe/Rome"), 11 * 3600)
+
+    def test_the_whole_committed_share_is_spendable_by_the_end_of_a_short_or_long_day(self) -> None:
+        from app.services.supply import quota
+
+        state = quota.QuotaState(daily_budget=1000, spent_today=0, interactive_spent_today=0, reserve_pct=10)
+        for end in (datetime(2026, 3, 29, 21, 59, 59, tzinfo=timezone.utc), datetime(2026, 10, 25, 22, 59, 59, tzinfo=timezone.utc)):
+            self.assertEqual(quota.background_allowance(state, end, reset_time="00:00", tz="Europe/Rome", delay_seconds=600), 900)
+            self.assertLessEqual(quota.day_hour(end, "00:00", "Europe/Rome"), 23)
+
     def test_an_unknown_zone_or_reset_falls_back_to_utc_midnight(self) -> None:
         from app.services.supply import quota
 

@@ -1,7 +1,7 @@
 """Call budgets: how many calls may be spent now, and what a watchlist needs.
 
 A daily budget is a plan, not an error. Background polling spends it evenly
-across the UTC day (after a small opening burst); a share is held back for
+across the provider's day (after a small opening burst); a share is held back for
 lookups people trigger. Running short slows polling down. It never fails.
 
 Everything here is pure. The ledger that records spending is separate.
@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -25,11 +25,25 @@ TIER_INTERVAL_HOURS: Mapping[str, float] = {
 
 # Percent of the background budget available from the first minute of the day.
 OPENING_BURST_PCT = 10
-_SECONDS_PER_DAY = 86400
 
 
 DEFAULT_RESET_TIME = "00:00"
 DEFAULT_RESET_TZ = "UTC"
+
+
+def _zone(tz: str):
+    try:
+        return ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        return timezone.utc
+
+
+def _reset_at(reset_time: str) -> time:
+    try:
+        hours, minutes = (int(part) for part in reset_time.split(":"))
+        return time(hours, minutes)
+    except ValueError:
+        return time(0, 0)
 
 
 def _local(now: datetime, reset_time: str, tz: str) -> datetime:
@@ -37,15 +51,8 @@ def _local(now: datetime, reset_time: str, tz: str) -> datetime:
 
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
-    try:
-        zone = ZoneInfo(tz)
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = timezone.utc
-    try:
-        hours, minutes = (int(part) for part in reset_time.split(":"))
-    except ValueError:
-        hours, minutes = 0, 0
-    return now.astimezone(zone) - timedelta(hours=hours, minutes=minutes)
+    at = _reset_at(reset_time)
+    return now.astimezone(_zone(tz)) - timedelta(hours=at.hour, minutes=at.minute)
 
 
 def provider_day(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> date:
@@ -54,15 +61,36 @@ def provider_day(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = 
     return _local(now, reset_time, tz).date()
 
 
+def day_bounds(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> tuple[datetime, datetime]:
+    """When the provider's current day began and when it ends, in UTC. A day is 23 or 25 hours long where the clocks change."""
+
+    zone, at = _zone(tz), _reset_at(reset_time)
+    day = provider_day(now, reset_time, tz)
+    start = datetime.combine(day, at, tzinfo=zone).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=1), at, tzinfo=zone).astimezone(timezone.utc)
+    return start, end
+
+
+def day_length(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> int:
+    """Seconds in the provider's current day."""
+
+    start, end = day_bounds(now, reset_time, tz)
+    return int((end - start).total_seconds())
+
+
 def seconds_into_day(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> int:
-    local = _local(now, reset_time, tz)
-    return local.hour * 3600 + local.minute * 60 + local.second
+    start, end = day_bounds(now, reset_time, tz)
+    return max(0, min(int((now - start).total_seconds()), int((end - start).total_seconds())))
+
+
+def seconds_to_reset(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> int:
+    return day_length(now, reset_time, tz) - seconds_into_day(now, reset_time, tz)
 
 
 def day_hour(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> int:
-    """Hours since the provider's day began, 0 to 23."""
+    """Hours since the provider's day began, 0 to 23 (the last hour of a 25-hour day counts as 23)."""
 
-    return seconds_into_day(now, reset_time, tz) // 3600
+    return min(seconds_into_day(now, reset_time, tz) // 3600, 23)
 
 
 def start_delay_seconds(key: str, day: date) -> int:
@@ -104,15 +132,16 @@ def background_allowance(
     """
 
     seconds = seconds_into_day(now, reset_time, tz)
+    length = day_length(now, reset_time, tz)
     if seconds < delay_seconds:
         return 0
     background_budget = state.daily_budget - interactive_reserve(state.daily_budget, state.reserve_pct)
     # The spread runs over the rest of the day once the delay has passed.
-    seconds = (seconds - delay_seconds) * _SECONDS_PER_DAY // max(_SECONDS_PER_DAY - delay_seconds, 1)
+    seconds = (seconds - delay_seconds) * length // max(length - delay_seconds, 1)
     # Integer arithmetic: a float product lands a hair above whole numbers
     # (900 * 0.55 is 495.00000000000006) and ceil would round it up.
-    fraction_numerator = OPENING_BURST_PCT * _SECONDS_PER_DAY + (100 - OPENING_BURST_PCT) * seconds
-    target = -(-background_budget * fraction_numerator // (100 * _SECONDS_PER_DAY))
+    fraction_numerator = OPENING_BURST_PCT * length + (100 - OPENING_BURST_PCT) * seconds
+    target = -(-background_budget * fraction_numerator // (100 * length))
     background_spent = state.spent_today - state.interactive_spent_today - state.spare_spent_today
     left_in_day = state.daily_budget - state.spent_today
     return max(0, min(target - background_spent, left_in_day))
@@ -170,7 +199,7 @@ def spare_allowance(
     reserve = interactive_reserve(state.daily_budget, state.reserve_pct)
     floor = math.ceil(reserve * INTERACTIVE_FLOOR_SHARE)
     left_in_day = max(0, state.daily_budget - state.spent_today)
-    final = _SECONDS_PER_DAY - seconds_into_day(now, reset_time, tz) <= SPARE_FINAL_HOURS * 3600
+    final = seconds_to_reset(now, reset_time, tz) <= SPARE_FINAL_HOURS * 3600
     if final:
         return max(0, left_in_day - floor)
     if is_working_time(now, week):
