@@ -16,6 +16,7 @@ import type {
   SupplyAlert,
   SupplyAssessment,
   ComponentCoverage,
+  TradeReport,
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
@@ -488,6 +489,11 @@ export async function closePartDemand(demandId: string): Promise<void> {
 export function getProjectSupply(projectId: string, variant = "", signal?: AbortSignal): Promise<ProjectSupply> {
   const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply${query}`, { signal }, "Could not load the project's supply");
+}
+
+export function getProjectTrade(projectId: string, variant = "", signal?: AbortSignal): Promise<{ available: boolean; report: TradeReport | null }> {
+  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/trade${query}`, { signal }, "Could not load the trade classification");
 }
 
 export function getProjectBomHealth(

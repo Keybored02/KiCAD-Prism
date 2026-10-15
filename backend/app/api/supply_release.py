@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, usage,
+    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, trade, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
@@ -108,6 +108,34 @@ async def cost_export(
         content=text, media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{name}-cost-{build_quantity}.csv"'},
     )
+
+
+@router.get("/{project_id}/trade")
+async def trade_classification(
+    project_id: str,
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    variant: str = Query(default="", max_length=120),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> Any:
+    """The export control class and tariff codes distributors give for the project's parts, with the gaps. What they state, not a classification."""
+
+    project = get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            rows = usage.project_rows(conn, project_id, variant)
+            return {"available": bool(rows), "report": trade.build(conn, rows) if rows else None}
+
+    result = await _run(read)
+    if format == "csv":
+        if not result["available"]:
+            raise HTTPException(status_code=404, detail="This project's BOM has not been read yet")
+        name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (project.name or project_id))[:60]
+        return Response(
+            content=trade.to_csv(result["report"]), media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{name}-trade-classification.csv"'},
+        )
+    return result
 
 
 @router.get("/{project_id}/compliance-draft")

@@ -9,6 +9,7 @@ import { canEditSupply, canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
 import { Sparkline } from "./sparkline";
+import { ProjectTrade } from "./project-trade";
 import { ProjectPlanButton } from "./project-plan-button";
 import { ProjectSupplyBuilds, ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
@@ -134,6 +135,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
       <ProjectSupplyBuilds builds={supply.builds} />
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
+      {supply.available ? <ProjectTrade projectId={projectId} variant={variant} /> : null}
       {supply.available ? <CostExport projectId={projectId} variant={variant} /> : null}
       {supply.available ? (
         <p className="text-xs text-muted-foreground">

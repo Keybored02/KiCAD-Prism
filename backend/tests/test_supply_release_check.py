@@ -302,6 +302,37 @@ class ReleaseCheckTests(unittest.TestCase):
             self.assertNotIn(word.lower(), text.lower().replace("list prices without", ""), word)
         self.assertEqual(missing.status, 404)
 
+    def test_the_trade_classification_lists_what_distributors_state_and_what_is_missing(self) -> None:
+        from app.services.supply import facts, usage
+
+        good = self.part("GOOD-1", stock=5000)
+        self.part("OTHER-1", stock=5000)
+        project = SimpleNamespace(id="prj_5", name="Five")
+        with self.store.connection() as conn:
+            facts.replace(conn, good, "digikey", [("eccn", "EAR99"), ("hts_us", "8542.33.0001")], NOW)
+            facts.replace(conn, good, "mouser", [("eccn", "3A001"), ("hts_eu", "8542339000")], NOW)
+            usage.store_project(conn, "prj_5", "Five", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "OTHER-1"), component("C1", "Acme", "UNKNOWN-9"),
+            ]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            report = self.request("prj_5/trade").json["report"]
+            csv_text = self.request("prj_5/trade", query="format=csv").text
+        by_mpn = {item["mpn"]: item for item in report["parts"]}
+        self.assertEqual(by_mpn["GOOD-1"]["control"], "disputed")
+        self.assertEqual(sorted(by_mpn["GOOD-1"]["eccn"]), ["3A001", "EAR99"])
+        self.assertEqual((by_mpn["GOOD-1"]["hts_us"], by_mpn["GOOD-1"]["hts_eu"]), (["8542.33.0001"], ["8542339000"]))
+        self.assertEqual(by_mpn["OTHER-1"]["control"], "unknown")
+        self.assertIn("No distributor gives an export control class.", by_mpn["OTHER-1"]["gaps"])
+        self.assertTrue(by_mpn["UNKNOWN-9"]["gaps"])
+        self.assertEqual((report["summary"]["disputed"], report["summary"]["unknown"]), (1, 2))
+        self.assertIn("Disputed", csv_text)
+
+    def test_one_class_is_none_controlled_or_unknown(self) -> None:
+        from app.services.supply import trade
+
+        self.assertEqual([trade.control_of(item) for item in ([], ["EAR99"], ["ear99 "], ["5A992.c"], ["EAR99", "3A001"])],
+                         ["unknown", "none", "none", "controlled", "disputed"])
+
     def test_the_compliance_draft_lists_each_part_with_what_is_known_and_what_is_missing(self) -> None:
         from app.services.supply import compliance_draft, usage
 

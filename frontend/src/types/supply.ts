@@ -1084,3 +1084,13 @@ export interface ComponentCoverage {
   parts: Array<{ part_id: string; manufacturer: string; mpn: string; role: "primary" | "alternate"; stock: number | null }>;
   component?: string;
 }
+
+/** The export control class and tariff codes distributors give for a project's parts. */
+export interface TradeReport {
+  parts: Array<{
+    key: string; manufacturer: string; mpn: string; quantity: number; part_id: string | null;
+    eccn: string[]; control: "none" | "controlled" | "disputed" | "unknown";
+    hts_us: string[]; hts_eu: string[]; gaps: string[];
+  }>;
+  summary: { parts: number; controlled: number; unknown: number; disputed: number; with_gaps: number; note: string };
+}
