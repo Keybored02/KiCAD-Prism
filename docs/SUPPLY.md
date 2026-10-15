@@ -137,6 +137,10 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
   how many distributors hold it and how concentrated it is, the gap between the day stock runs out and the lead time, the lead
   time's own move over 90 days, one-step collapses in stock, and the pattern by month once there is more than a year of history.
   The Market view adds signals for a manufacturer or category going out of stock or stretching its lead times.
+- **Distributors compared.** Once there is history, the part sheet says how often each distributor reprices, who changes price first and
+  whether the others follow, how much of a price in another currency is the exchange rate, who restocks first, and how often
+  announced arrivals came within a week of their date. A figure is withheld until enough events back it. Dashboard changes also
+  list a new sibling number turning up beside a part, and a distributor changing an attribute with no notice.
 - **More checks.** Distributors that disagree on lifecycle are a warning. A distributor whose price is far from the median is a note.
   A part whose whole assessment gets worse raises an alert (accepting it makes the new state the baseline). Per part, **Alert rules**
   mute alerts, set the price rise that matters, and set a target price.

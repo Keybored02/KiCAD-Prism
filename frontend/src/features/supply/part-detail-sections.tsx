@@ -11,6 +11,7 @@ import { CrossReferenceSection } from "./cross-reference-section";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
+import { behaviourLines } from "./market-behaviour-text";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { DemandSection } from "./demand-section";
@@ -86,6 +87,12 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       <AssessmentSection partId={detail.part.id} role={role} />
 
       <InsightPanel insight={detail.insight} />
+      {behaviourLines(detail.market_behaviour).length > 0 ? (
+        <section aria-label="Distributors compared" className="space-y-1">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Distributors compared</h3>
+          {behaviourLines(detail.market_behaviour).map((line) => <p key={line} className="text-sm">{line}</p>)}
+        </section>
+      ) : null}
 
       <DemandSection partId={detail.part.id} canEdit={canEdit} />
 

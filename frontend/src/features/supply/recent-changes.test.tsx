@@ -17,10 +17,14 @@ describe("the recent changes", () => {
       change("normally_stocking_lost", {}),
       change("moq_jump", { from: 1, to: 2500 }),
       change("listing_gone", { packaging: "cut_tape" }),
+      change("family_member_new", { mpn: "LM358DT", manufacturer: "ST" }),
+      change("param_changed", { provider: "digikey", name: "Package / Case", from: "0603", to: "0805" }),
     ]} />);
     expect(screen.getByText("Lifecycle changed from active to last time buy (S-1)")).toBeTruthy();
     expect(screen.getByText("A distributor no longer stocks it normally (S-1)")).toBeTruthy();
     expect(screen.getByText("Smallest order went from 1 to 2500 (S-1)")).toBeTruthy();
     expect(screen.getByText("A distributor stopped listing it (S-1, cut tape)")).toBeTruthy();
+    expect(screen.getByText("A new number turned up beside it: LM358DT (ST)")).toBeTruthy();
+    expect(screen.getByText("digikey changed Package / Case from 0603 to 0805 with no notice")).toBeTruthy();
   });
 });

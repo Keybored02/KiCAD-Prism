@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import demand, facts, insights, outlook, params, parts, pcn, prices, pricing, stock, usage
+from app.services.supply import demand, facts, insights, outlook, params, parts, pcn, price_behaviour, prices, pricing, promises, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -635,5 +635,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),
+        "market_behaviour": price_behaviour.load(conn, part_id, now) | {"arrivals": promises.reliability(conn, part_id, now.date())},
         "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings, lead_time_trend(conn, part_id, now)),
     }

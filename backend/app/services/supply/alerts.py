@@ -319,7 +319,7 @@ def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15) -> l
         """
         SELECT e.at, e.kind, e.part_id, e.payload, p.mpn, m.name AS manufacturer
         FROM events e JOIN parts p ON p.id = e.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        WHERE e.kind IN ('listing_gone', 'lifecycle_changed', 'normally_stocking_lost', 'moq_jump') AND e.at >= %s
+        WHERE e.kind IN ('listing_gone', 'lifecycle_changed', 'normally_stocking_lost', 'moq_jump', 'family_member_new', 'param_changed') AND e.at >= %s
         """,
         (since,),
     ).fetchall():

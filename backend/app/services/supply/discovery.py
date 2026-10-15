@@ -9,6 +9,7 @@ Network calls happen outside any database transaction.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Callable
@@ -110,6 +111,15 @@ class DiscoveryService:
                 """,
                 (uuid.uuid4().hex, connector_id, match.sku, part_id, match.mpn, match.manufacturer, state, reason),
             )
+            # A sibling number that turns up in a later search, once the part has been searched here before, is news; the first
+            # search finds every sibling at once and says nothing.
+            if state == NEAR and part_id and conn.execute(
+                "SELECT 1 FROM discovery_runs WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)
+            ).fetchone():
+                conn.execute(
+                    "INSERT INTO events (kind, part_id, payload) VALUES ('family_member_new', %s, %s::jsonb)",
+                    (part_id, json.dumps({"sku": match.sku, "mpn": match.mpn, "manufacturer": match.manufacturer})),
+                )
             return state
         current = existing["match_state"]
         keep = current in _STICKY or (current == EXACT and state != EXACT)
@@ -148,6 +158,15 @@ def remember_parameters(conn, part_id: str, provider: str, attributes) -> None:
     for name, raw in list(attributes)[:MAX_PARAMETERS]:
         name, raw = str(name).strip()[:120], str(raw).strip()[:300]
         if name and raw:
+            # A distributor changing a listed attribute without a notice is worth a line.
+            before = conn.execute(
+                "SELECT raw FROM part_params WHERE part_id = %s AND provider = %s AND name = %s", (part_id, provider, name)
+            ).fetchone()
+            if before is not None and before["raw"] != raw:
+                conn.execute(
+                    "INSERT INTO events (kind, part_id, payload) VALUES ('param_changed', %s, %s::jsonb)",
+                    (part_id, json.dumps({"provider": provider, "name": name, "from": before["raw"], "to": raw})),
+                )
             conn.execute(
                 """
                 INSERT INTO part_params (part_id, provider, name, raw) VALUES (%s, %s, %s, %s)

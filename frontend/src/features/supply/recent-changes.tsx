@@ -11,6 +11,8 @@ function sentence(change: SupplyRecentChange): string {
   }
   if (change.type === "lifecycle_changed") return `Lifecycle changed from ${String(detail.from).replace(/_/g, " ")} to ${String(detail.to).replace(/_/g, " ")}${change.sku ? ` (${change.sku})` : ""}`;
   if (change.type === "normally_stocking_lost") return `A distributor no longer stocks it normally${change.sku ? ` (${change.sku})` : ""}`;
+  if (change.type === "family_member_new") return `A new number turned up beside it: ${String(detail.mpn)}${detail.manufacturer ? ` (${String(detail.manufacturer)})` : ""}`;
+  if (change.type === "param_changed") return `${String(detail.provider)} changed ${String(detail.name)} from ${String(detail.from)} to ${String(detail.to)} with no notice`;
   if (change.type === "moq_jump") return `Smallest order went from ${String(detail.from)} to ${String(detail.to)}${change.sku ? ` (${change.sku})` : ""}`;
   if (!change.alert) return "";
   return change.type === "alert_cleared" ? `Cleared: ${alertTitle(change.alert)}` : alertTitle(change.alert);

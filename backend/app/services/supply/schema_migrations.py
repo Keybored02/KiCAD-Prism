@@ -1270,6 +1270,27 @@ def _m046_rohs_exemptions(conn) -> None:
     )
 
 
+def _m047_arrival_promises(conn) -> None:
+    """Arrivals a distributor announced for a listing, and whether they came (see ``promises.py``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS arrival_promises (
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            expected DATE NOT NULL,
+            quantity INTEGER NOT NULL,
+            first_seen_at TIMESTAMPTZ NOT NULL,
+            last_seen_at TIMESTAMPTZ NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('open', 'arrived', 'slipped', 'gone')),
+            resolved_at TIMESTAMPTZ,
+            delay_days INTEGER,
+            PRIMARY KEY (listing_id, expected)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1317,6 +1338,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (44, "alert_rules", _m044_alert_rules),
     (45, "notice_parse", _m045_notice_parse),
     (46, "rohs_exemptions", _m046_rohs_exemptions),
+    (47, "arrival_promises", _m047_arrival_promises),
 ]
 
 

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, demand, facts, insights, ledger, parts_view, pricing, stock, tiers, trouble
+from app.services.supply import alerts, demand, facts, insights, ledger, parts_view, pricing, promises, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -401,6 +401,7 @@ class Poller:
                  offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace,
                  offer.moq, offer.order_multiple),
             )
+        promises.record(conn, row.id, offer.incoming, previous["stock"] if previous is not None else None, offer.stock, now)
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
         # Compliance and trade facts come with the answer; keeping them costs no call.
         stocked_before = conn.execute(

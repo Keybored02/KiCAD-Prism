@@ -626,7 +626,18 @@ export interface SupplyListing {
   } | null;
 }
 
+/** How prices and restocks move across a part's distributors, and whether announced arrivals arrive. Figures are withheld when too few events back them. */
+export interface MarketBehaviour {
+  /** Median days between a distributor's price changes. */
+  repricing: Record<string, number>;
+  leadership: { changes: number; followed: number; followed_share: number; leader: string | null; led: Record<string, number> } | null;
+  exchange: Record<string, { currency: string; from: string; to: string; in_base_percent: number; local_percent: number; exchange_percent: number }>;
+  restock_order: { rounds: number; first: string; firsts: Record<string, number> } | null;
+  arrivals: { announced: number; open: number; arrived: number; slipped: number; on_time: number | null; on_time_share: number | null; median_delay_days: number | null } | null;
+}
+
 export interface SupplyPartDetail {
+  market_behaviour?: MarketBehaviour;
   jlc?: JlcClass | null;
   /** The catalog components that list this part as an approved alternate, and what their parts hold together. */
   alternate_for?: ComponentCoverage[];
@@ -724,7 +735,7 @@ export interface SupplyAlert {
 /** Something that happened lately to a watched part. */
 export interface SupplyRecentChange {
   at: string;
-  type: "alert_opened" | "alert_cleared" | "listing_gone" | "lifecycle_changed" | "normally_stocking_lost" | "moq_jump";
+  type: "alert_opened" | "alert_cleared" | "listing_gone" | "lifecycle_changed" | "normally_stocking_lost" | "moq_jump" | "family_member_new" | "param_changed";
   /** What the event recorded, for the kinds that carry figures. */
   detail?: Record<string, unknown>;
   part_id: string;
