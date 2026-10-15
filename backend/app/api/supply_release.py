@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, catalog_read, compliance_draft, release_bom, release_check, release_source, usage,
+    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
@@ -63,6 +63,24 @@ async def bom_health(
                 "available": True, "build_quantity": build_quantity, "variant": variant, "variants": usage.project_variants(conn, project_id),
                 "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"],
             }
+
+    return await _run(read)
+
+
+@router.get("/{project_id}/supply")
+async def project_overview(
+    project_id: str,
+    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
+    variant: str = Query(default="", max_length=120),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """The project's parts, planned builds, releases (with what changed since) and line notes, from its stored BOM. Calls no distributor."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return project_supply.overview(conn, project_id, variant, build_quantity)
 
     return await _run(read)
 

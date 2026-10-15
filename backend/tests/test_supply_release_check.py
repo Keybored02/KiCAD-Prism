@@ -226,6 +226,36 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((lite["available"], lite["variant"], lite["variants"], lite["rollup"]["lines"]), (True, "Lite", ["Lite"], 1))
         self.assertEqual(nothing, {"available": False})
 
+    def test_the_project_page_lists_parts_builds_releases_and_what_changed_since(self) -> None:
+        from app.services.supply import demand, usage
+
+        good = self.part("GOOD-1", stock=5000)
+        flaky = self.part("FLAKY-1", stock=900)
+        project = SimpleNamespace(id="prj_8")
+        with self.store.connection() as conn:
+            usage.store_project(conn, "prj_8", "Eight", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("U1", "Acme", "FLAKY-1"), component("C1", "Acme", "UNKNOWN-9"),
+            ]), NOW)
+            demand.replace_from_source(conn, "bom_watch", "prj_8/Pilot", {good: 10}, "a@example.com")
+            demand.replace_from_source(conn, "bom_watch", "prj_80/Other", {good: 10}, "a@example.com")
+            conn.execute(
+                "INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, avl) "
+                "VALUES ('s1', 'prj_8', 'b1', 'v1', 'abc', 'a@example.com', 9.0, 'ok', %s::jsonb, '{}'::jsonb)",
+                ('{"parts": 2, "needing_a_look": 0, "lines": [{"part_id": "%s", "manufacturer": "Acme", "mpn": "FLAKY-1", "status": "ok"}]}' % flaky,),
+            )
+            conn.execute("UPDATE offers SET lifecycle = 'obsolete', stock = 0 WHERE listing_id IN (SELECT id FROM listings WHERE part_id = %s)", (flaky,))
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            body = self.request("prj_8/supply").json
+        self.assertTrue(body["available"])
+        self.assertEqual(body["parts"][0]["mpn"], "FLAKY-1", "the worst part comes first")
+        self.assertEqual({part["mpn"] for part in body["parts"]}, {"GOOD-1", "FLAKY-1", "UNKNOWN-9"})
+        self.assertEqual([(build["name"], build["parts"]) for build in body["builds"]], [("Pilot", 1)], "another project's build is not listed")
+        (release,) = body["releases"]
+        self.assertEqual(release["tag"], "v1")
+        self.assertEqual([item["mpn"] for item in release["changed_since"]], ["FLAKY-1"])
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_0")):
+            self.assertFalse(self.request("prj_0/supply").json["available"])
+
     def test_the_compliance_draft_lists_each_part_with_what_is_known_and_what_is_missing(self) -> None:
         from app.services.supply import compliance_draft, usage
 
