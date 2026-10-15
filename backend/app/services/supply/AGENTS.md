@@ -33,6 +33,10 @@ root first.
 | `budget.py` | Pure cost model: calls a day one part costs at one provider by tier, rate and listings followed (reads, notices, substances, searches). |
 | `admission.py` | Where each followed part is read (`admissions`): admitted while the account's committed share has room, else waiting for room. `sync`, `preview` (runs a change and rolls it back) and `apply` ("track where room", refused when nothing fits). |
 | `budget_view.py` | The read behind `GET /api/supply/budget`: shares, spending by kind and purpose, 14 days, what tracking costs, what costs most. |
+| `packaging_picks.py` | One followed listing per part and distributor: the picks waiting, the listings side by side, pick and clear, and "same for similar". Only the picked listing is read and counted; `admission.sync` drops a pick whose listing is no longer counted. |
+| `oneoff.py` | Check once: a request lists parts, `read_request_work` has a row for each part and distributor; the worker searches and reads them from the pool, then from spare budget, without tracking anything. |
+| `packaging_picks.py` | One followed listing per part and distributor: the picks waiting, the listings side by side, pick and clear, "same for similar". Only the picked listing is read and counted; `admission.sync` drops a pick whose listing is no longer counted. |
+| `oneoff.py` | Check once: `read_requests` list parts, `read_request_work` has a row per part and distributor; the worker searches and reads them from the pool, then spare budget, without tracking. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
 | `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |

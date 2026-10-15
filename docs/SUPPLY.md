@@ -48,6 +48,33 @@ tracked project, someone's choice, a watched component or its approved alternate
 - **Call budget:** each connector's day is split into a committed share (what tracking may use, at most 90%) and a pool
   for people's reads, first searches and one-off checks. Connectors on the same credentials share one budget. The
   **Connectors** page shows today's spending by purpose, the last two weeks, what waits for room and what costs most.
+- **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
+  shows the same cost preview before it tracks.
+- **Packaging picks:** a distributor lists one part as several listings (cut tape, reel, tray). Until you pick one, all are
+  read and their stock adds up. **Review > Packaging** lists the tracked parts that need a pick, with the calls a day each
+  would save; the part sheet offers the same. The pick pop-up sets the listings side by side and marks what differs. After a
+  pick it offers the same packaging for the other waiting parts at that distributor with the same choice, listed so you can
+  untick any. Only the picked listing is read and counted. If it stops being listed, the part is read at all its listings
+  again.
+- **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
+  calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening; the bar shows
+  how many parts are read. The release check offers the same for the parts on a release BOM.
+- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known.
+- **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
+  has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
+- **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
+  shows the same cost preview before it tracks.
+- **Packaging picks:** a distributor lists one part as several listings (cut tape, reel, tray). Until you pick one, all are
+  read and their stock adds up. **Review > Packaging** lists the tracked parts that need a pick, with the calls a day each
+  would save; the part sheet offers the same. The pick pop-up sets the listings side by side and marks what differs. After a
+  pick it offers the same packaging for the other waiting parts at that distributor, listed so you can untick any. Only the
+  picked listing is read and counted. If it stops being listed, the part is read at all its listings again.
+- **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
+  calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
+  check offers the same for the parts on a release BOM.
+- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known.
+- **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
+  has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Spare budget** is what would go unused: outside working hours, on non-working days and in the last three hours of a
   provider's day. It reads parts waiting for room, then tier-2 parts early, then change notices of parts nobody tracks.
 - **Politeness:** calls are spaced at random around half a provider's published rate, a rate limit slows the whole account

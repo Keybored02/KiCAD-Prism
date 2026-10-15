@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
-from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import bom_lookup, catalog_read, demand, usage
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
+from app.services.supply import admission, bom_lookup, catalog_read, demand, usage
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -58,6 +58,9 @@ class WatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lines: list[LineIn] = Field(max_length=bom_lookup.MAX_WATCH_LINES)
+    # Tier 1 is read daily; tier 2 weekly or monthly. A part already followed is only ever raised.
+    tier: int = Field(default=2, ge=1, le=2)
+    rate: str = Field(default="weekly", pattern="^(weekly|monthly)$")
 
 
 def _store():
@@ -68,6 +71,8 @@ def _store():
 async def _run(call: Callable[[], T]) -> T:
     try:
         return await asyncio.to_thread(call)
+    except admission.NoRoom as exc:
+        raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
@@ -202,14 +207,37 @@ async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require
     return await _run(read)
 
 
-@router.post("/watch")
-async def watch(body: WatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
+def _watching(body: WatchRequest, actor: str, role: str):
+    lcsc = _lcsc_connector() if any(line.lcsc for line in body.lines) else None
+
+    def change(conn) -> dict[str, Any]:
+        return bom_lookup.watch_lines(
+            conn, _lines(body.lines), actor, may_create_manufacturer=role in SUPPLY_APPROVE_ROLES,
+            identities=catalog_read.identities, lcsc_connector=lcsc, tier=body.tier, rate=body.rate,
+        )
+
+    return change
+
+
+@router.post("/watch/preview")
+async def preview_watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """What tracking these lines at a tier would cost each distributor's budget. Changes nothing."""
+
     def run() -> dict[str, Any]:
-        lcsc = _lcsc_connector() if any(line.lcsc for line in body.lines) else None
         with _store().connection() as conn:
-            return bom_lookup.watch_lines(
-                conn, _lines(body.lines), writer.email, may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES,
-                identities=catalog_read.identities, lcsc_connector=lcsc,
-            )
+            report = admission.preview(conn, _watching(body, user.email, user.role))
+        return {key: value for key, value in report.items() if key != "result"} | {"watched": report["result"]}
+
+    return await _run(run)
+
+
+@router.post("/watch")
+async def watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Track these lines where there is room. Refused when nothing fits at any distributor."""
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            report = admission.apply(conn, _watching(body, user.email, user.role))
+        return {**report["result"], "connectors": report["connectors"], "fits_nowhere": report["fits_nowhere"]}
 
     return await _run(run)

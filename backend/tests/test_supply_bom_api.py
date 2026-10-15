@@ -484,9 +484,22 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((again["watched"], again["already_watched"]), (1, 1), "now it is known, a designer can use it")
 
     def test_who_may_watch_and_how_many_at_once(self) -> None:
-        for role in ("qa", "viewer"):
-            self.assertEqual(self.call("/api/supply/bom/watch", {"lines": []}, role=role).status, 403, role)
+        self.assertEqual(self.call("/api/supply/bom/watch", {"lines": []}, role="viewer").status, 403)
+        for role in ("qa", "designer", "admin"):
+            self.assertEqual(self.call("/api/supply/bom/watch", {"lines": []}, role=role).status, 200, role)
         self.assertEqual(self.call("/api/supply/bom/watch", {"lines": [{"key": str(i), "mpn": "x"} for i in range(201)]}).status, 422)
+
+    def test_lines_are_tracked_at_the_tier_asked_after_a_preview_that_changes_nothing(self) -> None:
+        lines = [{"key": "a", "manufacturer": "Acme", "mpn": "T-1"}]
+        preview = self.call("/api/supply/bom/watch/preview", {"lines": lines, "tier": 1})
+        self.assertEqual(preview.status, 200, preview.text)
+        self.assertEqual(preview.json["watched"]["watched"], 1)
+        self.assertEqual(self.rows("SELECT 1 FROM watches"), [])
+        done = self.call("/api/supply/bom/watch", {"lines": lines, "tier": 1})
+        self.assertEqual((done.status, done.json["watched"]), (200, 1))
+        self.assertEqual([(r["tier"], r["rate"]) for r in self.rows("SELECT tier, rate FROM watches")], [(1, "daily")])
+        self.assertEqual(self.call("/api/supply/bom/watch", {"lines": lines, "tier": 3}).status, 422)
+        self.assertEqual(self.call("/api/supply/bom/watch", {"lines": lines, "tier": 2, "rate": "daily"}).status, 422)
 
 
 if __name__ == "__main__":

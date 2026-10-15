@@ -448,9 +448,9 @@ def _link_lcsc(conn, connector_id: str, sku: str, part_id: str, mpn: str, manufa
 
 def watch_lines(
     conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool, identities: usage.Identities | None = None,
-    lcsc_connector: str | None = None,
+    lcsc_connector: str | None = None, tier: int | None = None, rate: str | None = None,
 ) -> dict[str, Any]:
-    """Watch every distinct part on the lines. Reports what it could not and why.
+    """Watch every distinct part on the lines at a tier (tier 2 weekly when none is asked). Reports what it could not and why.
 
     With ``lcsc_connector``, a line's LCSC number is linked to its part there, so it is read without a search.
     """
@@ -475,7 +475,7 @@ def watch_lines(
         seen.add(identity)
         try:
             with conn.transaction():
-                record, created = watches.add_watch(conn, maker, mpn, actor, may_create_manufacturer=may_create_manufacturer)
+                record, created = watches.add_watch(conn, maker, mpn, actor, tier=tier, rate=rate, may_create_manufacturer=may_create_manufacturer)
                 if lcsc_connector and line.lcsc:
                     linked += _link_lcsc(conn, lcsc_connector, line.lcsc, record.part_id, mpn, maker, actor)
         except parts.UnknownManufacturer:
