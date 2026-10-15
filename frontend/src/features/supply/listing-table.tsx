@@ -27,7 +27,7 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
                 <span className="text-xs text-muted-foreground">{listing.sku}</span>
                 {packagingLabel(listing.packaging) ? <Badge variant="outline">{packagingLabel(listing.packaging)}</Badge> : null}
                 {!listing.counted ? <Badge variant="warning">{matchLabel(listing.match_state)}, not counted</Badge> : null}
-                {offer?.marketplace ? <Badge variant="outline">Marketplace</Badge> : null}
+                {offer?.marketplace ? <Badge variant="outline">{listing.provider === "jlcpcb" ? "Assembly stock" : "Marketplace"}</Badge> : null}
                 {offer?.discontinued ? <Badge variant="warning">Discontinued here</Badge> : null}
               </div>
               {offer?.product_url ? (

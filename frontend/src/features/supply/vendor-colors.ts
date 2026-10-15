@@ -9,6 +9,8 @@ export const VENDOR_COLORS: Readonly<Record<string, string>> = {
   lcsc: "#1166dd",
   tme: "#183884",
   avnet: "#f59e0b",
+  // Chosen, not JLCPCB's own: its blue is close to LCSC's.
+  jlcpcb: "#7c3aed",
 };
 
 export function vendorColor(provider: string | null | undefined): string | null {
