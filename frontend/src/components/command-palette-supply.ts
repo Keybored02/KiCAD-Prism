@@ -1,4 +1,4 @@
-import { Warehouse } from "lucide-react";
+import { PackageSearch } from "lucide-react";
 
 import type { PaletteCommand } from "@/lib/command-registry";
 import { canOpenSupply } from "@/lib/roles";
@@ -19,7 +19,7 @@ export function supplyCommands(role: UserRole | null | undefined, goToWorkspace:
     id: `go:supply:${entry.view}`,
     label: `Supply: ${entry.label}`,
     group: "Go to",
-    icon: Warehouse,
+    icon: PackageSearch,
     keywords: `stock distributors availability alerts watch ${entry.label}`,
     run: goToWorkspace(`?section=supply&supplyView=${entry.view}`),
   }));
