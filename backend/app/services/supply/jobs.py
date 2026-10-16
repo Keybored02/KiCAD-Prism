@@ -31,6 +31,9 @@ SUPPLY_RESOURCE = "supply"
 SUPPLY_RESOURCE_CAPACITY = min(2, max(1, settings.PRISM_WORKER_CONCURRENCY - 1))
 SUPPLY_PRIORITY = 200
 SCAN_SECONDS = 60
+# Housekeeping runs from the scanner too, so it goes on when every budget is used up and no poll job is queued.
+HOUSEKEEPING_EVERY = 600
+_housekeeping_at: float | None = None
 SYSTEM_REQUESTER = "system:supply-scheduler"
 
 
@@ -177,6 +180,34 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     return sorted(result)
 
 
+def housekeeping(store: SupplyStore) -> int:
+    """Work that needs no distributor call: exchange rates, snapshots, component watches, tracked projects' BOMs, tracking
+    and retention. Returns the samples compacted."""
+
+    with store.connection() as conn:
+        _refresh_rates(conn)
+        _snapshot_market(conn)
+        _snapshot_costs(conn)
+        _sync_component_watches(conn)
+        _refresh_project_boms(conn)
+        _sync_tracking(conn)
+        compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
+        retention.drop_expired(conn, datetime.now(timezone.utc))
+        retention.trim_summaries(conn)
+    return compacted
+
+
+def _housekeeping_if_due(store: SupplyStore) -> None:
+    global _housekeeping_at
+    if _housekeeping_at is not None and time.monotonic() - _housekeeping_at < HOUSEKEEPING_EVERY:
+        return
+    _housekeeping_at = time.monotonic()
+    try:
+        housekeeping(store)
+    except Exception:  # noqa: BLE001 - the next scan tries again; it never stops the scanner
+        logging.getLogger(__name__).info("Housekeeping failed", exc_info=True)
+
+
 def schedule_due_supply_jobs(
     *,
     job_service: Any | None = None,
@@ -192,6 +223,7 @@ def schedule_due_supply_jobs(
     with store.connection() as conn:
         worker_seen.record(conn, moment)
         connector_ids = connectors_with_work(conn, moment)
+    _housekeeping_if_due(store)
     # One job per account: connectors on the same credentials are one caller to the provider, so they take turns.
     by_account: dict[str, list[str]] = {}
     with store.connection() as conn:
@@ -343,16 +375,7 @@ def run_supply_poll_job(context: Any) -> Any:
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
-    with connectors.store.connection() as conn:
-        _refresh_rates(conn)
-        _snapshot_market(conn)
-        _snapshot_costs(conn)
-        _sync_component_watches(conn)
-        _refresh_project_boms(conn)
-        _sync_tracking(conn)
-        compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
-        retention.drop_expired(conn, datetime.now(timezone.utc))
-        retention.trim_summaries(conn)
+    compacted = housekeeping(connectors.store)
     details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,

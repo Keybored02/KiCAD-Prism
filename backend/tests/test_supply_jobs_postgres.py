@@ -395,6 +395,15 @@ class SupplyJobTests(unittest.TestCase):
         self.assertFalse(self.connectors.get(cid)["awaiting_terms"])
         self.assertEqual(self.work(), [], "an assembly-only distributor is read only for a project that names it")
 
+    def test_the_scan_does_its_housekeeping_even_when_no_connector_has_work_and_not_every_time(self) -> None:
+        queue = RecordingJobs()
+        self.jobs._housekeeping_at = None
+        with mock.patch.object(self.jobs, "housekeeping") as house:
+            self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
+            self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
+        self.assertEqual(queue.calls, [])
+        self.assertEqual(house.call_count, 1)
+
     def test_the_scan_queues_nothing_when_there_is_nothing_to_do(self) -> None:
         self.connector()
         queue = RecordingJobs()
