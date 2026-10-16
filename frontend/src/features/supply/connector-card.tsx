@@ -9,10 +9,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CSV_PROVIDER, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
+import { CSV_PROVIDER, type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
+import { BudgetDetail } from "./budget-view";
 import { CallBudget, CapacityNote, OffersFile, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
-import { TermsIcon } from "./supply-icons";
 import { vendorColor } from "./vendor-colors";
 import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
 
@@ -24,7 +24,6 @@ export type ConnectorAction =
   | "resume"
   | "enable"
   | "disable"
-  | "terms"
   | "apply-reset"
   | "csv-upload"
   | "csv-clear"
@@ -33,11 +32,12 @@ export type ConnectorAction =
 interface ConnectorCardProps {
   connector: SupplyConnector;
   capacity?: SupplyCapacity;
+  budget?: BudgetConnector;
   isAdmin: boolean;
   onAction: (action: ConnectorAction, connector: SupplyConnector) => void;
 }
 
-export function ConnectorCard({ connector, capacity, isAdmin, onAction }: ConnectorCardProps) {
+export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }: ConnectorCardProps) {
   const state = connectorState(connector);
   const credentialNames = Object.keys(connector.credentials);
   const where = [connector.provider_label, connector.storefront, connector.currency].filter(Boolean).join(" · ");
@@ -59,7 +59,7 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
         {isAdmin ? <ConnectorMenu connector={connector} onAction={onAction} /> : null}
       </div>
 
-      {connector.metered ? <CallBudget connector={connector} /> : <OffersFile connector={connector} />}
+      {connector.metered ? <CallBudget connector={connector} detail={budget ? <BudgetDetail item={budget} /> : undefined} /> : <OffersFile connector={connector} />}
       {connector.metered ? <CapacityNote capacity={capacity} /> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">
@@ -74,10 +74,6 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
             ))}
           </div>
         ) : null}
-        <div className="flex items-center gap-1.5">
-          <dt className="sr-only">Terms</dt>
-          <dd><TermsIcon reviewedBy={connector.terms_reviewed_by ?? ""} reviewedAt={connector.terms_reviewed_at ? formatWhen(connector.terms_reviewed_at) : ""} /></dd>
-        </div>
         <div className="flex gap-1.5">
           <dt className="text-muted-foreground">Last call</dt>
           <dd>{lastCallText(connector)}</dd>
@@ -134,7 +130,6 @@ function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connec
         <DropdownMenuItem onClick={() => onAction(connector.enabled ? "disable" : "enable", connector)}>
           {connector.enabled ? "Disable" : "Enable"}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onAction("terms", connector)}>Mark terms as reviewed</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => onAction("delete", connector)}>Delete</DropdownMenuItem>
       </DropdownMenuContent>

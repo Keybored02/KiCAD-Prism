@@ -242,11 +242,8 @@ class SupplyDatabaseTests(unittest.TestCase):
         with self.assertRaises(ConnectorError):
             self.service.pause(connector["id"], actor="ana@example.com", reason="  ")
 
-    def test_terms_review_and_call_results_are_recorded(self) -> None:
+    def test_call_results_are_recorded(self) -> None:
         connector = self.service.create(actor="ana@example.com", provider="fake")
-        reviewed = self.service.confirm_terms_review(connector["id"], actor="ben@example.com")
-        self.assertEqual(reviewed["terms_reviewed_by"], "ben@example.com")
-        self.assertIsNotNone(reviewed["terms_reviewed_at"])
         self.service.record_result(connector["id"], "rate_limited")
         failed = self.service.get(connector["id"])
         self.assertEqual(failed["last_error_code"], "rate_limited")

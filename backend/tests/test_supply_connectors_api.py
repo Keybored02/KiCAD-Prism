@@ -131,7 +131,6 @@ class SupplyConnectorsApiTests(unittest.TestCase):
             ("PUT", f"/api/supply/connectors/{cid}/credentials", {"credentials": {"api_key": "x"}}),
             ("POST", f"/api/supply/connectors/{cid}/pause", {"reason": "x"}),
             ("POST", f"/api/supply/connectors/{cid}/resume", None),
-            ("POST", f"/api/supply/connectors/{cid}/terms-review", None),
             ("DELETE", f"/api/supply/connectors/{cid}", None),
         ]
         for role in ("designer", "qa", "viewer"):
@@ -180,7 +179,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertNotIn("TOPSECRET-KEY", listed.text)
         self.assertEqual(listed.json[0]["usage_today"], {"spent": 0, "interactive_spent": 0})
 
-    def test_update_pause_resume_terms_credentials_delete(self) -> None:
+    def test_update_pause_resume_credentials_delete(self) -> None:
         cid = self._create(provider="demo_keyed", credentials={"api_key": "one"})["id"]
         path = f"/api/supply/connectors/{cid}"
         patched = self.call("PATCH", path, body={"daily_budget": 250, "enabled": False, "currency": "gbp"})
@@ -189,8 +188,6 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         paused = self.call("POST", f"{path}/pause", body={"reason": "over budget"})
         self.assertEqual(paused.json["paused_reason"], "over budget")
         self.assertEqual(self.call("POST", f"{path}/resume").json["paused_reason"], "")
-        reviewed = self.call("POST", f"{path}/terms-review", role="admin")
-        self.assertEqual(reviewed.json["terms_reviewed_by"], "admin@example.com")
         replaced = self.call("PUT", f"{path}/credentials", body={"credentials": {"api_key": "two"}})
         self.assertEqual(replaced.status, 200)
         self.assertNotIn("two", replaced.text)

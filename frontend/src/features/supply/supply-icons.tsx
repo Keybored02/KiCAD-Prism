@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, ShieldCheck, ShieldQuestion, Star, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, Star, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { JlcClass, SupplyLifecycle } from "@/types/supply";
@@ -61,13 +61,6 @@ export function RollupChip({ sentence }: { sentence: RollupSentence }) {
 /** A BOM row holds several different parts. */
 export function MixedIcon() {
   return <Glyph icon={Layers} label="Mixed: several different parts" className="text-muted-foreground" />;
-}
-
-/** Whether a connector's terms of use were reviewed; the who and when are the tooltip. */
-export function TermsIcon({ reviewedBy, reviewedAt }: { reviewedBy: string; reviewedAt: string }) {
-  return reviewedAt
-    ? <Glyph icon={ShieldCheck} label={`Terms reviewed by ${reviewedBy} on ${reviewedAt}`} className="text-success" />
-    : <Glyph icon={ShieldQuestion} label="Terms not reviewed" className="text-warning" />;
 }
 
 /** The part is waiting for room in a distributor's budget. */

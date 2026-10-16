@@ -148,8 +148,6 @@ class ProviderSpec:
     # Stock here is only what the provider can place on a board it assembles; it is never sold to anyone else, and a
     # tracked part is read here only when the project (or a person) chooses it.
     assembly_only: bool = False
-    # Reads an unpublished address, so the connector does nothing until an administrator records that its terms were read.
-    needs_terms_review: bool = False
     # Calls a day the change-notice API allows, when it has a quota of its own apart from the product API (DigiKey: 50).
     # 0 means notices share the connector's daily budget.
     notice_daily_limit: int = 0

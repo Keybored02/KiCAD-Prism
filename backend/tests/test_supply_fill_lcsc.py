@@ -50,17 +50,6 @@ class FillLcscTests(unittest.TestCase):
         self.assertEqual(result["candidates"], [])
         self.assertEqual(result["skipped"], [{"connector": "LCSC", "reason": "no match"}])
 
-    def test_a_connector_awaiting_its_terms_is_not_asked(self) -> None:
-        from unittest import mock
-
-        connectors = _Connectors()
-        connectors.list = lambda: [{**_Connectors().list()[0], "awaiting_terms": True}]
-        asked = []
-        service = FillService(connectors, provider_for=lambda _id: asked.append(1) or _Provider(), clock=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc))
-        with mock.patch("app.services.supply.fill.trouble.cooling_down", return_value=False):
-            result = service.search("C7950")
-        self.assertEqual((asked, result["skipped"]), ([], [{"connector": "LCSC", "reason": "terms not reviewed"}]))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,16 +1,22 @@
-import { FileSpreadsheet } from "lucide-react";
+import { ChevronRight, FileSpreadsheet } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { SupplyCapacity, SupplyConnector } from "@/types/supply";
 import { budgetUsedPercent, formatWhen } from "./connector-status";
 
 /** Today's calls against the daily budget. */
-export function CallBudget({ connector }: { connector: SupplyConnector }) {
+export function CallBudget({ connector, detail }: { connector: SupplyConnector; detail?: ReactNode }) {
   const used = budgetUsedPercent(connector);
+  const [open, setOpen] = useState(false);
   return (
     <div className="mt-3 space-y-1">
       <div className="flex items-baseline justify-between text-xs">
-        <span className="font-medium uppercase tracking-wider text-muted-foreground">Calls today</span>
+        {detail ? (
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex items-center gap-1 font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground">
+            <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />Calls today
+          </button>
+        ) : <span className="font-medium uppercase tracking-wider text-muted-foreground">Calls today</span>}
         <span className="tabular-nums">
           {connector.usage_today.spent.toLocaleString()} / {connector.daily_budget.toLocaleString()}
         </span>
@@ -26,6 +32,7 @@ export function CallBudget({ connector }: { connector: SupplyConnector }) {
         <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
       </div>
       <p className="text-[11px] text-muted-foreground">{connector.interactive_reserve_pct}% held for lookups</p>
+      {detail && open ? <div className="pt-2">{detail}</div> : null}
     </div>
   );
 }

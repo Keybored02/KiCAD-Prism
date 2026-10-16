@@ -180,5 +180,4 @@ SPEC = ProviderSpec(
     factory=lambda config: JlcpcbProvider(config),
     default_daily_budget=DEFAULT_DAILY_BUDGET,
     assembly_only=True,
-    needs_terms_review=True,
 )

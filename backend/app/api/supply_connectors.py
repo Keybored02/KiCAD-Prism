@@ -214,13 +214,6 @@ async def resume_connector(
     return await _run(lambda: service.resume(connector_id, actor=_actor(admin)))
 
 
-@router.post("/connectors/{connector_id}/terms-review")
-async def confirm_terms_review(
-    connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
-) -> dict[str, Any]:
-    return await _run(lambda: service.confirm_terms_review(connector_id, actor=_actor(admin)))
-
-
 @router.delete("/connectors/{connector_id}", status_code=204)
 async def delete_connector(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)

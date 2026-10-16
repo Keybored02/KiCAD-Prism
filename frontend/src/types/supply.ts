@@ -58,8 +58,6 @@ export interface SupplyConnector {
   metered: boolean;
   /** Read only for a project that names it (JLCPCB: stock that feeds its own assembly). */
   assembly_only?: boolean;
-  /** Does nothing until an administrator marks the provider's terms as read. */
-  awaiting_terms?: boolean;
   /** When the provider's day begins, and in which time zone. */
   reset_time?: string;
   reset_tz?: string;
@@ -75,8 +73,6 @@ export interface SupplyConnector {
   /** Which credentials are set. Values are never returned. */
   credentials: Record<string, boolean>;
   credentials_status: SupplyCredentialStatus;
-  terms_reviewed_by: string;
-  terms_reviewed_at: string | null;
   last_ok_at: string | null;
   last_error_code: string;
   last_error_at: string | null;
@@ -953,7 +949,7 @@ export interface BudgetConnector {
   hourly: BudgetCall[];
   days: BudgetCall[];
   owners: {
-    projects: Array<{ project_id: string; calls_a_day: number }>;
+    projects: Array<{ project_id: string; project_name: string; calls_a_day: number }>;
     parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;
   };
 }

@@ -32,7 +32,7 @@ def provider(client):
 class JlcpcbTests(unittest.TestCase):
     def test_the_spec_is_assembly_only_needs_no_key_and_waits_for_the_terms(self) -> None:
         spec = registry.get_spec("jlcpcb")
-        self.assertEqual((spec.required_credentials, spec.max_batch, spec.assembly_only, spec.needs_terms_review), ((), 1, True, True))
+        self.assertEqual((spec.required_credentials, spec.max_batch, spec.assembly_only), ((), 1, True))
         self.assertEqual(spec.default_daily_budget, 300)
 
     def test_an_offer_keeps_assembly_stock_apart_with_prices_and_the_part_class(self) -> None:

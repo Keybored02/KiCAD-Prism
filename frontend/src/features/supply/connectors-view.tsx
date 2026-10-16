@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@/types/auth";
-import { BudgetView } from "./budget-view";
+import { useBudget } from "./budget-view";
 import { TrackingRoomSection } from "./tracking-room";
 import { ConnectorCard, type ConnectorAction } from "./connector-card";
 import { ConnectorCredentialsDialog } from "./connector-credentials-dialog";
@@ -23,13 +23,14 @@ import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
 import { WorkerStatus } from "./worker-status";
 
-type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "apply-reset" | "test">; id: string };
+type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
 /** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
 export function SupplyConnectorsView({ user }: { user: User | null }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();
   const capacity = useSupplyCapacity();
+  const budgets = useBudget();
   const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const quick = useQuickConnectorActions(apply);
@@ -105,7 +106,6 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
 
         {isAdmin ? <WorkerStatus /> : null}
         <TrackingRoomSection />
-        <BudgetView />
         {status === "loading" ? <ConnectorsSkeleton /> : null}
         {status === "error" ? (
           <Alert variant="destructive">
@@ -123,6 +123,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
                 key={connector.id}
                 connector={connector}
                 capacity={capacity.find((item) => item.connector_id === connector.id)}
+                budget={budgets.find((item) => item.connector_id === connector.id)}
                 isAdmin={isAdmin}
                 onAction={handleAction}
               />

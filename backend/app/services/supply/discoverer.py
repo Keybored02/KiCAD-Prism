@@ -62,7 +62,6 @@ def cutoffs(now: datetime) -> dict[str, Any]:
         "tier1": now - RESEARCH_AFTER[1], "tier2": now - RESEARCH_AFTER[2],
         "missing1": now - RESEARCH_MISSING_AFTER[1], "missing2": now - RESEARCH_MISSING_AFTER[2],
         "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
-        "needs_terms": [spec.key for spec in registry.list_specs(include_dev=True) if spec.needs_terms_review],
     }
 
 
@@ -126,7 +125,7 @@ class Discoverer:
 
         now = self._clock()
         connector = self._connectors.get(connector_id)
-        if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"] or connector["awaiting_terms"]:
+        if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
             return DiscoverySummary(connector_id, stopped=STOPPED_INACTIVE)
         spec = registry.get_spec(connector["provider"])
         if CAP_SEARCH not in spec.capabilities:
@@ -186,7 +185,7 @@ class Discoverer:
         connector = self._connectors.get(connector_id)
         spec = registry.get_spec(connector["provider"])
         if (not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]
-                or connector["awaiting_terms"] or CAP_SEARCH not in spec.capabilities):
+                or CAP_SEARCH not in spec.capabilities):
             return 0, STOPPED_INACTIVE
         if trouble.cooling_down(self._store, connector_id, now):
             return 0, STOPPED_COOLING_DOWN

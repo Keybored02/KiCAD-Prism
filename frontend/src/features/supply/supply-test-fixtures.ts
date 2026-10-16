@@ -20,8 +20,6 @@ export function connectorFixture(overrides: Partial<SupplyConnector> = {}): Supp
     usage_today: { spent: 120, interactive_spent: 0 },
     credentials: { api_key: true },
     credentials_status: "ready",
-    terms_reviewed_by: "",
-    terms_reviewed_at: null,
     last_ok_at: null,
     last_error_code: "",
     last_error_at: null,

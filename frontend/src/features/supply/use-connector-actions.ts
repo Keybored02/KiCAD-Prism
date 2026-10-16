@@ -4,12 +4,11 @@ import { toast } from "sonner";
 import type { SupplyConnector } from "@/types/supply";
 import type { ConnectorAction } from "./connector-card";
 import {
-  confirmSupplyTermsReview,
   resumeSupplyConnector,
   updateSupplyConnector,
 } from "./supply-api";
 
-type QuickAction = Extract<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "apply-reset">;
+type QuickAction = Extract<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset">;
 
 const QUICK: Record<QuickAction, { run: (connector: SupplyConnector) => Promise<SupplyConnector>; done: string }> = {
   resume: { run: (connector) => resumeSupplyConnector(connector.id), done: "Connector resumed" },
@@ -23,7 +22,6 @@ const QUICK: Record<QuickAction, { run: (connector: SupplyConnector) => Promise<
     },
     done: "Reset time set from the provider's readings",
   },
-  terms: { run: (connector) => confirmSupplyTermsReview(connector.id), done: "Terms review recorded" },
 };
 
 export function isQuickAction(action: ConnectorAction): action is QuickAction {

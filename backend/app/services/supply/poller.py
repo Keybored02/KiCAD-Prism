@@ -241,7 +241,7 @@ class Poller:
         now = self._clock()
         self._rupture.clear()
         connector = self._connectors.get(connector_id)
-        if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"] or connector["awaiting_terms"]:
+        if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
             return PollSummary(connector_id, stopped=STOPPED_INACTIVE)
         spec = registry.get_spec(connector["provider"])
         self._reset = (connector["reset_time"], connector["reset_tz"])

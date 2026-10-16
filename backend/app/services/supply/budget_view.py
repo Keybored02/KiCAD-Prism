@@ -72,7 +72,13 @@ def owners(conn, connector_id: str, spec, data: dict[str, Any]) -> dict[str, lis
         })
     parts.sort(key=lambda item: -item["calls_a_day"])
     top_projects = sorted(({"project_id": ref, "calls_a_day": round(cost, 3)} for ref, cost in projects.items()), key=lambda item: -item["calls_a_day"])
-    return {"projects": top_projects[:TOP], "parts": parts[:TOP]}
+    top_projects = top_projects[:TOP]
+    names = {row["project_id"]: row["project_name"] for row in conn.execute(
+        "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", ([item["project_id"] for item in top_projects],)
+    ).fetchall()}
+    for item in top_projects:
+        item["project_name"] = names.get(item["project_id"]) or item["project_id"]
+    return {"projects": top_projects, "parts": parts[:TOP]}
 
 
 def view(conn, now: datetime) -> list[dict[str, Any]]:

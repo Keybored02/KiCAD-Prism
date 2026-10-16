@@ -1,12 +1,12 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BudgetConnector } from "@/types/supply";
 
-vi.mock("./tracking-api", () => ({ getBudget: vi.fn() }));
-
-import { BudgetView } from "./budget-view";
-import * as api from "./tracking-api";
+import { BudgetDetail } from "./budget-view";
+import { CallBudget } from "./connector-card-parts";
+import { connectorFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
 
@@ -17,29 +17,27 @@ const item: BudgetConnector = {
   tracking: { connector_id: "c1", name: "DigiKey", capacity: 900, committed: 450, free: 450, admitted: 380, waiting: 12 },
   hourly: [{ hour: 1, kind: "offers", purpose: "tier1", calls: 40 }, { hour: 2, kind: "search", purpose: "interactive", calls: 20 }],
   days: [{ day: "2026-03-01", purpose: "tier1", calls: 500 }, { day: "2026-03-02", purpose: "tier1", calls: 300 }],
-  owners: { projects: [{ project_id: "prj_1", calls_a_day: 180 }], parts: [{ part_id: "p1", mpn: "LM358DR", manufacturer: "TI", tier: 1, calls_a_day: 1.18, pick_saves: 0.5 }] },
+  owners: { projects: [{ project_id: "prj_1", project_name: "Power board", calls_a_day: 180 }], parts: [{ part_id: "p1", mpn: "LM358DR", manufacturer: "TI", tier: 1, calls_a_day: 1.18, pick_saves: 0.5 }] },
 };
 
 describe("the call budget", () => {
-  it("shows each share, what tracking costs, what waits and what costs most", async () => {
-    vi.mocked(api.getBudget).mockResolvedValue([item]);
-    render(<BudgetView />);
-    const card = await screen.findByRole("article", { name: "DigiKey call budget" });
+  it("shows each share, what tracking costs, what waits and what costs most, by project name", () => {
+    render(<MemoryRouter><BudgetDetail item={{ ...item, owners: { ...item.owners, projects: [{ ...item.owners.projects[0], project_name: "Power board" }] } }} /></MemoryRouter>);
+    const card = screen.getByLabelText("DigiKey call budget");
     expect(within(card).getByRole("img", { name: "Tracking (committed): 300 of 900 calls" })).toBeTruthy();
     expect(within(card).getByRole("img", { name: "Pool (people, first searches, one-off): 20 of 100 calls" })).toBeTruthy();
     expect(within(card).getByText(/Day resets in 3 h 2 min/)).toBeTruthy();
     expect(within(card).getByText(/380 parts read, costing 450 of 900 calls a day. 12 wait for room./)).toBeTruthy();
     expect(within(card).getByText("2 calls turned away today.")).toBeTruthy();
-    expect(within(card).getByText("5 calls today from budget left over (in the total, not in the two shares).")).toBeTruthy();
-    expect(within(card).getByRole("img", { name: "Today, all calls: 325 of 1000 calls" })).toBeTruthy();
     expect(within(card).getByLabelText("Calls a day for the last two weeks")).toBeTruthy();
-    expect(within(card).getByText(/prj_1: 180.0 calls a day/)).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
+    expect(within(card).getByRole("link", { name: "LM358DR" }).getAttribute("href")).toBe("/?section=supply&supplyView=parts&part=p1");
   });
 
-  it("shows nothing when there is no metered connector or the budget cannot be read", async () => {
-    vi.mocked(api.getBudget).mockResolvedValue([]);
-    const { container } = render(<BudgetView />);
-    await vi.waitFor(() => expect(api.getBudget).toHaveBeenCalled());
-    expect(container.textContent).toBe("");
+  it("opens under the connector card's calls bar from the chevron", () => {
+    render(<CallBudget connector={connectorFixture()} detail={<p>the detail</p>} />);
+    expect(screen.queryByText("the detail")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Calls today/ }));
+    expect(screen.getByText("the detail")).toBeTruthy();
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { Link } from "react-router-dom";
 
 import type { BudgetCall, BudgetConnector } from "@/types/supply";
 import { getBudget } from "./tracking-api";
@@ -56,18 +57,15 @@ function Days({ rows }: { rows: readonly BudgetCall[] }) {
   );
 }
 
-function ConnectorBudget({ item }: { item: BudgetConnector }) {
+/** Where a connector's budget goes today and what tracking costs, shown under its card's Calls today bar. */
+export function BudgetDetail({ item }: { item: BudgetConnector }) {
   const today = totalsByPurpose(item.hourly);
   const standing = item.tracking;
   return (
-    <article aria-label={`${item.name} call budget`} className="space-y-2 border p-3 text-sm">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <VendorName provider={item.provider} name={item.name} className="font-medium" />
-        <span className="text-xs text-muted-foreground">
-          Day resets in {hoursMinutes(item.reset_in_seconds)}{item.shares_account ? ", shares its budget with another connector" : ""}
-        </span>
-      </div>
-      <Bar label="Today, all calls" spent={item.spent} capacity={item.daily_budget} />
+    <div aria-label={`${item.name} call budget`} className="space-y-2 text-sm">
+      <p className="text-xs text-muted-foreground">
+        Day resets in {hoursMinutes(item.reset_in_seconds)}{item.shares_account ? ", shares its budget with another connector" : ""}
+      </p>
       <Bar label="Tracking (committed)" spent={item.committed.spent} capacity={item.committed.capacity} />
       <Bar label="Pool (people, first searches, one-off)" spent={item.pool.spent} capacity={item.pool.capacity} />
       {item.spare_spent > 0 ? (
@@ -91,31 +89,31 @@ function ConnectorBudget({ item }: { item: BudgetConnector }) {
           <summary className="cursor-pointer text-muted-foreground">What costs most</summary>
           <ul className="mt-1 space-y-0.5">
             {item.owners.projects.map((project) => (
-              <li key={project.project_id}>{project.project_id || "Not in a project"}: {project.calls_a_day.toFixed(1)} calls a day</li>
+              <li key={project.project_id}>
+                {project.project_id ? (
+                  <Link to={`/project/${encodeURIComponent(project.project_id)}?section=supply`} className="text-primary hover:underline">
+                    {project.project_name || project.project_id}
+                  </Link>
+                ) : "Not in a project"}
+                : {project.calls_a_day.toFixed(1)} calls a day
+              </li>
             ))}
             {item.owners.parts.slice(0, 5).map((part) => (
               <li key={part.part_id} className="text-muted-foreground">
-                {part.mpn}, {part.manufacturer}: {part.calls_a_day.toFixed(2)} a day{part.pick_saves > 0 ? `, a packaging pick saves ${part.pick_saves.toFixed(2)}` : ""}
+                <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(part.part_id)}`} className="text-primary hover:underline">{part.mpn}</Link>
+                , {part.manufacturer}: {part.calls_a_day.toFixed(2)} a day{part.pick_saves > 0 ? `, a packaging pick saves ${part.pick_saves.toFixed(2)}` : ""}
               </li>
             ))}
           </ul>
         </details>
       ) : null}
-    </article>
+    </div>
   );
 }
 
-/** Where every metered connector's call budget goes: today by purpose, two weeks by day, and what tracking costs. */
-export function BudgetView() {
+/** Every metered connector's budget, for the cards. Empty when it cannot be read. */
+export function useBudget(): BudgetConnector[] {
   const fetcher = useCallback((signal: AbortSignal) => getBudget(signal), []);
-  const { data, status } = useLoaded<BudgetConnector[]>("budget", fetcher, "Could not load the call budget");
-  if (status !== "ready" || !data || data.length === 0) return null;
-  return (
-    <section aria-label="Call budget" className="space-y-2">
-      <h3 className="text-sm font-semibold">Call budget</h3>
-      <div className="grid gap-3 md:grid-cols-2">
-        {data.map((item) => <ConnectorBudget key={item.connector_id} item={item} />)}
-      </div>
-    </section>
-  );
+  const { data } = useLoaded<BudgetConnector[]>("budget", fetcher, "Could not load the call budget");
+  return data ?? [];
 }

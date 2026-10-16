@@ -320,21 +320,6 @@ class ConnectorService:
     def resume(self, connector_id: str, *, actor: str) -> dict[str, Any]:
         return self._set_paused(connector_id, actor_text(actor), "", "connector.resume")
 
-    def confirm_terms_review(self, connector_id: str, *, actor: str) -> dict[str, Any]:
-        """Record that someone read this provider's terms of use."""
-
-        actor = actor_text(actor)
-        with self._store.connection() as conn:
-            result = conn.execute(
-                "UPDATE connectors SET terms_reviewed_by = %s, terms_reviewed_at = NOW(), "
-                "updated_at = NOW() WHERE id = %s",
-                (actor, connector_id),
-            )
-            if result.rowcount == 0:
-                raise ConnectorNotFound(connector_id)
-            write_audit(conn, actor, "connector.terms_review", connector_id, {})
-            return self._dto_from(conn, _fetch(conn, connector_id))
-
     def delete(self, connector_id: str, *, actor: str) -> None:
         actor = actor_text(actor)
         with self._store.connection() as conn:
@@ -488,15 +473,11 @@ class ConnectorService:
             "reset_time": row["reset_time"],
             "reset_tz": row["reset_tz"],
             "metered": spec.metered if spec else True,
-            # A provider that reads an unpublished address does nothing until its terms are marked as read.
             "assembly_only": bool(spec and spec.assembly_only),
-            "awaiting_terms": bool(spec and spec.needs_terms_review and not row["terms_reviewed_at"]),
             "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
             "csv_import": csv_import.to_dto() if csv_import else None,
             "credentials": {name: name in names for name in (spec.required_credentials if spec else ())},
             "credentials_status": sealed.status(self._keyring, row["credential_envelope"]),
-            "terms_reviewed_by": row["terms_reviewed_by"],
-            "terms_reviewed_at": _iso(row["terms_reviewed_at"]),
             "rate_limits": dict(row["rate_limits"] or {}),
             "reset_from_provider": bool(row["reset_from_provider"]),
             "reset_suggestion": dict(reset_guess) if reset_guess else None,

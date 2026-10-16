@@ -19,7 +19,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   setSupplyConnectorCredentials: vi.fn(),
   pauseSupplyConnector: vi.fn(),
   resumeSupplyConnector: vi.fn(),
-  confirmSupplyTermsReview: vi.fn(),
   deleteSupplyConnector: vi.fn(),
   uploadSupplyCsv: vi.fn(),
   clearSupplyCsv: vi.fn(),
@@ -63,7 +62,6 @@ describe("connectors list", () => {
     expect(within(card).getByText("api_key")).toBeTruthy();
     expect(within(card).getByText("secret")).toBeTruthy();
     expect(within(card).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("12");
-    expect(within(card).getByRole("img", { name: "Terms not reviewed" })).toBeTruthy();
   });
 
   it("shows the limits a provider reports, and nothing for one that reports none", async () => {
@@ -225,18 +223,6 @@ describe("changing a connector", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => expect(mocked.deleteSupplyConnector).toHaveBeenCalledWith("c1"));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Demo EU" })).toBeNull());
-  });
-
-  it("records a terms review without a form", async () => {
-    load();
-    mocked.confirmSupplyTermsReview.mockResolvedValue(
-      connectorFixture({ terms_reviewed_by: "ana@example.com", terms_reviewed_at: "2026-03-02T09:00:00Z" }),
-    );
-    render(<SupplyConnectorsView user={admin} />);
-    await openMenu("Demo EU");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Mark terms as reviewed" }));
-    await waitFor(() => expect(mocked.confirmSupplyTermsReview).toHaveBeenCalledWith("c1"));
-    expect(await screen.findByRole("img", { name: /Terms reviewed by ana@example.com/ })).toBeTruthy();
   });
 });
 

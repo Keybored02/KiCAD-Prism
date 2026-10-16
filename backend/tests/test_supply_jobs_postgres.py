@@ -384,17 +384,6 @@ class SupplyJobTests(unittest.TestCase):
         self.clock.advance(days=1, hours=-1)  # Monday 11:00, working hours: nothing is spare
         self.assertEqual(self.work(), [])
 
-    def test_a_provider_that_reads_an_unpublished_address_does_nothing_until_its_terms_are_read(self) -> None:
-        cid = self.connectors.create(actor=ACTOR, provider="jlcpcb")["id"]
-        self.assertTrue(self.connectors.get(cid)["awaiting_terms"])
-        self.watch()
-        self.assertEqual(self.work(), [])
-        self.assertEqual(self.discoverer_().run(cid).stopped, "inactive")
-        self.assertEqual(self.poller_().poll_connector(cid).stopped, "inactive")
-        self.connectors.confirm_terms_review(cid, actor=ACTOR)
-        self.assertFalse(self.connectors.get(cid)["awaiting_terms"])
-        self.assertEqual(self.work(), [], "an assembly-only distributor is read only for a project that names it")
-
     def test_the_scan_does_its_housekeeping_even_when_no_connector_has_work_and_not_every_time(self) -> None:
         queue = RecordingJobs()
         self.jobs._housekeeping_at = None

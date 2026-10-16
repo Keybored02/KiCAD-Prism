@@ -31,12 +31,12 @@ class RequestError(ValueError):
 
 def _eligible_connectors(conn) -> list[str]:
     ids = []
-    for row in conn.execute("SELECT id, provider, terms_reviewed_at FROM connectors WHERE enabled AND paused_reason = '' ORDER BY created_at, id").fetchall():
+    for row in conn.execute("SELECT id, provider FROM connectors WHERE enabled AND paused_reason = '' ORDER BY created_at, id").fetchall():
         try:
             spec = registry.get_spec(row["provider"])
         except registry.UnknownProvider:
             continue
-        if spec.assembly_only or (spec.needs_terms_review and not row["terms_reviewed_at"]):
+        if spec.assembly_only:
             continue
         ids.append(row["id"])
     return ids

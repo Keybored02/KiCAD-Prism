@@ -36,8 +36,6 @@ def _unusable(connector: dict[str, Any], now: datetime, service: ConnectorServic
         return "paused"
     if not connector["provider_available"]:
         return "provider missing"
-    if connector.get("awaiting_terms"):
-        return "terms not reviewed"
     if CAP_SEARCH not in registry.get_spec(connector["provider"]).capabilities:
         return "cannot search"
     if trouble.cooling_down(service.store, connector["id"], now):

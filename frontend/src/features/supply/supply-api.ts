@@ -170,9 +170,6 @@ export function listSupplyCapacity(signal?: AbortSignal): Promise<SupplyCapacity
   return fetchJson<SupplyCapacity[]>(`${BASE}/capacity`, { signal }, "Could not load capacity");
 }
 
-export function confirmSupplyTermsReview(id: string): Promise<SupplyConnector> {
-  return post(connectorPath(id, "terms-review"), undefined, "Could not record the review");
-}
 
 export async function deleteSupplyConnector(id: string): Promise<void> {
   const response = await fetchApi(connectorPath(id), { method: "DELETE" });
