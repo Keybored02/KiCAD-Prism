@@ -265,8 +265,16 @@ export function rejectSupplyListings(listingIds: string[]): Promise<{ rejected: 
   return post(`${BASE}/review/listings/reject-many`, { listing_ids: listingIds }, "Could not take the listings off");
 }
 
-export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = "", offset = 0, limit = 0): Promise<SupplyPartsPage> {
+export function listSupplyPartGroups(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = ""): Promise<SupplyPartGroups> {
   const params = new URLSearchParams({ scope });
+  if (only) params.set("only", only);
+  if (query.trim()) params.set("q", query.trim());
+  return fetchJson<SupplyPartGroups>(`${BASE}/part-groups?${params}`, { signal }, "Could not load the parts");
+}
+
+export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = "", offset = 0, limit = 0, projectId = ""): Promise<SupplyPartsPage> {
+  const params = new URLSearchParams({ scope });
+  if (projectId) params.set("project_id", projectId);
   if (offset > 0) params.set("offset", String(offset));
   if (limit > 0) params.set("limit", String(limit));
   if (only) params.set("only", only);

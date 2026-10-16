@@ -7,6 +7,7 @@ import type {
   SupplyManufacturer,
   SupplyOverview,
   SupplyPartDetail,
+  SupplyPartGroups,
   SupplyPartRow,
   SupplyPartsPage,
 } from "@/types/supply";
@@ -16,20 +17,21 @@ import {
   getSupplyPart,
   listSupplyAlerts,
   listSupplyManufacturers,
+  listSupplyPartGroups,
   listSupplyParts,
 } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
-export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "", limit = 0) {
-  const fetcher = useCallback((signal: AbortSignal) => listSupplyParts(scope, query, signal, only, 0, limit), [scope, query, only, limit]);
-  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}`, fetcher, "Could not load parts");
+export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "", limit = 0, projectId = "") {
+  const fetcher = useCallback((signal: AbortSignal) => listSupplyParts(scope, query, signal, only, 0, limit, projectId), [scope, query, only, limit, projectId]);
+  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}|${projectId}`, fetcher, "Could not load parts");
 }
 
 const FEED_PAGE = 50;
 
 /** Parts a page at a time: the first page, then more as `loadMore` is called. A refresh starts again from the first page. */
-export function useSupplyPartsFeed(scope: PartsScope, query: string, only: PartsFilter = "") {
-  const first = useSupplyPartsList(scope, query, only, FEED_PAGE);
+export function useSupplyPartsFeed(scope: PartsScope, query: string, only: PartsFilter = "", projectId = "") {
+  const first = useSupplyPartsList(scope, query, only, FEED_PAGE, projectId);
   const [more, setMore] = useState<{ base: SupplyPartsPage | null; items: SupplyPartRow[]; next: number | null }>({ base: null, items: [], next: null });
   const [loadingMore, setLoadingMore] = useState(false);
   const base = first.data;
@@ -39,14 +41,14 @@ export function useSupplyPartsFeed(scope: PartsScope, query: string, only: Parts
     if (!base || extra.next === null || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE);
+      const page = await listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE, projectId);
       setMore({ base, items: [...extra.items, ...page.items], next: page.next_offset ?? null });
     } catch {
       // The sentinel asks again when it is next seen; the rows already loaded stay.
     } finally {
       setLoadingMore(false);
     }
-  }, [base, extra.items, extra.next, loadingMore, scope, query, only]);
+  }, [base, extra.items, extra.next, loadingMore, scope, query, only, projectId]);
   const items = base ? [...base.items, ...extra.items] : [];
   return { ...first, items, total: base?.total ?? 0, hasMore: extra.next !== null, loadingMore, loadMore };
 }
@@ -80,4 +82,10 @@ export function useSupplyAlerts(includeResolved: boolean) {
 export function useSupplyPartFor(manufacturer: string, mpn: string) {
   const fetcher = useCallback((signal: AbortSignal) => findSupplyPart(manufacturer, mpn, signal), [manufacturer, mpn]);
   return useLoaded<string | null>(`${manufacturer}|${mpn}`, fetcher, "Could not look the part up");
+}
+
+/** The matching parts grouped by the projects that use them. */
+export function useSupplyPartGroups(scope: PartsScope, query: string, only: PartsFilter = "") {
+  const fetcher = useCallback((signal: AbortSignal) => listSupplyPartGroups(scope, query, signal, only), [scope, query, only]);
+  return useLoaded<SupplyPartGroups>(`groups|${scope}|${query}|${only}`, fetcher, "Could not load the parts");
 }

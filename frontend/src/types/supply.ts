@@ -556,6 +556,21 @@ export interface SupplyPartRow {
   need_by?: string | null;
 }
 
+/** The parts that match a view, in one project's group (`none`: used by no project). */
+export interface SupplyPartGroup {
+  project_id: string;
+  project_name: string;
+  tracked: boolean;
+  count: number;
+  /** How many parts have each status. */
+  statuses: Partial<Record<SupplyStatus, number>>;
+}
+
+export interface SupplyPartGroups {
+  groups: SupplyPartGroup[];
+  total: number;
+}
+
 export interface SupplyPartsPage {
   items: SupplyPartRow[];
   total: number;

@@ -14,10 +14,9 @@ import type { User } from "@/types/auth";
 import type { PartsFilter, PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
-import { PartsTable } from "./parts-table";
 import { refreshSupplyUsage } from "./supply-api";
-import { LoadMore } from "./load-more";
-import { useSupplyPartsFeed } from "./use-supply-parts";
+import { PartGroups } from "./project-groups";
+import { useSupplyPartGroups } from "./use-supply-parts";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { SeedFromCatalogButton } from "./seed-from-catalog-button";
 import { TrackingRoomLine } from "./tracking-room";
@@ -50,12 +49,16 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
   const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh } = useSupplyPartsFeed(scope, query, only);
+  const loaded = useSupplyPartGroups(scope, query, only);
+  const { status, data, error, retry } = loaded;
+  // The groups load their own parts, so a change starts them again.
+  const [version, setVersion] = useState(0);
+  const refresh = async () => { await loaded.refresh(); setVersion((current) => current + 1); };
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
     if (scope !== "in_use") return;
-    void refreshSupplyUsage().then(() => refresh()).catch(() => undefined);
+    void refreshSupplyUsage().then(() => loaded.refresh()).catch(() => undefined);
     // `refresh` changes with the query; the usage read is for entering the scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
@@ -136,13 +139,20 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
         {status === "ready" && data ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {items.length === 0 ? (
+            {data.groups.length === 0 ? (
               <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
-                <PartsTable items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} />
-                <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
-                <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
+                <PartGroups
+                  key={version}
+                  groups={data.groups}
+                  scope={scope}
+                  query={query}
+                  only={only}
+                  selectedId={openPart}
+                  onOpen={(partId) => setParams({ part: partId })}
+                />
+                <p className="text-xs text-muted-foreground">{`${data.total.toLocaleString()} ${data.total === 1 ? "part" : "parts"}`}</p>
               </>
             )}
           </>

@@ -18,6 +18,7 @@ vi.mock("./stock-chart", () => ({
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listSupplyParts: vi.fn(),
+  listSupplyPartGroups: vi.fn(),
   getSupplyPart: vi.fn(),
   addSupplyWatch: vi.fn(),
   updateSupplyWatch: vi.fn(),
@@ -63,10 +64,13 @@ beforeEach(() => {
   mocked.getPartDatasheet.mockResolvedValue({ url: "" });
   mocked.listPartDemands.mockResolvedValue({ items: [], summary: { open: 0, own_stock: null, net: 0, next_need_by: null } });
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
+  mocked.listSupplyPartGroups.mockResolvedValue({ groups: [LOOSE], total: 1 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
+const LOOSE = { project_id: "none", project_name: "Not in a project", tracked: false, count: 1, statuses: { ok: 1 } };
+
 afterEach(cleanup);
 
 describe("the parts list, demand", () => {
@@ -80,9 +84,9 @@ describe("the parts list, demand", () => {
 describe("the parts list", () => {
   it("narrows to a group from the URL and lets it go", async () => {
     renderView("designer", "/?section=supply&partsOnly=out_of_stock");
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "out_of_stock", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "out_of_stock", 0, 50, ""));
     fireEvent.click(await screen.findByRole("button", { name: /Showing only Out of stock/ }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50, ""));
     expect(search()).not.toContain("partsOnly");
   });
 
@@ -97,7 +101,7 @@ describe("the parts list", () => {
     expect(within(row).getByRole("img", { name: "Read 2 h ago" })).toBeTruthy();
     expect(within(row).getByRole("img", { name: "Tracked" })).toBeTruthy();
     expect(screen.getByText("1 part")).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "", 0, 50);
+    expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "", 0, 50, "");
   });
 
   it("says plainly when a part has not been read yet", async () => {
@@ -111,15 +115,37 @@ describe("the parts list", () => {
     expect(within(row).getByRole("img", { name: "No data" })).toBeTruthy();
   });
 
+  it("groups the parts by project, closed until opened, with the loose parts last", async () => {
+    mocked.listSupplyPartGroups.mockResolvedValue({
+      groups: [
+        { project_id: "prj_1", project_name: "Power board", tracked: true, count: 3, statuses: { error: 1, ok: 2 } },
+        LOOSE,
+      ],
+      total: 4,
+    });
+    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM324" })], total: 3, limit: 50 });
+    renderView();
+    const power = await screen.findByRole("button", { name: /Power board/ });
+    expect(within(power).getByText("Tracked")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "LM324" })).toBeNull();
+    expect(mocked.listSupplyParts).not.toHaveBeenCalled();
+    fireEvent.click(power);
+    expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50, "prj_1");
+    const order = screen.getAllByRole("button", { name: /Power board|Not in a project/ }).map((button) => (button.textContent ?? "").includes("Power board"));
+    expect(order).toEqual([true, false]);
+  });
+
   it("loads the next page when the end of the list comes into view", async () => {
     class Seen { constructor(private readonly callback: IntersectionObserverCallback) {} observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); } disconnect() {} unobserve() {} }
     vi.stubGlobal("IntersectionObserver", Seen);
     mocked.listSupplyParts
       .mockResolvedValueOnce({ items: [partRowFixture()], total: 2, limit: 50, offset: 0, next_offset: 50 })
       .mockResolvedValueOnce({ items: [partRowFixture({ id: "p2", mpn: "LM324" })], total: 2, limit: 50, offset: 50, next_offset: null });
+    mocked.listSupplyPartGroups.mockResolvedValue({ groups: [{ ...LOOSE, count: 2 }], total: 2 });
     renderView();
     expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", undefined, "", 50, 50);
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", undefined, "", 50, 50, "");
     expect(screen.getByText("2 parts")).toBeTruthy();
     vi.unstubAllGlobals();
   });
@@ -128,11 +154,11 @@ describe("the parts list", () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 50, ""));
     expect(search()).toContain("partsScope=all");
     expect(screen.getByRole("button", { name: "All known" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Tracked" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50, ""));
     expect(search()).not.toContain("partsScope");
   });
 
@@ -141,18 +167,19 @@ describe("the parts list", () => {
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: "  lm358  " } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "lm358", expect.anything(), "", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "lm358", expect.anything(), "", 0, 50, ""));
     expect(search()).toContain("partsQ=lm358");
     cleanup();
 
     renderView("designer", "/?section=supply&partsScope=all&partsQ=tps");
     await screen.findByRole("button", { name: "LM358D" });
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything(), "", 0, 50);
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything(), "", 0, 50, "");
     expect((screen.getByLabelText("Search parts") as HTMLInputElement).value).toBe("tps");
   });
 
   it("explains an empty list for each case", async () => {
     mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100 });
+    mocked.listSupplyPartGroups.mockResolvedValue({ groups: [], total: 0 });
     renderView();
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Track a part" })).toHaveLength(2);
@@ -169,7 +196,7 @@ describe("the parts list", () => {
   });
 
   it("reports a load failure and retries", async () => {
-    mocked.listSupplyParts.mockRejectedValueOnce(new Error("Could not load parts"));
+    mocked.listSupplyPartGroups.mockRejectedValueOnce(new Error("Could not load parts"));
     renderView();
     expect(await screen.findByText("Could not load parts")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -371,7 +398,7 @@ describe("the watch settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "In use" }));
     expect(search()).toContain("partsScope=in_use");
     await waitFor(() => expect(mocked.refreshSupplyUsage).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything(), "", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything(), "", 0, 50, ""));
     // Once for the first load of the scope and once after the usage was read.
     await waitFor(() => expect(mocked.listSupplyParts.mock.calls.filter((call) => call[0] === "in_use").length).toBeGreaterThanOrEqual(2));
     expect(await screen.findByText("Used in 3 projects")).toBeTruthy();
@@ -381,12 +408,12 @@ describe("the watch settings", () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything(), "", 0, 50));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything(), "", 0, 50, ""));
     expect(mocked.refreshSupplyUsage).not.toHaveBeenCalled();
   });
 
   it("says why the In use scope is empty", async () => {
-    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100 });
+    mocked.listSupplyPartGroups.mockResolvedValue({ groups: [], total: 0 });
     renderView("designer", "/?partsScope=in_use");
     expect(await screen.findByText("No parts in use yet")).toBeTruthy();
     expect(screen.getByText(/Open a project BOM, then watch its parts/)).toBeTruthy();

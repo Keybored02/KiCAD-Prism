@@ -81,11 +81,30 @@ async def list_parts(
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),
     offset: int = Query(default=0, ge=0, le=parts_view.MAX_CANDIDATES),
+    project_id: str = Query(default="", max_length=100),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return parts_view.list_parts(conn, scope=scope, query=q, limit=limit, role=user.role, only=only, offset=offset)
+            return parts_view.list_parts(
+                conn, scope=scope, query=q, limit=limit, role=user.role, only=only, offset=offset, project_id=project_id,
+            )
+
+    return await _run(read)
+
+
+@router.get("/part-groups")
+async def part_groups(
+    scope: Literal["watched", "in_use", "all", "tier1", "tier2", "waiting", "pick"] = "watched",
+    only: Literal["", "at_risk", "out_of_stock", "lifecycle"] = "",
+    q: str = Query(default="", max_length=100),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """The matching parts grouped by the projects that use them, tracked projects first."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return parts_view.part_groups(conn, scope=scope, query=q, role=user.role, only=only)
 
     return await _run(read)
 

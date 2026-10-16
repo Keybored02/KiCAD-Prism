@@ -319,15 +319,80 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
     return items, int(total)
 
 
+NO_PROJECT = "none"
+
+
+def _projects_of(conn, part_ids: list[str], role: str | None) -> dict[str, set[str]]:
+    """The projects (that ``role`` may see) whose BOM carries each part."""
+
+    found: dict[str, set[str]] = {}
+    if not part_ids:
+        return found
+    rows = conn.execute(
+        "SELECT DISTINCT p.id AS part_id, u.project_id FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
+        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN bom_usage_projects up ON up.project_id = u.project_id "
+        "WHERE p.id = ANY(%s) AND " + usage.VISIBLE,
+        [part_ids, *usage.role_params(role)],
+    ).fetchall()
+    for row in rows:
+        found.setdefault(row["part_id"], set()).add(row["project_id"])
+    return found
+
+
+def part_groups(
+    conn, *, scope: Scope = "watched", query: str = "", role: str | None = None, only: Filter = "",
+) -> dict[str, Any]:
+    """The parts that match, grouped by the projects that use them: tracked projects first, then by what needs a look.
+
+    A part in two projects is in both. Parts no visible project uses are the group ``none``.
+    """
+
+    items, _total = ranked_parts(conn, scope=scope, query=query, role=role)
+    if only:
+        items = [item for item in items if FILTERS[only](item)]
+    of = _projects_of(conn, [item["id"] for item in items], role)
+    groups: dict[str, dict[str, Any]] = {}
+    for item in items:
+        for project_id in of.get(item["id"]) or {NO_PROJECT}:
+            group = groups.setdefault(project_id, {"project_id": project_id, "count": 0, "statuses": {}})
+            group["count"] += 1
+            group["statuses"][item["status"]] = group["statuses"].get(item["status"], 0) + 1
+    named = {}
+    tracked: set[str] = set()
+    real = [key for key in groups if key != NO_PROJECT]
+    if real:
+        named = {row["project_id"]: row["project_name"] for row in conn.execute(
+            "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
+        tracked = {row["project_id"] for row in conn.execute(
+            "SELECT project_id FROM tracked_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
+    for key, group in groups.items():
+        group["project_name"] = "Not in a project" if key == NO_PROJECT else (named.get(key) or key)
+        group["tracked"] = key in tracked
+        group["worst"] = min((_STATUS_RANK[status] for status in group["statuses"]), default=len(_STATUS_RANK))
+    ordered = sorted(
+        groups.values(),
+        key=lambda group: (group["project_id"] == NO_PROJECT, not group["tracked"], group["worst"], group["project_name"].lower()),
+    )
+    for group in ordered:
+        del group["worst"]
+    return {"groups": ordered, "total": len(items)}
+
+
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = "", offset: int = 0,
+    project_id: str = "",
 ) -> dict[str, Any]:
-    """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them."""
+    """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
+    one project (``none`` for those in no project)."""
 
     limit = max(1, min(limit, MAX_LIMIT))
     items, total = ranked_parts(conn, scope=scope, query=query, role=role)
     if only:
         items = [item for item in items if FILTERS[only](item)]
+        total = len(items)
+    if project_id:
+        of = _projects_of(conn, [item["id"] for item in items], role)
+        items = [item for item in items if (project_id in of.get(item["id"], set()) if project_id != NO_PROJECT else not of.get(item["id"]))]
         total = len(items)
     offset = max(0, offset)
     page = items[offset:offset + limit]

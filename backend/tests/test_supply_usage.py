@@ -279,6 +279,23 @@ class UsageDatabaseTests(unittest.TestCase):
         self.assertEqual({item["mpn"]: item["used_in"] for item in everything}, {"USED-1": 2, "UNUSED-1": 0, "WATCHED-ONLY": 0})
         self.assertEqual(self.call("GET", "/api/supply/parts", query="scope=in_use&q=nothing").json["items"], [])
 
+    def test_parts_are_grouped_by_project_and_a_group_lists_its_own_parts(self) -> None:
+        self.part("Acme", "BOTH-1")
+        self.part("Acme", "A-ONLY")
+        self.part("Acme", "LOOSE", watch=True)
+        self.store_project("p1", "Board A", [component("R1", "Acme", "BOTH-1"), component("R2", "Acme", "A-ONLY")])
+        self.store_project("p2", "Board B", [component("R1", "Acme", "BOTH-1")])
+        groups = self.call("GET", "/api/supply/part-groups", query="scope=all").json
+        self.assertEqual([(g["project_id"], g["project_name"], g["count"]) for g in groups["groups"]],
+                         [("p1", "Board A", 2), ("p2", "Board B", 1), ("none", "Not in a project", 1)], "the loose parts come last")
+        self.assertEqual(groups["total"], 3)
+        in_a = self.call("GET", "/api/supply/parts", query="scope=all&project_id=p1").json
+        self.assertEqual(sorted(item["mpn"] for item in in_a["items"]), ["A-ONLY", "BOTH-1"])
+        loose = self.call("GET", "/api/supply/parts", query="scope=all&project_id=none").json
+        self.assertEqual([item["mpn"] for item in loose["items"]], ["LOOSE"])
+        searched = self.call("GET", "/api/supply/part-groups", query="scope=all&q=A-ONLY").json
+        self.assertEqual([g["project_id"] for g in searched["groups"]], ["p1"], "a group with no match is left out")
+
     def test_the_part_detail_says_where_it_is_used(self) -> None:
         part_id = self.part("Acme", "USED-1")
         self.store_project("p1", "Board A", [component("R2", "Acme", "USED-1"), component("R1", "Acme", "USED-1")])
