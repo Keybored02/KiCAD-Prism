@@ -3,8 +3,22 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { SupplyMatched } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
-import { undoLearnedAlias } from "./supply-api";
+import { undoLearnedAlias, undoSettledPart } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
+
+function SettledRow({ part, canDecide, onDecided }: { part: SupplyMatched["parts"][number]; canDecide: boolean; onDecided: () => Promise<void> }) {
+  const { busy, error, run } = useConnectorSubmit();
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+      <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(part.part_id)}`} className="font-medium text-primary hover:underline">{part.mpn}</Link>
+      <span className="flex-1 text-muted-foreground">made by {part.manufacturer}, from what distributors list</span>
+      {canDecide ? (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(async () => { await undoSettledPart(part.part_id); await onDecided(); })}>Undo</Button>
+      ) : null}
+      {error ? <p role="alert" className="basis-full text-xs text-destructive">{error}</p> : null}
+    </li>
+  );
+}
 
 function LearnedRow({ alias, canDecide, onDecided }: { alias: SupplyMatched["aliases"][number]; canDecide: boolean; onDecided: () => Promise<void> }) {
   const { busy, error, run } = useConnectorSubmit();
@@ -31,12 +45,7 @@ export function MatchedByPrism({ matched, canDecide, onDecided }: { matched: Sup
     <CollapsibleSection id="review-matched" title="Matched by Prism" count={matched.aliases.length + matched.parts.length} startOpen={false}>
       <ul className="divide-y">
         {matched.aliases.map((alias) => <LearnedRow key={alias.alias_key} alias={alias} canDecide={canDecide} onDecided={onDecided} />)}
-        {matched.parts.map((part) => (
-          <li key={`${part.part_id}:${part.at}`} className="flex items-center gap-3 px-3 py-2 text-sm">
-            <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(part.part_id)}`} className="font-medium text-primary hover:underline">{part.mpn}</Link>
-            <span className="text-muted-foreground">made by {part.manufacturer}, from what distributors list</span>
-          </li>
-        ))}
+        {matched.parts.map((part) => <SettledRow key={`${part.part_id}:${part.at}`} part={part} canDecide={canDecide} onDecided={onDecided} />)}
       </ul>
     </CollapsibleSection>
   );

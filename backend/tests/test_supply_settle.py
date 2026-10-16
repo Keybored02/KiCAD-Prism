@@ -145,6 +145,18 @@ class SettleTests(unittest.TestCase):
             row = conn.execute("SELECT source FROM manufacturer_aliases WHERE alias_key = 'acme co ltd taiwan'").fetchone()
         self.assertEqual(row["source"], "learned")
 
+    def test_a_settled_maker_can_be_taken_back_and_the_part_is_asked_about_again(self) -> None:
+        part = self.part("", "ZZ-9")
+        self.search(part, 0, ("ZZ-9", "Zeta Works"))
+        self.assertEqual(self.fresh(part).manufacturer_name, "Zeta Works")
+        with self.store.connection() as conn:
+            self.assertTrue(self.settle.undo_settled(conn, part.id, ACTOR))
+            self.assertFalse(self.settle.undo_settled(conn, part.id, ACTOR), "already taken back")
+            self.assertEqual(self.settle.settle_part(conn, part.id), "choice", "it does not settle by itself again")
+            (question,) = self.settle.needs_choice(conn)
+            self.settle.choose(conn, part.id, question["options"][0]["key"], ACTOR)
+        self.assertEqual((self.fresh(part).manufacturer_name, self.states()["S0-0"]), ("Zeta Works", "exact"))
+
     def test_a_packaging_suffix_of_the_same_maker_is_the_same_part_and_added_by_itself(self) -> None:
         with self.store.connection() as conn:
             self.parts.ensure_manufacturer(conn, "Texas Instruments", ACTOR)

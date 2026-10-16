@@ -112,6 +112,17 @@ async def other_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser
     return await _run(run)
 
 
+@router.post("/parts/{part_id}/undo")
+async def undo_settled(part_id: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, bool]:
+    """Take back the maker Prism settled for a part: it is asked about again."""
+
+    def run() -> dict[str, bool]:
+        with _store().connection() as conn:
+            return {"undone": settle.undo_settled(conn, part_id, approver.email)}
+
+    return await _run(run)
+
+
 @router.post("/aliases/{alias_key}/undo")
 async def undo_alias(alias_key: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, int]:
     def run() -> dict[str, int]:

@@ -92,6 +92,7 @@ def _apply(conn, part: parts.PartRecord, clusters: list[dict[str, Any]], leader:
                 parts.record_spelling(conn, part.id, part.manufacturer_name, LEARNED)
             conn.execute("DELETE FROM manufacturers WHERE id = %s AND provisional AND NOT EXISTS (SELECT 1 FROM parts WHERE manufacturer_id = %s)", (part.manufacturer_id, part.manufacturer_id))
     conn.execute("UPDATE manufacturers SET provisional = FALSE WHERE id = %s", (target,))
+    conn.execute("UPDATE parts SET ask_maker = FALSE WHERE id = %s", (part.id,))
     counted = {row["id"] for row in leader["listings"]}
     for cluster in clusters:
         for row in cluster["listings"]:
@@ -119,6 +120,8 @@ def settle_part(conn, part_id: str, actor: str = SYSTEM) -> str:
     part = parts.get_part(conn, part_id)
     if not part.provisional:
         return "unchanged"
+    if conn.execute("SELECT ask_maker FROM parts WHERE id = %s", (part_id,)).fetchone()["ask_maker"]:
+        return "choice"  # a person took it back: they are asked
     canon = parts._known_keys(conn).get  # noqa: SLF001
     clusters = _clusters(_evidence(conn, part_id, part.match_key), canon)
     if not clusters:
@@ -151,7 +154,7 @@ def needs_choice(conn) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     rows = conn.execute(
         """
-        SELECT p.id, p.mpn, p.match_key, m.name AS maker, m.provisional FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
+        SELECT p.id, p.mpn, p.match_key, p.ask_maker, m.name AS maker, m.provisional FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
         WHERE m.provisional OR NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state IN ('exact', 'manual'))
         ORDER BY lower(p.mpn)
         """
@@ -161,7 +164,7 @@ def needs_choice(conn) -> list[dict[str, Any]]:
         if not clusters:
             continue
         if part["provisional"]:
-            if _leader(clusters, part["maker"], canon) is None:
+            if part["ask_maker"] or _leader(clusters, part["maker"], canon) is None:
                 found.append({"part_id": part["id"], "mpn": part["mpn"], "manufacturer": part["maker"], "kind": "maker", "options": [_option(c) for c in clusters]})
         else:
             found.append({"part_id": part["id"], "mpn": part["mpn"], "manufacturer": part["maker"], "kind": "unlisted", "options": [_option(c) for c in clusters]})
@@ -257,6 +260,29 @@ def not_this_maker(conn, part_id: str, key: str, actor: str) -> int:
         conn.execute("UPDATE listings SET match_state = 'rejected', match_reason = 'another maker, said by a person', matched_by = %s WHERE id = %s", (actor, row["id"]))
     write_audit(conn, actor, "part.other_maker", part_id, {"spellings": sorted(chosen["spellings"])}, subject_kind="part")
     return len(chosen["listings"])
+
+
+def undo_settled(conn, part_id: str, actor: str) -> bool:
+    """Take back a part's maker that Prism settled: the part goes back to "Not known yet", its listings of the number wait, and
+    a person is asked which maker it is. False when the part already is unsettled, or another part holds the number there."""
+
+    actor = actor_text(actor)
+    part = parts.get_part(conn, part_id)
+    unknown = parts._unknown_manufacturer(conn)  # noqa: SLF001
+    if part.manufacturer_id == unknown:
+        return False
+    if conn.execute("SELECT 1 FROM parts WHERE manufacturer_id = %s AND match_key = %s AND id <> %s", (unknown, part.match_key, part_id)).fetchone():
+        return False
+    parts.record_spelling(conn, part_id, part.manufacturer_name, "learned")
+    old = part.manufacturer_id
+    conn.execute("UPDATE parts SET manufacturer_id = %s, ask_maker = TRUE WHERE id = %s", (unknown, part_id))
+    conn.execute(
+        "UPDATE listings SET match_state = 'near', match_reason = 'the maker is being asked again', matched_by = %s "
+        "WHERE part_id = %s AND match_state = 'exact'", (actor, part_id),
+    )
+    conn.execute("DELETE FROM manufacturers WHERE id = %s AND provisional AND NOT EXISTS (SELECT 1 FROM parts WHERE manufacturer_id = %s)", (old, old))
+    write_audit(conn, actor, "part.settle_undo", part_id, {}, subject_kind="part")
+    return True
 
 
 def undo_alias(conn, key: str, actor: str) -> int:

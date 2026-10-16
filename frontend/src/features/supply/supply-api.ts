@@ -287,6 +287,10 @@ export function otherSupplyMaker(partId: string, key: string): Promise<{ rejecte
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
+export function undoSettledPart(partId: string): Promise<{ undone: boolean }> {
+  return post(`${BASE}/review/parts/${encodeURIComponent(partId)}/undo`, {}, "Could not take the maker back");
+}
+
 export function undoLearnedAlias(key: string): Promise<{ listings: number }> {
   return post(`${BASE}/review/aliases/${encodeURIComponent(key)}/undo`, {}, "Could not undo the spelling");
 }
