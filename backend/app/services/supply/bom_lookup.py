@@ -102,6 +102,11 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
     if wanted:
         for row in conn.execute("SELECT id, manufacturer_id, match_key FROM parts WHERE match_key = ANY(%s)", (wanted,)).fetchall():
             by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
+        # A number the part is also sold under finds it too.
+        for row in conn.execute(
+            "SELECT p.id, p.manufacturer_id, n.match_key FROM part_numbers n JOIN parts p ON p.id = n.part_id WHERE n.match_key = ANY(%s)", (wanted,)
+        ).fetchall():
+            by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
 
     spelled: dict[str, set[str]] = {}
     for part_ids in by_number.values():

@@ -470,6 +470,12 @@ export interface SupplyReviewListing {
   part: { id: string; mpn: string; manufacturer: string } | null;
 }
 
+export interface SupplyPartNumber {
+  mpn: string;
+  match_key: string;
+  source: string;
+}
+
 export interface SupplyChoiceOption {
   key: string;
   spelling: string;
@@ -483,7 +489,7 @@ export interface SupplyChoice {
   part_id: string;
   mpn: string;
   manufacturer: string;
-  kind: "maker" | "unlisted";
+  kind: "maker" | "unlisted" | "number";
   options: SupplyChoiceOption[];
 }
 
@@ -658,6 +664,8 @@ export interface MarketBehaviour {
 }
 
 export interface SupplyPartDetail {
+  /** Other numbers the part is sold under. */
+  numbers?: SupplyPartNumber[];
   market_behaviour?: MarketBehaviour;
   jlc?: JlcClass | null;
   /** The catalog components that list this part as an approved alternate, and what their parts hold together. */

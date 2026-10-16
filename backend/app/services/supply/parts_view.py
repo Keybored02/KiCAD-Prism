@@ -702,6 +702,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
                 for item in facts.for_part(conn, part_id) if item["name"] == "last_buy_date" for source in item["sources"]
             ],
         ),
+        "numbers": parts.list_numbers(conn, part_id),
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),

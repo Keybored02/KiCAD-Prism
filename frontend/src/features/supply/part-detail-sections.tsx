@@ -17,6 +17,7 @@ import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
+import { PartNumbers } from "./part-numbers";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
 import { ParametersSection } from "./parameters-section";
@@ -96,6 +97,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       ) : null}
 
       <DemandSection partId={detail.part.id} canEdit={canEdit} />
+
+      <PartNumbers partId={detail.part.id} mpn={detail.part.mpn} numbers={detail.numbers ?? []} canEdit={canEdit} onChanged={onChanged} />
 
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>

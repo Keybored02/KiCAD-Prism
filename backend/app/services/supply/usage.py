@@ -29,7 +29,7 @@ ALL_USES = (
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the
 # manufacturer is blank, is the part's own name, or is a spelling of it (confirmed, or one the part has been seen under).
 MATCHES_PART = """
-    u.match_key = p.match_key AND (
+    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND (
         u.alias_key = '' OR u.alias_key = m.name_key OR EXISTS (
             SELECT 1 FROM manufacturer_aliases a
             WHERE a.alias_key = u.alias_key AND a.manufacturer_id = p.manufacturer_id AND a.status = 'confirmed'

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyChoice, SupplyMatched } from "@/types/supply";
 
-vi.mock("./supply-api", () => ({ chooseSupplyMaker: vi.fn(), otherSupplyMaker: vi.fn(), undoLearnedAlias: vi.fn() }));
+vi.mock("./supply-api", () => ({ chooseSupplyMaker: vi.fn(), otherSupplyMaker: vi.fn(), undoLearnedAlias: vi.fn(), markPartNumbers: vi.fn() }));
 
 import { MakerChoices } from "./maker-choices";
 import { MatchedByPrism } from "./matched-by-prism";
@@ -45,6 +45,21 @@ describe("a part whose maker is not settled", () => {
     expect(screen.getByText("No distributor lists it under Linear Technology")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Different maker" }));
     await waitFor(() => expect(mocked.otherSupplyMaker).toHaveBeenCalledWith("p2", "analog devices"));
+  });
+
+  it("asks which numbers a part is sold as, all ticked, and uses the ticked ones", async () => {
+    mocked.markPartNumbers.mockResolvedValue({ counted: 1 });
+    const family: SupplyChoice = {
+      part_id: "p3", mpn: "GRM155", manufacturer: "Murata", kind: "number",
+      options: [
+        { key: "GRM155D", spelling: "GRM155D", spellings: ["GRM155D"], connectors: ["DigiKey"], listings: 1 },
+        { key: "GRM155J", spelling: "GRM155J", spellings: ["GRM155J"], connectors: ["Mouser"], listings: 1 },
+      ],
+    };
+    render(<MemoryRouter><MakerChoices choices={[family]} onDecided={vi.fn().mockResolvedValue(undefined)} /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText("Use GRM155J"));
+    fireEvent.click(screen.getByRole("button", { name: "Use (1)" }));
+    await waitFor(() => expect(mocked.markPartNumbers).toHaveBeenCalledWith("p3", ["GRM155D"]));
   });
 
   it("shows nothing when there is nothing to choose", () => {

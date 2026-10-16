@@ -84,6 +84,23 @@ async def choose_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUse
     return await _run(run)
 
 
+class NumbersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    keys: list[str] = Field(min_length=1, max_length=50)
+
+
+@router.post("/choices/{part_id}/numbers")
+async def use_numbers(part_id: str, body: NumbersRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
+    """Say the part is also sold as these numbers."""
+
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            return {"counted": settle.use_numbers(conn, part_id, body.keys, user.email)}
+
+    return await _run(run)
+
+
 @router.post("/choices/{part_id}/other")
 async def other_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
     """Say the listings of one maker are not this part."""

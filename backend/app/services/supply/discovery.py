@@ -51,7 +51,9 @@ class DiscoveryResult:
         return self.exact + self.unresolved + self.near
 
 
-def classify(part: parts.PartRecord, match: PartMatch, resolution: parts.Resolution, known: frozenset[str] = frozenset()) -> tuple[str, str]:
+def classify(
+    part: parts.PartRecord, match: PartMatch, resolution: parts.Resolution, known: frozenset[str] = frozenset(), numbers: frozenset[str] = frozenset(),
+) -> tuple[str, str]:
     """The match state and the reason, from facts alone.
 
     The same number counts when the distributor's spelling names the part's maker: its manufacturer, a spelling of it, one
@@ -59,7 +61,7 @@ def classify(part: parts.PartRecord, match: PartMatch, resolution: parts.Resolut
     number is ``near``, kept and shown on the part but never counted.
     """
 
-    if match_key(match.mpn) != part.match_key:
+    if match_key(match.mpn) != part.match_key and match_key(match.mpn) not in numbers:
         return NEAR, "different part number"
     if resolution.status == "confirmed" and resolution.manufacturer_id == part.manufacturer_id:
         return EXACT, "part number and manufacturer match"
@@ -89,9 +91,11 @@ class DiscoveryService:
         counts = {EXACT: 0, UNRESOLVED: 0, NEAR: 0}
         with self._store.connection() as conn:
             known = frozenset(parts.part_spelling_keys(conn, part.id))
+            numbers = frozenset(parts.part_number_keys(conn, part.id))
+            numbers = numbers | frozenset(self._suffixed(conn, part, matches, numbers))
             for match in matches:
                 resolution = parts.resolve_manufacturer(conn, match.manufacturer, provider=match.provider)
-                state, reason = classify(part, match, resolution, known)
+                state, reason = classify(part, match, resolution, known, numbers)
                 state = self._upsert(conn, connector_id, part.id, match, state, reason)
                 if state == EXACT and reason == "same maker as the part":
                     parts.record_spelling(conn, part.id, match.manufacturer, "learned")
@@ -106,6 +110,21 @@ class DiscoveryService:
                 settle.settle_part(conn, part.id)
             settle.learn_aliases(conn)
         return DiscoveryResult(part.id, connector_id, counts[EXACT], counts[UNRESOLVED], counts[NEAR])
+
+    @staticmethod
+    def _suffixed(conn, part: parts.PartRecord, matches: list[PartMatch], numbers: frozenset[str]) -> list[str]:
+        """When no distributor lists the part's own number, the same maker's number plus a packaging suffix (LM358D -> LM358DR)
+        is the same part: those numbers are added to it. Returns the keys added."""
+
+        if part.provisional or any(match_key(match.mpn) in numbers for match in matches):
+            return []
+        added = []
+        for match in matches:
+            key = match_key(match.mpn)
+            if key.startswith(part.match_key) and key[len(part.match_key):] in parts.PACKAGING_SUFFIXES and same_maker(match.manufacturer, part.manufacturer_name):
+                if parts.add_number(conn, part.id, match.mpn, "system", "suffix"):
+                    added.append(key)
+        return added
 
     @staticmethod
     def _upsert(conn, connector_id: str, part_id: str, match: PartMatch, state: str, reason: str) -> str:

@@ -147,6 +147,47 @@ def record_spelling(conn, part_id: str, text: str, source: str = "learned") -> N
     )
 
 
+PACKAGING_SUFFIXES = frozenset({"R", "RL", "TR", "T", "REEL", "REEL7", "REEL13", "#PBF", "#TRPBF", "/TR", "/R", "+T", "+TR"})
+
+
+def part_number_keys(conn, part_id: str) -> set[str]:
+    """The part's own number key and the other numbers it is sold under."""
+
+    keys = {row["match_key"] for row in conn.execute("SELECT match_key FROM part_numbers WHERE part_id = %s", (part_id,)).fetchall()}
+    own = conn.execute("SELECT match_key FROM parts WHERE id = %s", (part_id,)).fetchone()
+    return keys | ({own["match_key"]} if own else set())
+
+
+def list_numbers(conn, part_id: str) -> list[dict]:
+    rows = conn.execute("SELECT mpn, match_key, source FROM part_numbers WHERE part_id = %s ORDER BY mpn", (part_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def add_number(conn, part_id: str, mpn: str, actor: str, source: str = "person") -> bool:
+    """Say the part is also sold as ``mpn``. Its listings then count. False when it already is, or is the part's own number."""
+
+    actor = actor_text(actor)
+    key = match_key(mpn)
+    part = get_part(conn, part_id)
+    if not key or key == part.match_key:
+        return False
+    added = conn.execute(
+        "INSERT INTO part_numbers (part_id, mpn, match_key, source, created_by) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING match_key",
+        (part_id, mpn.strip()[:120], key, source, actor),
+    ).fetchone()
+    if added:
+        write_audit(conn, actor, "part.number_add", part_id, {"mpn": mpn.strip(), "source": source}, subject_kind="part")
+    return added is not None
+
+
+def remove_number(conn, part_id: str, key: str, actor: str) -> bool:
+    actor = actor_text(actor)
+    gone = conn.execute("DELETE FROM part_numbers WHERE part_id = %s AND match_key = %s RETURNING match_key", (part_id, key)).fetchone()
+    if gone:
+        write_audit(conn, actor, "part.number_remove", part_id, {"match_key": key}, subject_kind="part")
+    return gone is not None
+
+
 def part_spelling_keys(conn, part_id: str) -> set[str]:
     return {row["alias_key"] for row in conn.execute("SELECT alias_key FROM part_spellings WHERE part_id = %s", (part_id,)).fetchall()}
 

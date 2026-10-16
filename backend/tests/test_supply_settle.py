@@ -145,6 +145,44 @@ class SettleTests(unittest.TestCase):
             row = conn.execute("SELECT source FROM manufacturer_aliases WHERE alias_key = 'acme co ltd taiwan'").fetchone()
         self.assertEqual(row["source"], "learned")
 
+    def test_a_packaging_suffix_of_the_same_maker_is_the_same_part_and_added_by_itself(self) -> None:
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Texas Instruments", ACTOR)
+        part = self.part("Texas Instruments", "LM358D")
+        self.search(part, 0, ("LM358DR", "Texas Instruments"), ("LM358DR", "TI"))
+        self.assertEqual(self.states(), {"S0-0": "exact", "S0-1": "exact"})
+        with self.store.connection() as conn:
+            self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, part.id)], ["LM358DR"])
+            self.assertEqual(self.settle.needs_choice(conn), [])
+
+    def test_a_family_number_asks_which_numbers_it_is_sold_as_and_a_person_says_yes(self) -> None:
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Murata", ACTOR)
+        part = self.part("Murata", "GRM155R71C104KA88")
+        self.search(part, 0, ("GRM155R71C104KA88D", "Murata"), ("GRM155R71C104KA88J", "Murata Electronics"))
+        self.assertEqual(self.states(), {"S0-0": "near", "S0-1": "near"})
+        with self.store.connection() as conn:
+            (question,) = [q for q in self.settle.needs_choice(conn) if q["kind"] == "number"]
+            self.assertEqual(sorted(option["spelling"] for option in question["options"]), ["GRM155R71C104KA88D", "GRM155R71C104KA88J"])
+            self.assertEqual(self.settle.use_numbers(conn, part.id, [option["key"] for option in question["options"]], ACTOR), 2)
+            self.assertEqual([q for q in self.settle.needs_choice(conn) if q["kind"] == "number"], [])
+        self.assertEqual(self.states(), {"S0-0": "exact", "S0-1": "exact"})
+
+    def test_a_bom_line_naming_another_number_of_the_part_finds_it(self) -> None:
+        from app.services.supply import usage
+
+        part = self.part("Texas Instruments", "LM358D")
+        with self.store.connection() as conn:
+            self.parts.add_number(conn, part.id, "LM358DR", ACTOR)
+            conn.execute("INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES ('p1', 'Board', 'r1', 1, NOW())")
+            conn.execute(
+                "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES ('p1', 'k', '', 'LM358DR', '', 'LM358DR', 2)"
+            )
+            found = usage.used_in(conn, part.id)
+            self.assertEqual([row["project_id"] for row in found], ["p1"])
+            self.assertTrue(self.parts.remove_number(conn, part.id, "LM358DR", ACTOR))
+            self.assertEqual(usage.used_in(conn, part.id), [])
+
     def test_a_listing_is_settled_the_same_after_the_migration_sorts_old_waiting_ones(self) -> None:
         from app.services.supply import maker_backfill
 

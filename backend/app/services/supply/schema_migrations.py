@@ -1462,6 +1462,26 @@ def _m056_makers_without_friction(conn) -> None:
     maker_backfill.run(conn)
 
 
+def _m057_part_numbers(conn) -> None:
+    """Other numbers a part is sold under (a packaging suffix, a family number), beside the catalog's own."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_numbers (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            mpn TEXT NOT NULL,
+            match_key TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'person',
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, match_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_part_numbers_key ON part_numbers (match_key);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1519,6 +1539,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (54, "limit_scopes", _m054_limit_scopes),
     (55, "follow_all_variants", _m055_follow_all_variants),
     (56, "makers_without_friction", _m056_makers_without_friction),
+    (57, "part_numbers", _m057_part_numbers),
 ]
 
 

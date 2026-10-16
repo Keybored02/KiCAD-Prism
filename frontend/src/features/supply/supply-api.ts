@@ -30,6 +30,7 @@ import type {
   SupplyPartDetail,
   SupplyPartsPage,
   SupplyProvider,
+  SupplyPartNumber,
   SupplyReviewQueue,
   SupplyBomRollup,
   SupplyCompliance,
@@ -259,6 +260,19 @@ export function pinSupplyListing(listingId: string): Promise<void> {
 
 export function rejectSupplyListing(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
+}
+
+export function markPartNumbers(partId: string, keys: string[]): Promise<{ counted: number }> {
+  return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/numbers`, { keys }, "Could not record the numbers");
+}
+
+export function addPartNumber(partId: string, mpn: string): Promise<{ added: boolean; numbers: SupplyPartNumber[] }> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/numbers`, { mpn }, "Could not add the number");
+}
+
+export async function removePartNumber(partId: string, key: string): Promise<void> {
+  const response = await fetchApi(`${BASE}/parts/${encodeURIComponent(partId)}/numbers/${encodeURIComponent(key)}`, { method: "DELETE" });
+  if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, "Could not remove the number"));
 }
 
 export function chooseSupplyMaker(partId: string, key: string): Promise<{ result: string }> {

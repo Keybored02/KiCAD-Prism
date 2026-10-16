@@ -30,6 +30,7 @@ MIN_SUPPORT = 2
 
 
 def _evidence(conn, part_id: str, key: str) -> list[dict[str, Any]]:
+    numbers = parts.part_number_keys(conn, part_id) | {key}
     rows = conn.execute(
         """
         SELECT l.id, l.connector_id, c.display_name AS connector, l.raw_mpn, l.raw_manufacturer, l.match_state
@@ -38,7 +39,7 @@ def _evidence(conn, part_id: str, key: str) -> list[dict[str, Any]]:
         """,
         (part_id,),
     ).fetchall()
-    return [row for row in rows if match_key(row["raw_mpn"] or "") == key]
+    return [row for row in rows if match_key(row["raw_mpn"] or "") in numbers]
 
 
 def _clusters(rows: list[dict[str, Any]], canon) -> list[dict[str, Any]]:
@@ -164,7 +165,58 @@ def needs_choice(conn) -> list[dict[str, Any]]:
                 found.append({"part_id": part["id"], "mpn": part["mpn"], "manufacturer": part["maker"], "kind": "maker", "options": [_option(c) for c in clusters]})
         else:
             found.append({"part_id": part["id"], "mpn": part["mpn"], "manufacturer": part["maker"], "kind": "unlisted", "options": [_option(c) for c in clusters]})
+    found += _number_questions(conn, canon)
     return found
+
+
+def _number_questions(conn, canon) -> list[dict[str, Any]]:
+    """Parts no distributor lists by their own number, while the same maker lists numbers that begin with it (a family number)."""
+
+    questions = []
+    rows = conn.execute(
+        """
+        SELECT p.id, p.mpn, p.match_key, m.name AS maker FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
+        WHERE NOT m.provisional AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state IN ('exact', 'manual'))
+          AND EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state = 'near')
+        ORDER BY lower(p.mpn)
+        """
+    ).fetchall()
+    for part in rows:
+        seen: dict[str, dict[str, Any]] = {}
+        for listing in conn.execute(
+            "SELECT l.raw_mpn, l.raw_manufacturer, c.display_name AS connector FROM listings l JOIN connectors c ON c.id = l.connector_id "
+            "WHERE l.part_id = %s AND l.match_state = 'near'", (part["id"],)
+        ).fetchall():
+            key = match_key(listing["raw_mpn"] or "")
+            if key and key != part["match_key"] and key.startswith(part["match_key"]) and same_maker(listing["raw_manufacturer"] or "", part["maker"], canon):
+                item = seen.setdefault(key, {"key": key, "spelling": listing["raw_mpn"], "spellings": [listing["raw_mpn"]], "connectors": set(), "listings": 0})
+                item["connectors"].add(listing["connector"])
+                item["listings"] += 1
+        if seen:
+            options = [{**item, "connectors": sorted(item["connectors"])} for item in seen.values()]
+            questions.append({"part_id": part["id"], "mpn": part["mpn"], "manufacturer": part["maker"], "kind": "number", "options": options})
+    return questions
+
+
+def use_numbers(conn, part_id: str, keys: list[str], actor: str) -> int:
+    """A person says the part is also sold as these numbers: its listings of them count."""
+
+    actor = actor_text(actor)
+    part = parts.get_part(conn, part_id)
+    moved = 0
+    for listing in conn.execute(
+        "SELECT id, raw_mpn, match_state FROM listings WHERE part_id = %s AND match_state IN ('near', 'exact')", (part_id,)
+    ).fetchall():
+        key = match_key(listing["raw_mpn"] or "")
+        if key in keys and key != part.match_key:
+            parts.add_number(conn, part_id, listing["raw_mpn"], actor, "suggested")
+            if listing["match_state"] != "exact":
+                conn.execute(
+                    "UPDATE listings SET match_state = 'exact', match_reason = 'another number of the part, said by a person', matched_by = %s WHERE id = %s",
+                    (actor, listing["id"]),
+                )
+                moved += 1
+    return moved
 
 
 def choose(conn, part_id: str, key: str, actor: str) -> str:
