@@ -210,7 +210,14 @@ remembered):
   same maker lists numbers that begin with it. One click each. Designers, QA and administrators answer.
 - **Pinned under another number:** listings pinned as a part although numbered otherwise (their stock counts as the part's).
   Tick the ones to take off; QA and administrators decide.
-- **Matched by Prism:** spellings Prism learned (Undo) and parts whose maker the distributors settled.
+- **To approve:** waivers and alternates people proposed, each with Approve and Reject and a link to where it lives. QA and
+  administrators decide.
+- **Matched by Prism:** spellings Prism learned (Undo) and parts whose maker the distributors settled (Undo asks about the
+  part again). Administrators can read and edit the built-in spellings of large makers in Supply settings.
+
+A project with open questions shows a **N to settle** badge on Project > Supply and on the BOM bar; it opens the same
+answers for that project. Pinning a listing that is numbered otherwise than the part asks whether to add the number to the
+part or only pin the listing.
 
 ## Approved parts (alternates)
 

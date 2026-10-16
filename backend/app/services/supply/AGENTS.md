@@ -26,6 +26,7 @@ root first.
 | `parts.py` | Manufacturers, their spellings, parts and the other numbers a part is sold under. `ensure_part` refuses nobody (a maker nobody has checked is provisional). Functions on a connection; none commit. |
 | `makers.py` | `same_maker`: whether two spellings name one maker (same key, seeded spelling, starts with, whole words inside, initials, one lost letter). Never looks at a part number. |
 | `settle.py` | Settling a provisional part's maker from the listings of its number, the questions a person answers (`needs_choice`, `choose`, `not_this_maker`, `use_numbers`), and learning spellings (`learn_aliases`, `undo_alias`). |
+| `maker_seeds.py` | The built-in spellings of large makers as rows (`maker_seeds`) an administrator edits; `makers.refresh` reads them. |
 | `maker_backfill.py` | Migration 56: sorts the listings that waited under the old rules again. |
 | `packaging_auto.py` | Picks the packaging of a tracked part by what its projects buy for (prototypes: smallest order, production: a reel). Never changes a person's pick. |
 | `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states (a number the part is sold under and the same maker count; another maker's listing is `near`). Also `pin_listing`, `reject_listing`, `counted_listings`. |
