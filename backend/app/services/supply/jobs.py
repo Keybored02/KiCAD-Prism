@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, datasheets, details, fx, ledger, market, notice_files, notice_parse, oneoff, project_bom, project_supply, quota, retention,
+    accounts, details, fx, ledger, market, notice_parse, oneoff, project_bom, project_supply, quota, retention,
     schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
@@ -212,22 +212,9 @@ def schedule_due_supply_jobs(
     return queued
 
 
-def _check_datasheets(store: SupplyStore) -> None:
-    """Fetch a couple of due datasheets. Best effort: a failure is recorded against the part, never the job."""
+def _read_kept_notices(store: SupplyStore) -> None:
+    """Read notice files already kept, for their dates. Local only: Prism downloads no files (plan 10)."""
 
-    try:
-        datasheets.run_due(store)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Datasheets not checked", exc_info=True)
-
-
-def _keep_notice_files(store: SupplyStore) -> None:
-    """Keep a copy of a couple of notice PDFs. Best effort: a failure is recorded against the notice, never the job."""
-
-    try:
-        notice_files.run_due(store)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Notice files not kept", exc_info=True)
     try:
         notice_parse.run_due(store)
     except Exception:  # noqa: BLE001 - what is read is a suggestion; the notice does not depend on it
@@ -375,9 +362,7 @@ def run_supply_poll_job(context: Any) -> Any:
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
         retention.trim_summaries(conn)
-    # Outside the connection above: fetching a file can take a while.
-    _check_datasheets(connectors.store)
-    _keep_notice_files(connectors.store)
+    _read_kept_notices(connectors.store)
     details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,

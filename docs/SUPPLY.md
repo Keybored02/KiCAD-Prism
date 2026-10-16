@@ -167,7 +167,7 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
   or functional, from the parameters distributors list, and shows replacements distributors name. It does not compare footprint or
   pins. A candidate is proposed to the part's catalog component and QA approves it. A component's parts, with who gives how much
   stock, show in the Sourcing tab and on the part sheet.
-- **Notice files.** A kept notice PDF is read for its last-time-buy and last-time-ship dates (only unambiguous ones), its kind, and
+- **Notice files.** A notice PDF kept before downloads were stopped is read for its last-time-buy and last-time-ship dates (only unambiguous ones), its kind, and
   the known parts it names. This is a suggestion; nothing counts until a person accepts it.
 - **Trade classification.** The project tab lists the export control class (ECCN) and tariff codes distributors state for each part,
   flags disputes and gaps, and downloads them as CSV. It is what they say, not a classification.
@@ -192,13 +192,10 @@ approved alternate are out of stock, the component says so.
 
 ## Datasheets
 
-A distributor's answer can carry the manufacturer's datasheet address (Mouser, DigiKey, Farnell and LCSC do). Prism
-keeps the first one it sees, fetches the PDF weekly for watched parts and parts on project BOMs, and keeps up to five
-versions. A part sheet's Datasheets section shows each version, how much of the first pages' text changed, and
-lifecycle phrases the text mentions ("not recommended for new designs", "last time buy", "obsolete", "end of life",
-"discontinued", "preliminary"). A new version of a watched part raises a *datasheet changed* alert for two weeks. An administrator can list hosts to avoid in Supply settings; nothing is fetched from them or their subdomains.
-Designers and administrators can set the address by hand. Files come from the public internet and are never opened by
-Prism itself: text is read in a separate process with a time limit, and downloads are served as sandboxed attachments.
+A distributor's answer can carry the manufacturer's datasheet address (Mouser, DigiKey, Farnell and LCSC do). Prism keeps
+the address and shows it as a link. It downloads no files: not datasheets, not change-notice PDFs. Downloading them from
+distributors' websites got the host's IP flagged by their bot protection (2026-10-16). Versions kept before that are still
+listed. Designers and administrators can set the address by hand.
 
 ## Compliance
 
@@ -230,7 +227,7 @@ A manufacturer's notice (end of life, last time buy, not recommended for new des
 a designer or administrator on a part sheet: a title, what it announces, its dates, an address, and the parts it covers.
 With a DigiKey sign-in, Prism also reads DigiKey's notices for each DigiKey listing of watched parts and parts on project
 BOMs once a week: its type, description, release date and a link to the notice. The same notice is kept once however many
-parts it covers, and one that is closed stays closed. Prism keeps a copy of a notice's PDF (a "Kept copy" link) but does not read it, so a last time buy date is one a person
+parts it covers, and one that is closed stays closed. Prism links a notice's PDF but does not download it, so a last time buy date is one a person
 typed (DigiKey's last date to buy shows under Compliance and in the Outlook). Any other notice on a watched part (a change of packaging, assembly site or design) goes to the Inbox for two weeks after Prism first sees it, if it was released in the last year; older ones stay on the part sheet only. An open notice that announces an ending feeds the
 outlook and raises an alert on watched parts, an error when the last time buy is within 90 days. "Check notices" in that section reads one part's notices now, one DigiKey call per listing from the allowance kept for lookups, once an hour per person and part. The part sheet lists notices in a section that folds away (open when one announces an ending). Notices are a record and cannot be dismissed there.
 
