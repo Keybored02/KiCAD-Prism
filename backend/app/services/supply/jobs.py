@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, details, fx, ledger, market, oneoff, project_bom, project_supply, quota, retention,
+    accounts, details, fx, ledger, market, oneoff, packaging_auto, project_bom, project_supply, quota, retention,
     schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
@@ -190,6 +190,7 @@ def housekeeping(store: SupplyStore) -> int:
         _sync_component_watches(conn)
         _refresh_project_boms(conn)
         _sync_tracking(conn)
+        _pick_packagings(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
         retention.trim_summaries(conn)
@@ -313,6 +314,16 @@ def _refresh_project_boms(conn) -> None:
             project_bom.refresh_tracked(conn, datetime.now(timezone.utc))
     except Exception:  # noqa: BLE001 - the project files may be unavailable; the next job tries again
         logging.getLogger(__name__).info("Project BOMs not refreshed", exc_info=True)
+
+
+def _pick_packagings(conn) -> None:
+    """Pick a packaging for tracked parts that have several listings and no pick, by what their projects buy for. Best effort."""
+
+    try:
+        with conn.transaction():
+            packaging_auto.auto_pick(conn)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Packagings not picked", exc_info=True)
 
 
 def _sync_tracking(conn) -> None:

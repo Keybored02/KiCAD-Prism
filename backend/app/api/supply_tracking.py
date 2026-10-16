@@ -33,6 +33,8 @@ class ProjectIn(BaseModel):
     connector_ids: list[str] | None = Field(default=None, max_length=50)
     # Follow every design the project has, also those it gets later (variants is then ignored).
     all_variants: bool = False
+    # What the project buys for: picks the packaging that is followed (prototypes: cut tape, production: reels).
+    buying_for: Literal["prototypes", "production"] = "prototypes"
 
 
 class PartIn(BaseModel):
@@ -77,7 +79,7 @@ def _read_project_bom(conn, project_id: str) -> str:
 def _track(project_id: str, body: ProjectIn, actor: str) -> Callable[[Any], Any]:
     def change(conn) -> dict[str, Any]:
         _read_project_bom(conn, project_id)
-        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants)
+        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants, buying_for=body.buying_for)
 
     return change
 

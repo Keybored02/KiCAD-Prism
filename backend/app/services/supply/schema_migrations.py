@@ -1482,6 +1482,12 @@ def _m057_part_numbers(conn) -> None:
     )
 
 
+def _m058_buying_for(conn) -> None:
+    """What a tracked project buys for: prototypes (cut tape, small orders) or production (reels)."""
+
+    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS buying_for TEXT NOT NULL DEFAULT 'prototypes'", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1540,6 +1546,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (55, "follow_all_variants", _m055_follow_all_variants),
     (56, "makers_without_friction", _m056_makers_without_friction),
     (57, "part_numbers", _m057_part_numbers),
+    (58, "buying_for", _m058_buying_for),
 ]
 
 
