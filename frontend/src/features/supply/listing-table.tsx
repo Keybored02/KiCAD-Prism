@@ -20,7 +20,7 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
         const offer = listing.offer;
         const firstBreak = offer?.price_breaks[0];
         return (
-          <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="rounded-md border p-3 text-sm">
+          <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="border p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />

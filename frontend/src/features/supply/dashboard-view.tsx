@@ -52,8 +52,8 @@ export function DashboardView({ user }: { user: User | null }) {
   ];
 
   return (
-    <div className="relative h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <div className="relative h-full overflow-y-auto p-4">
+      <div className="space-y-6">
         {overview.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {overview.status === "error" ? (
           <Alert variant="destructive">
@@ -87,7 +87,7 @@ function TileButton({ tile }: { tile: Tile }) {
   const Icon = tile.icon;
   const value = tile.value ?? 0;
   return (
-    <button type="button" onClick={tile.onClick} className="flex flex-col gap-1 rounded-lg border p-3 text-left hover:bg-muted/40" title={tile.label}>
+    <button type="button" onClick={tile.onClick} className="flex flex-col gap-1 border p-3 text-left hover:bg-muted/30" title={tile.label}>
       <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground"><Icon aria-hidden className="h-3.5 w-3.5" />{tile.label}</span>
       <span className={cn("text-2xl font-semibold tabular-nums", tile.bad && value > 0 && "text-destructive")}>{value.toLocaleString()}</span>
     </button>
@@ -130,9 +130,9 @@ function AlertList({ alerts, overview, onOpenPart }: { alerts: ReturnType<typeof
       {actionError ? <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert> : null}
       {status === "ready" && data ? (
         data.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">{emptyText(overview, showCleared)}</div>
+          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(overview, showCleared)}</div>
         ) : (
-          <ul className="rounded-lg border">
+          <ul className="border">
             {data.map((alert) => (
               <AlertRow
                 key={alert.id}

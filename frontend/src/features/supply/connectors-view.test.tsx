@@ -27,6 +27,8 @@ vi.mock("./supply-api", async (importOriginal) => ({
   getSupplyWorker: vi.fn(),
 }));
 
+vi.mock("./supply-settings-dialog", () => ({ SupplySettingsDialog: () => <div>Settings dialog</div> }));
+
 import * as api from "./supply-api";
 import { SupplyConnectorsView } from "./connectors-view";
 
@@ -328,5 +330,16 @@ describe("capacity notes", () => {
     render(<SupplyConnectorsView user={admin} />);
     expect(await screen.findByRole("article", { name: "Demo EU" })).toBeTruthy();
     expect(screen.queryByText(/needs about/)).toBeNull();
+  });
+
+  it("gives only administrators the settings button, beside Add connector", async () => {
+    load();
+    render(<SupplyConnectorsView user={admin} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Supply settings" }));
+    expect(await screen.findByText("Settings dialog")).toBeTruthy();
+    cleanup();
+    render(<SupplyConnectorsView user={designer} />);
+    await screen.findByRole("article", { name: "Demo EU" });
+    expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
   });
 });

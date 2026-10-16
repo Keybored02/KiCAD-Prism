@@ -9,7 +9,6 @@ vi.mock("./insights-view", () => ({ InsightsView: ({ view }: { view: string }) =
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
-vi.mock("./supply-settings-dialog", () => ({ SupplySettingsDialog: () => <div>Settings dialog</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
 
@@ -69,16 +68,10 @@ describe("the Supply section", () => {
     expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("gives only administrators the settings", async () => {
-    renderAt("admin");
-    fireEvent.click(await screen.findByRole("button", { name: "Supply settings" }));
-    expect(await screen.findByText("Settings dialog")).toBeTruthy();
-    for (const role of ["designer", "qa"] as const) {
-      cleanup();
-      renderAt(role);
-      await screen.findByText("Dashboard content");
-      expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
-    }
+  it("titles each tab and keeps the settings off the other tabs", async () => {
+    renderAt("admin", "/?section=supply&supplyView=connectors");
+    expect(await screen.findByRole("heading", { name: "Distributor Connectors" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
   });
 
   it("is closed to viewers and signed-out users, and says why", () => {

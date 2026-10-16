@@ -1,8 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boxes, LayoutDashboard, LineChart, ListChecks, Plug, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, LayoutDashboard, LineChart, ListChecks, Plug, ShieldAlert, type LucideIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
@@ -11,7 +10,6 @@ import { useSigninResult } from "./use-signin-result";
 
 const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ default: module.DashboardView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
-const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then((module) => ({ default: module.SupplySettingsDialog })));
 const InsightsView = lazy(() => import("./insights-view").then((module) => ({ default: module.InsightsView })));
 const SupplyConnectorsView = lazy(() => import("./connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
@@ -35,7 +33,8 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const place = resolvePlace(searchParams.get("supplyView"), searchParams.get("insightsView"), searchParams.get("tool"));
   const view = place.tab;
   const current = VIEWS.find((item) => item.id === view) ?? VIEWS[0];
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // The Connectors tab puts its buttons here, on the right of the page title.
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
   useSigninResult();
 
@@ -81,32 +80,23 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           ))}
         </TabsList>
       </Tabs>
-      {user?.role === "admin" ? (
-        <Button variant="ghost" size="sm" aria-label="Supply settings" onClick={() => setSettingsOpen(true)}>
-          <Settings className="h-4 w-4" />
-        </Button>
-      ) : null}
       </div>
-      <header className="shrink-0 border-b bg-card px-4 py-3">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
         <div className="flex items-center gap-2">
           <current.icon className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-semibold">{current.title}</h2>
         </div>
+        <div ref={setHeaderSlot} className="flex items-center gap-2" />
       </header>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
           {view === "dashboard" && <DashboardView user={user} />}
-          {view === "parts" && <PartsView user={user} />}
+          {view === "parts" && <PartsView user={user} headerSlot={headerSlot} />}
           {view === "review" && <ReviewView user={user} />}
           {view === "insights" && <InsightsView view={place.insight} />}
-          {view === "connectors" && <SupplyConnectorsView user={user} />}
+          {view === "connectors" && <SupplyConnectorsView user={user} headerSlot={headerSlot} />}
         </div>
       </Suspense>
-      {settingsOpen ? (
-        <Suspense fallback={null}>
-          <SupplySettingsDialog open onOpenChange={setSettingsOpen} />
-        </Suspense>
-      ) : null}
     </div>
   );
 }

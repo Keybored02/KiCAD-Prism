@@ -22,9 +22,6 @@ export function workerNote(worker: SupplyWorker, now: number): WorkerNote {
   if (minutes >= SILENT_MINUTES) {
     return { warning: true, text: `The background worker last reported ${ago(minutes)}. It may have stopped, and then nothing is read.` };
   }
-  if (worker.older_than_server) {
-    return { warning: true, text: "The background worker started before the last update. Restart it to run the new code." };
-  }
   if (worker.missing_providers.length > 0) {
     return { warning: true, text: `The background worker does not know ${worker.missing_providers.join(", ")}. Restart it; those connectors are not read until then.` };
   }

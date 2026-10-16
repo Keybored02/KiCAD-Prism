@@ -12,9 +12,9 @@ interface PartsTableProps {
 
 export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="overflow-x-auto border">
       <table className="w-full text-sm">
-        <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+        <thead className="border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground">
           <tr>
             <th className="w-8 px-3 py-2"><span className="sr-only">Status</span></th>
             <th className="px-3 py-2">Part</th>
@@ -29,7 +29,7 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
           {items.map((part) => (
             <tr
               key={part.id}
-              className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/40", selectedId === part.id && "bg-muted/60")}
+              className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/30", selectedId === part.id && "bg-muted/60")}
               onClick={() => onOpen(part.id)}
             >
               <td className="px-3 py-2"><StatusDot status={part.status} /></td>

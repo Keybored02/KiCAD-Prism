@@ -20,7 +20,7 @@ export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
     });
 
   return (
-    <article className="rounded-lg border bg-card p-3" aria-label={`Listing ${listing.sku}`}>
+    <article className="border bg-card p-3" aria-label={`Listing ${listing.sku}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
           <div className="flex flex-wrap items-center gap-2">

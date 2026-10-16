@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { ArrowLeft, Eye, FileSpreadsheet, PackageSearch, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -38,7 +39,7 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
 ];
 
 /** Parts Prism knows about, with their stock. The URL holds the scope, search and open part. */
-export function PartsView({ user }: { user: User | null }) {
+export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");
   const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "watched";
@@ -80,20 +81,24 @@ export function PartsView({ user }: { user: User | null }) {
     );
   }
 
+  const actions = (
+    <>
+      {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
+      <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
+        <FileSpreadsheet className="h-4 w-4" />Check a BOM file
+      </Button>
+      <PermissionHint blocked={!canEdit} action="track parts" allowedRoles={["designer", "admin"]}>
+        <Button disabled={!canEdit} onClick={() => setWatching(true)}>
+          <Eye className="h-4 w-4" />Track a part
+        </Button>
+      </PermissionHint>
+    </>
+  );
+
   return (
-    <div className="relative h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-5xl space-y-5">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
-          <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
-            <FileSpreadsheet className="h-4 w-4" />Check a BOM file
-          </Button>
-          <PermissionHint blocked={!canEdit} action="track parts" allowedRoles={["designer", "admin"]}>
-            <Button disabled={!canEdit} onClick={() => setWatching(true)}>
-              <Eye className="h-4 w-4" />Track a part
-            </Button>
-          </PermissionHint>
-        </div>
+    <div className="relative h-full overflow-y-auto p-4">
+      <div className="space-y-5">
+        {headerSlot === undefined ? <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div> : headerSlot ? createPortal(actions, headerSlot) : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <div role="group" aria-label="Which parts" className="flex gap-1">
@@ -179,7 +184,7 @@ function SearchBox({ initial, onSearch }: { initial: string; onSearch: (text: st
 
 function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope; searching: boolean; canEdit: boolean; onWatch: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
+    <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
       <PackageSearch className="h-8 w-8 text-muted-foreground" />
       <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" ? "No tracked parts yet" : scope === "in_use" ? "No parts in use yet" : "No parts yet"}</p>
       <p className="max-w-md text-sm text-muted-foreground">

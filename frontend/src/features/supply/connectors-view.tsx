@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { Plug, Plus } from "lucide-react";
+import { lazy, Suspense, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Plug, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -25,14 +26,17 @@ import { WorkerStatus } from "./worker-status";
 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
+const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then((module) => ({ default: module.SupplySettingsDialog })));
+
 /** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
-export function SupplyConnectorsView({ user }: { user: User | null }) {
+export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();
   const capacity = useSupplyCapacity();
   const budgets = useBudget();
   const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const quick = useQuickConnectorActions(apply);
   const deletion = useConnectorSubmit();
   const clearing = useConnectorSubmit();
@@ -92,17 +96,25 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
   };
 
   const canAdd = isAdmin && providers.length > 0;
+  const actions = (
+    <>
+      <PermissionHint blocked={!isAdmin} action="add connectors" allowedRoles={["admin"]}>
+        <Button disabled={!canAdd} onClick={() => setDialog({ kind: "create" })}>
+          <Plus className="h-4 w-4" />Add connector
+        </Button>
+      </PermissionHint>
+      {isAdmin ? (
+        <Button variant="outline" size="icon" aria-label="Supply settings" onClick={() => setSettingsOpen(true)}>
+          <Settings className="h-4 w-4" />
+        </Button>
+      ) : null}
+    </>
+  );
 
   return (
     <div className="relative h-full overflow-y-auto p-6">
       <div className="space-y-5">
-        <div className="flex flex-wrap items-start justify-end gap-3">
-          <PermissionHint blocked={!isAdmin} action="add connectors" allowedRoles={["admin"]}>
-            <Button disabled={!canAdd} onClick={() => setDialog({ kind: "create" })}>
-              <Plus className="h-4 w-4" />Add connector
-            </Button>
-          </PermissionHint>
-        </div>
+        {headerSlot === undefined ? <div className="flex justify-end gap-2">{actions}</div> : headerSlot ? createPortal(actions, headerSlot) : null}
 
         {isAdmin ? <WorkerStatus /> : null}
         <TrackingRoomSection />
@@ -132,6 +144,11 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
         ) : null}
       </div>
 
+      {settingsOpen ? (
+        <Suspense fallback={null}>
+          <SupplySettingsDialog open onOpenChange={setSettingsOpen} />
+        </Suspense>
+      ) : null}
       <CreateConnectorDialog
         open={dialog?.kind === "create"}
         onOpenChange={(open) => { if (!open) closeDialog(); }}

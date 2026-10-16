@@ -18,8 +18,8 @@ export function ReviewView({ user }: { user: User | null }) {
   const packaging = usePackagingWaiting();
 
   return (
-    <div className="relative h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-4xl space-y-6">
+    <div className="relative h-full overflow-y-auto p-4">
+      <div className="space-y-6">
         {canDecide ? null : <p className="text-sm text-muted-foreground">QA and administrators decide.</p>}
 
         {status === "loading" ? <Skeleton className="h-40 w-full" aria-label="Loading the review queue" /> : null}
@@ -35,7 +35,7 @@ export function ReviewView({ user }: { user: User | null }) {
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             {queue.aliases.length === 0 && queue.listings.length === 0 && packaging.items.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
+              <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
                 <CheckCheck className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing to review</p>
                 <p className="max-w-md text-sm text-muted-foreground">

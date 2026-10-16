@@ -42,7 +42,7 @@ export function AliasRow({ alias, manufacturers, canDecide, onDecided }: AliasRo
   };
 
   return (
-    <article className="rounded-lg border bg-card p-3" aria-label={`Spelling ${alias.alias_text}`}>
+    <article className="border bg-card p-3" aria-label={`Spelling ${alias.alias_text}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">{alias.alias_text}</p>

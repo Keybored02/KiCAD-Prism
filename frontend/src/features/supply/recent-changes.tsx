@@ -42,7 +42,7 @@ export function RecentChanges({ changes, onOpenPart }: { changes: SupplyRecentCh
   return (
     <section aria-label="Recent changes" className="space-y-2">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</h3>
-      <ul className="rounded-lg border">
+      <ul className="border">
         {changes.map((change) => (
           <li key={`${change.type}-${change.part_id ?? String(change.detail?.project_id)}-${change.at}`} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">
             <StatusDot status={change.type === "alert_cleared" || change.type === "project_bom_changed" ? "ok" : (change.alert?.severity ?? "warning")} />

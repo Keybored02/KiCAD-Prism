@@ -19,8 +19,8 @@ describe("the background worker note", () => {
     expect(silent.text).toContain("60 minutes ago");
   });
 
-  it("warns when it runs older code or lacks a provider", () => {
-    expect(workerNote(worker({ older_than_server: true }), NOW).text).toContain("Restart it");
+  it("warns when it lacks a provider, and says nothing about older code", () => {
+    expect(workerNote(worker({ older_than_server: true }), NOW).warning).toBe(false);
     expect(workerNote(worker({ missing_providers: ["avnet", "lcsc"] }), NOW).text).toContain("avnet, lcsc");
   });
 });
