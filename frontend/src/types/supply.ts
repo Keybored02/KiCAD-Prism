@@ -470,6 +470,28 @@ export interface SupplyReviewListing {
   part: { id: string; mpn: string; manufacturer: string } | null;
 }
 
+export interface SupplyChoiceOption {
+  key: string;
+  spelling: string;
+  spellings: string[];
+  connectors: string[];
+  listings: number;
+}
+
+/** A part whose maker the answers do not settle: "maker" (not confirmed) or "unlisted" (no distributor lists its known maker). */
+export interface SupplyChoice {
+  part_id: string;
+  mpn: string;
+  manufacturer: string;
+  kind: "maker" | "unlisted";
+  options: SupplyChoiceOption[];
+}
+
+export interface SupplyMatched {
+  aliases: Array<{ alias_key: string; alias_text: string; manufacturer: string; first_seen_at: string; parts: number }>;
+  parts: Array<{ part_id: string; mpn: string; manufacturer: string; at: string }>;
+}
+
 export interface SupplyOtherNumberGroup {
   part_id: string;
   mpn: string;
@@ -482,6 +504,9 @@ export interface SupplyReviewQueue {
   listings: SupplyReviewListing[];
   /** Listings pinned as a part although numbered otherwise, by part. */
   other_numbers?: SupplyOtherNumberGroup[];
+  /** Parts whose maker waits for a person. */
+  choices?: SupplyChoice[];
+  matched?: SupplyMatched;
   counts: { aliases: number; unresolved: number; near: number };
   manufacturers: SupplyManufacturer[];
 }

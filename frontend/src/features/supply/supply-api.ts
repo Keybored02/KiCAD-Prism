@@ -261,6 +261,18 @@ export function rejectSupplyListing(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
 }
 
+export function chooseSupplyMaker(partId: string, key: string): Promise<{ result: string }> {
+  return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/choose`, { key }, "Could not record the choice");
+}
+
+export function otherSupplyMaker(partId: string, key: string): Promise<{ rejected: number }> {
+  return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
+}
+
+export function undoLearnedAlias(key: string): Promise<{ listings: number }> {
+  return post(`${BASE}/review/aliases/${encodeURIComponent(key)}/undo`, {}, "Could not undo the spelling");
+}
+
 export function rejectSupplyListings(listingIds: string[]): Promise<{ rejected: number }> {
   return post(`${BASE}/review/listings/reject-many`, { listing_ids: listingIds }, "Could not take the listings off");
 }
