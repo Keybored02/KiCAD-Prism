@@ -271,7 +271,7 @@ counted as *not tracked*. "Read project BOMs" queues the BOM reading of projects
 A symbol can carry its LCSC number in a field named `LCSC`, `LCSC Part #`, `LCSC Part Number` or similar, or in
 `Supplier Part` when `Supplier` is `LCSC` (as EasyEDA exports it). Watching the BOM's parts links that number to the
 part at the LCSC connector, so LCSC is read without a search. After that, a line whose part number Prism does not know
-is still found by its LCSC number. The project's Supply tab has a design variant picker, and the draft declaration download follows it. The overview shows one line (health) that opens the tab. A part that only a design variant fits counts as in use, the part sheet says which variants, and the release check assesses each named variant beside the base design.
+is still found by its LCSC number. The project's Supply tab has a design variant picker, and the draft declaration download follows it. A part that only a design variant fits counts as in use, the part sheet says which variants, and the release check assesses each named variant beside the base design.
 
 ## Assessment
 
@@ -307,7 +307,7 @@ Nothing is saved, and parts Prism does not watch show as unknown.
 
 ## Compliance draft
 
-The project overview's Supply card links a draft RoHS and REACH declaration (CSV): every distinct part on the BOM with its
+The project's Supply tab links a draft RoHS and REACH declaration (CSV): every distinct part on the BOM with its
 RoHS and REACH standing, what each distributor states about RoHS, REACH and substances (with its name), and a list of gaps
 (no statement, not tracked, affected, compliant only by exemption, Candidate List not loaded). It is a working
 document for a person to complete; Prism cannot know what a manufacturer has not said, and unknown is never shown as compliant.
