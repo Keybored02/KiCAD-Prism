@@ -38,7 +38,7 @@ export function DashboardView({ user }: { user: User | null }) {
   const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue");
   const figures = overview.data?.figures;
   const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
-  const reviewCount = review.data ? review.data.counts.unresolved + review.data.counts.near + review.data.counts.aliases + (review.data.choices?.length ?? 0) : undefined;
+  const reviewCount = review.data ? review.data.counts.unresolved + review.data.counts.near + review.data.counts.aliases + (review.data.choices?.length ?? 0) + (review.data.to_approve ? review.data.to_approve.waivers.length + review.data.to_approve.alternates.length : 0) : undefined;
   const tiles: Tile[] = [
     { label: "Tracked", value: figures?.watched, icon: Eye, onClick: parts("") },
     { label: "At risk", value: figures?.at_risk, icon: AlertTriangle, bad: true, onClick: parts("at_risk") },

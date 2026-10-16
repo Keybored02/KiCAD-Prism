@@ -55,6 +55,31 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
     return list(groups.values())
 
 
+def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
+    """What QA and administrators have been asked to approve: waivers proposed on a finding, and alternates proposed for a component."""
+
+    waivers = conn.execute(
+        """
+        SELECT w.id, w.part_id, p.mpn, m.name AS manufacturer, w.check_id, w.scope, w.reason, w.proposed_by, w.proposed_at
+        FROM waivers w JOIN parts p ON p.id = w.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        WHERE w.state = 'proposed' ORDER BY w.proposed_at LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    sources = conn.execute(
+        """
+        SELECT s.id, s.component_id, s.part_id, p.mpn, m.name AS manufacturer, s.created_by, s.created_at
+        FROM component_sources s JOIN parts p ON p.id = s.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        WHERE s.approval = 'pending' ORDER BY s.created_at LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    return {
+        "waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers],
+        "alternates": [{**dict(row), "created_at": row["created_at"].isoformat()} for row in sources],
+    }
+
+
 def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
     """What Prism decided by itself and a person may undo: the spellings it learned for a maker, and the parts it settled."""
 
@@ -143,6 +168,7 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
         "other_numbers": other_number_pins(conn),
         "choices": settle.needs_choice(conn),
         "matched": matched_by_prism(conn),
+        "to_approve": to_approve(conn),
         "counts": {"aliases": len(aliases), "unresolved": counts.get(discovery.UNRESOLVED, 0), "near": counts.get(discovery.NEAR, 0)},
         "manufacturers": manufacturers(conn),
     }

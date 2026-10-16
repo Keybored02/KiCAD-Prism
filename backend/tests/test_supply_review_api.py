@@ -156,6 +156,21 @@ class SupplyReviewApiTests(unittest.TestCase):
         self.assertEqual(self.listing_state("S2"), "rejected")
         self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [])
 
+    def test_proposed_waivers_and_alternates_wait_in_the_queue_until_decided(self) -> None:
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO waivers (id, part_id, check_id, scope, reason, state, proposed_by) VALUES ('w1', %s, 'single_source', 's', 'ok', 'proposed', 'dee@example.com')", (self.part.id,)
+            )
+            conn.execute(
+                "INSERT INTO component_sources (id, component_id, part_id, approval, rank, created_by) VALUES ('s1', 'c1', %s, 'pending', 1, 'dee@example.com')", (self.part.id,)
+            )
+        waiting = self.call("GET", "/api/supply/review", role="designer").json["to_approve"]
+        self.assertEqual(([w["id"] for w in waiting["waivers"]], [a["id"] for a in waiting["alternates"]]), (["w1"], ["s1"]))
+        with self.store.connection() as conn:
+            conn.execute("UPDATE waivers SET state = 'approved'")
+            conn.execute("UPDATE component_sources SET approval = 'approved'")
+        self.assertEqual(self.call("GET", "/api/supply/review").json["to_approve"], {"waivers": [], "alternates": []})
+
     def test_pinning_a_listing_with_another_number_can_add_that_number_to_the_part(self) -> None:
         body = {"add_number": True}
         self.assertEqual(self.call("POST", f"/api/supply/review/listings/{self.listing_id('S2')}/pin", body=body).status, 204)

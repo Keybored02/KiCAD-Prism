@@ -498,6 +498,11 @@ export interface SupplyMatched {
   parts: Array<{ part_id: string; mpn: string; manufacturer: string; at: string }>;
 }
 
+export interface SupplyToApprove {
+  waivers: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; check_id: string; scope: string; reason: string; proposed_by: string; proposed_at: string }>;
+  alternates: Array<{ id: string; component_id: string; part_id: string; mpn: string; manufacturer: string; created_by: string; created_at: string }>;
+}
+
 export interface SupplyOtherNumberGroup {
   part_id: string;
   mpn: string;
@@ -513,6 +518,8 @@ export interface SupplyReviewQueue {
   /** Parts whose maker waits for a person. */
   choices?: SupplyChoice[];
   matched?: SupplyMatched;
+  /** Waivers and alternates proposed and waiting for QA. */
+  to_approve?: SupplyToApprove;
   counts: { aliases: number; unresolved: number; near: number };
   manufacturers: SupplyManufacturer[];
 }
