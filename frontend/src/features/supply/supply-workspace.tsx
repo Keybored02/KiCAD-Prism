@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, Plug, ShieldAlert, type LucideIcon } from "lucide-react";
 
@@ -39,6 +39,10 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
   useSigninResult();
+  // A tab stays mounted once opened, so switching back shows it as it was instead of loading it again.
+  const [opened, setOpened] = useState<SupplyTab[]>([view]);
+  useEffect(() => { setOpened((current) => (current.includes(view) ? current : [...current, view])); }, [view]);
+  const mounted = opened.includes(view) ? opened : [...opened, view];
 
   if (!canOpenSupply(user?.role)) {
     return (
@@ -55,11 +59,8 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       const updated = new URLSearchParams(current);
       updated.set("section", "supply");
       updated.set("supplyView", next);
-      // The open part and the search belong to the Parts tab.
+      // The open part is drawn by whichever tab is shown; the search and scope stay with the Parts tab, which keeps them.
       updated.delete("part");
-      updated.delete("partsQ");
-      updated.delete("partsScope");
-      updated.delete("partsOnly");
       updated.delete("tool");
       return updated;
     });
@@ -92,12 +93,16 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       </header>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
-          {view === "dashboard" && <DashboardView user={user} />}
-          {view === "parts" && <PartsView user={user} headerSlot={headerSlot} />}
-          {view === "projects" && <ProjectsView user={user} />}
-          {view === "review" && <ReviewView user={user} />}
-          {view === "insights" && <InsightsView view={place.insight} />}
-          {view === "connectors" && <SupplyConnectorsView user={user} headerSlot={headerSlot} />}
+          {mounted.map((id) => (
+            <div key={id} hidden={id !== view} className="h-full">
+              {id === "dashboard" && <DashboardView user={user} />}
+              {id === "parts" && <PartsView user={user} active={view === "parts"} headerSlot={view === "parts" ? headerSlot : null} />}
+              {id === "projects" && <ProjectsView user={user} active={view === "projects"} />}
+              {id === "review" && <ReviewView user={user} />}
+              {id === "insights" && <InsightsView view={place.insight} />}
+              {id === "connectors" && <SupplyConnectorsView user={user} headerSlot={view === "connectors" ? headerSlot : null} />}
+            </div>
+          ))}
         </div>
       </Suspense>
     </div>

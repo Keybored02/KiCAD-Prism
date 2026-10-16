@@ -13,10 +13,10 @@ import { SearchBox } from "./search-box";
 import { useSupplyPartGroups } from "./use-supply-parts";
 
 /** The parts of each project, a project at a time, closed until opened. Tracked projects first. */
-export function ProjectsView({ user }: { user: User | null }) {
+export function ProjectsView({ user, active = true }: { user: User | null; active?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("projQ") ?? "";
-  const openPart = searchParams.get("part");
+  const openPart = active ? searchParams.get("part") : null;
   const loaded = useSupplyPartGroups("in_use", query, "");
   const groups = (loaded.data?.groups ?? []).filter((group) => group.project_id !== "none");
   const setParams = (changes: Record<string, string | null>) => {

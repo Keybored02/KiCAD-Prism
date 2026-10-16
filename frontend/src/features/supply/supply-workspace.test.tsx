@@ -89,14 +89,25 @@ describe("the Supply section", () => {
     expect(await screen.findByText("Dashboard content")).toBeTruthy();
   });
 
-  it("drops the open part and search when another tab is chosen", async () => {
+  it("drops the open part but keeps the Parts search when another tab is chosen", async () => {
     renderAt("admin", "/?section=supply&part=p1&partsQ=lm&partsScope=all&other=1");
     // Radix tabs switch on mouse down, as a real press does.
     fireEvent.mouseDown(await screen.findByRole("tab", { name: "Review" }), { button: 0, ctrlKey: false });
     const location = screen.getByLabelText("location").textContent ?? "";
     expect(location).toContain("supplyView=review");
     expect(location).toContain("other=1");
-    for (const gone of ["part=", "partsQ", "partsScope"]) expect(location).not.toContain(gone);
+    expect(location).not.toContain("part=p1");
+    expect(location).toContain("partsQ=lm");
+    expect(location).toContain("partsScope=all");
+  });
+
+  it("keeps a tab it has opened, hidden, so coming back does not load it again", async () => {
+    renderAt("admin", "/?section=supply");
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Review" }), { button: 0, ctrlKey: false });
+    const review = await screen.findByText("Review content");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Dashboard" }), { button: 0, ctrlKey: false });
+    expect(screen.getByText("Review content")).toBe(review);
+    expect(review.closest("[hidden]")).not.toBeNull();
   });
 
   it("leaves the URL alone when the open tab is clicked again", async () => {

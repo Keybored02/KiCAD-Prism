@@ -54,14 +54,15 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
 ];
 
 /** Parts Prism knows about, with their stock. The URL holds the scope, search and open part. */
-export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
+export function PartsView({ user, headerSlot, active = true }: { user: User | null; headerSlot?: HTMLElement | null; active?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");
   const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "followed";
   const query = searchParams.get("partsQ") ?? "";
   const requestedOnly = searchParams.get("partsOnly");
   const only: PartsFilter = requestedOnly && requestedOnly in FILTER_LABEL ? (requestedOnly as PartsFilter) : "";
-  const openPart = searchParams.get("part");
+  // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
+  const openPart = active ? searchParams.get("part") : null;
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
   const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh } = useSupplyPartsFeed(scope, query, only);
