@@ -13,6 +13,11 @@ export interface ProjectChoice {
   connector_ids: string[] | null;
 }
 
+/** Read the project's BOM now; "reading" when its newest revision is still being indexed. */
+export function readProjectBom(projectId: string): Promise<{ status: "updated" | "unchanged" | "reading" }> {
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/read`, { method: "POST" }, "Could not read the project's BOM");
+}
+
 export function getProjectTracking(projectId: string, signal?: AbortSignal): Promise<ProjectTrackingState> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, { signal }, "Could not read the project's tracking");
 }

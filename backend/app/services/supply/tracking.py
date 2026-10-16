@@ -192,6 +192,8 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
                     parts.ensure_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
                     created += 1
             except parts.UnknownManufacturer:
+                # A spelling nobody has settled goes to Review > Spellings; the line is tracked once it is.
+                parts.resolve_manufacturer(conn, line["manufacturer"], provider="bom")
                 continue
     recompute(conn)
     admission.sync(conn)

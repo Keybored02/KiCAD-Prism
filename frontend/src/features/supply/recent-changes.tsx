@@ -1,10 +1,28 @@
+import { Link } from "react-router-dom";
+
 import type { SupplyRecentChange } from "@/types/supply";
 import { alertTitle } from "./alert-text";
 import { StatusDot } from "./status-dot";
 import { formatAgo } from "./supply-format";
 
+function names(items: unknown): string {
+  if (!Array.isArray(items)) return "";
+  return items.flatMap((item) => { const mpn = String((item as { mpn?: unknown }).mpn ?? ""); return mpn ? [mpn] : []; }).join(", ");
+}
+
+/** What a tracked project's new revision added to its BOM and took off it. */
+export function bomChangeSentence(detail: Record<string, unknown>): string {
+  const added = Number(detail.added_count ?? 0);
+  const removed = Number(detail.removed_count ?? 0);
+  const parts = [];
+  if (added > 0) parts.push(`${added} added (${names(detail.added)}${added > 20 ? ", …" : ""})`);
+  if (removed > 0) parts.push(`${removed} removed (${names(detail.removed)}${removed > 20 ? ", …" : ""})`);
+  return `New BOM revision: ${parts.join("; ")}. Added parts are tracked; removed ones leave tracking unless something else keeps them.`;
+}
+
 function sentence(change: SupplyRecentChange): string {
   const detail = change.detail ?? {};
+  if (change.type === "project_bom_changed") return bomChangeSentence(detail);
   if (change.type === "listing_gone") {
     const packaging = typeof detail.packaging === "string" && detail.packaging !== "unknown" ? `, ${detail.packaging.replace(/_/g, " ")}` : "";
     return `A distributor stopped listing it${change.sku ? ` (${change.sku}${packaging})` : ""}`;
@@ -26,12 +44,18 @@ export function RecentChanges({ changes, onOpenPart }: { changes: SupplyRecentCh
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</h3>
       <ul className="rounded-lg border">
         {changes.map((change) => (
-          <li key={`${change.type}-${change.part_id}-${change.at}`} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">
-            <StatusDot status={change.type === "alert_cleared" ? "ok" : (change.alert?.severity ?? "warning")} />
+          <li key={`${change.type}-${change.part_id ?? String(change.detail?.project_id)}-${change.at}`} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">
+            <StatusDot status={change.type === "alert_cleared" || change.type === "project_bom_changed" ? "ok" : (change.alert?.severity ?? "warning")} />
             <div className="min-w-0 flex-1">
-              <button type="button" className="text-left text-sm font-medium hover:underline" onClick={() => onOpenPart(change.part_id)}>
-                {change.mpn}
-              </button>
+              {change.part_id === null ? (
+                <Link to={`/project/${encodeURIComponent(String(change.detail?.project_id ?? ""))}?section=supply`} className="text-sm font-medium hover:underline">
+                  {String(change.detail?.project_name ?? "Project")}
+                </Link>
+              ) : (
+                <button type="button" className="text-left text-sm font-medium hover:underline" onClick={() => onOpenPart(change.part_id ?? "")}>
+                  {change.mpn}
+                </button>
+              )}
               <span className="ml-2 text-xs text-muted-foreground">{change.manufacturer}</span>
               <p className="truncate text-xs text-muted-foreground">{sentence(change)}</p>
             </div>

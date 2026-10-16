@@ -45,10 +45,10 @@ async def _run(call: Callable[[], T]) -> T:
 
 
 @router.get("/overview")
-async def get_overview(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+async def get_overview(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return overview.build_overview(conn)
+            return overview.build_overview(conn, role=user.role)
 
     return await _run(read)
 

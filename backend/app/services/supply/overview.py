@@ -41,7 +41,7 @@ def _quota_today(conn, now: datetime) -> list[dict[str, Any]]:
     return result
 
 
-def build_overview(conn, now: datetime | None = None) -> dict[str, Any]:
+def build_overview(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     items, _total = parts_view.ranked_parts(conn, scope="watched")
     read_times = [item["fetched_at"] for item in items if item["fetched_at"]]
@@ -54,7 +54,7 @@ def build_overview(conn, now: datetime | None = None) -> dict[str, Any]:
         },
         "needs_attention": [item for item in items if parts_view.FILTERS["at_risk"](item)][:ATTENTION_LIMIT],
         "open_alerts": alerts.count_attention(conn, now),
-        "recent_changes": alerts.recent_changes(conn, now),
+        "recent_changes": alerts.recent_changes(conn, now, role=role),
         "data_age": {"oldest": min(read_times) if read_times else None, "newest": max(read_times) if read_times else None},
         "connectors": int(connectors),
         "quota": _quota_today(conn, now),

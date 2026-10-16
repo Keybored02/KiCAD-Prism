@@ -118,6 +118,7 @@ root first.
 | `egress.py` | Outbound URL validation. Required before any fetch of a URL that is not hard-coded. |
 | `http_client.py` | `SafeHttpClient`: the only way a provider makes a request. Validates every hop, connects to the checked address, maps statuses to `ProviderError` subclasses, keeps query strings out of messages. |
 | `quota.py` | Pure budget policy: the provider's day and reset, background allowance (spread over the day after a start delay), interactive allowance, spare allowance, capacity estimate. |
+| `project_bom.py` | Tracked projects' BOMs kept current: read again every 15 minutes, the index of a new revision queued when missing (once per 6 hours if it fails), and a `project_bom_changed` event with what the revision added and removed. |
 | `room.py` | How many more parts tracking has room for: a typical part's cost per distributor from what it carries and its listings, checked against a week of real tracking spend, divided into each account's free committed calls; the headline is the distributor that fills first (assembly-only left out). |
 | `limits.py` | What a provider reports about its limits (`x-ratelimit-*`), `limit_marks`, the reset time suggested from readings and long refusals, and the sync of the provider's count into the ledger once an administrator has applied it. |
 | `ledger.py` | Atomic daily spending per account (`try_spend` locks the day's row) with `call_counts` by connector, kind and purpose in the same transaction. |

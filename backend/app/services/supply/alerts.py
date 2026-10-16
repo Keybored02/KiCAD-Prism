@@ -294,8 +294,9 @@ def list_alerts(conn, now: datetime, *, include_resolved: bool = False, limit: i
     return items
 
 
-def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15) -> list[dict[str, Any]]:
-    """What happened lately, newest first: alerts that opened, alerts that cleared, listings that disappeared."""
+def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15, role: str | None = None) -> list[dict[str, Any]]:
+    """What happened lately, newest first: alerts that opened, alerts that cleared, listings that disappeared, and what a
+    tracked project's new revision added to or took off its BOM (only for a ``role`` that may see the project)."""
 
     since = now - timedelta(days=days)
     changes: list[dict[str, Any]] = []
@@ -326,6 +327,12 @@ def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15) -> l
         changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": row["part_id"], "mpn": row["mpn"],
                         "manufacturer": row["manufacturer"], "alert": None, "sku": str((row["payload"] or {}).get("sku", "")),
                         "detail": row["payload"] or {}})
+    for row in conn.execute("SELECT at, kind, payload FROM events WHERE kind = 'project_bom_changed' AND at >= %s", (since,)).fetchall():
+        payload = row["payload"] or {}
+        if role is not None and role not in (payload.get("visible_roles") or []):
+            continue
+        changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": None, "mpn": "", "manufacturer": "", "alert": None,
+                        "sku": "", "detail": {key: value for key, value in payload.items() if key != "visible_roles"}})
     changes.sort(key=lambda item: item["at"], reverse=True)
     return changes[:limit]
 

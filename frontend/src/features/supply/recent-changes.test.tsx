@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { SupplyRecentChange } from "@/types/supply";
@@ -26,5 +27,19 @@ describe("the recent changes", () => {
     expect(screen.getByText("A distributor stopped listing it (S-1, cut tape)")).toBeTruthy();
     expect(screen.getByText("A new number turned up beside it: LM358DT (ST)")).toBeTruthy();
     expect(screen.getByText("digikey changed Package / Case from 0603 to 0805 with no notice")).toBeTruthy();
+  });
+
+  it("say what a tracked project's new revision changed, linked to the project", () => {
+    render(
+      <MemoryRouter>
+        <RecentChanges onOpenPart={() => undefined} changes={[{
+          at: new Date().toISOString(), type: "project_bom_changed", part_id: null, mpn: "", manufacturer: "", alert: null, sku: "",
+          detail: { project_id: "prj_1", project_name: "Power board", added_count: 2, removed_count: 1,
+            added: [{ mpn: "LM358D" }, { mpn: "TL072" }], removed: [{ mpn: "NE555" }] },
+        }]} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
+    expect(screen.getByText(/New BOM revision: 2 added \(LM358D, TL072\); 1 removed \(NE555\)/)).toBeTruthy();
   });
 });

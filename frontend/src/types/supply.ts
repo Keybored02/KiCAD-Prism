@@ -743,10 +743,12 @@ export interface SupplyAlert {
 /** Something that happened lately to a watched part. */
 export interface SupplyRecentChange {
   at: string;
-  type: "alert_opened" | "alert_cleared" | "listing_gone" | "lifecycle_changed" | "normally_stocking_lost" | "moq_jump" | "family_member_new" | "param_changed";
+  type: "alert_opened" | "alert_cleared" | "listing_gone" | "lifecycle_changed" | "normally_stocking_lost" | "moq_jump" | "family_member_new" | "param_changed"
+    | "project_bom_changed";
   /** What the event recorded, for the kinds that carry figures. */
   detail?: Record<string, unknown>;
-  part_id: string;
+  /** Null for a change to a project's BOM, which names the project in ``detail``. */
+  part_id: string | null;
   mpn: string;
   manufacturer: string;
   /** The alert behind an opened or cleared change. */

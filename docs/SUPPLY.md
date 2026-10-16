@@ -62,7 +62,12 @@ tracked project, someone's choice, a watched component or its approved alternate
   distributors you buy from. A distributor that only assembles (JLCPCB) appears as "Built at ..." and is read only when
   you tick it. Before anything is applied you see, per distributor, the calls a day it adds, how many parts will be read
   and how many will wait. **Track where there is room** reads what fits; the rest waits for room and is read from spare
-  budget. If nothing fits anywhere it is refused. A distributor added later is used for the project too, unless you unticked it; an assembly-only one only when ticked.
+  budget. If nothing fits anywhere it is refused. If Prism has not read the project's BOM yet, the dialog reads it (building its index when needed) and goes on. A distributor added later is used for the project too, unless you unticked it; an assembly-only one only when ticked.
+- **New revisions:** a tracked project's BOM is read again every 15 minutes, nobody has to open it. When its newest
+  revision has no index yet, Prism queues one (the normal index job). Parts a revision adds are tracked at tier 1 and
+  searched first; parts it removes leave tracking unless something else keeps them. Recent changes on the Dashboard says
+  what each revision added and removed. A manufacturer spelling Prism does not know goes to Review > Spellings, and the
+  line is tracked once it is settled.
 - **Set a part's tier:** the **Tracking** control on the part sheet shows what a choice would cost, then applies it.
 - **Call budget:** each connector's day is split into a committed share (what tracking may use, at most 90%) and a pool
   for people's reads, first searches and one-off checks. Connectors on the same credentials share one budget. The

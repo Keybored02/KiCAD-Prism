@@ -10,7 +10,10 @@ import { Label } from "@/components/ui/label";
 import type { ProjectTrackingState, SupplyConnector, TrackingPreview } from "@/types/supply";
 import { BudgetPreview } from "./budget-preview";
 import { listSupplyConnectors } from "./supply-api";
-import { getProjectTracking, previewTrackProject, trackProject, untrackProject } from "./tracking-api";
+import { getProjectTracking, previewTrackProject, readProjectBom, trackProject, untrackProject } from "./tracking-api";
+
+const READ_POLL_MS = 5000;
+const READ_POLLS = 60;
 
 /** Choose the designs and the distributors, see what following the project costs, and track it where there is room. */
 function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: string; onClose: () => void; onChanged: () => void }) {
@@ -36,6 +39,25 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
       .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
     return () => controller.abort();
   }, [projectId]);
+
+  // A project whose BOM Prism has not read: read it, or queue its index and look again until it lands.
+  const needsRead = state !== null && !state.has_usage;
+  useEffect(() => {
+    if (!needsRead) return;
+    const controller = new AbortController();
+    let polls = 0;
+    const look = () => {
+      polls += 1;
+      if (polls > READ_POLLS) { clearInterval(timer); return; }
+      readProjectBom(projectId)
+        .then(() => getProjectTracking(projectId, controller.signal))
+        .then((next) => { if (next.has_usage) { clearInterval(timer); setState(next); } })
+        .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
+    };
+    const timer = setInterval(look, READ_POLL_MS);
+    look();
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [needsRead, projectId]);
 
   // Distributors for the choice: the ones every project uses by default, plus any assembly-only one a person adds.
   const defaults = useMemo(() => connectors.flatMap((item) => (item.assembly_only ? [] : [item.id])), [connectors]);
@@ -90,7 +112,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
         </DialogHeader>
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         {state && !state.has_usage ? (
-          <p className="text-sm text-muted-foreground">Prism has not read this project's BOM yet. Open its Visualizers once, then come back.</p>
+          <p className="text-sm text-muted-foreground">Reading this project's BOM. This can take a minute; the dialog continues when it is done.</p>
         ) : null}
         {state?.has_usage ? (
           <div className="space-y-3">

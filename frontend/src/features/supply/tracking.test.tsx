@@ -5,7 +5,7 @@ import type { SupplyConnector, TrackingPreview } from "@/types/supply";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("./tracking-api", () => ({
-  getProjectTracking: vi.fn(), previewTrackProject: vi.fn(), trackProject: vi.fn(), untrackProject: vi.fn(),
+  getProjectTracking: vi.fn(), readProjectBom: vi.fn(), previewTrackProject: vi.fn(), trackProject: vi.fn(), untrackProject: vi.fn(),
   getPartTracking: vi.fn(), previewPartTier: vi.fn(), setPartTier: vi.fn(), stopTrackingPart: vi.fn(),
 }));
 vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn() }));
@@ -57,12 +57,17 @@ describe("tracking a project", () => {
     expect((screen.getByRole("button", { name: "Track where there is room" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("asks for the BOM to be read first when Prism has not", async () => {
-    tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: false, variants: [] });
+  it("reads the BOM itself when Prism has not, then goes on", async () => {
+    tracking.getProjectTracking
+      .mockResolvedValueOnce({ tracked: null, has_usage: false, variants: [] })
+      .mockResolvedValue({ tracked: null, has_usage: true, variants: ["Lite"] });
+    tracking.readProjectBom.mockResolvedValue({ status: "updated" });
+    tracking.previewTrackProject.mockResolvedValue(preview());
     render(<TrackProjectButton projectId="prj_1" />);
     fireEvent.click(screen.getByRole("button", { name: /Track this project/ }));
-    expect(await screen.findByText(/has not read this project's BOM yet/)).toBeTruthy();
-    expect(tracking.previewTrackProject).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Reading this project's BOM/)).toBeTruthy();
+    expect(await screen.findByLabelText("Lite")).toBeTruthy();
+    expect(tracking.readProjectBom).toHaveBeenCalledWith("prj_1");
   });
 });
 

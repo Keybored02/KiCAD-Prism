@@ -15,7 +15,8 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, datasheets, details, fx, ledger, market, notice_files, notice_parse, oneoff, project_supply, quota, retention, schedule_settings, tracking, worker_seen,
+    accounts, datasheets, details, fx, ledger, market, notice_files, notice_parse, oneoff, project_bom, project_supply, quota, retention,
+    schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
@@ -295,6 +296,16 @@ def _sync_component_watches(conn, force: bool = False) -> None:
         logging.getLogger(__name__).info("Component watches not synced", exc_info=True)
 
 
+def _refresh_project_boms(conn) -> None:
+    """Read tracked projects' BOMs again and queue the index of a new revision (``project_bom.py``). Best effort."""
+
+    try:
+        with conn.transaction():
+            project_bom.refresh_tracked(conn, datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001 - the project files may be unavailable; the next job tries again
+        logging.getLogger(__name__).info("Project BOMs not refreshed", exc_info=True)
+
+
 def _sync_tracking(conn) -> None:
     """Add the parts a tracked project's newest BOM brought, and keep the tiers in line. Best effort."""
 
@@ -359,6 +370,7 @@ def run_supply_poll_job(context: Any) -> Any:
         _snapshot_market(conn)
         _snapshot_costs(conn)
         _sync_component_watches(conn)
+        _refresh_project_boms(conn)
         _sync_tracking(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
