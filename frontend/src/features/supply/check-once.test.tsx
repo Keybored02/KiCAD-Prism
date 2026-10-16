@@ -20,8 +20,11 @@ describe("check once", () => {
     const finished = vi.fn();
     render(<CheckOnceButton projectId="p" lines={[{ manufacturer: "Acme", mpn: "A" }]} onFinished={finished} />);
     fireEvent.click(screen.getByRole("button", { name: /Check once \(1\)/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Check (1)" }));
     await act(async () => { await Promise.resolve(); });
     expect(mocked.startCheck).toHaveBeenCalledWith("bom", "p", [{ manufacturer: "Acme", mpn: "A" }]);
+    expect(screen.getByText("0 of 4 parts read")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
     expect(screen.getByRole("status").textContent).toBe("Checking: 0 of 4 parts read");
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(screen.getByRole("status").textContent).toBe("Checking: 2 of 4 parts read");

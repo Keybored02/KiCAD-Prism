@@ -55,11 +55,7 @@ export function BomFileView() {
   });
 
   return (
-    <div className="space-y-4 p-4">
-      <p className="max-w-3xl text-sm text-muted-foreground">
-        Check a BOM that is not a project here: a CSV with a part number or LCSC number column. Nothing is saved. Parts
-        Prism does not watch show as unknown; watch them from their project or from the Parts tab.
-      </p>
+    <div className="space-y-4">
       <div className="space-y-1">
         <Label htmlFor="bom-file">BOM file (CSV, semicolon or tab separated)</Label>
         <input id="bom-file" type="file" accept=".csv,.tsv,.txt,text/csv" className="block text-sm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void choose(file); }} />

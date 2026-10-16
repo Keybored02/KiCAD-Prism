@@ -53,7 +53,7 @@ function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (wa
   const { busy, error, run } = useConnectorSubmit();
   const manufacturers = useSupplyManufacturers();
   const threshold = parseThreshold(form.threshold);
-  const ready = form.manufacturer.trim() !== "" && form.mpn.trim() !== "" && threshold !== undefined;
+  const ready = form.mpn.trim() !== "" && threshold !== undefined;
 
   const submit = async () => {
     const watched = await run(async () => {
@@ -78,12 +78,12 @@ function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (wa
       <DialogHeader>
         <DialogTitle>Track a Part</DialogTitle>
         <DialogDescription>
-          Prism looks for it at your connectors, reads its stock and price regularly, and warns before it runs out.
+          Read regularly at your distributors. Prism finds the maker from what they list.
         </DialogDescription>
       </DialogHeader>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="watch-manufacturer">Manufacturer</Label>
+          <Label htmlFor="watch-manufacturer">Manufacturer (optional)</Label>
           <Input
             id="watch-manufacturer"
             list="watch-manufacturer-options"

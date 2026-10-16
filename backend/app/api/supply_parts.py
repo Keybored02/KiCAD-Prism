@@ -25,7 +25,7 @@ T = TypeVar("T")
 class AddWatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    manufacturer: str = Field(min_length=1, max_length=120)
+    manufacturer: str = Field(default="", max_length=120)
     mpn: str = Field(min_length=1, max_length=100)
     threshold: Optional[int] = Field(default=None, ge=0)
     pinned: bool = False

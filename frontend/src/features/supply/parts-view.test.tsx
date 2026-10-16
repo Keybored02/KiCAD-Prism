@@ -269,7 +269,7 @@ describe("watching", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Track a part" })[0]);
     const submit = await screen.findByRole("button", { name: "Watch part" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Manufacturer"), { target: { value: " Acme " } });
+    fireEvent.change(screen.getByLabelText("Manufacturer (optional)"), { target: { value: " Acme " } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: " X1 " } });
     fireEvent.change(screen.getByLabelText("Warn when stock is at or below"), { target: { value: "50" } });
     fireEvent.click(submit);
@@ -281,7 +281,7 @@ describe("watching", () => {
   it("refuses a threshold that is not a whole number", async () => {
     renderView();
     fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
-    fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "Acme" } });
+    fireEvent.change(await screen.findByLabelText("Manufacturer (optional)"), { target: { value: "Acme" } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "X1" } });
     fireEvent.change(screen.getByLabelText("Warn when stock is at or below"), { target: { value: "1.5" } });
     expect(screen.getByText("A whole number, or leave it empty.")).toBeTruthy();
@@ -292,7 +292,7 @@ describe("watching", () => {
     mocked.addSupplyWatch.mockRejectedValue(new ApiHttpError(400, "At most 25 parts can be pinned to the fastest polling."));
     renderView();
     fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
-    fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "Acme" } });
+    fireEvent.change(await screen.findByLabelText("Manufacturer (optional)"), { target: { value: "Acme" } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "X1" } });
     fireEvent.click(screen.getByRole("button", { name: "Watch part" }));
     expect(await screen.findByText(/At most 25 parts/)).toBeTruthy();
@@ -474,7 +474,7 @@ describe("the watch settings", () => {
     mocked.addSupplyWatch.mockRejectedValue(new ApiHttpError(400, "Prism does not know the manufacturer \"TI\". Pick one from the list.", "unknown_manufacturer"));
     renderView();
     fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
-    fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "TI" } });
+    fireEvent.change(await screen.findByLabelText("Manufacturer (optional)"), { target: { value: "TI" } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "TPS1" } });
     fireEvent.click(screen.getByRole("button", { name: "Watch part" }));
     expect(await screen.findByText(/does not know the manufacturer/)).toBeTruthy();

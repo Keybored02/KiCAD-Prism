@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeft, Eye, FileSpreadsheet, PackageSearch, Search, X } from "lucide-react";
+import { Eye, FileSpreadsheet, PackageSearch, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PermissionHint } from "@/components/ui/permission-hint";
@@ -73,17 +74,6 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
       return updated;
     });
   };
-
-  if (searchParams.get("tool") === "bom-file") {
-    return (
-      <div className="relative h-full overflow-y-auto">
-        <Button variant="ghost" size="sm" className="m-4 mb-0" onClick={() => setParams({ tool: null })}>
-          <ArrowLeft className="h-4 w-4" />Parts
-        </Button>
-        <BomFileView />
-      </div>
-    );
-  }
 
   const actions = (
     <>
@@ -159,6 +149,15 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
         ) : null}
       </div>
 
+      <Dialog open={searchParams.get("tool") === "bom-file"} onOpenChange={(next) => { if (!next) setParams({ tool: null }); }}>
+        <DialogContent className="w-[min(95vw,72rem)] sm:max-w-none">
+          <DialogHeader>
+            <DialogTitle>Check a BOM File</DialogTitle>
+            <DialogDescription>A CSV with a part number or LCSC number column. Nothing is saved.</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[75vh] overflow-y-auto"><BomFileView /></div>
+        </DialogContent>
+      </Dialog>
       <PartSheet partId={openPart} user={user} onClose={() => setParams({ part: null })} onWatchChanged={() => void refresh()} />
       <WatchPartDialog
         open={watching}

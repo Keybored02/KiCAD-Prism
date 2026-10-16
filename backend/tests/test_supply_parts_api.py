@@ -567,6 +567,11 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     # --- who may name a manufacturer --------------------------------------
 
+    def test_a_part_can_be_tracked_by_its_number_alone(self) -> None:
+        response = self.call("POST", "/api/supply/watches", role="designer", body={"mpn": "LM358-D"})
+        self.assertEqual(response.status, 201, response.text)
+        self.assertEqual(response.json["manufacturer"], "Not known yet")
+
     def test_a_designer_can_name_a_manufacturer_prism_does_not_know_yet(self) -> None:
         body = {"manufacturer": "TI", "mpn": "TPS1"}
         self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body=body).status, 201)
