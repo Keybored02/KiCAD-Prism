@@ -57,7 +57,7 @@ export function TrackPicksDialog({
         {preview ? (
           <section aria-label="Cost" className="space-y-1">
             <h3 className="text-xs font-medium text-muted-foreground">Call budget</h3>
-            <TrackCostBars connectors={preview.connectors} canRaise />
+            <TrackCostBars connectors={preview.connectors} />
           </section>
         ) : null}
         {preview?.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor.</p> : null}

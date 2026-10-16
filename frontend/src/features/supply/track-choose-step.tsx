@@ -19,7 +19,7 @@ interface ChooseProps {
   buyingFor: BuyingFor;
   onBuyingFor: (next: BuyingFor) => void;
   preview: TrackingPreview | null;
-  canRaise: boolean;
+  onRaise?: (connectorId: string) => void;
 }
 
 function Row({ id, label, checked, disabled, onChange, note }: { id: string; label: string; checked: boolean; disabled?: boolean; onChange: (on: boolean) => void; note?: string }) {
@@ -79,7 +79,7 @@ export function TrackChooseStep(props: ChooseProps) {
       {preview ? (
         <section aria-label="Cost" className="space-y-1">
           <h3 className="text-xs font-medium text-muted-foreground">Call budget</h3>
-          <TrackCostBars connectors={preview.connectors} canRaise={props.canRaise} />
+          <TrackCostBars connectors={preview.connectors} onRaise={props.onRaise} />
           {preview.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor.</p> : null}
         </section>
       ) : null}

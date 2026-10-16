@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { TrackingPreview } from "@/types/supply";
 import { TrackChooseStep } from "./track-choose-step";
 import { TrackLinesStep, type TrackLine } from "./track-lines-step";
+import { RaiseBudgetDialog } from "./raise-budget-dialog";
 import { TrackProgressStep } from "./track-progress-step";
 import { chooseTrackLine, trackProject, untrackProject } from "./tracking-api";
 import { useTrackProject } from "./use-track-project";
@@ -37,6 +38,8 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
   const [step, setStep] = useState<Step>("choose");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TrackingPreview | null>(null);
+  const [raising, setRaising] = useState<string | null>(null);
+  const raised = track.connectors.find((item) => item.id === raising);
   const lines = useMemo(() => waitingLines(preview), [preview]);
   const parts = partsOf(preview);
 
@@ -100,7 +103,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
             buyingFor={track.buyingFor}
             onBuyingFor={track.setBuyingFor}
             preview={preview}
-            canRaise
+            onRaise={(id) => setRaising(id)}
           />
         ) : null}
         {step === "lines" ? <TrackLinesStep lines={lines} busy={busy} onChoose={choose} /> : null}
@@ -124,6 +127,12 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
           )}
         </div>
       </DialogContent>
+      {raised ? (
+        <RaiseBudgetDialog
+          connectorId={raised.id} name={raised.display_name} current={raised.daily_budget}
+          onClose={() => setRaising(null)} onSaved={() => { toast.success(`${raised.display_name} budget raised`); track.reload(); }}
+        />
+      ) : null}
     </Dialog>
   );
 }

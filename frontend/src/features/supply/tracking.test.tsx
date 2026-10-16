@@ -10,7 +10,7 @@ vi.mock("./tracking-api", () => ({
   getPartTracking: vi.fn(), previewPartTier: vi.fn(), setPartTier: vi.fn(), stopTrackingPart: vi.fn(),
   chooseTrackLine: vi.fn(), getTrackProgress: vi.fn(),
 }));
-vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn() }));
+vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn(), updateSupplyConnector: vi.fn() }));
 
 import * as api from "./tracking-api";
 import * as supply from "./supply-api";
@@ -20,7 +20,7 @@ import { TrackingControl } from "./tracking-control";
 const tracking = vi.mocked(api);
 
 const connector = (id: string, name: string, extra: Partial<SupplyConnector> = {}) =>
-  ({ id, display_name: name, enabled: true, metered: true, assembly_only: false, ...extra }) as SupplyConnector;
+  ({ id, display_name: name, enabled: true, metered: true, assembly_only: false, daily_budget: 1000, ...extra }) as SupplyConnector;
 
 const preview = (extra: Partial<TrackingPreview> = {}): TrackingPreview => ({
   fits_nowhere: false,
@@ -64,6 +64,18 @@ describe("tracking a project", () => {
     expect(await screen.findByRole("progressbar", { name: "DigiKey searched" })).toBeTruthy();
     expect(screen.getByText("40 of 100")).toBeTruthy();
     expect(screen.getByText("4 wait for room")).toBeTruthy();
+  });
+
+  it("raises a budget from a small dialog over the track dialog when parts would wait", async () => {
+    tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
+    tracking.previewTrackProject.mockResolvedValue(preview());
+    vi.mocked(supply.updateSupplyConnector).mockResolvedValue(connector("c1", "DigiKey", { daily_budget: 2000 }));
+    await open();
+    fireEvent.click(await screen.findByRole("button", { name: "Raise the budget" }));
+    fireEvent.change(await screen.findByLabelText("Calls a day"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Raise" }));
+    await waitFor(() => expect(supply.updateSupplyConnector).toHaveBeenCalledWith("c1", { daily_budget: 2000 }));
+    await waitFor(() => expect(tracking.previewTrackProject).toHaveBeenCalledTimes(2));
   });
 
   it("can follow every design, also those added later", async () => {

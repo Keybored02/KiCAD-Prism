@@ -1,10 +1,9 @@
-import { Link } from "react-router-dom";
-
+import { Button } from "@/components/ui/button";
 import type { BudgetShare } from "@/types/supply";
 import { VendorName } from "./vendor-name";
 
 /** What tracking would add to each distributor's committed calls, as a bar: today's share, then what this adds. */
-export function TrackCostBars({ connectors, canRaise }: { connectors: readonly BudgetShare[]; canRaise: boolean }) {
+export function TrackCostBars({ connectors, onRaise }: { connectors: readonly BudgetShare[]; onRaise?: (connectorId: string) => void }) {
   return (
     <ul className="space-y-2" aria-label="Call budget">
       {connectors.map((item) => {
@@ -28,8 +27,8 @@ export function TrackCostBars({ connectors, canRaise }: { connectors: readonly B
               <div className="h-full bg-primary/50" style={{ width: `${today}%` }} />
               <div className={waiting > 0 ? "h-full bg-warning" : "h-full bg-primary"} style={{ width: `${adds}%` }} />
             </div>
-            {waiting > 0 && canRaise ? (
-              <Link to="/?section=supply&supplyView=connectors" className="text-xs text-primary hover:underline">Raise the budget</Link>
+            {waiting > 0 && onRaise ? (
+              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onRaise(item.connector_id)}>Raise the budget</Button>
             ) : null}
           </li>
         );

@@ -19,6 +19,7 @@ export function useTrackProject(projectId: string) {
   const [preview, setPreview] = useState<TrackingPreview | null>(null);
   const [error, setError] = useState("");
   const [again, setAgain] = useState(0);
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -36,6 +37,16 @@ export function useTrackProject(projectId: string) {
       .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
     return () => controller.abort();
   }, [projectId]);
+
+  // After a budget is raised the distributors are read again; the choices stay as they are.
+  useEffect(() => {
+    if (reloads === 0) return;
+    const controller = new AbortController();
+    listSupplyConnectors(controller.signal)
+      .then((list) => setConnectors(list.filter((item) => item.enabled && item.metered)))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [reloads]);
 
   // A project whose BOM Prism has not read: read it, or queue its index and look again until it lands.
   const needsRead = state !== null && !state.has_usage;
@@ -76,9 +87,10 @@ export function useTrackProject(projectId: string) {
   }, [projectId, choice, state?.has_usage, again]);
 
   return {
-    state, setError, error, needsRead, preview, choice, assembly, regular, ids,
+    state, connectors, setError, error, needsRead, preview, choice, assembly, regular, ids,
     variants, allVariants, buyingFor, setAllVariants, setBuyingFor,
     recheck: () => setAgain((count) => count + 1),
+    reload: () => { setReloads((count) => count + 1); setAgain((count) => count + 1); },
     toggleVariant: (name: string, on: boolean) => setVariants((current) => (on ? [...current, name] : current.filter((item) => item !== name))),
     toggleConnector: (id: string, on: boolean) => setChosen(on ? [...ids, id] : ids.filter((item) => item !== id)),
   };
