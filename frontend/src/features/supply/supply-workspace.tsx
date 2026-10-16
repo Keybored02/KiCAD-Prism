@@ -16,12 +16,12 @@ const InsightsView = lazy(() => import("./insights-view").then((module) => ({ de
 const SupplyConnectorsView = lazy(() => import("./connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
-const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; icon: LucideIcon }> = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "parts", label: "Parts", icon: Boxes },
-  { id: "review", label: "Review", icon: ListChecks },
-  { id: "insights", label: "Insights", icon: LineChart },
-  { id: "connectors", label: "Connectors", icon: Plug },
+const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: LucideIcon }> = [
+  { id: "dashboard", label: "Dashboard", title: "Supply Dashboard", icon: LayoutDashboard },
+  { id: "parts", label: "Parts", title: "Tracked Parts", icon: Boxes },
+  { id: "review", label: "Review", title: "Supply Review", icon: ListChecks },
+  { id: "insights", label: "Insights", title: "Supply Insights", icon: LineChart },
+  { id: "connectors", label: "Connectors", title: "Distributor Connectors", icon: Plug },
 ];
 
 function isSupplyView(value: string): value is SupplyTab {
@@ -34,6 +34,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   // Old addresses (overview, inbox, market, planning, bom-file) lead to the tab that took them over.
   const place = resolvePlace(searchParams.get("supplyView"), searchParams.get("insightsView"), searchParams.get("tool"));
   const view = place.tab;
+  const current = VIEWS.find((item) => item.id === view) ?? VIEWS[0];
   const [settingsOpen, setSettingsOpen] = useState(false);
   // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
   useSigninResult();
@@ -86,6 +87,12 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
         </Button>
       ) : null}
       </div>
+      <header className="shrink-0 border-b bg-card px-4 py-3">
+        <div className="flex items-center gap-2">
+          <current.icon className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">{current.title}</h2>
+        </div>
+      </header>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
           {view === "dashboard" && <DashboardView user={user} />}

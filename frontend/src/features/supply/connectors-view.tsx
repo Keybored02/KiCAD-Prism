@@ -199,7 +199,7 @@ function ConnectorsSkeleton() {
 
 function EmptyState({ noProviders, isAdmin }: { noProviders: boolean; isAdmin: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
+    <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
       <Plug className="h-8 w-8 text-muted-foreground" />
       <p className="text-sm font-medium">No connectors yet</p>
       <p className="max-w-md text-sm text-muted-foreground">

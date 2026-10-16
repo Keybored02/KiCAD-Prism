@@ -27,7 +27,7 @@ export function CallBudget({ connector, detail }: { connector: SupplyConnector; 
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={used}
-        className="h-1.5 overflow-hidden rounded-full bg-muted"
+        className="h-1.5 overflow-hidden bg-muted"
       >
         <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
       </div>
@@ -81,7 +81,7 @@ export function ReportedLimits({ connector, isAdmin, onApply }: { connector: Sup
       {entries.map(([scope, headers]) => (
         <div key={scope} className="flex flex-wrap gap-1.5">
           <dt className="text-muted-foreground">{entries.length > 1 ? `Limits it reports (${SCOPE_LABEL[scope] ?? scope})` : "Limits it reports"}</dt>
-          {Object.entries(headers).map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)}
+          {Object.entries(headers).map(([name, value]) => <dd key={name} className="border px-1.5 py-0.5">{name}: {value}</dd>)}
         </div>
       ))}
       {connector.reset_from_provider ? (

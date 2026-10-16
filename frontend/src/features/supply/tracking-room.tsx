@@ -73,9 +73,9 @@ function FillBar({ label, account, room }: { label: string; account: TrackingRoo
       </div>
       <div
         role="progressbar" aria-label={`${label} committed calls`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
-        className="h-2 overflow-hidden rounded-full bg-muted"
+        className="h-2 overflow-hidden bg-muted"
       >
-        <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+        <div className="h-full bg-primary" style={{ width: `${percent}%` }} />
       </div>
     </div>
   );

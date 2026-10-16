@@ -44,7 +44,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
 
   return (
     <article
-      className="rounded-lg border bg-card p-4"
+      className="border bg-card p-4"
       style={vendorColor(connector.provider) ? { borderLeft: `4px solid ${vendorColor(connector.provider)}` } : undefined}
       aria-label={connector.display_name}
     >
@@ -67,7 +67,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
           <div className="flex flex-wrap items-center gap-1.5">
             <dt className="flex items-center gap-1 text-muted-foreground"><KeyRound className="h-3 w-3" />Credentials</dt>
             {credentialNames.map((name) => (
-              <dd key={name} className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5">
+              <dd key={name} className="inline-flex items-center gap-1 border px-1.5 py-0.5">
                 {connector.credentials[name] ? <Check className="h-3 w-3 text-success" /> : <X className="h-3 w-3 text-destructive" />}
                 {name}
               </dd>
