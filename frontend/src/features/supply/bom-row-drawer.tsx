@@ -96,7 +96,7 @@ function reasonFor(result: SupplyBomLineResult | undefined): string {
   if (!result) return "Looking this up...";
   if (result.state === "unknown") return "Prism does not know this part yet. Watch it and it is read within a few minutes.";
   if (result.state === "no_mpn") return "This symbol has no part number, so Prism cannot track it.";
-  if (result.state === "ambiguous") return "Several parts share this number. Name the manufacturer on the symbol to tell them apart.";
+  if (result.state === "ambiguous") return "Several makers have this number. Name the maker on the symbol, or choose it in Review.";
   return untrackedLabel(result) || "Not tracked.";
 }
 

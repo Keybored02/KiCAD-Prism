@@ -11,7 +11,8 @@ import type { BomSupply } from "./use-bom-supply";
 const WHY: Record<string, string> = {
   no_mpn: "it has no part number",
   no_manufacturer: "it names no manufacturer",
-  unknown_manufacturer: "Prism does not know that manufacturer (QA or an administrator can add it)",
+  unknown_manufacturer: "its maker could not be told apart from another with the same number",
+  needs_choice: "several makers have this number and the line does not say which",
 };
 
 /**

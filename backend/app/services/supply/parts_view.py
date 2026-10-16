@@ -606,7 +606,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     rows = conn.execute(
         """
         SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, l.sku, l.packaging, l.match_state,
-               l.match_reason, o.fetched_at, o.stock, o.incoming, o.moq, o.order_multiple, o.price_breaks, o.currency,
+               l.match_reason, l.raw_mpn, l.raw_manufacturer, o.fetched_at, o.stock, o.incoming, o.moq, o.order_multiple, o.price_breaks, o.currency,
                o.lead_time_days, o.lifecycle, o.discontinued, o.rohs, o.reach_affected, o.marketplace, o.product_url,
                ps.tier, ps.next_poll_at, ps.last_polled_at, ps.error_streak, ps.last_error_code
         FROM listings l
@@ -641,6 +641,8 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "sku": r["sku"],
             "packaging": r["packaging"],
             "match_state": r["match_state"],
+            "raw_mpn": r["raw_mpn"] or "",
+            "raw_manufacturer": r["raw_manufacturer"] or "",
             "counted": r["match_state"] in _COUNTED,
             "offer": {
                 "fetched_at": iso(r["fetched_at"]),

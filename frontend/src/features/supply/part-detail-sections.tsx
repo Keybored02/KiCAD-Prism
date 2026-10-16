@@ -1,3 +1,4 @@
+import { canReviewSupply } from "@/lib/roles";
 import { lazy, Suspense } from "react";
 
 import { Link } from "react-router-dom";
@@ -139,7 +140,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <section aria-label="Listings" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
-        <ListingTable listings={detail.listings} />
+        <ListingTable listings={detail.listings} canDecide={canReviewSupply(role)} onChanged={onChanged} />
       </section>
     </div>
   );

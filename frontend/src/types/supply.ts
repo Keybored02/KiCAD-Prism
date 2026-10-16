@@ -632,6 +632,9 @@ export interface SupplyListing {
   sku: string;
   packaging: string;
   match_state: string;
+  /** What the distributor calls the part and its maker. */
+  raw_mpn?: string;
+  raw_manufacturer?: string;
   /** Only counted listings feed stock and price. */
   counted: boolean;
   offer: SupplyOffer | null;

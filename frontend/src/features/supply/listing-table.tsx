@@ -1,12 +1,16 @@
 import { ExternalLink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
+import { pinSupplyListing } from "./supply-api";
+import { useConnectorSubmit } from "./use-connector-submit";
 import { formatAgo, formatPrice, formatStock, matchLabel, packagingLabel, tierLabel } from "./supply-format";
 import { VendorName } from "./vendor-name";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
-export function ListingTable({ listings }: { listings: SupplyListing[] }) {
+export function ListingTable({ listings, canDecide = false, onChanged }: { listings: SupplyListing[]; canDecide?: boolean; onChanged?: () => void }) {
+  const { busy, error, run } = useConnectorSubmit();
   if (listings.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -16,6 +20,7 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
   }
   return (
     <div className="space-y-2">
+      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
       {listings.map((listing) => {
         const offer = listing.offer;
         const firstBreak = offer?.price_breaks[0];
@@ -26,7 +31,16 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
                 <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />
                 <span className="text-xs text-muted-foreground">{listing.sku}</span>
                 {packagingLabel(listing.packaging) ? <Badge variant="outline">{packagingLabel(listing.packaging)}</Badge> : null}
-                {!listing.counted ? <Badge variant="warning">{matchLabel(listing.match_state)}, not counted</Badge> : null}
+                {!listing.counted ? (
+                  <Badge variant="warning">
+                    {listing.match_state === "near" && listing.raw_manufacturer ? `Other maker: ${listing.raw_manufacturer}` : `${matchLabel(listing.match_state)}, not counted`}
+                  </Badge>
+                ) : null}
+                {listing.match_state === "near" && canDecide ? (
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy} onClick={() => void run(async () => { await pinSupplyListing(listing.id); onChanged?.(); })}>
+                    This is the same part
+                  </Button>
+                ) : null}
                 {offer?.marketplace ? <Badge variant="outline">{listing.provider === "jlcpcb" ? "Assembly stock" : "Marketplace"}</Badge> : null}
                 {offer?.discontinued ? <Badge variant="warning">Discontinued here</Badge> : null}
               </div>
