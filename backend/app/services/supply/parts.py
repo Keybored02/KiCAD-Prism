@@ -14,6 +14,7 @@ from typing import Literal
 
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
+from app.services.supply import makers
 from app.services.supply.makers import same_maker
 
 
@@ -56,6 +57,7 @@ UNKNOWN_KEY = "~not known yet"
 def _known_keys(conn) -> dict[str, str]:
     """The manufacturer each known name or confirmed spelling stands for, by spelling key."""
 
+    makers.refresh(conn)
     found = {row["name_key"]: row["id"] for row in conn.execute("SELECT id, name_key FROM manufacturers").fetchall()}
     for row in conn.execute("SELECT alias_key, manufacturer_id FROM manufacturer_aliases WHERE status = 'confirmed'").fetchall():
         found[row["alias_key"]] = row["manufacturer_id"]

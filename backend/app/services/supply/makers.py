@@ -20,6 +20,7 @@ Anything else is a different maker.
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from typing import Callable, Mapping
 
@@ -124,7 +125,29 @@ def _canonical() -> dict[str, str]:
     return found
 
 
-_CANON = _canonical()
+_DEFAULT = _canonical()
+# What same_maker consults. It starts as the list above and is replaced by the database's (``refresh``), which an administrator edits.
+_CANON: dict[str, str] = dict(_DEFAULT)
+_loaded_at = 0.0
+_TTL = 30.0
+
+
+def default_spellings() -> tuple[tuple[str, ...], ...]:
+    return SEEDED
+
+
+def refresh(conn, *, force: bool = False) -> None:
+    """Load the known spellings from the database, at most every half minute (at once with ``force``)."""
+
+    global _CANON, _loaded_at
+    now = time.monotonic()
+    if not force and now - _loaded_at < _TTL:
+        return
+    # Before the migration that makes the table (an older schema being brought up) the list in this file stands.
+    exists = conn.execute("SELECT to_regclass('maker_seeds') AS found").fetchone()["found"] is not None
+    rows = conn.execute("SELECT alias_key, group_key FROM maker_seeds").fetchall() if exists else []
+    _CANON = {row["alias_key"]: row["group_key"] for row in rows} if rows else dict(_DEFAULT)
+    _loaded_at = now
 
 
 def _contains(longer: list[str], shorter: list[str]) -> bool:

@@ -104,6 +104,24 @@ class SettingsApiTests(unittest.TestCase):
         self.assertEqual(len(response.json["checks"]), 19)
         self.assertEqual(self.call("GET", role="viewer").status, 403)
 
+    def test_the_known_spellings_of_makers_are_listed_and_an_administrator_changes_them(self) -> None:
+        from app.services.supply import makers
+
+        def maker_call(method, body=None, role="admin", path="/api/supply/settings/makers"):
+            return _request(self.app, method, path, user=self.users[role], body=body)
+
+        listed = maker_call("GET", role="designer").json["groups"]
+        ti = next(group for group in listed if group["group_key"] == "texas instruments")
+        self.assertIn("ti", [item["alias_key"] for item in ti["spellings"]])
+        self.assertTrue(makers.same_maker("TI", "Texas Instruments"))
+        self.assertEqual(maker_call("POST", {"spelling": "TXN", "group_key": "texas instruments"}, role="designer").status, 403)
+        self.assertEqual(maker_call("POST", {"spelling": "TXN", "group_key": "texas instruments"}).status, 201)
+        self.assertTrue(makers.same_maker("TXN", "TI"))
+        self.assertEqual(maker_call("POST", {"spelling": "TXN", "group_key": "texas instruments"}).status, 400, "already in a group")
+        self.assertEqual(maker_call("DELETE", path="/api/supply/settings/makers/txn").status, 204)
+        self.assertFalse(makers.same_maker("TXN", "TI"))
+        self.assertEqual(maker_call("POST", {"spelling": "Brand Co", "group_key": "no such group"}).status, 400)
+
     def test_an_administrator_changes_them_and_it_is_audited(self) -> None:
         severity = self.payload()["severity"] | {"nrnd": "error"}
         response = self.call("PUT", self.payload(lead_time_days=30, severity=severity))

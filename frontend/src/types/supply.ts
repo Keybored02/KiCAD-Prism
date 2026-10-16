@@ -503,6 +503,12 @@ export interface SupplyToApprove {
   alternates: Array<{ id: string; component_id: string; part_id: string; mpn: string; manufacturer: string; created_by: string; created_at: string }>;
 }
 
+export interface SupplyMakerGroup {
+  group_key: string;
+  name: string;
+  spellings: Array<{ alias_key: string; alias_text: string; source: string }>;
+}
+
 export interface SupplyOtherNumberGroup {
   part_id: string;
   mpn: string;

@@ -30,6 +30,7 @@ import type {
   SupplyPartDetail,
   SupplyPartsPage,
   SupplyProvider,
+  SupplyMakerGroup,
   SupplyPartNumber,
   SupplyReviewQueue,
   SupplyBomRollup,
@@ -285,6 +286,18 @@ export function chooseSupplyMaker(partId: string, key: string): Promise<{ result
 
 export function otherSupplyMaker(partId: string, key: string): Promise<{ rejected: number }> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
+}
+
+export function listMakerSpellings(signal?: AbortSignal): Promise<{ groups: SupplyMakerGroup[] }> {
+  return fetchJson(`${BASE}/settings/makers`, { signal }, "Could not load the spellings");
+}
+
+export function addMakerSpelling(spelling: string, groupKey: string | null): Promise<{ groups: SupplyMakerGroup[] }> {
+  return post(`${BASE}/settings/makers`, { spelling, group_key: groupKey }, "Could not add the spelling");
+}
+
+export function removeMakerSpelling(key: string): Promise<void> {
+  return send(`${BASE}/settings/makers/${encodeURIComponent(key)}`, "DELETE", undefined, "Could not remove the spelling");
 }
 
 export function undoSettledPart(partId: string): Promise<{ undone: boolean }> {

@@ -1494,6 +1494,33 @@ def _m059_ask_maker(conn) -> None:
     conn.execute("ALTER TABLE parts ADD COLUMN IF NOT EXISTS ask_maker BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
 
 
+def _m060_maker_seeds(conn) -> None:
+    """The usual spellings of large makers, as rows an administrator can read and change (they began as a list in code)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maker_seeds (
+            alias_key TEXT PRIMARY KEY,
+            group_key TEXT NOT NULL,
+            alias_text TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'seeded'
+        );
+        CREATE INDEX IF NOT EXISTS idx_maker_seeds_group ON maker_seeds (group_key);
+        """,
+        prepare=False,
+    )
+    from app.services.supply import makers
+    from app.services.supply.identity import alias_key
+
+    for group in makers.default_spellings():
+        head = alias_key(group[0])
+        for spelling in group:
+            conn.execute(
+                "INSERT INTO maker_seeds (alias_key, group_key, alias_text) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (alias_key(spelling), head, spelling.title() if spelling.islower() and len(spelling) > 3 else spelling.upper() if len(spelling) <= 3 else spelling),
+            )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1554,6 +1581,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (57, "part_numbers", _m057_part_numbers),
     (58, "buying_for", _m058_buying_for),
     (59, "ask_maker", _m059_ask_maker),
+    (60, "maker_seeds", _m060_maker_seeds),
 ]
 
 
