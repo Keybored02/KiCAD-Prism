@@ -78,6 +78,7 @@ class BomLookupTests(unittest.TestCase):
 
     def part(self, maker: str, mpn: str, *, watch: bool = False) -> str:
         with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, maker, SEED)  # a known maker, so the same number under another maker is another part
             record = self.parts.ensure_part(conn, maker, mpn, SEED)
             if watch:
                 self.watches.add_watch(conn, maker, mpn, SEED)
@@ -468,12 +469,11 @@ class BomLookupTests(unittest.TestCase):
             {"key": "5", "manufacturer": "Acme", "mpn": ""},
         ]
         data = self.call("/api/supply/bom/watch", {"lines": lines}).json
-        self.assertEqual((data["watched"], data["already_watched"]), (1, 1))
-        self.assertEqual(sorted(data["skipped"], key=lambda item: item["key"]),
-                         [{"key": "4", "reason": "no_manufacturer"}, {"key": "5", "reason": "no_mpn"}])
-        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM watches")[0]["n"], 2)
+        self.assertEqual((data["watched"], data["already_watched"]), (2, 1), "a line with no maker is watched too: its maker is settled later")
+        self.assertEqual(data["skipped"], [{"key": "5", "reason": "no_mpn"}])
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM watches")[0]["n"], 3)
         again = self.call("/api/supply/bom/watch", {"lines": lines}).json
-        self.assertEqual((again["watched"], again["already_watched"]), (0, 2))
+        self.assertEqual((again["watched"], again["already_watched"]), (0, 3))
 
     def test_an_lcsc_number_on_the_line_is_linked_when_watched_and_then_resolves_the_line(self) -> None:
         lcsc = self.connectors.create(actor=SEED, provider="lcsc", currency="USD", display_name="LCSC")["id"]
@@ -504,16 +504,14 @@ class BomLookupTests(unittest.TestCase):
         with self.store.connection() as conn:
             return conn.execute(sql, params).fetchall()
 
-    def test_a_designer_cannot_introduce_a_manufacturer_but_an_admin_can(self) -> None:
+    def test_a_designer_can_watch_a_maker_prism_does_not_know_yet_and_it_starts_provisional(self) -> None:
         lines = [{"key": "1", "manufacturer": "Brand New Maker", "mpn": "BN-1"}]
-        denied = self.call("/api/supply/bom/watch", {"lines": lines}, role="designer").json
-        self.assertEqual((denied["watched"], denied["skipped"]), (0, [{"key": "1", "reason": "unknown_manufacturer"}]))
-        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM manufacturers")[0]["n"], 0)
-        allowed = self.call("/api/supply/bom/watch", {"lines": lines}, role="admin").json
-        self.assertEqual((allowed["watched"], allowed["skipped"]), (1, []))
+        done = self.call("/api/supply/bom/watch", {"lines": lines}, role="designer").json
+        self.assertEqual((done["watched"], done["skipped"]), (1, []))
+        self.assertEqual(self.rows("SELECT provisional FROM manufacturers WHERE name = 'Brand New Maker'"), [{"provisional": True}])
         again = self.call("/api/supply/bom/watch", {"lines": [{"key": "1", "manufacturer": "brand new maker", "mpn": "BN-1"},
                                                               {"key": "2", "manufacturer": "Brand New Maker", "mpn": "BN-2"}]}, role="designer").json
-        self.assertEqual((again["watched"], again["already_watched"]), (1, 1), "now it is known, a designer can use it")
+        self.assertEqual((again["watched"], again["already_watched"]), (1, 1))
 
     def test_who_may_watch_and_how_many_at_once(self) -> None:
         self.assertEqual(self.call("/api/supply/bom/watch", {"lines": []}, role="viewer").status, 403)

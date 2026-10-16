@@ -55,12 +55,10 @@ def request(
     for maker, mpn in lines:
         if not match_key(mpn):
             skipped.append({"mpn": mpn, "reason": "no_mpn"})
-        elif not alias_key(maker):
-            skipped.append({"mpn": mpn, "reason": "no_manufacturer"})
         else:
             distinct.setdefault((alias_key(maker), match_key(mpn)), (maker, mpn))
     if not distinct:
-        raise RequestError("Nothing on it names both a manufacturer and a part number.")
+        raise RequestError("Nothing on it has a part number.")
     if len(distinct) > MAX_PARTS:
         raise RequestError(f"At most {MAX_PARTS:,} parts can be checked at once.")
     connectors = _eligible_connectors(conn)
@@ -75,7 +73,7 @@ def request(
             with conn.transaction():
                 part = parts.ensure_part(conn, maker, mpn, actor, may_create=may_create_manufacturer)
         except parts.UnknownManufacturer:
-            skipped.append({"mpn": mpn, "reason": "unknown_manufacturer"})
+            skipped.append({"mpn": mpn, "reason": "needs_choice"})
             continue
         if conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (part.id,)).fetchone():
             tracked += 1

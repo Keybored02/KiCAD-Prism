@@ -127,7 +127,6 @@ class PcnDatabaseTests(unittest.TestCase):
             ({"kind": "other"}, "kind must be one of"),
             ({"notice_url": "http://acme.example/pcn"}, "must start with https://"),
             ({"last_time_buy": "2026-06-01", "last_time_ship": "2026-05-01"}, "cannot be before"),
-            ({"parts": [{"manufacturer": "Nobody", "mpn": "X-1"}]}, "Nobody"),
         ]
         for extra, message in cases:
             response = self.add(**extra)

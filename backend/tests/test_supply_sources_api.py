@@ -87,9 +87,8 @@ class SupplySourcesTests(unittest.TestCase):
         (item,) = self.listed()
         self.assertEqual(item["decided_by"], "qa@example.com")
 
-    def test_only_an_approver_can_add_a_manufacturer_that_is_new(self) -> None:
-        self.assertEqual(self.add(manufacturer="Nobody Inc", role="designer").status, 400)
-        self.assertEqual(self.add(manufacturer="Nobody Inc", role="qa").status, 201)
+    def test_an_alternate_from_a_maker_prism_does_not_know_yet_is_accepted(self) -> None:
+        self.assertEqual(self.add(manufacturer="Nobody Inc", role="designer").status, 201)
 
     def test_approve_reject_and_rank(self) -> None:
         first, second = self.add("ALT-1").json["id"], self.add("ALT-2").json["id"]

@@ -122,6 +122,15 @@ class PartsAndDiscoveryTests(unittest.TestCase):
             rows = conn.execute("SELECT * FROM listings ORDER BY sku").fetchall()
         return {row["sku"]: dict(row) for row in rows}
 
+    def wait_on_spelling(self, key: str) -> None:
+        """The state the listings of an earlier version were left in: waiting on a spelling nobody had mapped."""
+
+        with self.store.connection() as conn:
+            conn.execute("UPDATE listings SET match_state = 'manufacturer_unresolved' WHERE lower(raw_manufacturer) = %s", (key,))
+            conn.execute(
+                "INSERT INTO manufacturer_aliases (alias_key, alias_text, status) VALUES (%s, %s, 'pending') ON CONFLICT DO NOTHING", (key, key.upper())
+            )
+
     def audit(self, action: str) -> int:
         with self.store.connection() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = %s", (action,)).fetchone()["n"]
@@ -137,13 +146,34 @@ class PartsAndDiscoveryTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturers").fetchone()["n"], 1)
         self.assertEqual(self.audit("part.create"), 1)
 
-    def test_the_same_number_from_two_manufacturers_is_two_parts(self) -> None:
-        self.assertNotEqual(self.part("Texas Instruments", "LM358D").id, self.part("Onsemi", "LM358D").id)
+    def test_the_same_number_from_two_known_manufacturers_is_two_parts(self) -> None:
+        first = self.part("Texas Instruments", "LM358D")
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Onsemi", ACTOR)
+        self.assertNotEqual(first.id, self.part("Onsemi", "LM358D").id)
+
+    def test_an_unknown_spelling_of_a_number_one_part_has_is_that_part_and_two_makers_need_a_choice(self) -> None:
+        first = self.part("Texas Instruments", "LM358D")
+        again = self.part("Some Unlisted Name", "LM358D")
+        self.assertEqual(first.id, again.id)
+        with self.store.connection() as conn:
+            self.assertIn("some unlisted name", self.parts.part_spelling_keys(conn, first.id))
+            self.parts.ensure_manufacturer(conn, "Onsemi", ACTOR)
+            self.parts.ensure_part(conn, "Onsemi", "LM358D", ACTOR)
+            with self.assertRaises(self.parts.AmbiguousNumber):
+                self.parts.ensure_part(conn, "Another Name", "LM358D", ACTOR)
+
+    def test_a_line_with_no_maker_makes_a_part_nobody_has_settled(self) -> None:
+        made = self.part("", "ZZ-9")
+        self.assertTrue(made.provisional)
+        self.assertEqual(made.manufacturer_name, "Not known yet")
+        self.assertEqual(self.part("", "ZZ9").id, made.id)
+        named = self.part("Brand New Maker", "QQ-1")
+        self.assertTrue(named.provisional)
 
     def test_a_part_needs_a_manufacturer_a_number_and_an_actor(self) -> None:
         with self.store.connection() as conn:
             for call in (
-                lambda: self.parts.ensure_part(conn, "", "X1", ACTOR),
                 lambda: self.parts.ensure_part(conn, "Acme", " - ", ACTOR),
                 lambda: self.parts.ensure_part(conn, "Acme", "X1", " "),
             ):
@@ -152,18 +182,16 @@ class PartsAndDiscoveryTests(unittest.TestCase):
             with self.assertRaises(self.parts.PartNotFound):
                 self.parts.get_part(conn, "missing")
 
-    def test_unknown_spellings_become_pending_once(self) -> None:
+    def test_spellings_are_placed_by_maker_and_nothing_is_queued(self) -> None:
         self.part()
         with self.store.connection() as conn:
             known = self.parts.resolve_manufacturer(conn, "texas instruments inc")
-            unknown = self.parts.resolve_manufacturer(conn, "TI", provider="mouser")
-            again = self.parts.resolve_manufacturer(conn, "TI", provider="digikey")
+            same = self.parts.resolve_manufacturer(conn, "TI", provider="mouser")
+            other = self.parts.resolve_manufacturer(conn, "UMW", provider="digikey")
             blank = self.parts.resolve_manufacturer(conn, " . ")
             pending = self.parts.pending_aliases(conn)
-        self.assertEqual((known.status, unknown.status, again.status, blank.status),
-                         ("confirmed", "pending", "pending", "blank"))
-        self.assertEqual([(p["alias_key"], p["alias_text"], p["seen_at_provider"]) for p in pending],
-                         [("ti", "TI", "mouser")])
+        self.assertEqual((known.status, same.status, other.status, blank.status), ("confirmed", "confirmed", "pending", "blank"))
+        self.assertEqual(pending, [], "a spelling Prism cannot place is not stored; the part it appears for decides")
 
     # --- discovery --------------------------------------------------------
 
@@ -180,23 +208,30 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         self.discovery.DiscoveryService(lambda _id: stub, self.store).discover(part.id, self.connector_id)
         self.assertEqual(stub.calls, [("LM358-D", "Texas Instruments")])
 
-    def test_an_unknown_spelling_waits_for_a_person(self) -> None:
+    def test_another_makers_listing_of_the_number_is_kept_but_does_not_count(self) -> None:
         part = self.part()
-        result = self.discover(part, match("S1", "LM358D", "TI"))
-        self.assertEqual((result.exact, result.unresolved), (0, 1))
-        self.assertEqual(self.listings()["S1"]["match_state"], "manufacturer_unresolved")
+        result = self.discover(part, match("S1", "LM358D", "UMW"))
+        self.assertEqual((result.exact, result.near), (0, 1))
+        self.assertEqual(self.listings()["S1"]["match_state"], "near")
         with self.store.connection() as conn:
-            self.assertEqual(self.discovery.counted_listings(conn, part.id), [], "it does not count yet")
-            self.assertEqual([p["alias_key"] for p in self.parts.pending_aliases(conn)], ["ti"])
+            self.assertEqual(self.discovery.counted_listings(conn, part.id), [], "it does not count")
+
+    def test_a_spelling_of_the_same_maker_counts_at_once_and_the_part_remembers_it(self) -> None:
+        part = self.part()
+        result = self.discover(part, match("S1", "LM358D", "TI"), match("S2", "LM358D", "ti"))
+        self.assertEqual((result.exact, result.near), (2, 0))
+        with self.store.connection() as conn:
+            self.assertEqual([c["sku"] for c in self.discovery.counted_listings(conn, part.id)], ["S1", "S2"])
+            self.assertIn("ti", self.parts.part_spelling_keys(conn, part.id))
 
     def test_confirming_the_spelling_promotes_waiting_listings(self) -> None:
         part = self.part()
-        self.discover(part, match("S1", "LM358D", "TI"), match("S2", "LM358D", "ti"))
+        self.discover(part, match("S1", "LM358D", "UMW"), match("S2", "LM358D", "umw"))
+        self.wait_on_spelling("umw")
         with self.store.connection() as conn:
-            moved = self.parts.confirm_alias(conn, "ti", part.manufacturer_id, "ben@example.com")
+            moved = self.parts.confirm_alias(conn, "umw", part.manufacturer_id, "ben@example.com")
             counted = self.discovery.counted_listings(conn, part.id)
             self.assertEqual(self.parts.pending_aliases(conn), [])
-            self.assertEqual(self.parts.resolve_manufacturer(conn, "T.I.").status, "pending", "other spellings stay separate")
         self.assertEqual(moved, 2)
         self.assertEqual([c["sku"] for c in counted], ["S1", "S2"])
         self.assertEqual(self.listings()["S1"]["matched_by"], "ben@example.com")
@@ -204,18 +239,21 @@ class PartsAndDiscoveryTests(unittest.TestCase):
 
     def test_confirming_to_another_manufacturer_makes_the_listing_near(self) -> None:
         part = self.part("Texas Instruments", "LM358D")
-        other = self.part("Onsemi", "XYZ1")
-        self.discover(part, match("S1", "LM358D", "ON Semi"))
         with self.store.connection() as conn:
-            self.parts.confirm_alias(conn, "on semi", other.manufacturer_id, ACTOR)
+            self.parts.ensure_manufacturer(conn, "Onsemi", ACTOR)
+        other = self.part("Onsemi", "XYZ1")
+        self.discover(part, match("S1", "LM358D", "UMW"))
+        self.wait_on_spelling("umw")
+        with self.store.connection() as conn:
+            self.parts.confirm_alias(conn, "umw", other.manufacturer_id, ACTOR)
         listing = self.listings()["S1"]
         self.assertEqual(listing["match_state"], "near")
         self.assertEqual(listing["match_reason"], "same part number, different manufacturer")
 
     def test_alias_errors(self) -> None:
         part = self.part()
+        self.wait_on_spelling("ti")
         with self.store.connection() as conn:
-            self.parts.resolve_manufacturer(conn, "TI")
             for key, manufacturer in (("nope", part.manufacturer_id), ("ti", "missing"), ("texas instruments", part.manufacturer_id)):
                 with self.assertRaises(self.parts.AliasError, msg=key):
                     self.parts.confirm_alias(conn, key, manufacturer, ACTOR)
@@ -309,9 +347,9 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         provider = self.CsvProvider(self.ProviderConfig(connector_id=csv_id), store=self.store)
         result = self.discovery.DiscoveryService(lambda _id: provider, self.store).discover(part.id, csv_id)
         # The file lookup is by part number key: LM358DR is a different number and is never returned.
-        self.assertEqual((result.exact, result.unresolved, result.near), (1, 1, 1))
+        self.assertEqual((result.exact, result.unresolved, result.near), (2, 0, 1))
         states = {sku: row["match_state"] for sku, row in self.listings().items()}
-        self.assertEqual(states, {"A1": "exact", "B1": "manufacturer_unresolved", "C1": "near"})
+        self.assertEqual(states, {"A1": "exact", "B1": "exact", "C1": "near"})
 
     def test_deleting_a_connector_removes_its_listings_but_not_the_part(self) -> None:
         part = self.part()

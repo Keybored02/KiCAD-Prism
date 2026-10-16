@@ -567,18 +567,12 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     # --- who may name a manufacturer --------------------------------------
 
-    def test_only_approvers_can_introduce_a_new_manufacturer(self) -> None:
+    def test_a_designer_can_name_a_manufacturer_prism_does_not_know_yet(self) -> None:
         body = {"manufacturer": "TI", "mpn": "TPS1"}
-        denied = self.call("POST", "/api/supply/watches", role="designer", body=body)
-        self.assertEqual(denied.status, 400)
-        self.assertEqual(denied.json["detail"]["code"], "unknown_manufacturer")
-        with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturers").fetchone()["n"], 0)
-        self.assertEqual(self.call("POST", "/api/supply/watches", role="admin", body=body).status, 201)
-        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body={"manufacturer": "ti", "mpn": "TPS2"}).status, 201,
-                         "once it exists a designer can use it")
+        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body=body).status, 201)
+        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body={"manufacturer": "ti", "mpn": "TPS2"}).status, 201)
         names = [m["name"] for m in self.call("GET", "/api/supply/manufacturers", role="designer").json["items"]]
-        self.assertEqual(names, ["TI"])
+        self.assertEqual(names, ["TI"], "one manufacturer, however it is spelled")
 
     def test_naming_a_manufacturer_distributors_reported_settles_the_listings_waiting_on_it(self) -> None:
         cid = self.fake_connector()

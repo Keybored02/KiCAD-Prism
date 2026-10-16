@@ -61,8 +61,12 @@ def seed(conn, components: Iterable[Mapping[str, Any]], connectors: list[Mapping
         if connector is None:
             counts["no_connector"] += 1
             continue
+        # Seeding adds listings for makers Prism already knows; it does not introduce one.
+        if parts.similar_manufacturer(conn, manufacturer) is None:
+            counts["unknown_manufacturer"] += 1
+            continue
         try:
-            part = parts.ensure_part(conn, manufacturer, mpn, actor, may_create=False)
+            part = parts.ensure_part(conn, manufacturer, mpn, actor)
         except parts.UnknownManufacturer:
             counts["unknown_manufacturer"] += 1
             continue

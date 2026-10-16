@@ -73,13 +73,13 @@ class OneOffTests(unittest.TestCase):
     def test_a_check_reads_the_parts_without_tracking_them(self) -> None:
         cid = self.connector()
         made = self.ask([("Acme", "ABC123"), ("Acme", "DEF456"), ("Acme", ""), ("", "X1")])
-        self.assertEqual((made["parts"], [item["reason"] for item in made["skipped"]]), (2, ["no_mpn", "no_manufacturer"]))
-        self.assertEqual(self.progress(made["id"])["parts"], 2)
+        self.assertEqual((made["parts"], [item["reason"] for item in made["skipped"]]), (3, ["no_mpn"]), "a part with no maker is read too")
+        self.assertEqual(self.progress(made["id"])["parts"], 3)
         self.assertFalse(self.progress(made["id"])["finished"])
-        self.assertEqual(self.served(cid), {"parts": 2, "done": 2})
+        self.assertEqual(self.served(cid), {"parts": 3, "done": 3})
         shown = self.progress(made["id"])
-        self.assertEqual((shown["done"], shown["finished"]), (2, True))
-        self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 2, "both were read")
+        self.assertEqual((shown["done"], shown["finished"]), (3, True))
+        self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 3, "all were read")
         self.assertEqual(self.rows("SELECT 1 FROM part_tiers"), [])
         self.assertEqual(self.rows("SELECT 1 FROM watches"), [])
         self.assertEqual({r["purpose"] for r in self.rows("SELECT purpose FROM call_counts")}, {"oneoff"})
@@ -103,7 +103,7 @@ class OneOffTests(unittest.TestCase):
             self.ask([("Acme", "ABC123")])  # no distributor yet
         self.connector()
         with self.assertRaises(self.oneoff.RequestError):
-            self.ask([("Acme", ""), ("", "X")])
+            self.ask([("Acme", ""), ("Acme", " - ")])
 
     def test_an_empty_pool_on_a_working_day_waits_and_a_weekend_spares_what_it_can(self) -> None:
         cid = self.connector(daily_budget=40)  # a pool of 4 calls

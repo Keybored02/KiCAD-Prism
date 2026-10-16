@@ -1428,6 +1428,40 @@ def _m055_follow_all_variants(conn) -> None:
     conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS all_variants BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
 
 
+def _m056_makers_without_friction(conn) -> None:
+    """Parts exist before their maker is settled; distributors' answers settle it (``makers.py``, ``settle.py``)."""
+
+    conn.execute(
+        """
+        ALTER TABLE manufacturers ADD COLUMN IF NOT EXISTS provisional BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE manufacturer_aliases ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'person';
+
+        CREATE TABLE IF NOT EXISTS part_spellings (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            alias_key TEXT NOT NULL,
+            alias_text TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'learned',
+            at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, alias_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_part_spellings_key ON part_spellings (alias_key);
+
+        CREATE TABLE IF NOT EXISTS alias_rejections (
+            alias_key TEXT NOT NULL,
+            manufacturer_id TEXT NOT NULL REFERENCES manufacturers(id) ON DELETE CASCADE,
+            rejected_by TEXT NOT NULL DEFAULT '',
+            at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (alias_key, manufacturer_id)
+        );
+        """,
+        prepare=False,
+    )
+    # What waits today is classified again under the new rules.
+    from app.services.supply import maker_backfill
+
+    maker_backfill.run(conn)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1484,6 +1518,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (53, "no_stored_files", _m053_no_stored_files),
     (54, "limit_scopes", _m054_limit_scopes),
     (55, "follow_all_variants", _m055_follow_all_variants),
+    (56, "makers_without_friction", _m056_makers_without_friction),
 ]
 
 

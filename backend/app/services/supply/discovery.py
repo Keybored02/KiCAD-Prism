@@ -14,9 +14,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from app.services.supply import parts
+from app.services.supply import parts, settle
 from app.services.supply.audit import actor_text, write_audit
-from app.services.supply.identity import match_key
+from app.services.supply.identity import alias_key, match_key
+from app.services.supply.makers import same_maker
 from app.services.supply.models import PartMatch
 from app.services.supply.providers.base import SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
@@ -50,16 +51,21 @@ class DiscoveryResult:
         return self.exact + self.unresolved + self.near
 
 
-def classify(part: parts.PartRecord, match: PartMatch, resolution: parts.Resolution) -> tuple[str, str]:
-    """The match state and the reason, from facts alone."""
+def classify(part: parts.PartRecord, match: PartMatch, resolution: parts.Resolution, known: frozenset[str] = frozenset()) -> tuple[str, str]:
+    """The match state and the reason, from facts alone.
+
+    The same number counts when the distributor's spelling names the part's maker: its manufacturer, a spelling of it, one
+    the part has been seen under (``known``), or the same maker by ``makers.same_maker``. Another maker's listing of the
+    number is ``near``, kept and shown on the part but never counted.
+    """
 
     if match_key(match.mpn) != part.match_key:
         return NEAR, "different part number"
     if resolution.status == "confirmed" and resolution.manufacturer_id == part.manufacturer_id:
         return EXACT, "part number and manufacturer match"
-    if resolution.status == "confirmed":
-        return NEAR, "same part number, different manufacturer"
-    return UNRESOLVED, "manufacturer spelling not confirmed"
+    if alias_key(match.manufacturer) in known or same_maker(match.manufacturer, part.manufacturer_name):
+        return EXACT, "same maker as the part"
+    return NEAR, "same part number, different manufacturer"
 
 
 class DiscoveryService:
@@ -82,16 +88,23 @@ class DiscoveryService:
 
         counts = {EXACT: 0, UNRESOLVED: 0, NEAR: 0}
         with self._store.connection() as conn:
+            known = frozenset(parts.part_spelling_keys(conn, part.id))
             for match in matches:
                 resolution = parts.resolve_manufacturer(conn, match.manufacturer, provider=match.provider)
-                state, reason = classify(part, match, resolution)
+                state, reason = classify(part, match, resolution, known)
                 state = self._upsert(conn, connector_id, part.id, match, state, reason)
+                if state == EXACT and reason == "same maker as the part":
+                    parts.record_spelling(conn, part.id, match.manufacturer, "learned")
                 if state == EXACT and match.datasheet_url:
                     remember_datasheet(conn, part.id, match.datasheet_url)
                 if state == EXACT and match.parameters:
                     remember_parameters(conn, part.id, match.provider, match.parameters)
                 if state in counts:
                     counts[state] += 1
+            if part.provisional:
+                # The answers may settle who makes it; the listings are sorted again by what they say.
+                settle.settle_part(conn, part.id)
+            settle.learn_aliases(conn)
         return DiscoveryResult(part.id, connector_id, counts[EXACT], counts[UNRESOLVED], counts[NEAR])
 
     @staticmethod

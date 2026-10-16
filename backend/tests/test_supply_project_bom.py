@@ -97,13 +97,13 @@ class ProjectBomTests(unittest.TestCase):
             self.read(conn)
             self.assertEqual(self.read(conn, force=False), {}, "within the interval nothing is read")
 
-    def test_an_unknown_spelling_on_a_new_revision_goes_to_review(self) -> None:
+    def test_an_unknown_spelling_on_a_new_revision_is_tracked_as_written_until_distributors_settle_it(self) -> None:
         with self.store.connection() as conn:
             self.index = {"sourceRevisionKey": "r2", "components": [component("R1", "Acme", "A-1"), component("U1", "Newco Ltd", "N-1")]}
             self.read(conn)
             self.tracking.sync_projects(conn)
-            pending = conn.execute("SELECT alias_text, status FROM manufacturer_aliases WHERE status = 'pending'").fetchall()
-        self.assertEqual([(row["alias_text"], row["status"]) for row in pending], [("Newco Ltd", "pending")])
+            made = conn.execute("SELECT m.name, m.provisional FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.mpn = 'N-1'").fetchall()
+        self.assertEqual([(row["name"], row["provisional"]) for row in made], [("Newco Ltd", True)])
 
     def test_a_project_deleted_from_the_workspace_is_no_longer_tracked(self) -> None:
         with self.store.connection() as conn:

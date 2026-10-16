@@ -80,6 +80,10 @@ class SupplyReviewApiTests(unittest.TestCase):
             self.PartMatch("fake", "S2", "LM358DR", "Texas Instruments"),
             self.PartMatch("fake", "S3", "LM358D", "TEXAS INSTRUMENTS INC"),
         )
+        # Listings an earlier version left waiting on a spelling nobody had mapped (the new rules count "TI" at once).
+        with self.store.connection() as conn:
+            conn.execute("UPDATE listings SET match_state = 'manufacturer_unresolved', match_reason = 'manufacturer spelling not confirmed' WHERE sku = 'S1'")
+            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, status, seen_at_provider) VALUES ('ti', 'TI', 'pending', 'fake')")
 
     # --- helpers ----------------------------------------------------------
 

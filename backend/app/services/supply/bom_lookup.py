@@ -103,6 +103,11 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
         for row in conn.execute("SELECT id, manufacturer_id, match_key FROM parts WHERE match_key = ANY(%s)", (wanted,)).fetchall():
             by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
 
+    spelled: dict[str, set[str]] = {}
+    for part_ids in by_number.values():
+        for row in conn.execute("SELECT part_id, alias_key FROM part_spellings WHERE part_id = ANY(%s)", ([part_id for part_id, _ in part_ids],)).fetchall():
+            spelled.setdefault(row["part_id"], set()).add(row["alias_key"])
+
     resolved: dict[str, tuple[str, str | None, str | None]] = {}
     for line in lines:
         alias, number = keys[line.key]
@@ -112,6 +117,8 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
         candidates = by_number.get(number, [])
         manufacturer_id = manufacturers.get(alias) if alias else None
         exact = [part_id for part_id, owner in candidates if owner == manufacturer_id] if manufacturer_id else []
+        if not exact and alias:
+            exact = [part_id for part_id, _owner in candidates if alias in spelled.get(part_id, ())]
         if exact:
             resolved[line.key] = (TRACKED, exact[0], "exact")
         elif len(candidates) == 1:
@@ -510,9 +517,6 @@ def watch_lines(
         if not match_key(mpn):
             skipped.append({"key": line.key, "reason": "no_mpn"})
             continue
-        if not alias_key(maker):
-            skipped.append({"key": line.key, "reason": "no_manufacturer"})
-            continue
         identity = (alias_key(maker), match_key(mpn))
         if identity in seen:
             continue
@@ -523,7 +527,7 @@ def watch_lines(
                 if lcsc_connector and line.lcsc:
                     linked += _link_lcsc(conn, lcsc_connector, line.lcsc, record.part_id, mpn, maker, actor)
         except parts.UnknownManufacturer:
-            skipped.append({"key": line.key, "reason": "unknown_manufacturer"})
+            skipped.append({"key": line.key, "reason": "needs_choice"})
             continue
         watched += 1 if created else 0
         already += 0 if created else 1

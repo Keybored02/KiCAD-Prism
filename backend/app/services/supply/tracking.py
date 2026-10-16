@@ -153,16 +153,14 @@ def track_project(
     skipped: list[dict[str, str]] = []
     created = 0
     for line in project_parts(conn, project_id, chosen):
-        if not alias_key(line["manufacturer"]):
-            skipped.append({"mpn": line["mpn"], "reason": "no_manufacturer"})
-            continue
         try:
             with conn.transaction():
                 before = parts.find_part(conn, line["manufacturer"], line["mpn"])
                 parts.ensure_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
                 created += 0 if before else 1
         except parts.UnknownManufacturer:
-            skipped.append({"mpn": line["mpn"], "reason": "unknown_manufacturer"})
+            # Several makers have this number and the line does not say which: a person picks (section 11 of the plan).
+            skipped.append({"mpn": line["mpn"], "reason": "needs_choice"})
     excluded: list[str] = []
     built_at: list[str] = []
     if connector_ids is not None:
@@ -206,16 +204,12 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
             (project["project_id"], list(project["variants"]), MAX_PROJECT_PARTS),
         ).fetchall()
         for line in rows:
-            if not alias_key(line["manufacturer"]):
-                continue
             try:
                 with conn.transaction():
                     parts.ensure_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
                     created += 1
             except parts.UnknownManufacturer:
-                # A spelling nobody has settled goes to Review > Spellings; the line is tracked once it is.
-                parts.resolve_manufacturer(conn, line["manufacturer"], provider="bom")
-                continue
+                continue  # several makers have this number and the line does not say which: it waits for a choice
     recompute(conn)
     admission.sync(conn)
     return {"parts_created": created}

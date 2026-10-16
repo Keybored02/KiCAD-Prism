@@ -188,12 +188,12 @@ class TrackingTests(unittest.TestCase):
         self.assertEqual((tier["tier"], tier["rate"], [r["kind"] for r in tier["reasons"]]), (2, "weekly", ["legacy"]))
         self.assertEqual([(r["listing_id"], r["picked_by"]) for r in picks], [("A-REEL", "migration")], "the first listing of that packaging, by SKU")
 
-    def test_a_part_without_a_manufacturer_is_skipped(self) -> None:
+    def test_a_part_without_a_manufacturer_is_tracked_and_its_maker_settled_later(self) -> None:
         self.project("p1", [component("R1", "", "R-1"), component("R2", "Acme", "R-2")])
         result = self.track("p1")
-        self.assertEqual([item["reason"] for item in result["skipped"]], ["no_manufacturer"])
+        self.assertEqual(result["skipped"], [])
         with self.store.connection() as conn:
-            self.assertEqual(self.tracking.counts(conn), {"tier1": 1, "tier2": 0})
+            self.assertEqual(self.tracking.counts(conn), {"tier1": 2, "tier2": 0})
 
 
 if __name__ == "__main__":
