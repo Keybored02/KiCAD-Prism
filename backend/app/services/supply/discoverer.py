@@ -235,8 +235,25 @@ class Discoverer:
         """One search call for ``group``; the result for each part, keyed by part id."""
 
         if not batched:
-            return {group[0]: service.discover(group[0], connector_id)}
+            return {group[0]: service.discover(group[0], connector_id, spend=lambda: self._spend_extra(connector_id))}
         with self._store.connection() as conn:
             found = [parts.get_part(conn, part_id) for part_id in group]
-        answers = provider.lookup_mpns([part.mpn for part in found])  # type: ignore[attr-defined]
-        return {part.id: service.apply(part, answers.get(match_key(part.mpn), []), connector_id) for part in found}
+            extra = {part.id: parts.searched_numbers(conn, part.id) for part in found}
+        asked = list(dict.fromkeys([part.mpn for part in found] + [number for numbers in extra.values() for number in numbers]))
+        answers = provider.lookup_mpns(asked)  # type: ignore[attr-defined]
+        results = {}
+        for part in found:
+            matches = list(answers.get(match_key(part.mpn), []))
+            for number in extra[part.id]:
+                matches += [match for match in answers.get(match_key(number), []) if match.sku not in {m.sku for m in matches}]
+            results[part.id] = service.apply(part, matches, connector_id)
+        return results
+
+    def _spend_extra(self, connector_id: str) -> bool:
+        """One more search call for a part's other number: from the committed share, then from spare budget."""
+
+        connector = self._connectors.get(connector_id)
+        if not registry.get_spec(connector["provider"]).metered:
+            return True
+        now = self._clock()
+        return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)

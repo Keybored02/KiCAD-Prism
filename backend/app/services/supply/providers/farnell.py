@@ -49,7 +49,7 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
-from app.services.supply.identity import match_key
+from app.services.supply.identity import keep_family, match_key
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle
@@ -135,12 +135,14 @@ class FarnellProvider:
         wanted = match_key(mpn)
         if not wanted:
             return []
-        matches = []
-        for product in self._search(f"manuPartNum:{mpn.strip()}"):
-            sku, number = str(product.get("sku") or ""), str(product.get("translatedManufacturerPartNumber") or "")
-            if sku and number and match_key(number) == wanted:
-                matches.append(_match(product, sku, number, self._store))
-        return matches
+        found = [
+            product for product in self._search(f"manuPartNum:{mpn.strip()}")
+            if product.get("sku") and product.get("translatedManufacturerPartNumber")
+        ]
+        return [
+            _match(product, str(product["sku"]), str(product["translatedManufacturerPartNumber"]), self._store)
+            for product in keep_family(found, wanted, lambda product: str(product["translatedManufacturerPartNumber"]))
+        ]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         # Several SKUs go in one ``id`` term, separated by spaces (checked live on 2026-10-14: four SKUs, one call, all four

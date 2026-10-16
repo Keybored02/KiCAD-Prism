@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { SupplyPartRow } from "@/types/supply";
+import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, PROBLEM_LABEL } from "./supply-format";
 import { DataAgeIcon, JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
@@ -48,6 +49,8 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
+                {part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
+                {part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
                 {part.needed ? <div className="text-xs text-muted-foreground">needed {part.needed.toLocaleString()}{part.need_by ? ` by ${part.need_by}` : ""}</div> : null}
               </td>

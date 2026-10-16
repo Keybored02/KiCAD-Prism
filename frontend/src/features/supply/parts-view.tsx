@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { Eye, FileSpreadsheet, PackageSearch, Search, X } from "lucide-react";
+import { Eye, FileSpreadsheet, PackageSearch, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
@@ -29,6 +28,18 @@ const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
   at_risk: "At risk",
   out_of_stock: "Out of stock",
   lifecycle: "End of life",
+  runs_out_2w: "Runs out within 2 weeks",
+  runs_out_8w: "Runs out in 2 to 8 weeks",
+  runs_out_later: "Runs out later",
+  steady: "Steady or rising",
+  few_readings: "Too few readings",
+  draining: "Draining",
+  restock_late: "Restock overdue",
+  often_out: "Often out of stock",
+  one_distributor: "One distributor holds it",
+  lead_up: "Lead time growing",
+  unusual_drop: "Unusual drop",
+  price_moving: "Price moving",
 };
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [

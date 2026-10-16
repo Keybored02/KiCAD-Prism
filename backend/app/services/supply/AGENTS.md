@@ -26,6 +26,10 @@ root first.
 | `parts.py` | Manufacturers, their spellings, parts and the other numbers a part is sold under. `ensure_part` refuses nobody (a maker nobody has checked is provisional). Functions on a connection; none commit. |
 | `makers.py` | `same_maker`: whether two spellings name one maker (same key, seeded spelling, starts with, whole words inside, initials, one lost letter). Never looks at a part number. |
 | `settle.py` | Settling a provisional part's maker from the listings of its number, the questions a person answers (`needs_choice`, `choose`, `not_this_maker`, `use_numbers`), and learning spellings (`learn_aliases`, `undo_alias`). |
+| `number_suffixes.py` | The endings makers put on a base number (`number_suffixes` table, editable): packaging ones are added to a part by discovery, grades wait for a person (`kind_of`). A comma and three digits is always packaging. |
+| `part_insights.py` | What the history says about each tracked part (trend, days to zero, lead time, holders, repricing, 30-day stock), kept in `part_insights` by housekeeping (`renew`); `KINDS` are the findings the Parts `only` filter and the Insights lists use. |
+| `dashboard.py` | The Dashboard page in one read: figures with 30 days of history (`figure_history`, one value a day), status mix, runway buckets, holders, alerts opened by day, cost per board. |
+| `insights_page.py` | The Insights page: counts per finding, the runway scatter, distributor behaviour across all parts, the market overview. |
 | `maker_seeds.py` | The built-in spellings of large makers as rows (`maker_seeds`) an administrator edits; `makers.refresh` reads them. |
 | `maker_backfill.py` | Migration 56: sorts the listings that waited under the old rules again. |
 | `packaging_auto.py` | Picks the packaging of a tracked part by what its projects buy for (prototypes: smallest order, production: a reel). Never changes a person's pick. |

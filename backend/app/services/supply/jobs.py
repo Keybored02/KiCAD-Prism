@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, details, fx, ledger, market, oneoff, packaging_auto, project_bom, project_supply, quota, retention,
+    accounts, dashboard, details, fx, ledger, market, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
     schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
@@ -187,10 +187,12 @@ def housekeeping(store: SupplyStore) -> int:
         _refresh_rates(conn)
         _snapshot_market(conn)
         _snapshot_costs(conn)
+        _snapshot_figures(conn)
         _sync_component_watches(conn)
         _refresh_project_boms(conn)
         _sync_tracking(conn)
         _pick_packagings(conn)
+        _renew_insights(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
         retention.trim_summaries(conn)
@@ -324,6 +326,26 @@ def _pick_packagings(conn) -> None:
             packaging_auto.auto_pick(conn)
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Packagings not picked", exc_info=True)
+
+
+def _snapshot_figures(conn) -> None:
+    """Store the Dashboard's figures once a day, so each can show how it moved. Best effort."""
+
+    try:
+        with conn.transaction():
+            dashboard.snapshot_figures(conn)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Figures not stored", exc_info=True)
+
+
+def _renew_insights(conn) -> None:
+    """Keep the facts the Dashboard and Insights list for each tracked part (no distributor call). Best effort."""
+
+    try:
+        with conn.transaction():
+            part_insights.renew(conn)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Insights not renewed", exc_info=True)
 
 
 def _sync_tracking(conn) -> None:

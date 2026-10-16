@@ -5,16 +5,18 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SupplyPlan } from "@/types/supply";
-import { PlanWeeks } from "./plan-weeks";
+import { PlanningStrip } from "./planning-strip";
 import { heldText, planSentence } from "./planning-model";
 import { StatusDot } from "./status-dot";
 import { getSupplyPlan } from "./supply-api";
 import { useLoaded } from "./use-loaded";
+import { useSupplyNavigation } from "./use-supply-navigation";
 
 /** Where the demand people entered runs past what is held. It buys nothing; it says where the plan is short. */
 export function PlanningView() {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyPlan(signal), []);
   const loaded = useLoaded<SupplyPlan>("planning", fetcher, "Could not load the plan");
+  const { openPart } = useSupplyNavigation();
 
   if (loaded.status === "loading") return <Skeleton className="m-4 h-48" aria-label="Loading the plan" />;
   if (loaded.status === "error" || !loaded.data) {
@@ -31,15 +33,13 @@ export function PlanningView() {
 
   return (
     <div className="space-y-3 p-4">
-      <p className="max-w-3xl text-sm text-muted-foreground">
-        Every part with open demand, set against our own stock and what the distributors hold now. Add demand in a part's sheet.
-        A part is short on the first date the demand so far is more than the supply so far; incoming stock counts from its own date.
-      </p>
+      <p className="text-xs text-muted-foreground">Add demand in a part's sheet. A part is short on the first date the demand so far is more than the supply so far.</p>
       {plan.parts.length === 0 ? (
         <p className="text-sm">No part has open demand yet.</p>
       ) : (
         <>
           <p className="text-sm font-medium">{plan.short === 0 ? "Nothing runs short." : `${plan.short} of ${plan.parts.length} parts run short.`}</p>
+          <PlanningStrip rows={plan.parts} onOpen={openPart} />
           <ul className="divide-y border text-sm">
             {plan.parts.map((row) => (
               <li key={row.part_id} className="grid gap-1 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-center">
@@ -54,7 +54,6 @@ export function PlanningView() {
                     {row.needed.toLocaleString()} needed{row.next_need_by ? `, next by ${row.next_need_by}` : ""}
                     {row.committed > 0 ? `, ${row.committed.toLocaleString()} committed` : ""}. {heldText(row)}.
                   </span>
-                  <PlanWeeks weeks={row.weeks ?? []} />
                 </span>
               </li>
             ))}

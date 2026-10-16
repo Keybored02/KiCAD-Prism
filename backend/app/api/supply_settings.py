@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
-from app.services.supply import maker_seeds
+from app.services.supply import maker_seeds, number_suffixes
 from app.services.supply.assessment import settings as rules
 from app.services.supply.assessment import settings_store
 
@@ -85,6 +85,41 @@ async def remove_maker_spelling(alias_key: str, admin: AuthenticatedUser = Depen
     def run() -> None:
         with _store().connection() as conn:
             maker_seeds.remove(conn, alias_key, admin.email)
+
+    await _run(run)
+
+
+class SuffixBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ending: str
+    kind: str
+
+
+@router.get("/number-endings")
+async def get_number_endings(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"endings": number_suffixes.listing_all(conn)}
+
+    return await _run(read)
+
+
+@router.post("/number-endings", status_code=201)
+async def add_number_ending(body: SuffixBody, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            number_suffixes.add(conn, body.ending, body.kind, admin.email)
+            return {"endings": number_suffixes.listing_all(conn)}
+
+    return await _run(run)
+
+
+@router.delete("/number-endings/{key:path}", status_code=204)
+async def remove_number_ending(key: str, admin: AuthenticatedUser = Depends(require_admin)) -> None:
+    def run() -> None:
+        with _store().connection() as conn:
+            number_suffixes.remove(conn, key, admin.email)
 
     await _run(run)
 

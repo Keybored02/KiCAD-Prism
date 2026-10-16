@@ -29,7 +29,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
-from app.services.supply.identity import match_key
+from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_OFFERS,
@@ -87,10 +87,8 @@ class JlcpcbProvider:
         wanted = match_key(mpn)
         if not wanted:
             return []
-        return [
-            _match(item) for item in self._search(mpn.strip())
-            if match_key(str(item.get("componentModelEn") or "")) == wanted and not _consignment(item)
-        ]
+        found = [item for item in self._search(mpn.strip()) if not _consignment(item)]
+        return [_match(item) for item in keep_family(found, wanted, lambda item: str(item.get("componentModelEn") or ""))]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers = []

@@ -1521,6 +1521,90 @@ def _m060_maker_seeds(conn) -> None:
             )
 
 
+def _seed_makers(conn) -> None:
+    """Add the usual spellings in code that the table does not have yet (a group's head is its first spelling)."""
+
+    from app.services.supply import makers
+    from app.services.supply.identity import alias_key
+
+    for group in makers.default_spellings():
+        head = alias_key(group[0])
+        for spelling in group:
+            conn.execute(
+                "INSERT INTO maker_seeds (alias_key, group_key, alias_text) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (alias_key(spelling), head, spelling.title() if spelling.islower() and len(spelling) > 3 else spelling.upper() if len(spelling) <= 3 else spelling),
+            )
+
+
+def _m061_number_suffixes(conn) -> None:
+    """The endings makers put on a base number, as rows an administrator can read and change (a list that was in code)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS number_suffixes (
+            suffix_key TEXT PRIMARY KEY,
+            suffix_text TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('packaging', 'grade')),
+            source TEXT NOT NULL DEFAULT 'seeded'
+        );
+        """,
+        prepare=False,
+    )
+    from app.services.supply import number_suffixes
+
+    _seed_makers(conn)
+    for key, kind in number_suffixes.DEFAULTS:
+        conn.execute(
+            "INSERT INTO number_suffixes (suffix_key, suffix_text, kind) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (key, key, kind)
+        )
+
+
+def _m062_part_insights(conn) -> None:
+    """What the history says about each tracked part, kept so the Dashboard and Insights can list and chart every part."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_insights (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            computed_at TIMESTAMPTZ NOT NULL,
+            data JSONB NOT NULL DEFAULT '{}'::jsonb
+        );
+        """,
+        prepare=False,
+    )
+
+
+def _m063_figure_history(conn) -> None:
+    """The Dashboard's figures, one value a day, so each can show how it moved. Parts that found nothing countable are searched again."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS figure_history (
+            day DATE NOT NULL,
+            metric TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            PRIMARY KEY (day, metric)
+        );
+        """,
+        prepare=False,
+    )
+    # Searches now keep the longer numbers distributors list. A part that found nothing countable is searched again, from the
+    # committed share, the next time the scheduler looks.
+    conn.execute(
+        """
+        UPDATE discovery_runs SET last_run_at = '2000-01-01'::timestamptz
+        WHERE part_id NOT IN (SELECT part_id FROM listings WHERE part_id IS NOT NULL AND match_state IN ('exact', 'manual'))
+        """,
+        prepare=False,
+    )
+
+
+def _m064_maker_seeds_added(conn) -> None:
+    """Spellings added to the usual list after migration 60 (TAI-SAW's own brand, TST)."""
+
+    _seed_makers(conn)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1582,6 +1666,10 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (58, "buying_for", _m058_buying_for),
     (59, "ask_maker", _m059_ask_maker),
     (60, "maker_seeds", _m060_maker_seeds),
+    (61, "number_suffixes", _m061_number_suffixes),
+    (62, "part_insights", _m062_part_insights),
+    (63, "figure_history", _m063_figure_history),
+    (64, "maker_seeds_added", _m064_maker_seeds_added),
 ]
 
 

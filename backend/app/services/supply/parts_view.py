@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import demand, facts, insights, outlook, params, parts, pcn, price_behaviour, prices, pricing, promises, stock, usage
+from app.services.supply import demand, facts, insights, outlook, params, part_insights, parts, pcn, price_behaviour, prices, pricing, promises, settle, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -23,7 +23,10 @@ from app.services.supply.vocabulary import Lifecycle
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
 Scope = Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"]
-Filter = Literal["", "at_risk", "out_of_stock", "lifecycle"]
+Filter = Literal[
+    "", "at_risk", "out_of_stock", "lifecycle", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings", "draining",
+    "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving",
+]
 _NEEDS_A_LOOK = ("fatal", "error", "warning")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 # The groups the Overview counts, so a count and the list it links to agree.
@@ -352,7 +355,7 @@ def part_groups(
 
     items, _total = ranked_parts(conn, scope=scope, query=query, role=role)
     if only:
-        items = [item for item in items if FILTERS[only](item)]
+        items = _only(conn, items, only)
     of = _projects_of(conn, [item["id"] for item in items], role)
     groups: dict[str, dict[str, Any]] = {}
     for item in items:
@@ -381,6 +384,15 @@ def part_groups(
     return {"groups": ordered, "total": len(items)}
 
 
+def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
+    """The parts a group applies to: a status or stock group from the rows themselves, a finding from the kept insights."""
+
+    if only in FILTERS:
+        return [item for item in items if FILTERS[only](item)]
+    keep = part_insights.matching(conn, only)
+    return [item for item in items if item["id"] in keep]
+
+
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = "", offset: int = 0,
     project_id: str = "",
@@ -391,7 +403,7 @@ def list_parts(
     limit = max(1, min(limit, MAX_LIMIT))
     items, total = ranked_parts(conn, scope=scope, query=query, role=role)
     if only:
-        items = [item for item in items if FILTERS[only](item)]
+        items = _only(conn, items, only)
         total = len(items)
     if project_id:
         of = _projects_of(conn, [item["id"] for item in items], role)
@@ -399,6 +411,11 @@ def list_parts(
         total = len(items)
     offset = max(0, offset)
     page = items[offset:offset + limit]
+    kept = part_insights.of_parts(conn, [item["id"] for item in page])
+    page = [
+        item | ({"spark": kept[item["id"]]["spark"], "runs_out_days": kept[item["id"]]["days_to_zero"]} if item["id"] in kept else {})
+        for item in page
+    ]
     more = offset + limit < total
     return {"items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None}
 
@@ -704,6 +721,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             ],
         ),
         "numbers": parts.list_numbers(conn, part_id),
+        "sold_as": settle.sold_as(conn, part_id),
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),

@@ -30,7 +30,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
-from app.services.supply.identity import match_key
+from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_OFFERS,
@@ -116,8 +116,8 @@ class LcscProvider:
         wanted = match_key(mpn)
         if not wanted:
             return []
-        # The search is loose ("TSR 1-2450" brings TSRN, TSN and M39003 parts), so only the same number is kept.
-        return [_search_match(item) for item in self._search(mpn.strip()) if match_key(str(item.get("mpn") or "")) == wanted]
+        # The search is loose ("TSR 1-2450" brings TSRN, TSN and M39003 parts), so only the same number and its longer forms are kept.
+        return [_search_match(item) for item in keep_family(self._search(mpn.strip()), wanted, lambda item: str(item.get("mpn") or ""))]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers = []

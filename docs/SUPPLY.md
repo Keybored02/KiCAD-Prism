@@ -8,11 +8,11 @@ and no purchase support.
 
 | Place | What it answers |
 | --- | --- |
-| **Supply > Dashboard** | What needs a person: counts that open the place that deals with them (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then one list of alerts, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
+| **Supply > Dashboard** | What needs a person: counts with their change over seven days and a 30-day line (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), charts that open the parts behind them (parts by status, when stock runs out, how many distributors hold stock, alerts opened over 30 days, the cost of one board per tracked project; each has a table view behind an icon), then the alerts with a chip for each kind, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
 | **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
 | **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). |
 | **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
-| **Supply > Insights** | Market and Planning, two views of one tab. |
+| **Supply > Insights** | One page, five sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Market, Distributors (how often each changes price, who moves first, who restocks first, arrivals on time, across all tracked parts) and Planning (a row a part, a column a week). |
 | **Supply > Connectors** | Distributor accounts and the call budget. |
 | **Project > Supply** | How one product stands: tracking, its parts, planned builds, releases, line notes. Reads the stored BOM of the default branch, never a checked-out commit. |
 | **Project > Visualizers > BOM** | This BOM line, now. Supply shows only at the latest revision, not at a commit checked out from History. |
@@ -201,6 +201,13 @@ A part can also be sold under other numbers (`LM358D` as `LM358DR`). Packaging s
 a family number asks once which numbers it is sold as; the part sheet's Numbers row adds or removes one. BOM lines naming any
 of them find the part.
 
+Distributors list orderable numbers longer than the base number a catalog keeps, so a search keeps the part's own number
+and up to ten longer forms of it (`74AHC1G09GV` and `74AHC1G09GV,125`). A longer number of the same maker whose ending is
+a packaging ending (`R`, `TR`, `#PBF`, `/NOPB`, a comma and three digits) is added to the part by Prism. A grade ending
+(`-Q100`, `-EP`) is another orderable part: it shows on the Numbers row as "Count it". Administrators edit the endings in
+Supply settings. A number a person added is searched on its own. A second source that lists the same number under an
+unrelated maker is shown on the part and asks nothing.
+
 ## Review
 
 Supply > Review lists what needs a person, each section closed or open (long ones start closed; your choice is
@@ -269,7 +276,7 @@ outlook and raises an alert on watched parts, an error when the last time buy is
 
 ## Market
 
-Supply > Insights > Market shows how the parts you follow do as a group, by manufacturer and by category (the one DigiKey or Mouser files the part under) and, once two days are stored, a chart of any figure over time: the share out of stock, the share with a
+Supply > Insights > Market (a section of the page) shows how the parts you follow do as a group, by manufacturer and by category (the one DigiKey or Mouser files the part under) and, once two days are stored, a chart of any figure over time: the share out of stock, the share with a
 lifecycle risk, the share every distributor dropped, the median lead time and a price index (100 at the first snapshot, then the median price change of the listings), each with its change since a month ago once
 a month of snapshots exists. It covers watched parts and parts on project BOMs only, a manufacturer needs at least three
 of them, and the number of parts is always shown. It is not the market as a whole.
@@ -285,7 +292,7 @@ shows the same phrase.
 
 ## Planning
 
-Supply > Insights > Planning lists every part with open demand against our own stock and what the distributors hold now, shortages
+Supply > Insights > Planning (a section of the page) lists every part with open demand against our own stock and what the distributors hold now, shortages
 first. A part is short on the first date the demand so far is more than the supply so far; stock already on its way in
 counts from its own date, and demand with no date is counted last. Demand comes from a part sheet's Demand section or from
 the BOM: **Add to plan** on a project BOM asks for the build's parts (spares included) under a name and a needed-by date,

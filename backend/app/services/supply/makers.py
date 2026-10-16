@@ -67,6 +67,7 @@ SEEDED: tuple[tuple[str, ...], ...] = (
     ("traco power", "traco"),
     ("ecs", "ecs inc", "ecs inc international"),
     ("rfmi", "rf monolithics"),
+    ("tai saw", "tst", "tai saw technology"),
 )
 
 # Words that name a kind of company, not a company: sharing one says nothing.
@@ -157,6 +158,20 @@ def _contains(longer: list[str], shorter: list[str]) -> bool:
 
 def _initials(words: list[str]) -> str:
     return "".join(word[0] for word in words if word not in {"and", "the", "of"})
+
+
+def might_be_same(first: str, second: str) -> bool:
+    """A weaker question than ``same_maker``: whether two spellings share a distinctive word or a leading run of letters, so
+    a person is worth asking. "Microdiode Semiconductor" and "Nexperia" share nothing; "TAI-SAW" and "TAI-SAW Technology" do."""
+
+    one, two = _words(first), _words(second)
+    if not one or not two:
+        return False
+    shared = {word for word in one if word not in GENERIC and len(word) >= 3} & {word for word in two if word not in GENERIC and len(word) >= 3}
+    if shared:
+        return True
+    a, b = "".join(one), "".join(two)
+    return min(len(a), len(b)) >= 3 and (a.startswith(b[:3]) or b.startswith(a[:3]))
 
 
 def same_maker(first: str, second: str, canonical: Callable[[str], str | None] | Mapping[str, str] | None = None) -> bool:

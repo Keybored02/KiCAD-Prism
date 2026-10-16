@@ -35,4 +35,15 @@ describe("the numbers of a part", () => {
     expect(screen.getByText("LM358DR")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("offers the longer numbers the maker lists, a grade apart from a packaging, and counts one on a click", async () => {
+    mocked.markPartNumbers.mockResolvedValue({ counted: 1 });
+    const changed = vi.fn();
+    render(<PartNumbers partId="p1" mpn="74AHC1G09GV" numbers={[]} soldAs={[{ key: "74AHC1G09GVQ100H", mpn: "74AHC1G09GV-Q100H", kind: "grade", connectors: ["DigiKey"] }]} canEdit onChanged={changed} />);
+    expect(screen.getByText("74AHC1G09GV-Q100H")).toBeTruthy();
+    expect(screen.getByText("grade")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Count 74AHC1G09GV-Q100H" }));
+    await waitFor(() => expect(mocked.markPartNumbers).toHaveBeenCalledWith("p1", ["74AHC1G09GVQ100H"]));
+    expect(changed).toHaveBeenCalled();
+  });
 });

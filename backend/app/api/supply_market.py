@@ -9,9 +9,27 @@ from fastapi import APIRouter, Depends
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_supply_reader
-from app.services.supply import market
+from app.services.supply import dashboard, insights_page, market
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
+
+
+@router.get("/dashboard")
+async def dashboard_figures(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with supply_connectors.service.store.connection() as conn:
+            return dashboard.build(conn, role=user.role)
+
+    return await asyncio.to_thread(read)
+
+
+@router.get("/insights")
+async def insights_overview(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with supply_connectors.service.store.connection() as conn:
+            return insights_page.build(conn)
+
+    return await asyncio.to_thread(read)
 
 
 @router.get("/market")

@@ -30,6 +30,7 @@ interface CollapsibleSectionProps {
   /** Names the section in the viewer's remembered choices. */
   id: string;
   title: string;
+  /** How many items it holds; negative shows no count. */
   count: number;
   /** A line shown beside the count, such as what picking saves. */
   note?: string;
@@ -51,7 +52,7 @@ export function CollapsibleSection({ id, title, count, note, chips, startOpen, r
       <CollapsibleTrigger className="flex w-full items-center gap-2 bg-muted/30 px-3 py-2 text-left hover:bg-muted/50">
         <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
         <span className="text-sm font-medium">{title}</span>
-        <span className="bg-secondary px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span>
+        {count >= 0 ? <span className="bg-secondary px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span> : null}
         {chips}
         {note ? <span className="ml-auto text-xs text-muted-foreground">{note}</span> : null}
       </CollapsibleTrigger>

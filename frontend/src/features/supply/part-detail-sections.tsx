@@ -98,7 +98,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <DemandSection partId={detail.part.id} canEdit={canEdit} />
 
-      <PartNumbers partId={detail.part.id} mpn={detail.part.mpn} numbers={detail.numbers ?? []} canEdit={canEdit} onChanged={onChanged} />
+      <PartNumbers partId={detail.part.id} mpn={detail.part.mpn} numbers={detail.numbers ?? []} soldAs={detail.sold_as ?? []} canEdit={canEdit} onChanged={onChanged} />
 
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>

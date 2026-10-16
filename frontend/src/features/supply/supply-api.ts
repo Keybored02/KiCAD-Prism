@@ -26,7 +26,10 @@ import type {
   SupplyWorker,
   SupplyConnectorCheck,
   SupplyManufacturer,
+  SupplyDashboard,
+  SupplyInsightsPage,
   SupplyOverview,
+  SupplyPartGroups,
   SupplyPartDetail,
   SupplyPartsPage,
   SupplyProvider,
@@ -288,6 +291,43 @@ export function otherSupplyMaker(partId: string, key: string): Promise<{ rejecte
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
+export interface SupplyFxRates {
+  day: string | null;
+  currencies: string[];
+  stale: boolean;
+}
+
+export function getFxRates(signal?: AbortSignal): Promise<SupplyFxRates> {
+  return fetchJson(`${BASE}/fx`, { signal }, "Could not load the exchange rates");
+}
+
+export function refreshFxRates(): Promise<SupplyFxRates> {
+  return post(`${BASE}/fx/refresh`, undefined, "Could not fetch the exchange rates");
+}
+
+export function enterFxRates(day: string, rates: Record<string, number>): Promise<SupplyFxRates> {
+  return post(`${BASE}/fx/rates`, { day, rates }, "Could not save the exchange rates");
+}
+
+export interface SupplyNumberEnding {
+  suffix_key: string;
+  suffix_text: string;
+  kind: "packaging" | "grade";
+  source: string;
+}
+
+export function listNumberEndings(signal?: AbortSignal): Promise<{ endings: SupplyNumberEnding[] }> {
+  return fetchJson(`${BASE}/settings/number-endings`, { signal }, "Could not load the endings");
+}
+
+export function addNumberEnding(ending: string, kind: "packaging" | "grade"): Promise<{ endings: SupplyNumberEnding[] }> {
+  return post(`${BASE}/settings/number-endings`, { ending, kind }, "Could not add the ending");
+}
+
+export function removeNumberEnding(key: string): Promise<void> {
+  return send(`${BASE}/settings/number-endings/${encodeURIComponent(key)}`, "DELETE", undefined, "Could not remove the ending");
+}
+
 export function listMakerSpellings(signal?: AbortSignal): Promise<{ groups: SupplyMakerGroup[] }> {
   return fetchJson(`${BASE}/settings/makers`, { signal }, "Could not load the spellings");
 }
@@ -327,6 +367,14 @@ export function listSupplyParts(scope: PartsScope, query: string, signal?: Abort
   if (only) params.set("only", only);
   if (query.trim()) params.set("q", query.trim());
   return fetchJson<SupplyPartsPage>(`${BASE}/parts?${params}`, { signal }, "Could not load parts");
+}
+
+export function getSupplyDashboard(signal?: AbortSignal): Promise<SupplyDashboard> {
+  return fetchJson<SupplyDashboard>(`${BASE}/dashboard`, { signal }, "Could not load the dashboard");
+}
+
+export function getSupplyInsights(signal?: AbortSignal): Promise<SupplyInsightsPage> {
+  return fetchJson<SupplyInsightsPage>(`${BASE}/insights`, { signal }, "Could not load the insights");
 }
 
 export function getSupplyOverview(signal?: AbortSignal): Promise<SupplyOverview> {

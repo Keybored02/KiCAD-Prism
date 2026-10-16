@@ -8,7 +8,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listPartNotices: vi.fn(),
   addNotice: vi.fn(),
   closeNotice: vi.fn(),
-  closeNotice: vi.fn(),
   checkPartNotices: vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));

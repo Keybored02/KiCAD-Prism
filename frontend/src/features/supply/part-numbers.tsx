@@ -3,22 +3,24 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { SupplyPartNumber } from "@/types/supply";
-import { addPartNumber, removePartNumber } from "./supply-api";
+import type { SupplyPartNumber, SupplySoldAs } from "@/types/supply";
+import { addPartNumber, markPartNumbers, removePartNumber } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 
 /** The numbers a part is sold under besides the catalog's own, each removable, with a way to add one. */
-export function PartNumbers({ partId, mpn, numbers, canEdit, onChanged }: {
+export function PartNumbers({ partId, mpn, numbers, soldAs = [], canEdit, onChanged }: {
   partId: string;
   mpn: string;
   numbers: readonly SupplyPartNumber[];
+  /** Longer numbers the maker lists that do not count yet. */
+  soldAs?: readonly SupplySoldAs[];
   canEdit: boolean;
   onChanged: () => void;
 }) {
   const { busy, error, run } = useConnectorSubmit();
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
-  if (numbers.length === 0 && !canEdit) return null;
+  if (numbers.length === 0 && soldAs.length === 0 && !canEdit) return null;
   const add = () => void run(async () => {
     await addPartNumber(partId, text.trim());
     setText("");
@@ -37,6 +39,18 @@ export function PartNumbers({ partId, mpn, numbers, canEdit, onChanged }: {
               <button type="button" aria-label={`Remove ${item.mpn}`} disabled={busy} className="text-muted-foreground hover:text-foreground"
                 onClick={() => void run(async () => { await removePartNumber(partId, item.match_key); onChanged(); })}>
                 <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </span>
+        ))}
+        {soldAs.map((item) => (
+          <span key={item.key} className="flex items-center gap-1 border border-dashed px-2 py-0.5" title={`${item.connectors.join(", ")} list it. It does not count for this part yet.`}>
+            {item.mpn}
+            <span className="text-muted-foreground">{item.kind === "grade" ? "grade" : item.kind === "packaging" ? "packaging" : "other"}</span>
+            {canEdit ? (
+              <button type="button" aria-label={`Count ${item.mpn}`} disabled={busy} className="font-medium text-primary hover:underline"
+                onClick={() => void run(async () => { await markPartNumbers(partId, [item.key]); onChanged(); })}>
+                Count it
               </button>
             ) : null}
           </span>

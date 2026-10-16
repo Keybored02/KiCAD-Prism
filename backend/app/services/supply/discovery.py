@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from app.services.supply import parts, settle
+from app.services.supply import number_suffixes, parts, settle
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.makers import same_maker
@@ -26,6 +26,7 @@ EXACT = "exact"
 MANUAL = "manual"
 UNRESOLVED = "manufacturer_unresolved"
 NEAR = "near"
+LONGER = "longer number"
 REJECTED = "rejected"
 GONE = "gone"
 
@@ -61,8 +62,9 @@ def classify(
     number is ``near``, kept and shown on the part but never counted.
     """
 
-    if match_key(match.mpn) != part.match_key and match_key(match.mpn) not in numbers:
-        return NEAR, "different part number"
+    key = match_key(match.mpn)
+    if key != part.match_key and key not in numbers:
+        return NEAR, (LONGER if key.startswith(part.match_key) else "different part number")
     if resolution.status == "confirmed" and resolution.manufacturer_id == part.manufacturer_id:
         return EXACT, "part number and manufacturer match"
     if alias_key(match.manufacturer) in known or same_maker(match.manufacturer, part.manufacturer_name):
@@ -79,10 +81,20 @@ class DiscoveryService:
         self._provider_for = provider_for
         self._store = store
 
-    def discover(self, part_id: str, connector_id: str) -> DiscoveryResult:
+    def discover(self, part_id: str, connector_id: str, spend: Callable[[], bool] | None = None) -> DiscoveryResult:
+        """Search for the part's number, and for each other number a person gave it that the answer did not bring back.
+        ``spend`` pays for one more call; without it the other numbers are not searched."""
+
         with self._store.connection() as conn:
             part = parts.get_part(conn, part_id)
-        matches = self._provider_for(connector_id).lookup_mpn(part.mpn, part.manufacturer_name)
+            others = parts.searched_numbers(conn, part_id)
+        provider = self._provider_for(connector_id)
+        matches = provider.lookup_mpn(part.mpn, part.manufacturer_name)
+        found = {match_key(match.mpn) for match in matches}
+        for number in others:
+            if match_key(number) in found or spend is None or not spend():
+                continue
+            matches = matches + [m for m in provider.lookup_mpn(number, part.manufacturer_name) if m.sku not in {x.sku for x in matches}]
         return self.apply(part, matches, connector_id)
 
     def apply(self, part: parts.PartRecord, matches: list[PartMatch], connector_id: str) -> DiscoveryResult:
@@ -90,6 +102,7 @@ class DiscoveryService:
 
         counts = {EXACT: 0, UNRESOLVED: 0, NEAR: 0}
         with self._store.connection() as conn:
+            number_suffixes.refresh(conn)
             known = frozenset(parts.part_spelling_keys(conn, part.id))
             numbers = frozenset(parts.part_number_keys(conn, part.id))
             numbers = numbers | frozenset(self._suffixed(conn, part, matches, numbers))
@@ -113,15 +126,21 @@ class DiscoveryService:
 
     @staticmethod
     def _suffixed(conn, part: parts.PartRecord, matches: list[PartMatch], numbers: frozenset[str]) -> list[str]:
-        """When no distributor lists the part's own number, the same maker's number plus a packaging suffix (LM358D -> LM358DR)
-        is the same part: those numbers are added to it. Returns the keys added."""
+        """When no distributor lists the part's own number under its maker, the same maker's number plus a packaging ending
+        (``LM358D`` -> ``LM358DR``, ``74AHC1G09GV`` -> ``74AHC1G09GV,125``) is the same part: those numbers are added to it.
+        Grades (``-Q100H``) are never added here. Returns the keys added."""
 
-        if part.provisional or any(match_key(match.mpn) in numbers for match in matches):
+        if part.provisional:
+            return []
+        if any(
+            match_key(match.mpn) in numbers and same_maker(match.manufacturer, part.manufacturer_name) for match in matches
+        ):
             return []
         added = []
         for match in matches:
             key = match_key(match.mpn)
-            if key.startswith(part.match_key) and key[len(part.match_key):] in parts.PACKAGING_SUFFIXES and same_maker(match.manufacturer, part.manufacturer_name):
+            ending = key[len(part.match_key):]
+            if key.startswith(part.match_key) and ending and number_suffixes.kind_of(ending) == number_suffixes.PACKAGING and same_maker(match.manufacturer, part.manufacturer_name):
                 if parts.add_number(conn, part.id, match.mpn, "system", "suffix"):
                     added.append(key)
         return added

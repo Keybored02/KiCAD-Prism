@@ -9,7 +9,7 @@ import { marketRows, type MarketColumn } from "./market-model";
 const COLOURS = ["hsl(var(--primary))", "#0070bb", "#4eb661", "#ff2100", "#a855f7", "#f59e0b"];
 
 /** One line per group over the stored days. Shares are drawn as percentages. */
-export default function MarketChart({ series, column }: { series: SupplyMarketHistory["series"]; column: MarketColumn }) {
+export default function MarketChart({ series, column, dots = false }: { series: SupplyMarketHistory["series"]; column: MarketColumn; dots?: boolean }) {
   const config: ChartConfig = Object.fromEntries(series.map((line, index) => [`s${index}`, { label: line.scope, color: COLOURS[index % COLOURS.length] }]));
   const share = column.kind === "share";
   const show = (value: number) => (share ? `${Math.round(value * 100)}%` : column.kind === "index" ? value.toFixed(1) : `${Math.round(value)} d`);
@@ -22,7 +22,7 @@ export default function MarketChart({ series, column }: { series: SupplyMarketHi
           <YAxis width={44} tickLine={false} axisLine={false} domain={share ? [0, 1] : column.kind === "index" ? ["auto", "auto"] : [0, "auto"]} tickFormatter={show} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={(label) => formatDay(String(label))} valueFormatter={(value) => show(Number(value))} />} />
           {series.map((line, index) => (
-            <Line key={`${line.kind}:${line.scope}`} dataKey={`s${index}`} type="monotone" stroke={`var(--color-s${index})`} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+            <Line key={`${line.kind}:${line.scope}`} dataKey={`s${index}`} type="monotone" stroke={`var(--color-s${index})`} strokeWidth={2} dot={dots ? { r: 3 } : false} connectNulls isAnimationActive={false} />
           ))}
         </LineChart>
       </ChartContainer>

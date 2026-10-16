@@ -1,9 +1,9 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyPlan, SupplyPlanRow } from "@/types/supply";
-import { PlanWeeks } from "./plan-weeks";
+import { PlanningStrip } from "./planning-strip";
 import { heldText, planSentence } from "./planning-model";
 
 vi.mock("./supply-api", async (importOriginal) => ({
@@ -27,18 +27,21 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 describe("the weekly plan", () => {
-  it("shows each week's demand, arrivals and balance, and marks a short week", () => {
-    const { container } = render(<PlanWeeks weeks={[
+  it("draws a row a part and a cell a week, red where a week is short, and opens the part", () => {
+    const open = vi.fn();
+    const rows = [row({ weeks: [
       { week: "2026-05-04", demand: 80, incoming: 0, balance: 50 },
       { week: "2026-05-11", demand: 120, incoming: 50, balance: -20 },
-    ]} />);
-    expect(screen.getByText("2026-05-11")).toBeTruthy();
-    expect(screen.getByText("-20").className).toContain("text-destructive");
-    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+    ] })];
+    const { container } = render(<PlanningStrip rows={rows} onOpen={open} />);
+    expect(container.querySelectorAll("td")).toHaveLength(2);
+    expect(screen.getByTitle("Week of 2026-05-11: needed 120, arriving 50, left -20").className).toContain("bg-destructive");
+    fireEvent.click(screen.getByRole("button", { name: /ABC-1/ }));
+    expect(open).toHaveBeenCalledWith("p1");
   });
 
-  it("shows nothing for a part without dated demand", () => {
-    const { container } = render(<PlanWeeks weeks={[]} />);
+  it("shows nothing for parts without dated demand", () => {
+    const { container } = render(<PlanningStrip rows={[row()]} onOpen={vi.fn()} />);
     expect(container.textContent).toBe("");
   });
 });

@@ -180,6 +180,8 @@ export interface SupplyMarket {
   }>;
 }
 
+export type SupplyMarketScope = SupplyMarket["scopes"][number];
+
 /** One metric over the stored days, a line per group. */
 export interface SupplyMarketHistory {
   metric: string;
@@ -476,6 +478,14 @@ export interface SupplyPartNumber {
   source: string;
 }
 
+/** A longer number the part's maker lists that does not count for the part yet. `kind` says what its ending means. */
+export interface SupplySoldAs {
+  key: string;
+  mpn: string;
+  kind: "packaging" | "grade" | "other";
+  connectors: string[];
+}
+
 export interface SupplyChoiceOption {
   key: string;
   spelling: string;
@@ -541,7 +551,10 @@ export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" |
 export type SupplyTier = "daily" | "weekly" | "monthly";
 export type PartsScope = "followed" | "watched" | "tier1" | "tier2" | "in_use" | "waiting" | "pick" | "all";
 /** One group of parts the Overview counts; empty is no narrowing. */
-export type PartsFilter = "" | "at_risk" | "out_of_stock" | "lifecycle";
+export type PartsFilter =
+  | "" | "at_risk" | "out_of_stock" | "lifecycle"
+  | "runs_out_2w" | "runs_out_8w" | "runs_out_later" | "steady" | "few_readings" | "draining" | "restock_late" | "often_out"
+  | "one_distributor" | "lead_up" | "unusual_drop" | "price_moving";
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 
@@ -600,6 +613,9 @@ export interface SupplyPartRow {
   /** Units open demand asks of the part, and the soonest date it is wanted by. */
   needed?: number;
   need_by?: string | null;
+  /** The last 30 days of counted stock, and the days until it is projected to run out. */
+  spark?: number[];
+  runs_out_days?: number | null;
 }
 
 /** The parts that match a view, in one project's group (`none`: used by no project). */
@@ -679,6 +695,7 @@ export interface MarketBehaviour {
 export interface SupplyPartDetail {
   /** Other numbers the part is sold under. */
   numbers?: SupplyPartNumber[];
+  sold_as?: SupplySoldAs[];
   market_behaviour?: MarketBehaviour;
   jlc?: JlcClass | null;
   /** The catalog components that list this part as an approved alternate, and what their parts hold together. */
@@ -1239,4 +1256,34 @@ export interface BomSuggestions {
     suggested: string;
     reason: string;
   }>;
+}
+
+/** The Dashboard page in one read. */
+export interface SupplyDashboard {
+  figures: Record<"watched" | "at_risk" | "out_of_stock" | "lifecycle" | "open_alerts" | "waiting", number>;
+  /** Each figure's stored values over the last 30 days, oldest first. */
+  figure_history: Record<string, number[]>;
+  statuses: Array<{ status: SupplyStatus; count: number }>;
+  runway: Record<"out_now" | "runs_out_2w" | "runs_out_8w" | "runs_out_later" | "steady" | "few_readings", number>;
+  holders: Record<"none" | "one" | "two" | "three_plus" | "unknown", number>;
+  alerts_by_day: Array<Record<string, number | string>>;
+  project_costs: Array<{ project_id: string; project_name: string; currency: string; points: Array<[string, number]> }>;
+  insights_ready: number;
+}
+
+export interface SupplyDistributorBehaviour {
+  repricing: Array<{ name: string; days: number; parts: number }>;
+  leaders: Array<{ name: string; parts: number }>;
+  restock_first: Array<{ name: string; parts: number }>;
+  arrivals: { on_time: number; resolved: number } | null;
+}
+
+/** The Insights page: counts of findings, the runway scatter, distributors, market. */
+export interface SupplyInsightsPage {
+  tracked: number;
+  counts: Record<string, number>;
+  scatter: Array<{ part_id: string; mpn: string; manufacturer: string; days_to_zero: number; lead_days: number }>;
+  scatter_missing: { no_rate: number; no_lead_time: number };
+  distributors: SupplyDistributorBehaviour;
+  market: SupplyMarket;
 }

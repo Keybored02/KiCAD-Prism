@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import type { BudgetCall, BudgetConnector } from "@/types/supply";
 import { getBudget } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
-import { VendorName } from "./vendor-name";
 
 const PURPOSES: ReadonlyArray<{ id: string; label: string; tone: string }> = [
   { id: "tier1", label: "Tier 1", tone: "bg-primary" },

@@ -264,7 +264,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         result = self.discover(part, match("S1", "LM358DR", "Texas Instruments"), match("S2", "LM358D", "Onsemi"))
         self.assertEqual((result.exact, result.near), (0, 2))
         found = self.listings()
-        self.assertEqual(found["S1"]["match_reason"], "different part number")
+        self.assertEqual(found["S1"]["match_reason"], "longer number")
         self.assertEqual(found["S2"]["match_reason"], "same part number, different manufacturer")
         with self.store.connection() as conn:
             self.assertEqual(self.discovery.counted_listings(conn, part.id), [])

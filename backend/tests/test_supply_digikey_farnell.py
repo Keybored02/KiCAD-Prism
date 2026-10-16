@@ -103,9 +103,12 @@ class DigiKeyTests(unittest.TestCase):
         self.assertEqual((matches[0].mpn, matches[0].manufacturer), ("LM358DR", "Texas Instruments"))
         self.assertIn("digikey.it", matches[0].product_url)
 
-    def test_without_exact_matches_only_the_same_number_counts(self) -> None:
+    def test_without_exact_matches_the_same_number_and_its_longer_forms_are_kept_and_other_numbers_are_not(self) -> None:
         other = dk_product([variation("X-1-ND")]) | {"ManufacturerProductNumber": "LM358DR-EXTRA"}
         client = FakeClient({"/v1/oauth2/token": [TOKEN], "/products/v4/search/keyword": [{"ExactMatches": [], "Products": [other, dk_product()]}]})
+        self.assertEqual([m.sku for m in dk_provider(client).lookup_mpn("LM358DR")], ["296-1395-1-ND", "X-1-ND"], "the longer number is kept for review")
+        unrelated = dk_product([variation("Y-1-ND")]) | {"ManufacturerProductNumber": "LM358DRABCDEFGHIJ"}
+        client = FakeClient({"/v1/oauth2/token": [TOKEN], "/products/v4/search/keyword": [{"ExactMatches": [], "Products": [unrelated, dk_product()]}]})
         self.assertEqual([m.sku for m in dk_provider(client).lookup_mpn("LM358DR")], ["296-1395-1-ND"])
 
     def test_an_offer_carries_stock_prices_packaging_and_the_currency_the_server_used(self) -> None:
@@ -236,11 +239,11 @@ class FarnellTests(unittest.TestCase):
              "callInfo.apiKey": "KEY", "callInfo.responseDataFormat": "JSON"},
         )
 
-    def test_only_products_with_the_number_asked_for_are_matches_and_any_wrapper_will_do(self) -> None:
+    def test_the_number_asked_for_and_its_longer_forms_are_matches_and_any_wrapper_will_do(self) -> None:
         other = fa_product(sku="2", translatedManufacturerPartNumber="LM339ADT-X")
         for wrapper in ("manufacturerPartNumberSearchReturn", "keywordSearchReturn", "somethingNew"):
             client = FakeClient({"/catalog/products": [wrapped(fa_product(), other, wrapper=wrapper)]})
-            self.assertEqual([m.sku for m in fa_provider(client).lookup_mpn("lm339adt")], ["1278613"], wrapper)
+            self.assertEqual([m.sku for m in fa_provider(client).lookup_mpn("lm339adt")], ["1278613", "2"], wrapper)
         self.assertEqual(fa_provider(FakeClient({"/catalog/products": [{"nothing": 1}]})).lookup_mpn("LM339ADT"), [])
 
     def test_an_offer_reads_stock_prices_minimum_and_rohs(self) -> None:

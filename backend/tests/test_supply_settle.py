@@ -167,6 +167,38 @@ class SettleTests(unittest.TestCase):
             self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, part.id)], ["LM358DR"])
             self.assertEqual(self.settle.needs_choice(conn), [])
 
+    def test_a_clone_with_the_exact_number_does_not_hide_the_makers_packing_code_and_grade(self) -> None:
+        """74AHC1G09GV: a second source lists the exact number, Nexperia lists ,125 (packing code) and -Q100H (grade)."""
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Nexperia", ACTOR)
+        part = self.part("Nexperia", "74AHC1G09GV")
+        self.search(
+            part, 0,
+            ("74AHC1G09GV", "MDD(Microdiode Semiconductor)"), ("74AHC1G09GV,125", "Nexperia USA Inc."), ("74AHC1G09GV-Q100H", "Nexperia USA Inc."),
+        )
+        self.assertEqual(self.states(), {"S0-0": "near", "S0-1": "exact", "S0-2": "near"})
+        with self.store.connection() as conn:
+            self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, part.id)], ["74AHC1G09GV,125"])
+            self.assertEqual([q for q in self.settle.needs_choice(conn) if q["kind"] == "unlisted"], [], "one unrelated maker is a second source")
+            (grade,) = self.settle.sold_as(conn, part.id)
+            self.assertEqual((grade["mpn"], grade["kind"]), ("74AHC1G09GV-Q100H", "grade"))
+            self.assertEqual(self.settle.use_numbers(conn, part.id, [grade["key"]], ACTOR), 1)
+            self.assertEqual(self.settle.sold_as(conn, part.id), [])
+
+    def test_the_rename_question_is_asked_for_a_similar_name_and_not_for_a_stranger(self) -> None:
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Acme Works", ACTOR)
+        stranger = self.part("Acme Works", "AW-1")
+        self.search(stranger, 0, ("AW-1", "Zeta Foundry"))
+        with self.store.connection() as conn:
+            self.assertEqual(self.settle.needs_choice(conn), [])
+        similar = self.part("Acme Works", "AW-2")
+        self.search(similar, 1, ("AW-2", "Acme Works Europe"))
+        # A name that starts with the part's is the same maker already; one shared word is only worth a question.
+        self.search(self.part("Acme Works", "AW-3"), 2, ("AW-3", "Works Ltd Acme Group"))
+        with self.store.connection() as conn:
+            self.assertEqual([q["mpn"] for q in self.settle.needs_choice(conn)], ["AW-3"])
+
     def test_a_family_number_asks_which_numbers_it_is_sold_as_and_a_person_says_yes(self) -> None:
         with self.store.connection() as conn:
             self.parts.ensure_manufacturer(conn, "Murata", ACTOR)

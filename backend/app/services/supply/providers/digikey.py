@@ -53,7 +53,7 @@ from urllib.parse import quote
 
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
-from app.services.supply.identity import match_key
+from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import ChangeNotice, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
@@ -178,9 +178,10 @@ class DigiKeyProvider:
             return []
         answer = self._call("POST", "/search/keyword", json={"Keywords": mpn.strip()[:250], "Limit": MAX_MATCHES, "Offset": 0})
         exact = [p for p in answer.get("ExactMatches") or [] if isinstance(p, dict)]
-        products = exact or [
-            p for p in answer.get("Products") or []
-            if isinstance(p, dict) and match_key(str(p.get("ManufacturerProductNumber") or "")) == wanted
+        listed = [p for p in answer.get("Products") or [] if isinstance(p, dict)]
+        products = exact + [
+            p for p in keep_family(listed, wanted, lambda p: str(p.get("ManufacturerProductNumber") or ""))
+            if p not in exact
         ]
         matches: list[PartMatch] = []
         seen: set[str] = set()

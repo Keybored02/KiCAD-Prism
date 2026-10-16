@@ -149,15 +149,22 @@ def record_spelling(conn, part_id: str, text: str, source: str = "learned") -> N
     )
 
 
-PACKAGING_SUFFIXES = frozenset({"R", "RL", "TR", "T", "REEL", "REEL7", "REEL13", "#PBF", "#TRPBF", "/TR", "/R", "+T", "+TR"})
-
-
 def part_number_keys(conn, part_id: str) -> set[str]:
     """The part's own number key and the other numbers it is sold under."""
 
     keys = {row["match_key"] for row in conn.execute("SELECT match_key FROM part_numbers WHERE part_id = %s", (part_id,)).fetchall()}
     own = conn.execute("SELECT match_key FROM parts WHERE id = %s", (part_id,)).fetchone()
     return keys | ({own["match_key"]} if own else set())
+
+
+def searched_numbers(conn, part_id: str) -> list[str]:
+    """The other numbers a person said the part is sold as (by hand or from a suggestion). They are searched for on their own,
+    because a search for the part's number may not bring them back. Numbers added by a suffix rule are found by that search."""
+
+    rows = conn.execute(
+        "SELECT mpn FROM part_numbers WHERE part_id = %s AND source IN ('person', 'suggested') ORDER BY created_at LIMIT 3", (part_id,)
+    ).fetchall()
+    return [row["mpn"] for row in rows]
 
 
 def list_numbers(conn, part_id: str) -> list[dict]:
