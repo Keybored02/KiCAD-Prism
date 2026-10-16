@@ -142,6 +142,17 @@ class SupplyPartsApiTests(unittest.TestCase):
         items = self.call("GET", "/api/supply/parts", query="scope=all").json["items"]
         return next(item for item in items if item["mpn"] == mpn)
 
+    def test_the_list_comes_in_pages_that_do_not_overlap(self) -> None:
+        for n in range(5):
+            self.watch_via_api(f"PAGE{n}")
+        first = self.call("GET", "/api/supply/parts", query="scope=all&limit=2").json
+        second = self.call("GET", "/api/supply/parts", query=f"scope=all&limit=2&offset={first['next_offset']}").json
+        last = self.call("GET", "/api/supply/parts", query=f"scope=all&limit=2&offset={second['next_offset']}").json
+        names = [item["mpn"] for page in (first, second, last) for item in page["items"]]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertEqual((first["total"], len(names)), (5, 5))
+        self.assertIsNone(last["next_offset"])
+
     # --- roles ------------------------------------------------------------
 
     def test_readers_look_and_writers_watch(self) -> None:

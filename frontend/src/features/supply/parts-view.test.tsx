@@ -80,9 +80,9 @@ describe("the parts list, demand", () => {
 describe("the parts list", () => {
   it("narrows to a group from the URL and lets it go", async () => {
     renderView("designer", "/?section=supply&partsOnly=out_of_stock");
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "out_of_stock"));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "out_of_stock", 0, 50));
     fireEvent.click(await screen.findByRole("button", { name: /Showing only Out of stock/ }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), ""));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50));
     expect(search()).not.toContain("partsOnly");
   });
 
@@ -97,7 +97,7 @@ describe("the parts list", () => {
     expect(within(row).getByRole("img", { name: "Read 2 h ago" })).toBeTruthy();
     expect(within(row).getByRole("img", { name: "Tracked" })).toBeTruthy();
     expect(screen.getByText("1 part")).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "");
+    expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "", 0, 50);
   });
 
   it("says plainly when a part has not been read yet", async () => {
@@ -111,21 +111,28 @@ describe("the parts list", () => {
     expect(within(row).getByRole("img", { name: "No data" })).toBeTruthy();
   });
 
-  it("notes when only some of the parts are shown", async () => {
-    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 450, limit: 100 });
+  it("loads the next page when the end of the list comes into view", async () => {
+    class Seen { constructor(private readonly callback: IntersectionObserverCallback) {} observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); } disconnect() {} unobserve() {} }
+    vi.stubGlobal("IntersectionObserver", Seen);
+    mocked.listSupplyParts
+      .mockResolvedValueOnce({ items: [partRowFixture()], total: 2, limit: 50, offset: 0, next_offset: 50 })
+      .mockResolvedValueOnce({ items: [partRowFixture({ id: "p2", mpn: "LM324" })], total: 2, limit: 50, offset: 50, next_offset: null });
     renderView();
-    expect(await screen.findByText("Showing 1 of 450. Search to narrow it down.")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", undefined, "", 50, 50);
+    expect(screen.getByText("2 parts")).toBeTruthy();
+    vi.unstubAllGlobals();
   });
 
   it("switches scope through the URL and asks for the other list", async () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), ""));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 50));
     expect(search()).toContain("partsScope=all");
     expect(screen.getByRole("button", { name: "All known" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Tracked" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), ""));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "", 0, 50));
     expect(search()).not.toContain("partsScope");
   });
 
@@ -134,13 +141,13 @@ describe("the parts list", () => {
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: "  lm358  " } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "lm358", expect.anything(), ""));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "lm358", expect.anything(), "", 0, 50));
     expect(search()).toContain("partsQ=lm358");
     cleanup();
 
     renderView("designer", "/?section=supply&partsScope=all&partsQ=tps");
     await screen.findByRole("button", { name: "LM358D" });
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything(), "");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything(), "", 0, 50);
     expect((screen.getByLabelText("Search parts") as HTMLInputElement).value).toBe("tps");
   });
 
@@ -364,7 +371,7 @@ describe("the watch settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "In use" }));
     expect(search()).toContain("partsScope=in_use");
     await waitFor(() => expect(mocked.refreshSupplyUsage).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything(), ""));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything(), "", 0, 50));
     // Once for the first load of the scope and once after the usage was read.
     await waitFor(() => expect(mocked.listSupplyParts.mock.calls.filter((call) => call[0] === "in_use").length).toBeGreaterThanOrEqual(2));
     expect(await screen.findByText("Used in 3 projects")).toBeTruthy();
@@ -374,7 +381,7 @@ describe("the watch settings", () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything(), ""));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything(), "", 0, 50));
     expect(mocked.refreshSupplyUsage).not.toHaveBeenCalled();
   });
 

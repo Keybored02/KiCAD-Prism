@@ -16,7 +16,8 @@ import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
 import { PartsTable } from "./parts-table";
 import { refreshSupplyUsage } from "./supply-api";
-import { useSupplyPartsList } from "./use-supply-parts";
+import { LoadMore } from "./load-more";
+import { useSupplyPartsFeed } from "./use-supply-parts";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { SeedFromCatalogButton } from "./seed-from-catalog-button";
 import { TrackingRoomLine } from "./tracking-room";
@@ -49,7 +50,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
   const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, error, retry, refresh } = useSupplyPartsList(scope, query, only);
+  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh } = useSupplyPartsFeed(scope, query, only);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -135,16 +136,13 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
         {status === "ready" && data ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {data.items.length === 0 ? (
+            {items.length === 0 ? (
               <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
-                <PartsTable items={data.items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} />
-                <p className="text-xs text-muted-foreground">
-                  {data.total > data.items.length
-                    ? `Showing ${data.items.length.toLocaleString()} of ${data.total.toLocaleString()}. Search to narrow it down.`
-                    : `${data.total.toLocaleString()} ${data.total === 1 ? "part" : "parts"}`}
-                </p>
+                <PartsTable items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} />
+                <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
+                <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>
             )}
           </>

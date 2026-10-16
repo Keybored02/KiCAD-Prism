@@ -60,8 +60,8 @@ describe("the review queue", () => {
     const near = screen.getByRole("article", { name: "Listing 595-LM358DR" });
     expect(within(near).getByText("Near match")).toBeTruthy();
     expect(within(near).getByText(/Different part number\./)).toBeTruthy();
-    expect(screen.getByText("Manufacturer spellings (1)")).toBeTruthy();
-    expect(screen.getByText("Listings waiting (2)")).toBeTruthy();
+    expect(within(screen.getByLabelText("Manufacturer spellings")).getByText("1")).toBeTruthy();
+    expect(within(screen.getByLabelText("Listings waiting")).getByText("2")).toBeTruthy();
   });
 
   it("lets readers look but not decide", async () => {

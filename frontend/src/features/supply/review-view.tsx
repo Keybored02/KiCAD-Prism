@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { AliasRow } from "./alias-row";
+import { CollapsibleSection } from "./collapsible-section";
 import { ListingRow } from "./listing-row";
 import { PackagingSection } from "./packaging-section";
 import { usePackagingWaiting } from "./use-packaging-waiting";
@@ -47,31 +48,29 @@ export function ReviewView({ user }: { user: User | null }) {
             <PackagingSection items={packaging.items} saves={packaging.saves} canPick={user !== null && user.role !== "viewer"} onChanged={() => void packaging.refresh()} />
 
             {queue.aliases.length > 0 ? (
-              <section aria-label="Manufacturer spellings" className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Manufacturer spellings ({queue.counts.aliases})
-                </h3>
-                {queue.aliases.map((alias) => (
-                  <AliasRow
-                    key={alias.alias_key}
-                    alias={alias}
-                    manufacturers={queue.manufacturers}
-                    canDecide={canDecide}
-                    onDecided={refresh}
-                  />
-                ))}
-              </section>
+              <CollapsibleSection id="review-spellings" title="Manufacturer spellings" count={queue.counts.aliases}>
+                <div className="space-y-2 p-2">
+                  {queue.aliases.map((alias) => (
+                    <AliasRow
+                      key={alias.alias_key}
+                      alias={alias}
+                      manufacturers={queue.manufacturers}
+                      canDecide={canDecide}
+                      onDecided={refresh}
+                    />
+                  ))}
+                </div>
+              </CollapsibleSection>
             ) : null}
 
             {queue.listings.length > 0 ? (
-              <section aria-label="Listings waiting" className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Listings waiting ({queue.counts.unresolved + queue.counts.near})
-                </h3>
-                {queue.listings.map((listing) => (
-                  <ListingRow key={listing.id} listing={listing} canDecide={canDecide} onDecided={refresh} />
-                ))}
-              </section>
+              <CollapsibleSection id="review-listings" title="Listings waiting" count={queue.counts.unresolved + queue.counts.near}>
+                <div className="space-y-2 p-2">
+                  {queue.listings.map((listing) => (
+                    <ListingRow key={listing.id} listing={listing} canDecide={canDecide} onDecided={refresh} />
+                  ))}
+                </div>
+              </CollapsibleSection>
             ) : null}
           </>
         ) : null}

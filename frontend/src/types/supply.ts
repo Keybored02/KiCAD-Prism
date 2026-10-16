@@ -551,6 +551,9 @@ export interface SupplyPartsPage {
   items: SupplyPartRow[];
   total: number;
   limit: number;
+  offset?: number;
+  /** Where the next page starts; null at the end. */
+  next_offset?: number | null;
 }
 
 export interface SupplyOffer {

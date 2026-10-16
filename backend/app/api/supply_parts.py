@@ -80,11 +80,12 @@ async def list_parts(
     only: Literal["", "at_risk", "out_of_stock", "lifecycle"] = "",
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),
+    offset: int = Query(default=0, ge=0, le=parts_view.MAX_CANDIDATES),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return parts_view.list_parts(conn, scope=scope, query=q, limit=limit, role=user.role, only=only)
+            return parts_view.list_parts(conn, scope=scope, query=q, limit=limit, role=user.role, only=only, offset=offset)
 
     return await _run(read)
 

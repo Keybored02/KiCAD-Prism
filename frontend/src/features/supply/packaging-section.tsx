@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { PackagingWaiting } from "@/types/supply";
+import { CollapsibleSection } from "./collapsible-section";
 import { PackagingPickDialog } from "./packaging-pick-dialog";
 
 /** Tracked parts with several listings at a distributor and no pick, biggest saving first. */
@@ -11,11 +12,8 @@ export function PackagingSection({
   const [open, setOpen] = useState<PackagingWaiting | null>(null);
   if (items.length === 0) return null;
   return (
-    <section aria-label="Packaging" className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Packaging ({items.length}), picking saves {saves.toFixed(1)} calls a day
-      </h3>
-      <ul className="divide-y border">
+    <CollapsibleSection id="review-packaging" title="Packaging" count={items.length} note={`picking saves ${saves.toFixed(1)} calls a day`}>
+      <ul className="divide-y">
         {items.map((item) => (
           <li key={`${item.part_id}:${item.connector_id}`} className="flex flex-wrap items-center justify-between gap-2 p-2 text-sm">
             <span>{item.mpn}, {item.manufacturer} <span className="text-muted-foreground">at {item.connector}, {item.listings} listings</span></span>
@@ -27,6 +25,6 @@ export function PackagingSection({
         ))}
       </ul>
       {open ? <PackagingPickDialog partId={open.part_id} connectorId={open.connector_id} onClose={() => setOpen(null)} onChanged={onChanged} /> : null}
-    </section>
+    </CollapsibleSection>
   );
 }

@@ -320,7 +320,7 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
 
 
 def list_parts(
-    conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = ""
+    conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = "", offset: int = 0,
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them."""
 
@@ -329,7 +329,10 @@ def list_parts(
     if only:
         items = [item for item in items if FILTERS[only](item)]
         total = len(items)
-    return {"items": items[:limit], "total": total, "limit": limit}
+    offset = max(0, offset)
+    page = items[offset:offset + limit]
+    more = offset + limit < total
+    return {"items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None}
 
 
 def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:

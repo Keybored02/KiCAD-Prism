@@ -67,7 +67,8 @@ describe("the packaging section", () => {
 
   it("lists the picks waiting with what they save, and shows nothing when there are none", () => {
     const { container, rerender } = render(<PackagingSection items={[item]} saves={2} canPick onChanged={vi.fn()} />);
-    expect(screen.getByText(/Packaging \(1\), picking saves 2.0 calls a day/)).toBeTruthy();
+    expect(screen.getByText("picking saves 2.0 calls a day")).toBeTruthy();
+    expect(within(screen.getByLabelText("Packaging")).getByText("1")).toBeTruthy();
     expect(screen.getByText(/saves 2.00 a day/)).toBeTruthy();
     rerender(<PackagingSection items={[]} saves={0} canPick onChanged={vi.fn()} />);
     expect(container.textContent).toBe("");
