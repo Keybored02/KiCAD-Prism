@@ -2,18 +2,19 @@ import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import type { TrackingPreview } from "@/types/supply";
-import { BudgetPreview } from "./budget-preview";
 import { previewTrackComponents, type TrackChoice } from "./catalog-supply-api";
+import { TrackCostBars } from "./track-cost-bars";
 
-const CHOICES: ReadonlyArray<{ value: string; label: string; choice: TrackChoice }> = [
-  { value: "2w", label: "Tier 2: weekly", choice: { tier: 2, rate: "weekly" } },
-  { value: "2m", label: "Tier 2: monthly", choice: { tier: 2, rate: "monthly" } },
-  { value: "1", label: "Tier 1: daily", choice: { tier: 1, rate: "weekly" } },
+const CHOICES: ReadonlyArray<{ value: string; label: string; hint: string; choice: TrackChoice }> = [
+  { value: "2w", label: "Weekly", hint: "Tier 2, read once a week", choice: { tier: 2, rate: "weekly" } },
+  { value: "2m", label: "Monthly", hint: "Tier 2, read once a month", choice: { tier: 2, rate: "monthly" } },
+  { value: "1", label: "Daily", hint: "Tier 1, read every day", choice: { tier: 1, rate: "weekly" } },
 ];
 
-/** Choose how often these components are read, see what it costs each distributor's budget, and track them where there is room. */
+/** How often these components are read, what that costs each distributor's call budget, and the work starts where there is room. */
 export function TrackPicksDialog({
   components, busy, onClose, onTrack,
 }: {
@@ -37,21 +38,33 @@ export function TrackPicksDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Track {components.length} parts</DialogTitle>
-          <DialogDescription>How often they are read, and what that costs each distributor's call budget.</DialogDescription>
+          <DialogTitle>Track {components.length} {components.length === 1 ? "Part" : "Parts"}</DialogTitle>
+          <DialogDescription>How often they are read.</DialogDescription>
         </DialogHeader>
-        <select aria-label="Tier" className="h-9 border bg-background px-2 text-sm" value={value} onChange={(event) => setValue(event.target.value)}>
-          {CHOICES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
+        <div className="grid grid-cols-3 gap-2" role="group" aria-label="Tier">
+          {CHOICES.map((item) => (
+            <button
+              key={item.value} type="button" aria-pressed={value === item.value} title={item.hint} onClick={() => setValue(item.value)}
+              className={cn("border px-3 py-2 text-left text-sm font-medium hover:bg-muted/30", value === item.value && "border-primary bg-primary/5")}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-        {preview ? <BudgetPreview connectors={preview.connectors} /> : null}
-        {preview?.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor. Free room or raise a budget first.</p> : null}
-        <DialogFooter>
+        {preview ? (
+          <section aria-label="Cost" className="space-y-1">
+            <h3 className="text-xs font-medium text-muted-foreground">Call budget</h3>
+            <TrackCostBars connectors={preview.connectors} canRaise />
+          </section>
+        ) : null}
+        {preview?.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor.</p> : null}
+        <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={busy || preview?.fits_nowhere === true} onClick={() => onTrack(choice)}>Track where there is room</Button>
-        </DialogFooter>
+          <Button disabled={busy || preview?.fits_nowhere === true} onClick={() => onTrack(choice)}>Track ({components.length})</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

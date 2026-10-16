@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 const WEEKLY = { tier: 2, rate: "weekly" };
-const confirm = async () => fireEvent.click(await screen.findByRole("button", { name: "Track where there is room" }));
+const confirm = async () => fireEvent.click(await screen.findByRole("button", { name: /^Track \(\d+\)$/ }));
 afterEach(cleanup);
 
 describe("the catalog supply filters", () => {
