@@ -1,5 +1,6 @@
-import { Blocks, Folder, PackageSearch, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Blocks, Folder, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
+import { SupplyNavIcon } from "@/features/supply/supply-nav-icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -69,7 +70,7 @@ export function WorkspaceSidebar({
             onClick={() => onSectionChange("supply")}
             aria-label="Supply"
           >
-            <PackageSearch className="h-4 w-4" />
+            <SupplyNavIcon className="h-4 w-4" />
             {!isCollapsed && <span>Supply</span>}
           </Button>
         ) : null}

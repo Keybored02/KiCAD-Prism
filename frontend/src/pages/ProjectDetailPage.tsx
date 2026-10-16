@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2, Warehouse } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2 } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -23,7 +23,7 @@ import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
 import { UsedInPanel } from "@/features/system-builder/used-in-panel";
-import { ProjectSupplyCard } from "@/features/supply/project-supply-card";
+import { SupplyNavIcon } from "@/features/supply/supply-nav-icon";
 import { ProjectSupplyTab } from "@/features/supply/project-supply-tab";
 import { canOpenSupply } from "@/lib/roles";
 
@@ -113,7 +113,7 @@ const BASE_NAV_ITEMS = [
     { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
     { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
 ];
-const SUPPLY_NAV_ITEM = { id: "supply" as ProjectSection, label: "Supply", icon: Warehouse };
+const SUPPLY_NAV_ITEM = { id: "supply" as ProjectSection, label: "Supply", icon: SupplyNavIcon };
 
 // Closes over nothing in the component.
 const getDisplayName = (project: Project) => {
@@ -745,7 +745,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
                                     {projectId && <UsedInPanel projectId={projectId} />}
-                                    {projectId && <ProjectSupplyCard projectId={projectId} role={user?.role} />}
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
                                             <MarkdownContent

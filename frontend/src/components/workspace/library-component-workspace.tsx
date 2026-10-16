@@ -22,13 +22,13 @@ import {
   RotateCcw,
   SearchCheck,
   ShieldCheck,
-  Store,
   UserRoundCheck,
   Upload,
   XCircle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { SupplyNavIcon } from "@/features/supply/supply-nav-icon";
 import { inventoryWarnings } from "@/lib/inventory-presentation";
 
 import { Badge } from "@/components/ui/badge";
@@ -134,7 +134,7 @@ const COMPONENT_TABS: Array<{ id: ComponentTab; label: string; icon: typeof Boxe
   { id: "revisions", label: "Revisions / Compare", icon: GitCompareArrows },
   { id: "review", label: "Release Review", icon: UserRoundCheck },
   { id: "usage", label: "Where Used", icon: Link2 },
-  { id: "sourcing", label: "Sourcing", icon: Store },
+  { id: "sourcing", label: "Sourcing", icon: SupplyNavIcon },
   { id: "audit", label: "Audit", icon: ShieldCheck },
 ];
 
