@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { AlertTriangle, BellRing, Ban, Eye, Hourglass, ListChecks, PackageOpen, PackageX, type LucideIcon } from "lucide-react";
+import { AlertTriangle, BellRing, Ban, Eye, Hourglass, ListChecks, PackageX, type LucideIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { acknowledgeSupplyAlert, getSupplyReviewQueue, snoozeSupplyAlert } from 
 import { formatAgo } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
-import { usePackagingWaiting } from "./use-packaging-waiting";
+import { AdminStrip } from "./admin-strip";
 import { useSupplyNavigation } from "./use-supply-navigation";
 import { useSupplyAlerts, useSupplyOverview, useSupplyPartsList } from "./use-supply-parts";
 
@@ -34,7 +34,6 @@ export function DashboardView({ user }: { user: User | null }) {
   const alerts = useAlertList(user);
   const { go, openPart } = useSupplyNavigation();
   const waiting = useSupplyPartsList("waiting", "");
-  const picks = usePackagingWaiting();
   const reviewFetcher = useCallback((signal: AbortSignal) => getSupplyReviewQueue(signal), []);
   const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue");
   const figures = overview.data?.figures;
@@ -47,13 +46,13 @@ export function DashboardView({ user }: { user: User | null }) {
     { label: "End of life", value: figures?.lifecycle, icon: Ban, bad: true, onClick: parts("lifecycle") },
     { label: "Open alerts", value: overview.data?.open_alerts, icon: BellRing, bad: true, onClick: () => document.getElementById("dashboard-alerts")?.scrollIntoView?.() },
     { label: "Waiting for room", value: waiting.data?.total, icon: Hourglass, onClick: parts("", "waiting") },
-    { label: "Packaging picks", value: picks.items.length, icon: PackageOpen, onClick: () => go("review") },
-    { label: "Review queue", value: reviewCount, icon: ListChecks, onClick: () => go("review") },
+    { label: "Needs you", value: reviewCount, icon: ListChecks, onClick: () => go("review") },
   ];
 
   return (
     <div className="relative h-full overflow-y-auto p-4">
       <div className="space-y-6">
+        {user?.role === "admin" ? <AdminStrip waiting={waiting.data?.total ?? 0} /> : null}
         {overview.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {overview.status === "error" ? (
           <Alert variant="destructive">

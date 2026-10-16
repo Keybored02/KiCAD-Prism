@@ -54,7 +54,7 @@ describe("the dashboard", () => {
     const tile = (await screen.findByText("At risk")).closest("button")!;
     expect(within(tile).getByText("2")).toBeTruthy();
     expect(screen.getByText("Waiting for room").closest("button")!.textContent).toContain("3");
-    await waitFor(() => expect(screen.getByText("Review queue").closest("button")!.textContent).toContain("4"));
+    await waitFor(() => expect(screen.getByText("Needs you").closest("button")!.textContent).toContain("4"));
     expect(await screen.findByText("OOS-1")).toBeTruthy();
     expect(screen.getByText(/Latest read 10 min ago/)).toBeTruthy();
   });
@@ -67,7 +67,7 @@ describe("the dashboard", () => {
     expect(search()).not.toContain("partsQ");
     fireEvent.click(screen.getByText("Waiting for room").closest("button")!);
     expect(search()).toContain("partsScope=waiting");
-    fireEvent.click(screen.getByText("Review queue").closest("button")!);
+    fireEvent.click(screen.getByText("Needs you").closest("button")!);
     expect(search()).toContain("supplyView=review");
   });
 

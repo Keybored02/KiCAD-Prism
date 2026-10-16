@@ -11,15 +11,12 @@ import { MakerChoices } from "./maker-choices";
 import { MatchedByPrism } from "./matched-by-prism";
 import { OtherNumberPins } from "./other-number-pins";
 import { ListingRow } from "./listing-row";
-import { PackagingSection } from "./packaging-section";
-import { usePackagingWaiting } from "./use-packaging-waiting";
 import { useSupplyReview } from "./use-supply-review";
 
 /** Matches that need a person: manufacturer spellings and listings that are not proven. */
 export function ReviewView({ user }: { user: User | null }) {
   const { status, queue, error, retry, refresh } = useSupplyReview();
   const canDecide = canReviewSupply(user?.role);
-  const packaging = usePackagingWaiting();
 
   return (
     <div className="relative h-full overflow-y-auto p-4">
@@ -38,7 +35,7 @@ export function ReviewView({ user }: { user: User | null }) {
         {status === "ready" && queue ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {queue.aliases.length === 0 && queue.listings.length === 0 && packaging.items.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 ? (
+            {queue.aliases.length === 0 && queue.listings.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 ? (
               <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
                 <CheckCheck className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing to review</p>
@@ -51,8 +48,6 @@ export function ReviewView({ user }: { user: User | null }) {
             <MakerChoices choices={queue.choices ?? []} onDecided={refresh} />
 
             <OtherNumberPins groups={queue.other_numbers ?? []} canDecide={canDecide} onDecided={refresh} />
-
-            <PackagingSection items={packaging.items} saves={packaging.saves} canPick={user !== null && user.role !== "viewer"} onChanged={() => void packaging.refresh()} />
 
             {queue.aliases.length > 0 ? (
               <CollapsibleSection id="review-spellings" title="Manufacturer spellings" count={queue.counts.aliases}>

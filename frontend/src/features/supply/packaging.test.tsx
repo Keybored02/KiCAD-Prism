@@ -13,7 +13,6 @@ vi.mock("./supply-api", () => ({ rejectSupplyListings: vi.fn() }));
 import * as api from "./packaging-api";
 import { rejectSupplyListings } from "./supply-api";
 import { PackagingPickDialog } from "./packaging-pick-dialog";
-import { PackagingSection } from "./packaging-section";
 
 const mocked = vi.mocked(api);
 const unpin = vi.mocked(rejectSupplyListings);
@@ -82,23 +81,5 @@ describe("a listing under another number", () => {
     render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
     await screen.findByRole("button", { name: "Pick C2" });
     expect(screen.queryByRole("button", { name: "Unpin C2" })).toBeNull();
-  });
-});
-
-describe("the packaging section", () => {
-  const item = { part_id: "p1", connector_id: "c1", connector: "LCSC", mpn: "LM358DR", manufacturer: "TI", listings: 3, saves_calls_a_day: 2 };
-
-  it("lists the picks waiting with what they save, and shows nothing when there are none", () => {
-    const { container, rerender } = render(<PackagingSection items={[item]} saves={2} canPick onChanged={vi.fn()} />);
-    expect(screen.getByText("picking saves 2.0 calls a day")).toBeTruthy();
-    expect(within(screen.getByLabelText("Packaging")).getByText("1")).toBeTruthy();
-    expect(screen.getByText(/saves 2.00 a day/)).toBeTruthy();
-    rerender(<PackagingSection items={[]} saves={0} canPick onChanged={vi.fn()} />);
-    expect(container.textContent).toBe("");
-  });
-
-  it("leaves the pick to those who may", () => {
-    render(<PackagingSection items={[item]} saves={2} canPick={false} onChanged={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: "Pick" })).toBeNull();
   });
 });
