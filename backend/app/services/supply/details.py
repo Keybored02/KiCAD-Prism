@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import alerts, compliance, facts, ledger, oauth, pcn, trouble, usage
+from app.services.supply import accounts, alerts, compliance, facts, ledger, oauth, pcn, quota, trouble, usage
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 
@@ -26,6 +26,10 @@ from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthErro
 EVERY = {"notices": timedelta(days=7), "substances": timedelta(days=30)}
 REDO_AFTER = EVERY["notices"]
 MAX_PER_RUN = 5
+# Of a notice API's own daily quota (``ProviderSpec.notice_daily_limit``), the share scheduled reads may use; the rest is
+# kept for a person's Check notices.
+NOTICE_SHARE = 0.9
+NOTICE_QUOTA = "notice_quota"
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +136,27 @@ def _spend(
     )
 
 
+def _notices_left(service, connector, now: datetime, interactive: bool) -> int | None:
+    """Calls left today on a notice API with its own quota, or None when notices share the connector's budget. None left
+    once the API has refused a call today: its count is the provider's, not Prism's."""
+
+    allowed = registry.get_spec(connector["provider"]).notice_daily_limit
+    if not allowed:
+        return None
+    with service.store.connection() as conn:
+        account = accounts.resolve(conn, connector["id"])
+        day = quota.provider_day(now, account.reset_time, account.reset_tz)
+        row = conn.execute(
+            "SELECT COALESCE(SUM(calls) FILTER (WHERE kind = %s), 0) AS used, "
+            "COALESCE(SUM(calls) FILTER (WHERE kind = %s AND purpose = %s), 0) AS refused "
+            "FROM call_counts WHERE connector_id = ANY(%s) AND day = %s",
+            (ledger.KIND_NOTICES, ledger.KIND_REFUSED, ledger.KIND_NOTICES, list(account.members), day),
+        ).fetchone()
+    if row["refused"]:
+        return 0
+    return max(0, (allowed if interactive else int(allowed * NOTICE_SHARE)) - int(row["used"]))
+
+
 def _notices(service, connector, now, provider, token_for, limit) -> DetailsSummary:
     with service.store.connection() as conn:
         rows = due(conn, connector["id"], "notices", now, limit)
@@ -170,17 +195,31 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
         return DetailsSummary(stopped=exc.code)
     except (ProviderError, oauth.SignInError):
         return DetailsSummary(stopped="unavailable")
+    left = _notices_left(service, connector, now, interactive)
+    if left == 0:
+        return DetailsSummary(stopped=NOTICE_QUOTA)
     provider = provider or service.load_provider(connector_id)
     read = new = 0
     for row in rows:
+        if left is not None and left <= 0:
+            return DetailsSummary(read, new, NOTICE_QUOTA)
         if not _spend(service, connector, now, interactive, tier=row.get("tier", 2), spare=spare):
             return DetailsSummary(read, new, "budget")
+        if left is not None:
+            left -= 1
         try:
             notices = provider.change_notices(row["sku"], token)
         except AuthError:
             oauth.mark_refused(service.store, connector_id)
             return DetailsSummary(read, new, "sign_in_refused")
-        except (RateLimited, Unavailable, Blocked) as exc:
+        except RateLimited as exc:
+            if left is None:
+                trouble.react(service, service.store, connector_id, exc, now)
+                return DetailsSummary(read, new, exc.code)
+            # The notice API's own quota is used up: notices wait for tomorrow, stock and prices go on.
+            ledger.note_refusal(service.store, connector_id, now=now, purpose=ledger.KIND_NOTICES)
+            return DetailsSummary(read, new, NOTICE_QUOTA)
+        except (Unavailable, Blocked) as exc:
             trouble.react(service, service.store, connector_id, exc, now)
             return DetailsSummary(read, new, exc.code)
         except ProviderError as exc:
@@ -216,6 +255,7 @@ _ASK_STOPPED = {
     "sign_in_refused": "refused the sign-in; an administrator needs to sign in again",
     "budget": "has used today's allowance for asking",
     "rate_limited": "is limiting requests",
+    NOTICE_QUOTA: "has used today's change-notice calls (its notice API allows a set number a day); try tomorrow",
     "unavailable": "did not answer",
     "inactive": "is disabled or paused",
     "cooling_down": "is cooling down after an error",

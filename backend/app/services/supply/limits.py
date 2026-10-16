@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
 from app.services.supply import accounts, ledger
 
@@ -56,28 +57,40 @@ def parse(limits: Mapping[str, str]) -> tuple[int, int] | None:
     return limit, min(remaining, limit)
 
 
-def note(store, connector_id: str, limits: Mapping[str, str], now: datetime) -> None:
-    """Keep what an answer's headers said. Called for every answer that carried limit headers."""
+def scope_of(url: str) -> str:
+    """Which of a provider's APIs answered, by the first part of its path: DigiKey's ``products`` and ``changenotifications``
+    count against separate quotas."""
 
+    path = urlsplit(url).path.strip("/")
+    return path.split("/", 1)[0].lower()[:40] if path else ""
+
+
+def note(store, connector_id: str, limits: Mapping[str, str], now: datetime, *, url: str = "") -> None:
+    """Keep what an answer's headers said, per API. Called for every answer that carried limit headers."""
+
+    scope = scope_of(url)
     reading = parse(limits)
     key = (tuple(sorted(limits.items())), reading)
-    if _last.get(connector_id) == key:
+    if _last.get((connector_id, scope)) == key:
         return
-    _last[connector_id] = key
+    _last[(connector_id, scope)] = key
     with store.connection() as conn:
         row = conn.execute(
-            "UPDATE connectors SET rate_limits = %s::jsonb, rate_limits_at = %s WHERE id = %s RETURNING reset_from_provider",
-            (json.dumps(dict(limits)), now, connector_id),
+            "UPDATE connectors SET rate_limits = rate_limits || jsonb_build_object(%s::text, %s::jsonb), rate_limits_at = %s "
+            "WHERE id = %s RETURNING reset_from_provider, rate_limits",
+            (scope or "api", json.dumps(dict(limits)), now, connector_id),
         ).fetchone()
         if row is None or reading is None:
             return
         conn.execute(
-            "INSERT INTO limit_marks (connector_id, at, kind, remaining, quota) VALUES (%s, %s, %s, %s, %s)",
-            (connector_id, now, MARK_REMAINING, reading[1], reading[0]),
+            "INSERT INTO limit_marks (connector_id, at, kind, remaining, quota, scope) VALUES (%s, %s, %s, %s, %s, %s)",
+            (connector_id, now, MARK_REMAINING, reading[1], reading[0], scope),
         )
         conn.execute("DELETE FROM limit_marks WHERE connector_id = %s AND at < %s", (connector_id, now - timedelta(days=HISTORY_DAYS)))
         trusted = bool(row["reset_from_provider"])
-    if trusted:
+        # Only the API with the largest quota is the one the daily budget stands for.
+        largest = max((parsed[0] for parsed in (parse(item) for item in (row["rate_limits"] or {}).values()) if parsed), default=0)
+    if trusted and reading[0] >= largest:
         sync(store, connector_id, reading[0] - reading[1], now)
 
 
@@ -167,10 +180,11 @@ def suggest(marks: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
 
 
 def suggestions(conn, now: datetime) -> dict[str, dict[str, Any]]:
-    """Per connector, where the marks agree on a reset time."""
+    """Per connector, where the marks agree on a reset time. Readings are compared within one API only, the one with the
+    largest quota, together with the refusals."""
 
     rows = conn.execute(
-        "SELECT connector_id, at, kind, remaining FROM limit_marks WHERE at >= %s ORDER BY connector_id, at",
+        "SELECT connector_id, at, kind, remaining, quota, scope FROM limit_marks WHERE at >= %s ORDER BY connector_id, at",
         (now - timedelta(days=HISTORY_DAYS),),
     ).fetchall()
     by_connector: dict[str, list[Mapping[str, Any]]] = {}
@@ -178,7 +192,12 @@ def suggestions(conn, now: datetime) -> dict[str, dict[str, Any]]:
         by_connector.setdefault(row["connector_id"], []).append(row)
     found = {}
     for connector_id, marks in by_connector.items():
-        guess = suggest(marks)
+        quotas: dict[str, int] = {}
+        for mark in marks:
+            if mark["kind"] == MARK_REMAINING:
+                quotas[mark["scope"]] = max(quotas.get(mark["scope"], 0), int(mark["quota"] or 0))
+        main = max(quotas, key=quotas.__getitem__) if quotas else ""
+        guess = suggest([mark for mark in marks if mark["scope"] == main or mark["kind"] != MARK_REMAINING])
         if guess:
             found[connector_id] = guess
     return found

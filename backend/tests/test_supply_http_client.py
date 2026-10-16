@@ -68,6 +68,17 @@ class LimitHeaderTests(unittest.TestCase):
         client.request("GET", "https://api.example.com/v1")
         self.assertEqual(client.last_limits, {"x-ratelimit-remaining": "49", "x-ratelimit-limit": "50"})
 
+    def test_a_refusals_nonsense_values_are_left_out(self) -> None:
+        client, _ = _client(_response(
+            429, {}, Retry_After="-1792146696", X_RateLimit_Limit="50", X_RateLimit_Reset="-1792146696", X_RateLimit_Remaining="0",
+            X_RateLimit_ResetTime="1970-01-01T00:00:00.000Z",
+        ))
+        seen = []
+        client.on_limits = lambda found, url: seen.append((found, url))
+        with self.assertRaises(RateLimited):
+            client.request("GET", "https://api.example.com/notices/v3/x")
+        self.assertEqual(seen, [({"x-ratelimit-limit": "50", "x-ratelimit-remaining": "0"}, "https://api.example.com/notices/v3/x")])
+
     def test_an_answer_with_no_limits_keeps_the_last_ones_and_a_429_still_reports_them(self) -> None:
         client, _ = _client(_response(200, {}, X_RateLimit_Remaining="3"), _response(200, {}), _response(429, {}, Retry_After="60"))
         client.request("GET", "https://api.example.com/v1")

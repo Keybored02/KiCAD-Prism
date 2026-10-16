@@ -61,6 +61,9 @@ export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefine
   );
 }
 
+// The API a provider's limits came from, by the first part of its path: DigiKey counts these separately.
+const SCOPE_LABEL: Record<string, string> = { products: "products", changenotifications: "change notices", v1: "sign-in" };
+
 /** What the provider says about its own limits, when it says any, and when its day seems to reset. */
 export function ReportedLimits({ connector, isAdmin, onApply }: { connector: SupplyConnector; isAdmin: boolean; onApply: () => void }) {
   const entries = Object.entries(connector.rate_limits ?? {});
@@ -68,12 +71,12 @@ export function ReportedLimits({ connector, isAdmin, onApply }: { connector: Sup
   if (entries.length === 0 && !guess && !connector.reset_from_provider) return null;
   return (
     <>
-      {entries.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          <dt className="text-muted-foreground">Limits it reports</dt>
-          {entries.map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)}
+      {entries.map(([scope, headers]) => (
+        <div key={scope} className="flex flex-wrap gap-1.5">
+          <dt className="text-muted-foreground">{entries.length > 1 ? `Limits it reports (${SCOPE_LABEL[scope] ?? scope})` : "Limits it reports"}</dt>
+          {Object.entries(headers).map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)}
         </div>
-      ) : null}
+      ))}
       {connector.reset_from_provider ? (
         <div className="flex gap-1.5">
           <dt className="text-muted-foreground">Day resets</dt>

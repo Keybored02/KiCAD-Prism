@@ -125,7 +125,7 @@ class DatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             count = conn.execute("SELECT COUNT(*) AS n FROM limit_marks").fetchone()["n"]
         self.assertEqual(count, 2)
-        self.assertEqual(self.connectors.get(self.cid)["rate_limits"]["x-ratelimit-remaining"], "464")
+        self.assertEqual(self.connectors.get(self.cid)["rate_limits"]["api"]["x-ratelimit-remaining"], "464")
 
     def test_the_providers_count_enters_the_ledger_only_after_its_reset_was_applied(self) -> None:
         reading = {"x-ratelimit-limit": "1000", "x-ratelimit-remaining": "465"}
@@ -137,6 +137,17 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(self.spent(now), 540)
         limits.note(self.store, self.cid, {**reading, "x-ratelimit-remaining": "470"}, now + timedelta(minutes=2))
         self.assertEqual(self.spent(now), 540, "the ledger never goes down")
+
+    def test_each_api_keeps_its_own_readings_and_only_the_largest_quota_suggests(self) -> None:
+        products, notices = "https://api.digikey.com/products/v4/search", "https://api.digikey.com/ChangeNotifications/v3/Products/X"
+        limits.note(self.store, self.cid, {"x-ratelimit-limit": "1000", "x-ratelimit-remaining": "465"}, at(1, 10), url=products)
+        limits.note(self.store, self.cid, {"x-ratelimit-limit": "50", "x-ratelimit-remaining": "0"}, at(1, 10, 1), url=notices)
+        limits.note(self.store, self.cid, {"x-ratelimit-limit": "1000", "x-ratelimit-remaining": "464"}, at(1, 10, 2), url=products)
+        shown = self.connectors.get(self.cid)["rate_limits"]
+        self.assertEqual(shown["products"]["x-ratelimit-remaining"], "464")
+        self.assertEqual(shown["changenotifications"]["x-ratelimit-limit"], "50")
+        with self.store.connection() as conn:
+            self.assertEqual(limits.suggestions(conn, at(3, 12)), {}, "50 then 464 is two APIs, not a reset")
 
     def test_a_reset_typed_by_hand_is_no_longer_the_providers(self) -> None:
         self.connectors.update(self.cid, actor="ana@example.com", reset_time="08:00", reset_from_provider=True)

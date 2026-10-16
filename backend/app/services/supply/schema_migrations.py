@@ -1409,6 +1409,19 @@ def _m053_no_stored_files(conn) -> None:
     )
 
 
+def _m054_limit_scopes(conn) -> None:
+    """Limit readings by the API that gave them: DigiKey's product API and its change-notice API have separate quotas."""
+
+    conn.execute(
+        """
+        ALTER TABLE limit_marks ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '';
+        DELETE FROM limit_marks;
+        UPDATE connectors SET rate_limits = '{}'::jsonb, rate_limits_at = NULL;
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1463,6 +1476,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (51, "project_opt_outs", _m051_project_opt_outs),
     (52, "usage_symbol_facts", _m052_usage_symbol_facts),
     (53, "no_stored_files", _m053_no_stored_files),
+    (54, "limit_scopes", _m054_limit_scopes),
 ]
 
 

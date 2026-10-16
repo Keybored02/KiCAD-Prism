@@ -168,6 +168,30 @@ class DetailsTests(unittest.TestCase):
         self.run_notices({})
         self.assertEqual(self.run_notices({}).read, 0)
 
+    def test_digikeys_notice_quota_is_its_own_and_running_out_leaves_stock_and_prices_alone(self) -> None:
+        from app.services.supply import details, ledger, trouble
+        from app.services.supply.providers.base import RateLimited
+
+        with self.store.connection() as conn:
+            ledger._count(conn, self.digikey, NOW.date(), 1, ledger.KIND_NOTICES, "tier1", 44)  # noqa: SLF001
+        self.assertEqual(self.run_notices({}).read, 1, "45 of 50 a day go to scheduled reads: one left")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
+        self.assertEqual(self.run_notices({}).stopped, details.NOTICE_QUOTA)
+
+        class Refusing:
+            def change_notices(self, sku, user_token):
+                raise RateLimited("over the notice quota")
+
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM call_counts")
+            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
+        summary = details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "t")
+        self.assertEqual(summary.stopped, details.NOTICE_QUOTA)
+        self.assertFalse(trouble.cooling_down(self.store, self.digikey, NOW), "the product API is not paused")
+        self.assertEqual(details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "t").stopped,
+                         details.NOTICE_QUOTA, "no more notice calls today once it refused")
+
     def test_without_a_sign_in_notices_are_skipped_and_a_refusal_marks_the_grant(self) -> None:
         from app.services.supply import details, oauth
         from app.services.supply.providers.base import AuthError

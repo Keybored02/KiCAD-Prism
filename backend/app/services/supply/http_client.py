@@ -204,6 +204,8 @@ def _label(url: str) -> str:
 # Headers that report a limit, what is left of it, or when it resets. Only these are kept, as short text, never the rest.
 _LIMIT_HINTS = ("ratelimit", "rate-limit", "quota", "remaining", "retry-after")
 _LIMIT_VALUE = re.compile(r"^[\w .,:;/+=()-]{1,64}$")
+# A provider that answers a refusal with a negative count or the 1970 epoch says nothing; such values are left out.
+_LIMIT_NONSENSE = re.compile(r"^(-\d+|1970-01-01.*)$")
 MAX_LIMIT_HEADERS = 12
 
 
@@ -213,7 +215,8 @@ def limit_headers(headers: Mapping[str, str]) -> dict[str, str]:
     found: dict[str, str] = {}
     for name, value in headers.items():
         key = name.lower()
-        if any(hint in key for hint in _LIMIT_HINTS) and _LIMIT_VALUE.match(str(value).strip()):
+        text = str(value).strip()
+        if any(hint in key for hint in _LIMIT_HINTS) and _LIMIT_VALUE.match(text) and not _LIMIT_NONSENSE.match(text):
             found[key] = str(value).strip()
         if len(found) >= MAX_LIMIT_HEADERS:
             break
@@ -254,8 +257,8 @@ class SafeHttpClient:
         self._max_redirects = max_redirects
         # What the last answer that reported any limits said (see ``limit_headers``).
         self.last_limits: dict[str, str] = {}
-        # Called with the limit headers of every answer that has any.
-        self.on_limits: Callable[[dict[str, str]], None] | None = None
+        # Called with the limit headers of every answer that has any, and the address that answered.
+        self.on_limits: Callable[[dict[str, str], str], None] | None = None
 
     def request(
         self,
@@ -292,7 +295,7 @@ class SafeHttpClient:
                 if found:
                     self.last_limits = found
                     if self.on_limits is not None:
-                        self.on_limits(found)
+                        self.on_limits(found, url)
                 return self._checked(response, url)
             location = response.headers.get("location", "")
             if not location:

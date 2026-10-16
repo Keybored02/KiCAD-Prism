@@ -63,8 +63,8 @@ export interface SupplyConnector {
   /** When the provider's day begins, and in which time zone. */
   reset_time?: string;
   reset_tz?: string;
-  /** Rate-limit headers the provider sent with its last answer, by lower-case name (DigiKey only, so far). */
-  rate_limits?: Record<string, string>;
+  /** Rate-limit headers the provider sent with its last answer, per API (DigiKey: products, changenotifications), by lower-case name. */
+  rate_limits?: Record<string, Record<string, string>>;
   rate_limits_at?: string | null;
   /** The reset time was taken from what the provider reported, so its own count of calls is trusted. */
   reset_from_provider?: boolean;

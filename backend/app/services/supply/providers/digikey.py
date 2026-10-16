@@ -461,4 +461,6 @@ SPEC = ProviderSpec(
     storefronts=STOREFRONTS,
     default_daily_budget=1000,
     groups_by_part=True,
+    # The Change Notifications API has its own daily quota (x-ratelimit-limit: 50), apart from the product API's 1000.
+    notice_daily_limit=50,
 )
