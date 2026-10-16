@@ -79,7 +79,7 @@ export function InsightsView({ view }: { view: "market" | "planning" }) {
         </div>
         <div id="insights-market" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-market" title="Market, your parts" count={page.market.scopes.length} startOpen>
-            <div className="p-3"><MarketSection market={page.market} onOpenGroup={openGroup} /></div>
+            <div className="p-3"><MarketSection market={page.market} trends={page.market_trends} onOpenGroup={openGroup} /></div>
           </CollapsibleSection>
         </div>
         <div id="insights-distributors" className="scroll-mt-14">

@@ -186,6 +186,7 @@ def add_number(conn, part_id: str, mpn: str, actor: str, source: str = "person")
     ).fetchone()
     if added:
         write_audit(conn, actor, "part.number_add", part_id, {"mpn": mpn.strip(), "source": source}, subject_kind="part")
+        conn.execute("UPDATE discovery_runs SET family_done = FALSE WHERE part_id = %s", (part_id,))
     return added is not None
 
 

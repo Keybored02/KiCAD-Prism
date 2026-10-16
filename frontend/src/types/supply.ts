@@ -810,13 +810,11 @@ export interface SupplyRecentChange {
 
 export interface SupplyOverview {
   figures: { watched: number; at_risk: number; out_of_stock: number; lifecycle: number; no_data: number };
-  needs_attention: SupplyPartRow[];
   open_alerts: number;
   recent_changes: SupplyRecentChange[];
   data_age: { oldest: string | null; newest: string | null };
   /** Enabled connectors. */
   connectors: number;
-  quota: Array<{ connector_id: string; name: string; metered: boolean; spent: number; budget: number | null; paused: boolean }>;
 }
 
 export interface AddWatchInput {
@@ -1286,4 +1284,6 @@ export interface SupplyInsightsPage {
   scatter_missing: { no_rate: number; no_lead_time: number };
   distributors: SupplyDistributorBehaviour;
   market: SupplyMarket;
+  /** The last stored values of each market figure over all followed parts, oldest first. */
+  market_trends: Record<string, number[]>;
 }

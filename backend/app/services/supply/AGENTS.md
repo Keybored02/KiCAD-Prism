@@ -112,7 +112,7 @@ root first.
 | `compliance_draft.py` | A draft RoHS and REACH declaration for a project's stored BOM: each distinct part with what distributors and declarations say and the gaps listed, as JSON or a spreadsheet-safe CSV. A working document, not a declaration. |
 | `prices.py` | The cheapest counted unit price per day from the recorded samples, in one currency, and whether a rise over the last 30 days counts as a price move (readings a week apart, the latest recent). The part sheet shows the 90 day series and the move. |
 | `usage.py` | Where parts are used (and `project_rows`, the stored lines behind a project's supply card): one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). A symbol with a `Prism ID` the catalog knows takes that component's manufacturer and number. Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
-| `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
+| `overview.py` | The Supply overview: counts, open alerts, recent changes, data age. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
 | `retention.py` | Rolls raw samples older than 60 days (or the connector's `retention_days`) into `samples_daily`, in slices of 30 days, and `drop_expired` deletes all history past the connector's `keep_days`. Run at the end of each poll job. |

@@ -29,6 +29,7 @@ function page(overrides: Partial<SupplyInsightsPage> = {}): SupplyInsightsPage {
       { part_id: "p2", mpn: "NE555", manufacturer: "TI", days_to_zero: 90, lead_days: 20 },
     ],
     scatter_missing: { no_rate: 3, no_lead_time: 1 },
+    market_trends: { out_of_stock: [0.1, 0.2, 0.33] },
     distributors: {
       repricing: [{ name: "DigiKey", days: 30, parts: 4 }],
       leaders: [{ name: "Mouser", parts: 2 }],

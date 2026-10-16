@@ -105,6 +105,19 @@ describe("the dashboard", () => {
     expect(screen.getByText("PCN-1")).toBeTruthy();
   });
 
+  it("narrows the alerts when a kind is chosen in the chart's legend", async () => {
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ alerts_by_day: [{ day: "2026-03-01", out_of_stock: 1, pcn: 1 }] }));
+    mocked.listSupplyAlerts.mockResolvedValue({ items: [
+      alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } }),
+      alertFixture({ id: 2, kind: "pcn", severity: "warning", mpn: "PCN-1", detail: { title: "Change" } }),
+    ] });
+    renderView();
+    const legend = await screen.findByRole("list", { name: "Kinds of alert" });
+    fireEvent.click(within(legend).getByRole("button", { name: "Change notice" }));
+    expect(screen.queryByText("OOS-1")).toBeNull();
+    expect(screen.getByText("PCN-1")).toBeTruthy();
+  });
+
   it("opens a part from an alert", async () => {
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "OOS-1" }));

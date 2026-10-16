@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app.services.supply.providers import digikey, farnell, registry, unrecognised  # noqa: E402
+from app.services.supply.providers import digikey, farnell, mouser, registry, unrecognised  # noqa: E402
 from app.services.supply.providers.base import AuthError, NotFound, ProviderConfig, ProviderError, RateLimited  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle, Packaging  # noqa: E402
 from test_supply_distributors import FakeClient  # noqa: E402
@@ -246,6 +246,16 @@ class FarnellTests(unittest.TestCase):
             self.assertEqual([m.sku for m in fa_provider(client).lookup_mpn("lm339adt")], ["1278613", "2"], wrapper)
         self.assertEqual(fa_provider(FakeClient({"/catalog/products": [{"nothing": 1}]})).lookup_mpn("LM339ADT"), [])
 
+    def test_the_family_search_is_a_keyword_search_kept_to_the_number_and_its_longer_forms(self) -> None:
+        client = FakeClient({"/catalog/products": [wrapped(
+            fa_product(sku="1", translatedManufacturerPartNumber="74AHC1G09GV,125"),
+            fa_product(sku="2", translatedManufacturerPartNumber="74AHC1G09GV"),
+            fa_product(sku="3", translatedManufacturerPartNumber="SN74AHC1G09DBVR"),
+        )]})
+        matches = fa_provider(client).lookup_family("74AHC1G09GV")
+        self.assertEqual([m.mpn for m in matches], ["74AHC1G09GV", "74AHC1G09GV,125"])
+        self.assertEqual(client.calls[0]["params"]["term"], "any:74AHC1G09GV")
+
     def test_an_offer_reads_stock_prices_minimum_and_rohs(self) -> None:
         client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
         (offer,) = fa_provider(client).get_offers(["1278613"])
@@ -340,6 +350,20 @@ class FarnellTests(unittest.TestCase):
         client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
         data = fa_provider(client).get_part_data(PartMatch("farnell", "1278613", "LM339ADT", "TEXAS INSTRUMENTS"))
         self.assertEqual((data.description, data.datasheet_url), ("TEXAS INSTRUMENTS LM339ADT Comparator", "https://www.farnell.com/datasheets/1.pdf"))
+
+
+class MouserFamilyTests(unittest.TestCase):
+    def test_the_family_search_drops_exact_and_keeps_the_number_and_its_longer_forms(self) -> None:
+        def part(number, sku):
+            return {"MouserPartNumber": sku, "ManufacturerPartNumber": number, "Manufacturer": "Nexperia"}
+
+        client = FakeClient({"/api/v1/search/partnumber": [{"Errors": [], "SearchResults": {"Parts": [
+            part("74AHC1G09GV,125", "771-74AHC1G09GV125"), part("74AHC1G09GV-Q100H", "771-74AHC1G09GVQ100H"), part("SN74AHC1G09DBVR", "595-X"),
+        ]}}]})
+        config = ProviderConfig(connector_id="c1", storefront="", currency="EUR", credentials={"api_key": "KEY"})
+        provider = mouser.MouserProvider(config, client=client, clock=lambda: NOW, monotonic=lambda: 0.0, sleep=lambda _s: None)
+        self.assertEqual([m.mpn for m in provider.lookup_family("74AHC1G09GV")], ["74AHC1G09GV,125", "74AHC1G09GV-Q100H"])
+        self.assertEqual(client.calls[0]["json"]["SearchByPartRequest"]["partSearchOptions"], "None")
 
 
 if __name__ == "__main__":

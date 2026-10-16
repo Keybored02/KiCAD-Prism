@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { AlertTriangle, Ban, BellRing, Eye, Hourglass, ListChecks, PackageX } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -39,6 +39,7 @@ export function DashboardView({ user }: { user: User | null }) {
   const reviewFetcher = useCallback((signal: AbortSignal) => getSupplyReviewQueue(signal), []);
   const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue");
   const { go, openPart } = useSupplyNavigation();
+  const [alertKind, setAlertKind] = useState("");
   const data = dashboard.data;
   const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
   const history = (name: string) => data?.figure_history[name];
@@ -76,12 +77,12 @@ export function DashboardView({ user }: { user: User | null }) {
               <StatusBarCard statuses={data.statuses} onOpen={openStatus} />
               <RunwayCard runway={data.runway} onOpen={(key) => parts(RUNWAY_FILTER[key])()} />
               <HoldersCard holders={data.holders} onOpen={(key) => parts(HOLDERS_FILTER[key])()} />
-              <AlertsByDayCard days={data.alerts_by_day} />
+              <AlertsByDayCard days={data.alerts_by_day} onKind={(kind) => { setAlertKind(kind); document.getElementById("dashboard-alerts")?.scrollIntoView?.(); }} />
               {data.project_costs.length > 0 ? <ProjectCostCard projects={data.project_costs} /> : null}
             </div>
           </>
         ) : null}
-        <AlertList user={user} overview={overview.data} onOpenPart={openPart} />
+        <AlertList user={user} overview={overview.data} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
         {overview.data && overview.data.recent_changes.length > 0 ? (
           <details>
             <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</summary>

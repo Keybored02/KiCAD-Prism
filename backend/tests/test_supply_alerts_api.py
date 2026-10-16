@@ -434,12 +434,9 @@ class SupplyAlertsTests(unittest.TestCase):
             self.evaluate(pid, after=timedelta(hours=1))
         data = self.call("GET", "/api/supply/overview").json
         self.assertEqual(data["figures"], {"watched": 4, "at_risk": 2, "out_of_stock": 1, "lifecycle": 1, "no_data": 1})
-        self.assertEqual([item["mpn"] for item in data["needs_attention"]], ["EOL", "EMPTY"], "worst first")
         self.assertEqual(data["open_alerts"], 2)
         self.assertEqual(data["connectors"], 1)
         self.assertIsNotNone(data["data_age"]["oldest"])
-        (quota,) = data["quota"]
-        self.assertEqual((quota["name"], quota["metered"], quota["spent"]), ("Sim", True, 0))
 
     def test_recent_changes_list_alerts_that_opened_or_cleared_and_listings_that_went(self) -> None:
         empty = self.watch("EMPTY")
@@ -464,8 +461,7 @@ class SupplyAlertsTests(unittest.TestCase):
             conn.execute("DELETE FROM connectors")
         data = self.call("GET", "/api/supply/overview").json
         self.assertEqual(data["figures"], {"watched": 0, "at_risk": 0, "out_of_stock": 0, "lifecycle": 0, "no_data": 0})
-        self.assertEqual((data["needs_attention"], data["quota"], data["connectors"], data["data_age"]),
-                         ([], [], 0, {"oldest": None, "newest": None}))
+        self.assertEqual((data["connectors"], data["data_age"]), (0, {"oldest": None, "newest": None}))
 
     def test_acknowledged_alerts_do_not_count_as_open(self) -> None:
         alert = self.open_alert()

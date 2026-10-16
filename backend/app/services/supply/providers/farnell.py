@@ -144,6 +144,22 @@ class FarnellProvider:
             for product in keep_family(found, wanted, lambda product: str(product["translatedManufacturerPartNumber"]))
         ]
 
+    def lookup_family(self, mpn: str) -> list[PartMatch]:
+        """The number and its longer forms: a keyword search (``any:``), not the exact manufacturer-number term, kept to the same
+        number and its longer forms. One call; used when the exact search found nothing that counts."""
+
+        wanted = match_key(mpn)
+        if not wanted:
+            return []
+        found = [
+            product for product in self._search(f"any:{mpn.strip()}")
+            if product.get("sku") and product.get("translatedManufacturerPartNumber")
+        ]
+        return [
+            _match(product, str(product["sku"]), str(product["translatedManufacturerPartNumber"]), self._store)
+            for product in keep_family(found, wanted, lambda product: str(product["translatedManufacturerPartNumber"]))
+        ]
+
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         # Several SKUs go in one ``id`` term, separated by spaces (checked live on 2026-10-14: four SKUs, one call, all four
         # answered, in no fixed order). One answer holds at most ``MAX_MATCHES`` products, which sets the batch size.

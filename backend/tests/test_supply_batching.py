@@ -245,6 +245,26 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual(len(self.rows("SELECT 1 FROM discovery_runs")), 5)
         self.assertEqual(len(self.rows("SELECT 1 FROM listings WHERE match_state = 'exact'")), 4)
 
+    def test_a_part_with_nothing_counted_gets_one_looser_search_for_its_longer_numbers(self) -> None:
+        self.watch("AAA")
+        self.watch("NONE-1")
+        asked_family: list = []
+        outer = self
+
+        class WithFamily(type(self.provider())):
+            def lookup_family(self, mpn):
+                asked_family.append(mpn)
+                return [outer.PartMatch(provider="demo_grouped", sku=f"F-{mpn}", mpn=f"{mpn},125", manufacturer="Acme")]
+
+        discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: WithFamily(), clock=self.clock)
+        discoverer.run(self.cid)
+        self.assertEqual(asked_family, ["NONE-1"], "AAA was found, so it needs no second search")
+        self.assertEqual(self.rows("SELECT part_id IS NOT NULL AS has FROM listings WHERE sku = 'F-NONE-1'"), [{"has": True}])
+        self.assertTrue(all(row["family_done"] for row in self.rows("SELECT family_done FROM discovery_runs d JOIN parts p ON p.id = d.part_id WHERE p.mpn = 'NONE-1'")))
+        self.clock.now += timedelta(days=15)
+        discoverer.run(self.cid)
+        self.assertEqual(asked_family, ["NONE-1"], "once")
+
     def test_the_budget_is_charged_per_group(self) -> None:
         for mpn in ("AAA", "BBB", "CCC", "DDD"):
             self.watch(mpn)

@@ -24,9 +24,14 @@ function useAlertList(user: User | null) {
 }
 
 /** The alerts, worst first, with a chip a kind to narrow them. */
-export function AlertList({ user, overview, onOpenPart }: { user: User | null; overview: SupplyOverview | null | undefined; onOpenPart: (id: string) => void }) {
+export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
+  user: User | null;
+  overview: SupplyOverview | null | undefined;
+  kind: string;
+  onKind: (kind: string) => void;
+  onOpenPart: (id: string) => void;
+}) {
   const { status, data, error, retry, showCleared, setShowCleared, busy, actionError, act, canAct } = useAlertList(user);
-  const [kind, setKind] = useState("");
   const kinds = useMemo(() => {
     const counts = new Map<string, number>();
     for (const alert of data ?? []) counts.set(alert.kind, (counts.get(alert.kind) ?? 0) + 1);
@@ -40,9 +45,9 @@ export function AlertList({ user, overview, onOpenPart }: { user: User | null; o
           <h3 className="mr-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alerts</h3>
           {kinds.length > 1 ? (
             <>
-              <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => setKind("")}>All {data?.length}</Button>
+              <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => onKind("")}>All {data?.length}</Button>
               {kinds.map(([name, count]) => (
-                <Button key={name} size="sm" variant={kind === name ? "secondary" : "ghost"} aria-pressed={kind === name} onClick={() => setKind(name)}>
+                <Button key={name} size="sm" variant={kind === name ? "secondary" : "ghost"} aria-pressed={kind === name} onClick={() => onKind(name)}>
                   {ALERT_KIND_LABEL[name as keyof typeof ALERT_KIND_LABEL] ?? name} {count}
                 </Button>
               ))}

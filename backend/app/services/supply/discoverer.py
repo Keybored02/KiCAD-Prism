@@ -169,6 +169,9 @@ class Discoverer:
                             "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
                             (part_id, connector_id, now, result.total),
                         )
+        searched_ids = [part_id for part_id in {item.part_id for item in pending} if part_id]
+        if hasattr(type(provider), "lookup_family") and searched_ids:
+            self._follow_up(service, connector_id, searched_ids)
         if searched:
             # What the searches found replaces the estimate admission was made on.
             with self._store.connection() as conn:
@@ -248,6 +251,29 @@ class Discoverer:
                 matches += [match for match in answers.get(match_key(number), []) if match.sku not in {m.sku for m in matches}]
             results[part.id] = service.apply(part, matches, connector_id)
         return results
+
+    def _follow_up(self, service: DiscoveryService, connector_id: str, part_ids: list[str]) -> None:
+        """For parts searched here that still have no counted listing anywhere, one looser search for their longer numbers, from
+        spare budget, once (again when the part's numbers change). A failure leaves it for the next scan."""
+
+        with self._store.connection() as conn:
+            due = [row["part_id"] for row in conn.execute(
+                """
+                SELECT d.part_id FROM discovery_runs d
+                WHERE d.connector_id = %s AND d.part_id = ANY(%s) AND NOT d.family_done
+                  AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = d.part_id AND l.match_state IN ('exact', 'manual'))
+                """,
+                (connector_id, part_ids),
+            ).fetchall()]
+        for part_id in due:
+            if not self._spend_extra(connector_id):
+                return
+            try:
+                service.discover_family(part_id, connector_id)
+            except ProviderError:
+                return
+            with self._store.connection() as conn:
+                conn.execute("UPDATE discovery_runs SET family_done = TRUE WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
 
     def _spend_extra(self, connector_id: str) -> bool:
         """One more search call for a part's other number: from the committed share, then from spare budget."""

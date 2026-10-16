@@ -40,7 +40,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
-from app.services.supply.identity import match_key
+from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
 from app.services.supply.providers.base import (
     CAP_BATCH,
@@ -114,8 +114,8 @@ class MouserProvider:
         self._pacer.wait()
         return self._client.request_json("POST", url, params={"apiKey": self._api_key}, json=body)
 
-    def _search(self, numbers: Sequence[str]) -> list[dict[str, Any]]:
-        answer = self._post(SEARCH_URL, {"SearchByPartRequest": {"mouserPartNumber": "|".join(numbers), "partSearchOptions": "Exact"}})
+    def _search(self, numbers: Sequence[str], *, exact: bool = True) -> list[dict[str, Any]]:
+        answer = self._post(SEARCH_URL, {"SearchByPartRequest": {"mouserPartNumber": "|".join(numbers), "partSearchOptions": "Exact" if exact else "None"}})
         if not isinstance(answer, dict):
             raise ProviderError("Mouser answered with something other than an object")
         _raise_for_errors(answer.get("Errors") or [])
@@ -128,6 +128,16 @@ class MouserProvider:
         if not 3 <= len(mpn.strip()) <= 40:
             return []  # outside what the search accepts; nothing to ask
         return [match for part in self._search([mpn.strip()]) if (match := _match(part)) is not None]
+
+    def lookup_family(self, mpn: str) -> list[PartMatch]:
+        """The number and its longer forms (``74AHC1G09GV`` -> ``74AHC1G09GV,125``): the search without ``Exact``, kept to the
+        same number and its longer forms. One call; used when the exact search found nothing that counts."""
+
+        wanted = match_key(mpn)
+        if not wanted or not 3 <= len(mpn.strip()) <= 40:
+            return []
+        found = [part for part in self._search([mpn.strip()], exact=False) if part.get("ManufacturerPartNumber")]
+        return [match for part in keep_family(found, wanted, lambda part: str(part["ManufacturerPartNumber"])) if (match := _match(part)) is not None]
 
     def lookup_mpns(self, mpns: Sequence[str]) -> dict[str, list[PartMatch]]:
         """Several manufacturer numbers in as few calls as Mouser allows (``MAX_BATCH`` a call).

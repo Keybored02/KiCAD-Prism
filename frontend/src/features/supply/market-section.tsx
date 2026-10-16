@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SupplyMarket, SupplyMarketScope } from "@/types/supply";
 import { ChartCard } from "./chart-card";
+import { Sparkline } from "./sparkline";
 import { MarketHistory } from "./market-history";
 import { MARKET_COLUMNS, marketChange, marketFigure, type MarketColumn } from "./market-model";
 
@@ -27,7 +28,7 @@ function Arrow({ column, scope }: { column: MarketColumn; scope: SupplyMarketSco
 }
 
 /** The followed parts as a group: five figures as cards, one over time, and the makers and categories as a tinted table. */
-export function MarketSection({ market, onOpenGroup }: { market: SupplyMarket; onOpenGroup: (name: string) => void }) {
+export function MarketSection({ market, trends = {}, onOpenGroup }: { market: SupplyMarket; trends?: Record<string, number[]>; onOpenGroup: (name: string) => void }) {
   const [column, setColumn] = useState<MarketColumn>(MARKET_COLUMNS[0]);
   const [kind, setKind] = useState<"manufacturer" | "category">("manufacturer");
   const [sortBy, setSortBy] = useState<string>("sample");
@@ -55,7 +56,10 @@ export function MarketSection({ market, onOpenGroup }: { market: SupplyMarket; o
             >
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{item.label}</span>
               <span className="text-2xl font-semibold tabular-nums">{marketFigure(item, all.metrics[item.key]) || <span className="text-sm font-normal text-muted-foreground">no data</span>}<Arrow column={item} scope={all} /></span>
-              <span className="text-xs text-muted-foreground">{marketChange(item, all.metrics[item.key]) || `${all.sample} parts`}</span>
+              <span className="flex items-end justify-between gap-2 text-xs text-muted-foreground">
+                {marketChange(item, all.metrics[item.key]) || `${all.sample} parts`}
+                {(trends[item.key]?.length ?? 0) > 1 ? <Sparkline values={trends[item.key]} label={`${item.label} over time`} width={64} height={20} /> : null}
+              </span>
             </button>
           ))}
         </div>

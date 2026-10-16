@@ -1605,6 +1605,12 @@ def _m064_maker_seeds_added(conn) -> None:
     _seed_makers(conn)
 
 
+def _m065_family_done(conn) -> None:
+    """Whether the looser search for a part's longer numbers has been made at a connector (once, and again when its numbers change)."""
+
+    conn.execute("ALTER TABLE discovery_runs ADD COLUMN IF NOT EXISTS family_done BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1670,6 +1676,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (62, "part_insights", _m062_part_insights),
     (63, "figure_history", _m063_figure_history),
     (64, "maker_seeds_added", _m064_maker_seeds_added),
+    (65, "family_done", _m065_family_done),
 ]
 
 

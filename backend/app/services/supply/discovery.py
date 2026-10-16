@@ -97,6 +97,14 @@ class DiscoveryService:
             matches = matches + [m for m in provider.lookup_mpn(number, part.manufacturer_name) if m.sku not in {x.sku for x in matches}]
         return self.apply(part, matches, connector_id)
 
+    def discover_family(self, part_id: str, connector_id: str) -> DiscoveryResult:
+        """The looser search for the part's longer numbers, for a connector whose exact search is too strict to bring them back."""
+
+        with self._store.connection() as conn:
+            part = parts.get_part(conn, part_id)
+        matches = self._provider_for(connector_id).lookup_family(part.mpn)  # type: ignore[attr-defined]
+        return self.apply(part, matches, connector_id)
+
     def apply(self, part: parts.PartRecord, matches: list[PartMatch], connector_id: str) -> DiscoveryResult:
         """Sort a provider's answer for ``part`` into listings. Split from ``discover`` so one search call can serve many parts."""
 

@@ -12,6 +12,8 @@ from typing import Any
 
 from app.services.supply import market, part_insights
 
+TREND_POINTS = 30
+
 SCATTER_MAX = 500
 
 
@@ -40,6 +42,16 @@ def _distributors(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _market_trends(conn) -> dict[str, list[float]]:
+    """The last stored values of each market figure over all followed parts, oldest first."""
+
+    found: dict[str, list[float]] = {}
+    for metric in market.METRICS:
+        series = next((line for line in market.history(conn, metric)["series"] if line["kind"] == "all"), None)
+        found[metric] = [value for _, value in series["points"][-TREND_POINTS:]] if series else []
+    return found
+
+
 def build(conn) -> dict[str, Any]:
     rows = part_insights.read_all(conn)
     counts = {kind: sum(1 for row in rows if test(row)) for kind, test in part_insights.KINDS.items()}
@@ -63,4 +75,5 @@ def build(conn) -> dict[str, Any]:
         "scatter_missing": {"no_rate": no_rate, "no_lead_time": no_lead},
         "distributors": _distributors(rows),
         "market": market.overview(conn),
+        "market_trends": _market_trends(conn),
     }
