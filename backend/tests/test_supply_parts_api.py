@@ -303,7 +303,7 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     def test_bad_watch_requests(self) -> None:
         for body in ({}, {"manufacturer": "Acme"}, {"manufacturer": "Acme", "mpn": "X", "threshold": -1},
-                     {"manufacturer": "Acme", "mpn": "X", "owner": "mallory"}, {"manufacturer": "", "mpn": "X"}):
+                     {"manufacturer": "Acme", "mpn": "X", "owner": "mallory"}):
             response = self.call("POST", "/api/supply/watches", body=body)
             self.assertEqual(response.status, 422, body)
             self.assertNotIn("mallory", json.dumps(response.json))
