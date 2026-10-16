@@ -1368,6 +1368,22 @@ def _m051_project_opt_outs(conn) -> None:
     conn.execute("ALTER TABLE tracked_projects DROP COLUMN connector_ids", prepare=False)
 
 
+def _m052_usage_symbol_facts(conn) -> None:
+    """What a symbol says about itself beyond its part number: its datasheet address and the catalog component placed on it.
+
+    Read back by ``bom_suggestions.py`` to say what Prism could add to the BOM."""
+
+    conn.execute(
+        """
+        ALTER TABLE bom_usage ADD COLUMN IF NOT EXISTS datasheet TEXT NOT NULL DEFAULT '';
+        ALTER TABLE bom_usage ADD COLUMN IF NOT EXISTS prism_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS datasheet TEXT NOT NULL DEFAULT '';
+        ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS prism_id TEXT NOT NULL DEFAULT '';
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1420,6 +1436,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (49, "limit_marks", _m049_limit_marks),
     (50, "drop_headers_seen", _m050_drop_headers_seen),
     (51, "project_opt_outs", _m051_project_opt_outs),
+    (52, "usage_symbol_facts", _m052_usage_symbol_facts),
 ]
 
 

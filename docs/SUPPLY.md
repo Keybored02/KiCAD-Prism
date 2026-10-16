@@ -156,6 +156,10 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
 - **More checks.** Distributors that disagree on lifecycle are a warning. A distributor whose price is far from the median is a note.
   A part whose whole assessment gets worse raises an alert (accepting it makes the new state the baseline). Per part, **Alert rules**
   mute alerts, set the price rise that matters, and set a target price.
+- **Suggestions for the BOM.** The project tab lists what Prism knows about a line that its symbol lacks: a manufacturer for a
+  line with only a part number, the part an LCSC number is, a datasheet address, the library component to link. A list only;
+  Prism changes nothing in the project, and a person applies it in KiCad. A symbol with only an LCSC number now shows as a
+  line of its own ("not tracked") instead of being dropped.
 - **Costing.** The line drawer shows the pieces bought beyond the need and the next price break. The project tab follows the cost of a
   board over time, shows the rounding waste, and downloads a costing CSV that names no distributor, SKU or link. Spares can be set
   **by package** (small passives get 2%, other parts none).

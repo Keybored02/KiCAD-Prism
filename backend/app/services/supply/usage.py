@@ -57,13 +57,15 @@ class UsageLine:
     quantity: int
     references: str
     lcsc: str = ""
+    datasheet: str = ""
+    prism_id: str = ""
 
 
 Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
 # Part of the stored revision key. Raise it when what is stored from an index changes (a new kind of row), so every project
 # is read again once. With the index's own revision key it is the fingerprint of what the rows were made from.
-USAGE_VERSION = 3
+USAGE_VERSION = 4
 MAX_VARIANTS = 30
 
 
@@ -117,17 +119,32 @@ def lines_from_components(components: Iterable[Mapping[str, Any]], identities: I
         # A component without a part number yet says nothing; the symbol's own fields stay.
         manufacturer, mpn = placed if placed and placed[1].strip() else identity_of(fields)
         number = match_key(mpn)
-        if not number:
+        lcsc = lcsc_of(fields)
+        if not number and not lcsc:
             continue
-        key = f"{alias_key(manufacturer)}|{number}"
-        line = found.setdefault(key, {"manufacturer": manufacturer, "mpn": mpn, "alias": alias_key(manufacturer), "number": number, "refs": [], "lcsc": ""})
+        # A symbol with only an LCSC number is kept as a line of its own: it has no part yet, and says so.
+        key = f"{alias_key(manufacturer)}|{number}" if number else f"lcsc:{lcsc}"
+        line = found.setdefault(key, {
+            "manufacturer": manufacturer, "mpn": mpn if number else "", "alias": alias_key(manufacturer), "number": number, "refs": [],
+            "lcsc": "", "datasheet": "", "prism_id": "",
+        })
         line["refs"].append(str(component.get("reference") or ""))
-        line["lcsc"] = line["lcsc"] or lcsc_of(fields)
+        line["lcsc"] = line["lcsc"] or lcsc
+        line["datasheet"] = line["datasheet"] or _datasheet_of(fields)
+        line["prism_id"] = line["prism_id"] or prism_id_of(fields)
     return [
         UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], len(line["refs"]),
-                  " ".join(sorted(ref for ref in line["refs"] if ref))[:MAX_REFERENCES_TEXT], line["lcsc"])
+                  " ".join(sorted(ref for ref in line["refs"] if ref))[:MAX_REFERENCES_TEXT], line["lcsc"], line["datasheet"][:500],
+                  line["prism_id"][:100])
         for key, line in found.items()
     ]
+
+
+def _datasheet_of(fields: Mapping[str, Any]) -> str:
+    """The symbol's datasheet address; KiCad writes ``~`` for none."""
+
+    value = str(fields.get("Datasheet") or "").strip()
+    return "" if value in ("", "~") else value
 
 
 def store_project(
@@ -165,18 +182,18 @@ def store_project(
     )
     for line in lines:
         conn.execute(
-            "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, datasheet, prism_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references,
-             line.lcsc),
+             line.lcsc, line.datasheet, line.prism_id),
         )
     for name, named in (variant_lines or {}).items():
         for line in named:
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
+                "datasheet, prism_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (project_id, name, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
-                 line.references, line.lcsc),
+                 line.references, line.lcsc, line.datasheet, line.prism_id),
             )
     return True
 
@@ -264,16 +281,17 @@ def project_rows(conn, project_id: str, variant: str = "") -> list[dict[str, Any
 
     if variant:
         rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc FROM bom_usage_variants WHERE project_id = %s AND variant = %s "
+            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM bom_usage_variants WHERE project_id = %s AND variant = %s "
             "ORDER BY line_key", (project_id, variant),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc FROM bom_usage WHERE project_id = %s ORDER BY line_key", (project_id,)
+            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM bom_usage WHERE project_id = %s ORDER BY line_key",
+            (project_id,)
         ).fetchall()
     return [
         {"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"]),
-         "references": row["refs"], "lcsc": row["lcsc"]}
+         "references": row["refs"], "lcsc": row["lcsc"], "datasheet": row["datasheet"], "prism_id": row["prism_id"]}
         for row in rows
     ]
 

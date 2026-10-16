@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, trade, usage,
+    bom_lookup, bom_suggestions, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, trade, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
@@ -108,6 +108,25 @@ async def cost_export(
         content=text, media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{name}-cost-{build_quantity}.csv"'},
     )
+
+
+@router.get("/{project_id}/suggestions")
+async def bom_suggestions_for(
+    project_id: str,
+    variant: str = Query(default="", max_length=120),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """What Prism could add to the project's BOM lines: a missing manufacturer, a datasheet address, the library link. A list only."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            rows = usage.project_rows(conn, project_id, variant)
+            items = bom_suggestions.build(conn, rows) if rows else []
+            return {"available": bool(rows), "items": items, "counts": bom_suggestions.summary(items)}
+
+    return await _run(read)
 
 
 @router.get("/{project_id}/trade")

@@ -2,6 +2,7 @@
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
+  BomSuggestions,
   AddWatchInput,
   BomLineInput,
   ConfirmAliasInput,
@@ -499,6 +500,11 @@ export function getProjectSupply(projectId: string, variant = "", signal?: Abort
 export function getProjectTrade(projectId: string, variant = "", signal?: AbortSignal): Promise<{ available: boolean; report: TradeReport | null }> {
   const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/trade${query}`, { signal }, "Could not load the trade classification");
+}
+
+export function getBomSuggestions(projectId: string, variant = "", signal?: AbortSignal): Promise<BomSuggestions> {
+  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/suggestions${query}`, { signal }, "Could not load the suggestions");
 }
 
 export function getProjectBomHealth(

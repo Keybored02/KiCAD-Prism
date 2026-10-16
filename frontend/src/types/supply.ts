@@ -1173,3 +1173,20 @@ export interface TrackingRoom {
   headline: { daily: { room: number; limited_by: string } | null; weekly: { room: number; limited_by: string } | null };
   accounts: TrackingRoomAccount[];
 }
+
+/** What Prism could add to a project's BOM lines. A list only; nothing in the project is changed. */
+export interface BomSuggestions {
+  available: boolean;
+  counts: Record<"manufacturer" | "lcsc_part" | "datasheet" | "prism_id", number>;
+  items: Array<{
+    kind: "manufacturer" | "lcsc_part" | "datasheet" | "prism_id";
+    label: string;
+    line_key: string;
+    references: string;
+    manufacturer: string;
+    mpn: string;
+    current: string;
+    suggested: string;
+    reason: string;
+  }>;
+}
