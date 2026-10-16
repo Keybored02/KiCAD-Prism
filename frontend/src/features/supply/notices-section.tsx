@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyNotice, SupplyNoticeKind } from "@/types/supply";
-import { addNotice, checkPartNotices, listPartNotices } from "./supply-api";
+import { addNotice, checkPartNotices, closeNotice, listPartNotices } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 import { VendorName } from "./vendor-name";
@@ -25,8 +25,8 @@ interface NoticesSectionProps {
 }
 
 /**
- * Product change notices for the part: the ones people entered and the ones a distributor lists. They are a record, so they
- * cannot be dismissed here. The section folds away, and starts open only when a notice announces an ending.
+ * Product change notices for the part: the ones people entered and the ones a distributor lists. They are a record: closing
+ * one keeps it, and an open one that announces an ending raises an alert until it is closed. The section folds away, and starts open only when a notice announces an ending.
  */
 export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => listPartNotices(part.id, signal), [part.id]);
@@ -95,6 +95,11 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   {item.source && item.source !== "manual" ? <>From <VendorName provider={item.source} name={item.source_label} />.</> : `Entered by ${item.created_by}.`}
                 </span>
               </span>
+              {canEdit && item.state === "open" ? (
+                <Button size="sm" variant="ghost" className="h-7 shrink-0" disabled={busy} onClick={() => void run(async () => { await closeNotice(item.id); await loaded.refresh(); })}>
+                  Close
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>

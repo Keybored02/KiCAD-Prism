@@ -8,6 +8,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listPartNotices: vi.fn(),
   addNotice: vi.fn(),
   closeNotice: vi.fn(),
+  closeNotice: vi.fn(),
   checkPartNotices: vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
@@ -61,7 +62,21 @@ describe("the notices section", () => {
     await waitFor(() => expect(mocked.addNotice).toHaveBeenCalledWith({
       title: "PCN-9", kind: "last_time_buy", parts: [{ manufacturer: "Acme", mpn: "ABC-1" }], notice_url: "", last_time_buy: "2026-09-01", last_time_ship: null, notes: "",
     }));
-    expect(screen.queryByRole("button", { name: /Close/ }), "a notice is a record: it cannot be dismissed here").toBeNull();
+  });
+
+  it("closes an open notice for those who may edit, and keeps it listed", async () => {
+    mocked.listPartNotices.mockResolvedValue([{ ...notice, state: "open" }]);
+    mocked.closeNotice.mockResolvedValue(undefined);
+    render(<NoticesSection part={part} canEdit />);
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    await waitFor(() => expect(mocked.closeNotice).toHaveBeenCalledWith(notice.id));
+  });
+
+  it("offers no close to those who may only read", async () => {
+    mocked.listPartNotices.mockResolvedValue([{ ...notice, state: "open" }]);
+    render(<NoticesSection part={part} canEdit={false} />);
+    await screen.findByText(notice.title);
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("says a notice read from DigiKey came from there, with its release date and description", async () => {
