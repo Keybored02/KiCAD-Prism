@@ -23,8 +23,12 @@ root first.
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
-| `parts.py` | Manufacturers, spellings (`pending` until a person maps them) and parts. Functions on a connection; none commit. |
-| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states. Also `pin_listing`, `reject_listing`, `counted_listings`. |
+| `parts.py` | Manufacturers, their spellings, parts and the other numbers a part is sold under. `ensure_part` refuses nobody (a maker nobody has checked is provisional). Functions on a connection; none commit. |
+| `makers.py` | `same_maker`: whether two spellings name one maker (same key, seeded spelling, starts with, whole words inside, initials, one lost letter). Never looks at a part number. |
+| `settle.py` | Settling a provisional part's maker from the listings of its number, the questions a person answers (`needs_choice`, `choose`, `not_this_maker`, `use_numbers`), and learning spellings (`learn_aliases`, `undo_alias`). |
+| `maker_backfill.py` | Migration 56: sorts the listings that waited under the old rules again. |
+| `packaging_auto.py` | Picks the packaging of a tracked part by what its projects buy for (prototypes: smallest order, production: a reel). Never changes a person's pick. |
+| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states (a number the part is sold under and the same maker count; another maker's listing is `near`). Also `pin_listing`, `reject_listing`, `counted_listings`. |
 | `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
 | `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |

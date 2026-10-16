@@ -8,9 +8,9 @@ and no purchase support.
 
 | Place | What it answers |
 | --- | --- |
-| **Supply > Dashboard** | What needs a person: counts that open the place that deals with them (at risk, out of stock, end of life, open alerts, waiting for room, packaging picks, review queue), then one list of alerts, then recent changes. |
+| **Supply > Dashboard** | What needs a person: counts that open the place that deals with them (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then one list of alerts, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
 | **Supply > Parts** | Every part Prism knows, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
-| **Supply > Review** | Spellings, listings and packaging picks. |
+| **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
 | **Supply > Insights** | Market and Planning, two views of one tab. |
 | **Supply > Connectors** | Distributor accounts and the call budget. |
 | **Project > Supply** | How one product stands: tracking, its parts, planned builds, releases, line notes. Reads the stored BOM of the default branch, never a checked-out commit. |
@@ -57,28 +57,31 @@ Prism follows a part at one of two tiers. **Tier 1** is read every day; **tier 2
 (tier 3) is read only when someone asks. A part is in the highest tier any reason gives it, and the part sheet says why: a
 tracked project, someone's choice, a watched component or its approved alternates, or a watch from before tiers (tier 2).
 
-- **Track a project:** on the BOM (Visualizers) choose **Track this project**. Pick the designs to follow (or **Follow every design**, which also takes in designs added to the project later) and the
-  distributors you buy from. A tracked project that is deleted from the workspace stops being tracked at the next BOM refresh. A distributor that only assembles (JLCPCB) appears as "Built at ..." and is read only when
-  you tick it. Before anything is applied you see, per distributor, the calls a day it adds, how many parts will be read
-  and how many will wait. **Track where there is room** reads what fits; the rest waits for room and is read from spare
-  budget. If nothing fits anywhere it is refused. If Prism has not read the project's BOM yet, the dialog reads it (building its index when needed) and goes on. A distributor added later is used for the project too, unless you unticked it; an assembly-only one only when ticked.
+- **Track a project:** on the BOM (Visualizers) or in Project > Supply choose **Track this project**. One dialog asks everything:
+  the designs (and **Also designs added later**), the distributors you buy from (an assembly-only one such as JLCPCB shows
+  as "Built at ..." and is read only when ticked) and what you are **buying for**, Prototypes (follow the packaging with
+  the smallest order, cut tape in practice) or Production (follow reels). Each distributor's call budget shows as a bar:
+  what is committed, what this adds, and how many parts would wait for room. If Prism has not read the project's BOM yet, the
+  dialog reads it first. Lines whose part number several makers share are listed with the parts to choose from, one click each.
+  **Track (N)** then starts the work and the dialog shows the first searches, a bar per distributor; closing it leaves them
+  running. What does not fit waits for room and is read from spare budget; if nothing fits anywhere it is refused. A
+  distributor added later is used for the project too, unless you unticked it.
 - **New revisions:** a tracked project's BOM is read again every 15 minutes, nobody has to open it. When its newest
   revision has no index yet, Prism queues one (the normal index job). Parts a revision adds are tracked at tier 1 and
   searched first; parts it removes leave tracking unless something else keeps them. Recent changes on the Dashboard says
-  what each revision added and removed. A manufacturer spelling Prism does not know goes to Review > Spellings, and the
-  line is tracked once it is settled.
+  what each revision added and removed. A line with a maker Prism does not know is tracked as written; the distributors'
+  answers settle who makes it (see Makers).
 - **Set a part's tier:** the **Tracking** control on the part sheet shows what a choice would cost, then applies it.
 - **Call budget:** each connector's day is split into a committed share (what tracking may use, at most 90%) and a pool
   for people's reads, first searches and one-off checks. Connectors on the same credentials share one budget. The
   **Connectors** page shows today's spending by purpose, the last two weeks, what waits for room and what costs most.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
   shows the same cost preview before it tracks.
-- **Packaging picks:** a distributor lists one part as several listings (cut tape, reel, tray). Until you pick one, all are
-  read and their stock adds up. **Review > Packaging** lists the tracked parts that need a pick, with the calls a day each
-  would save; the part sheet offers the same. The pick pop-up sets the listings side by side and marks what differs. After a
-  pick it offers the same packaging for the other waiting parts at that distributor with the same choice, listed so you can
-  untick any. Only the picked listing is read and counted. If it stops being listed, the part is read at all its listings
-  again.
+- **Packaging:** a distributor lists one part as several listings (cut tape, reel, tray) and only one is followed. Prism picks
+  it: the smallest order for a project that buys for prototypes, a reel for production (a part is bought for production
+  only when every tracked project that uses it says so, and a part in no project is bought for prototypes). A pick you make
+  on the part sheet is never changed. If the picked listing stops being listed, the part is picked again. The part sheet's
+  pick dialog lists the listings as rows, marks one numbered differently from the part, and QA can unpin it.
 - **First searches and the pool:** when parts are tracked, their first search at each distributor comes from the pool, but only
   half of it; the rest stays for Read now, Check notices and Fill from distributor. The remainder of a large batch waits for
   spare budget.
@@ -90,20 +93,20 @@ tracked project, someone's choice, a watched component or its approved alternate
   distributor carries them and how many listings they have there, so a distributor that carries few of your parts is not the
   limit for the rest. Once tracking has spent for a week, the estimate is corrected by what it really spent. A distributor with
   fewer than 10 parts searched shows no figure, and one with parts already waiting shows none left.
-- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known.
+- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. Parts are grouped by the projects that use them (tracked projects first, closed until opened, the parts in no project last), and more load as you scroll.
 - **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
   shows the same cost preview before it tracks.
-- **Packaging picks:** a distributor lists one part as several listings (cut tape, reel, tray). Until you pick one, all are
-  read and their stock adds up. **Review > Packaging** lists the tracked parts that need a pick, with the calls a day each
-  would save; the part sheet offers the same. The pick pop-up sets the listings side by side and marks what differs. After a
-  pick it offers the same packaging for the other waiting parts at that distributor, listed so you can untick any. Only the
-  picked listing is read and counted. If it stops being listed, the part is read at all its listings again.
+- **Packaging:** a distributor lists one part as several listings (cut tape, reel, tray) and only one is followed. Prism picks
+  it: the smallest order for a project that buys for prototypes, a reel for production (a part is bought for production
+  only when every tracked project that uses it says so, and a part in no project is bought for prototypes). A pick you make
+  on the part sheet is never changed. If the picked listing stops being listed, the part is picked again. The part sheet's
+  pick dialog lists the listings as rows, marks one numbered differently from the part, and QA can unpin it.
 - **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
   check offers the same for the parts on a release BOM.
-- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known.
+- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. Parts are grouped by the projects that use them (tracked projects first, closed until opened, the parts in no project last), and more load as you scroll.
 - **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Spare budget** is what would go unused: outside working hours, on non-working days and in the last three hours of a
@@ -179,10 +182,35 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
 Not built: IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
 observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.
 
+## Makers
+
+A part has a manufacturer, but nobody has to confirm spellings first. Prism treats two spellings as one maker when they
+are the same name apart from case, punctuation and a legal form ("Inc."), when one starts the other ("KOA", "KOA Speer"),
+when one holds the other as whole words ("Maxim Integrated" in "Analog Devices Inc./Maxim Integrated"), when one is the
+initials of the other ("TI", "ADI") or when they are a known spelling of a large maker. A listing of a part's number from
+the same maker counts at once; another maker's listing of the number (a clone) is kept on the part sheet, marked with its
+maker, and does not count. A QA or administrator can take it as the same part.
+
+A part made from a line nobody has checked has a maker "as written" (or "Not known yet" when the line names none), shown
+"not confirmed". The distributors' answers settle it: the written name confirmed by one that agrees; one maker answering; or
+the maker most distributors list when several do. A spelling two parts of one maker carry becomes a spelling of that maker for
+every part (Review > Matched by Prism, with Undo).
+
+A part can also be sold under other numbers (`LM358D` as `LM358DR`). Packaging suffixes of the same maker are added by Prism;
+a family number asks once which numbers it is sold as; the part sheet's Numbers row adds or removes one. BOM lines naming any
+of them find the part.
+
 ## Review
 
-Supply > Review. Distributors spell manufacturers their own way; Prism never merges them by guess. A person maps a
-spelling to a manufacturer, confirms a listing that is probably the part, or rejects it. QA and administrators decide.
+Supply > Review lists what needs a person, each section closed or open (long ones start closed; your choice is
+remembered):
+
+- **Needs a choice:** a part whose maker the answers do not settle (several makers, none leading), or whose known maker no
+  distributor lists while some list the number under another ("same maker?"), or whose number no distributor lists while the
+  same maker lists numbers that begin with it. One click each. Designers, QA and administrators answer.
+- **Pinned under another number:** listings pinned as a part although numbered otherwise (their stock counts as the part's).
+  Tick the ones to take off; QA and administrators decide.
+- **Matched by Prism:** spellings Prism learned (Undo) and parts whose maker the distributors settled.
 
 ## Approved parts (alternates)
 
