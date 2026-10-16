@@ -14,7 +14,7 @@ from app.services.supply import parts
 from app.services.supply.audit import actor_text, write_audit
 
 # Kinds a person may switch off. A lost part, a change notice and an obsolete part are facts and stay on.
-MUTABLE = ("out_of_stock", "below_threshold", "rupture_soon", "price_up", "datasheet_changed", "target_price_missed", "assessment_worse")
+MUTABLE = ("out_of_stock", "below_threshold", "rupture_soon", "price_up", "target_price_missed", "assessment_worse")
 PRICE_RISE_RANGE = (1, 500)
 
 

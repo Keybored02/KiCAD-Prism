@@ -41,7 +41,6 @@ root first.
 | `alert_rules.py` | Per-part alert rules: muted kinds, the price rise that matters, a target price. `alerts.conditions_for` applies them; `assessment_marks` holds the status each part's assessment is judged against. |
 | `attrition.py` | Spares by package class (small passives 2%, others none), used when a lookup asks for `attrition_percent: null`. |
 | `cross_reference.py` | Alternatives graded direct, form-fit-function or functional from canonical parameters and the distributor category; `grade` is pure. No footprint or pin comparison. |
-| `notice_parse.py` | Reads a kept notice PDF (child process, as datasheets) for dates, kind and named known parts; stored apart in `pcns.parsed` until `apply` confirms it. |
 | `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
@@ -51,7 +50,6 @@ root first.
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
-| `notice_files.py` | Keeps a copy of each notice's PDF in the datasheet archive. |
 | `worker_seen.py` | The worker's report of its providers and code age, written each scan; health compares it with the server so an out-of-date worker is visible. |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings of admitted pairs (the picked listing when one is picked), tier 1 first, in batches within the call budget, and records offers; a sample only when something changed or the last is a day old. `spare=` reads waiting pairs or tier-2 parts early from spare budget. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
@@ -93,7 +91,6 @@ root first.
 | `demand.py` | Demand: how many of a part are needed and by when (manual rows now; a negative quantity is stock on its way in). Net requirement is open demand less our own stock, read from the catalog by the API layer. Open demand speeds a listing's polling tier and sets the need a part is judged against. |
 | `health.py` | Per connector: calls against budget, last error, how many reads are late and the oldest read. Administrators only, at `/api/supply/health`. |
 | `fx.py` | Exchange rates: the ECB daily file (fetched by the poll job, at most once in 20 hours) or rates an administrator enters; conversion goes through the euro and an unknown rate means no conversion. Used to compare offers and total a BOM in the base currency (a Supply setting, default EUR). |
-| `datasheets.py` | The datasheet archive: fetch a part's datasheet through the guarded client (public HTTPS, PDF only, 25 MB), keep it by SHA-256 outside the database, read the first pages' text in a child process, note lifecycle phrases and what changed from the version before, keep five versions. Watched parts and parts on project BOMs are checked weekly from the supply poll job. |
 | `compliance.py` | REACH: the ECHA Candidate List (loaded by an administrator from a CSV export), substances a supplier declared for a part as CAS numbers (checked digit by digit), and a part's REACH standing (affected, clear, unknown; silence is never clear). A distributor's REACH flag is read with the offer. Substances a distributor names (Mouser's `REACH-SVHC`) become declarations marked `distributor:<provider>`, kept apart from people's. |
 | `outlook.py` | A rule-based lifecycle outlook: signals (manufacturer lifecycle, distributors dropping it, datasheet phrases, long zero stock, price rise), each with its source, and one of five bands. No signs of an end is never read as a promise of years. |
 | `market.py` | Market indices over the watched and BOM parts, by manufacturer and by distributor category (out of stock, lifecycle risk, dropped, median lead time, price index): groups of at least three parts, one snapshot a day from the supply poll job, compared with a month earlier. Describes this workspace's parts, not the market. |

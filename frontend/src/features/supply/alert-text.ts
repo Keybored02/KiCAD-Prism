@@ -24,8 +24,6 @@ export function alertTitle(alert: SupplyAlert): string {
         return `New change notice: ${detail.title ?? ""}${detail.description ? `, ${detail.description}` : ""}${more}`;
       }
       return `${detail.kind_label ?? "Notice"}: ${detail.title ?? ""}${detail.last_time_buy ? `, last time buy ${detail.last_time_buy}` : ""}`;
-    case "datasheet_changed":
-      return `New datasheet (version ${detail.version ?? "?"}). ${detail.change_summary ?? ""}`.trim();
     case "target_price_missed":
       return `Price ${detail.price ?? "?"} ${detail.currency ?? ""} is over your target of ${detail.target ?? "?"}`.trim();
     case "assessment_worse":

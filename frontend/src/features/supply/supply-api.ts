@@ -36,8 +36,6 @@ import type {
   SupplyBomComment,
   SupplyComponentCheck,
   SupplyComponentWatch,
-  SupplyDeniedHost,
-  SupplyDatasheets,
   SupplyMarket,
   SupplyMarketHistory,
   SupplyNotice,
@@ -394,18 +392,6 @@ export function removeBomComment(projectId: string, commentId: string): Promise<
   return send(`${commentsPath(projectId)}/${encodeURIComponent(commentId)}`, "DELETE", undefined, "Could not remove the comment");
 }
 
-export async function listDeniedDatasheetHosts(signal?: AbortSignal): Promise<SupplyDeniedHost[]> {
-  return (await fetchJson<{ items: SupplyDeniedHost[] }>(`${BASE}/datasheet-hosts`, { signal }, "Could not load the blocked hosts")).items;
-}
-
-export function denyDatasheetHost(host: string, reason = ""): Promise<void> {
-  return send(`${BASE}/datasheet-hosts`, "PUT", { host, reason }, "Could not block the host");
-}
-
-export function allowDatasheetHost(host: string): Promise<void> {
-  return send(`${BASE}/datasheet-hosts/${encodeURIComponent(host)}`, "DELETE", undefined, "Could not allow the host");
-}
-
 export function getCrossReference(partId: string, signal?: AbortSignal): Promise<CrossReference> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/cross-reference`, { signal }, "Could not look for alternatives");
 }
@@ -516,8 +502,8 @@ export function getProjectBomHealth(
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health${query}`, { signal }, "Could not load the supply health");
 }
 
-export function getPartDatasheets(partId: string, signal?: AbortSignal): Promise<SupplyDatasheets> {
-  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/datasheets`, { signal }, "Could not load the datasheets");
+export function getPartDatasheet(partId: string, signal?: AbortSignal): Promise<{ url: string }> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet`, { signal }, "Could not load the datasheet address");
 }
 
 export async function setDatasheetUrl(partId: string, url: string): Promise<void> {
@@ -528,11 +514,6 @@ export async function setDatasheetUrl(partId: string, url: string): Promise<void
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not save the datasheet address"));
   }
-}
-
-/** Where a kept datasheet is downloaded from. */
-export function datasheetFileUrl(datasheetId: string): string {
-  return `${BASE}/datasheets/${encodeURIComponent(datasheetId)}/file`;
 }
 
 export function getPartCompliance(partId: string, signal?: AbortSignal): Promise<SupplyCompliance> {
@@ -595,14 +576,6 @@ export function addNotice(notice: {
 
 export function closeNotice(noticeId: string): Promise<void> {
   return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
-}
-
-export function confirmNoticeReading(noticeId: string, choice: { dates: boolean; kind: boolean; part_ids: string[] }): Promise<void> {
-  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/confirm-read`, "POST", choice, "Could not confirm what was read");
-}
-
-export function dismissNoticeReading(noticeId: string): Promise<void> {
-  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/dismiss-read`, "POST", undefined, "Could not dismiss what was read");
 }
 
 export function getSupplyPlan(signal?: AbortSignal): Promise<SupplyPlan> {

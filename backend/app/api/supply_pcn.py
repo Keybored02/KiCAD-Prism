@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import details, notice_files, notice_parse, parts, pcn
+from app.services.supply import details, parts, pcn
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -96,59 +96,6 @@ async def close_notice(notice_id: str, writer: AuthenticatedUser = Depends(requi
     def run() -> None:
         with _store().connection() as conn:
             pcn.close(conn, notice_id, writer.email)
-
-    await _run(run)
-    return Response(status_code=204)
-
-
-@router.get("/notices/{notice_id}/file")
-async def notice_file(notice_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
-    """The copy of the notice's PDF Prism kept."""
-
-    def read() -> tuple[str, bytes] | None:
-        with _store().connection() as conn:
-            return notice_files.file_of(conn, notice_id)
-
-    found = await _run(read)
-    if found is None:
-        raise HTTPException(status_code=404, detail="Not found")
-    name, data = found
-    return Response(
-        content=data,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{name}"',
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "sandbox",
-        },
-    )
-
-
-class ParsedChoice(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    dates: bool = False
-    kind: bool = False
-    part_ids: list[str] = Field(default_factory=list, max_length=pcn.MAX_PARTS)
-
-
-@router.post("/notices/{notice_id}/confirm-read", status_code=204)
-async def confirm_read(notice_id: str, body: ParsedChoice, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
-    """Accept what was read from the notice's file: its dates, its kind and the parts it names. Nothing counts until then."""
-
-    def run() -> None:
-        with _store().connection() as conn:
-            notice_parse.apply(conn, notice_id, writer.email, dates=body.dates, kind=body.kind, part_ids=body.part_ids)
-
-    await _run(run)
-    return Response(status_code=204)
-
-
-@router.post("/notices/{notice_id}/dismiss-read", status_code=204)
-async def dismiss_read(notice_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
-    def run() -> None:
-        with _store().connection() as conn:
-            notice_parse.dismiss(conn, notice_id, writer.email)
 
     await _run(run)
     return Response(status_code=204)

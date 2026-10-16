@@ -10,7 +10,6 @@ import type { SupplyNotice, SupplyNoticeKind } from "@/types/supply";
 import { addNotice, checkPartNotices, listPartNotices } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
-import { NoticeReadingBox } from "./notice-reading";
 import { VendorName } from "./vendor-name";
 
 const KIND_CHOICES: ReadonlyArray<{ value: SupplyNoticeKind; label: string }> = [
@@ -86,7 +85,6 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   <Badge variant={item.state === "closed" ? "outline" : item.kind === "change" ? "secondary" : "warning"}>{item.kind_label}</Badge>
                   {item.state === "closed" ? <span className="text-xs text-muted-foreground">closed</span> : null}
                   {item.notice_url ? <a href={item.notice_url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{item.title}</a> : <span className="font-medium">{item.title}</span>}
-                  {item.has_file ? <a href={`/api/supply/notices/${encodeURIComponent(item.id)}/file`} className="text-xs text-primary hover:underline">Kept copy</a> : null}
                 </span>
                 {item.source && item.source !== "manual" && item.notes ? <span className="block text-xs">{item.notes}</span> : null}
                 <span className="block text-xs text-muted-foreground">
@@ -96,7 +94,6 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   {item.parts > 1 ? `Covers ${item.parts} parts. ` : ""}
                   {item.source && item.source !== "manual" ? <>From <VendorName provider={item.source} name={item.source_label} />.</> : `Entered by ${item.created_by}.`}
                 </span>
-                {canEdit && item.read_from_file ? <NoticeReadingBox noticeId={item.id} reading={item.read_from_file} onDone={() => loaded.refresh()} /> : null}
               </span>
             </li>
           ))}

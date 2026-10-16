@@ -599,7 +599,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
 
     days = history(conn, part_id, now)
     price_view = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
-    sheet = conn.execute("SELECT markers FROM datasheets WHERE part_id = %s ORDER BY version DESC LIMIT 1", (part_id,)).fetchone()
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name, "first_seen": _first_seen(conn, part_id)},
         "watch": _watch_dto(watch_row),
@@ -623,7 +622,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "outlook": outlook.outlook(
             lifecycle,
             [item["offer"] for item in listings if item["counted"] and item["offer"]],
-            datasheet_markers=list(sheet["markers"]) if sheet else [],
             zero_stock_days=outlook.trailing_zero_days(days),
             price_change_percent=(price_view["trend"] or {}).get("change_percent"),
             notices=pcn.for_part(conn, part_id),

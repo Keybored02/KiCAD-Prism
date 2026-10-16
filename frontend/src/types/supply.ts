@@ -162,18 +162,6 @@ export interface SupplyNotice {
   source_label: string;
   /** The date the distributor gives for the notice. */
   published_on: string | null;
-  /** Whether Prism kept a copy of the notice's PDF. */
-  has_file?: boolean;
-  /** What was read from the kept file, waiting for a person to confirm it. It counts for nothing until then. */
-  read_from_file?: NoticeReading | null;
-}
-
-export interface NoticeReading {
-  kind: SupplyNoticeKind;
-  last_time_buy: string | null;
-  last_time_ship: string | null;
-  known_parts: Array<{ part_id: string; mpn: string }>;
-  other_numbers: string[];
 }
 
 export interface SupplyMarketMetric {
@@ -298,27 +286,6 @@ export interface SupplySignin {
   redirect_uri: string;
 }
 
-/** One kept version of a manufacturer's datasheet. */
-export interface SupplyDatasheetVersion {
-  id: string;
-  version: number;
-  url: string;
-  size_bytes: number;
-  pages: number;
-  /** Lifecycle phrases found in the text. */
-  markers: string[];
-  /** What differs from the version before; empty for the first. */
-  change_summary: string;
-  fetched_at: string;
-}
-
-export interface SupplyDatasheets {
-  url: string;
-  checked_at: string | null;
-  status: string | null;
-  items: SupplyDatasheetVersion[];
-}
-
 /** How many of a part are needed. A negative quantity is stock already on its way in. */
 export interface SupplyDemand {
   id: string;
@@ -358,13 +325,6 @@ export interface SupplyBomComment {
   created_at: string;
 }
 
-/** A host datasheets are not fetched from. */
-export interface SupplyDeniedHost {
-  host: string;
-  reason: string;
-  added_by: string;
-  created_at: string;
-}
 
 /** A standing request to watch a component and, when asked, its approved alternates. */
 export interface SupplyComponentWatch {
@@ -712,7 +672,7 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "datasheet_changed" | "pcn" | "target_price_missed" | "assessment_worse";
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "pcn" | "target_price_missed" | "assessment_worse";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {

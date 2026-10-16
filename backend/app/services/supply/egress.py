@@ -1,6 +1,6 @@
 """Outbound URL checks for supply fetches.
 
-Prism will fetch URLs a distributor supplies (datasheets, notices), so every
+Prism calls addresses a provider's configuration names, so every
 outbound request is validated first: HTTPS only, no credentials in the URL,
 no literal IP hosts, a host on the allowlist when one applies, and every
 address the name resolves to must be public. Callers re-run the check on each

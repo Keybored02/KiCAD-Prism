@@ -26,12 +26,10 @@ class OutlookTests(unittest.TestCase):
         self.assertEqual(read(Lifecycle.OBSOLETE)["band"], "ended")
         self.assertEqual(read(Lifecycle.LAST_TIME_BUY)["band"], "under_2_years")
 
-    def test_nrnd_or_a_datasheet_saying_so_is_two_to_five_years(self) -> None:
+    def test_nrnd_is_two_to_five_years(self) -> None:
         self.assertEqual(read(Lifecycle.NRND)["band"], "2_to_5_years")
-        self.assertEqual(read(datasheet_markers=["not recommended for new designs"])["band"], "2_to_5_years")
 
-    def test_a_datasheet_saying_last_time_buy_or_every_distributor_dropping_it_is_under_two_years(self) -> None:
-        self.assertEqual(read(datasheet_markers=["last time buy"])["band"], "under_2_years")
+    def test_every_distributor_dropping_it_is_under_two_years(self) -> None:
         self.assertEqual(read(offers=[{"discontinued": True}, {"discontinued": True}])["band"], "under_2_years")
 
     def test_one_soft_signal_is_a_note_and_two_together_move_the_band(self) -> None:
@@ -47,8 +45,8 @@ class OutlookTests(unittest.TestCase):
         self.assertEqual(read(Lifecycle.UNKNOWN)["band"], "no_signs", "offers exist and nothing is wrong")
 
     def test_every_signal_names_its_source(self) -> None:
-        result = read(Lifecycle.NRND, datasheet_markers=["obsolete"], zero_stock_days=40)
-        self.assertEqual({item["source"] for item in result["signals"]}, {"distributor lifecycle", "datasheet", "stock history"})
+        result = read(Lifecycle.NRND, zero_stock_days=40)
+        self.assertEqual({item["source"] for item in result["signals"]}, {"distributor lifecycle", "stock history"})
 
     def test_a_distributors_last_date_to_buy_is_under_two_years_and_counts_as_data(self) -> None:
         found = outlook.outlook(Lifecycle.UNKNOWN, [], last_buy_dates=[("DigiKey", "2027-03-31")])

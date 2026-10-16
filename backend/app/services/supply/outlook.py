@@ -23,10 +23,6 @@ SOFT_SIGNALS_FOR_WATCH = 2
 ZERO_STOCK_DAYS = 30
 PRICE_RISE_PERCENT = 20
 
-# Datasheet phrases (see datasheets.MARKERS) and what they say.
-_HARD_MARKERS = {"obsolete", "last time buy", "end of life", "discontinued"}
-_WATCH_MARKERS = {"not recommended for new designs"}
-
 LABELS = {
     ENDED: "Ended",
     UNDER_TWO: "Under 2 years",
@@ -49,7 +45,6 @@ def signals(
     *,
     dropped_by: int,
     listed_at: int,
-    datasheet_markers: Sequence[str] = (),
     zero_stock_days: int = 0,
     price_change_percent: float | None = None,
     notices: Sequence[Mapping[str, Any]] = (),
@@ -66,11 +61,6 @@ def signals(
         found.append(Signal("Every distributor that lists the part has stopped selling it.", "listings", "hard"))
     elif dropped_by:
         found.append(Signal(f"{dropped_by} of {listed_at} distributors have stopped selling it.", "listings", "soft"))
-    for marker in datasheet_markers:
-        if marker in _HARD_MARKERS:
-            found.append(Signal(f"The datasheet mentions \"{marker}\".", "datasheet", "hard"))
-        elif marker in _WATCH_MARKERS:
-            found.append(Signal(f"The datasheet mentions \"{marker}\".", "datasheet", "watch"))
     for notice in notices:
         if notice["state"] != "open":
             continue
@@ -104,7 +94,6 @@ def outlook(
     lifecycle: Lifecycle,
     offers: Sequence[Mapping[str, Any]],
     *,
-    datasheet_markers: Sequence[str] = (),
     zero_stock_days: int = 0,
     price_change_percent: float | None = None,
     notices: Sequence[Mapping[str, Any]] = (),
@@ -117,13 +106,12 @@ def outlook(
         lifecycle,
         dropped_by=dropped,
         listed_at=len(offers),
-        datasheet_markers=datasheet_markers,
         zero_stock_days=zero_stock_days,
         price_change_percent=price_change_percent,
         notices=notices,
         last_buy_dates=last_buy_dates,
     )
-    chosen = band(lifecycle, found, has_data=bool(offers) or bool(datasheet_markers) or bool(notices) or bool(last_buy_dates))
+    chosen = band(lifecycle, found, has_data=bool(offers) or bool(notices) or bool(last_buy_dates))
     return {
         "band": chosen,
         "label": LABELS[chosen],

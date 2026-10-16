@@ -26,7 +26,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   refreshSupplyUsage: vi.fn(),
   getSupplyAssessment: vi.fn(),
   listPartDemands: vi.fn(),
-  getPartDatasheets: vi.fn(),
+  getPartDatasheet: vi.fn(),
   getPartCompliance: vi.fn(),
   listPartNotices: vi.fn(),
 }));
@@ -60,7 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.listPartNotices.mockResolvedValue([]);
   mocked.getPartCompliance.mockResolvedValue({ rohs: { state: "unknown", reason: "" }, reach: { state: "unknown", reason: "" }, substances: [], list: { loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" } });
-  mocked.getPartDatasheets.mockResolvedValue({ url: "", checked_at: null, status: null, items: [] });
+  mocked.getPartDatasheet.mockResolvedValue({ url: "" });
   mocked.listPartDemands.mockResolvedValue({ items: [], summary: { open: 0, own_stock: null, net: 0, next_need_by: null } });
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());

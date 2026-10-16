@@ -15,7 +15,6 @@ const KIND_LABEL: Record<string, string> = {
   below_threshold: "At or below the threshold",
   rupture_soon: "Could run out soon",
   price_up: "Price rises",
-  datasheet_changed: "New datasheet",
   target_price_missed: "Price over the target",
   assessment_worse: "Assessment gets worse",
 };

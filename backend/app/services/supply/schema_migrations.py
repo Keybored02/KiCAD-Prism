@@ -1384,6 +1384,31 @@ def _m052_usage_symbol_facts(conn) -> None:
     )
 
 
+def _m053_no_stored_files(conn) -> None:
+    """Prism keeps no files: no datasheet versions, no copies of notice PDFs, nothing read from them (plan 10, 2026-10-16).
+
+    A part keeps its datasheet address (``parts.datasheet_url``) and a notice its link (``pcns.notice_url``)."""
+
+    conn.execute(
+        """
+        DELETE FROM alerts WHERE kind = 'datasheet_changed';
+        UPDATE alert_rules SET muted = array_remove(muted, 'datasheet_changed');
+        DROP TABLE IF EXISTS datasheets;
+        DROP TABLE IF EXISTS datasheet_checks;
+        DROP TABLE IF EXISTS datasheet_denied_hosts;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS file_sha256;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS file_checked_at;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS file_status;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS file_failures;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS parsed;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS parse_state;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS parse_failures;
+        ALTER TABLE pcns DROP COLUMN IF EXISTS parsed_at;
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1437,6 +1462,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (50, "drop_headers_seen", _m050_drop_headers_seen),
     (51, "project_opt_outs", _m051_project_opt_outs),
     (52, "usage_symbol_facts", _m052_usage_symbol_facts),
+    (53, "no_stored_files", _m053_no_stored_files),
 ]
 
 

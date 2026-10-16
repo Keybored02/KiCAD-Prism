@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssessmentSettings, AssessmentSettingsView, AssessmentSeverity, SupplySubScore } from "@/types/supply";
 import { getAssessmentSettings, resetAssessmentSettings, saveAssessmentSettings } from "./supply-api";
-import { DatasheetHosts } from "./datasheet-hosts";
 import { ScheduleSettings } from "./schedule-settings";
 import { SvhcListUpload } from "./svhc-list-upload";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -141,7 +140,6 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
       </fieldset>
 
       <SvhcListUpload />
-      <DatasheetHosts />
       <ScheduleSettings />
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
