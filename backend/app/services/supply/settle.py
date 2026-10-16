@@ -147,8 +147,11 @@ def _option(cluster: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def needs_choice(conn) -> list[dict[str, Any]]:
-    """Parts whose maker the distributors' answers do not settle, with what each distributor says."""
+def needs_choice(conn, part_ids: set[str] | None = None) -> list[dict[str, Any]]:
+    """Parts whose maker the distributors' answers do not settle, with what each distributor says.
+
+    With ``part_ids``, only those parts (the ones a project's BOM uses).
+    """
 
     canon = parts._known_keys(conn).get  # noqa: SLF001
     found: list[dict[str, Any]] = []
@@ -169,7 +172,7 @@ def needs_choice(conn) -> list[dict[str, Any]]:
         else:
             found.append({"part_id": part["id"], "mpn": part["mpn"], "manufacturer": part["maker"], "kind": "unlisted", "options": [_option(c) for c in clusters]})
     found += _number_questions(conn, canon)
-    return found
+    return [item for item in found if part_ids is None or item["part_id"] in part_ids]
 
 
 def _number_questions(conn, canon) -> list[dict[str, Any]]:

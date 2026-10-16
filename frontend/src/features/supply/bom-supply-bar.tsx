@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { CheckOnceButton } from "./check-once-button";
 import { rollupSentences } from "./bom-rollup-text";
 import { RollupChip } from "./supply-icons";
+import { SettleBadge } from "./settle-badge";
 import { TrackProjectButton } from "./track-project-dialog";
 import type { BomSupply } from "./use-bom-supply";
 
@@ -79,6 +80,7 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
         {supply.projectId && unread.length > 0 ? (
           <CheckOnceButton projectId={supply.projectId} lines={unread} onFinished={supply.refresh} />
         ) : null}
+        {supply.projectId ? <SettleBadge projectId={supply.projectId} onChanged={supply.refresh} /> : null}
         {supply.projectId ? <TrackProjectButton projectId={supply.projectId} onChanged={supply.refresh} /> : null}
       </span>
     </div>

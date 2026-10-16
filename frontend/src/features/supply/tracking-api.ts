@@ -1,6 +1,7 @@
 import { fetchJson } from "@/lib/api";
+import type { TrackLine } from "./track-lines-step";
 import type {
-  AlertRules, BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackProgress, TrackingPreview, TrackingRoom,
+  AlertRules, BudgetConnector, CheckProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, TrackProgress, TrackingPreview, TrackingRoom,
 } from "@/types/supply";
 
 const BASE = "/api/supply/tracking";
@@ -24,6 +25,11 @@ export async function chooseTrackLine(projectId: string, partId: string, manufac
     { method: "POST", body: JSON.stringify({ part_id: partId, manufacturer }) },
     "Could not record the choice",
   );
+}
+
+/** What the project waits on a person for: parts whose maker is not settled, and lines several makers share. */
+export function getProjectOpen(projectId: string, signal?: AbortSignal): Promise<{ choices: SupplyChoice[]; lines: TrackLine[] }> {
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/open`, { signal }, "Could not read what is open");
 }
 
 export function getTrackProgress(projectId: string, signal?: AbortSignal): Promise<TrackProgress> {

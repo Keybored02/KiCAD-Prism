@@ -16,6 +16,7 @@ import { ProjectSupplyBuilds, ProjectSupplyNotes, ProjectSupplyReleases } from "
 import { ProjectSupplyParts } from "./project-supply-parts";
 import { getProjectSupply } from "./supply-api";
 import { formatAgo, formatPrice } from "./supply-format";
+import { SettleBadge } from "./settle-badge";
 import { TrackProjectButton } from "./track-project-dialog";
 import { useLoaded } from "./use-loaded";
 
@@ -116,6 +117,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
         ) : null}
         <span className="ml-auto flex flex-wrap items-center gap-2">
           {supply.available && canEditSupply(role) ? <ProjectPlanButton projectId={projectId} parts={supply.parts ?? []} onDone={loaded.retry} /> : null}
+          <SettleBadge projectId={projectId} onChanged={loaded.retry} />
           <TrackProjectButton projectId={projectId} onChanged={loaded.retry} />
         </span>
       </div>

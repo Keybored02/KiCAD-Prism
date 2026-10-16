@@ -119,6 +119,21 @@ class TrackingTests(unittest.TestCase):
         self.assertEqual([(c["parts"], c["searched"]) for c in before["connectors"]], [(2, 0)])
         self.assertEqual([(c["parts"], c["searched"]) for c in after["connectors"]], [(2, 1)])
 
+    def test_a_project_lists_what_it_waits_on_a_person_for(self) -> None:
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Texas Instruments", ACTOR)
+            self.parts.ensure_manufacturer(conn, "Onsemi", ACTOR)
+            self.parts.ensure_part(conn, "Texas Instruments", "LM358D", ACTOR)
+            self.parts.ensure_part(conn, "Onsemi", "LM358D", ACTOR)
+        self.project("p1", [component("U1", "Some Other Name", "LM358D"), component("R1", "Acme", "R-1")])
+        self.project("p2", [component("R1", "Acme", "R-1")])
+        self.track("p1")
+        with self.store.connection() as conn:
+            waiting = self.tracking.project_open(conn, "p1")
+            nothing = self.tracking.project_open(conn, "p2")
+        self.assertEqual([line["mpn"] for line in waiting["lines"]], ["LM358D"])
+        self.assertEqual((nothing["lines"], nothing["choices"]), ([], []))
+
     def test_only_the_chosen_variants_are_tracked(self) -> None:
         self.project(
             "p1", [component("R1", "Acme", "R-1")],

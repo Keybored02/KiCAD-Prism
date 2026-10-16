@@ -196,6 +196,30 @@ def track_project(
     return {"project_id": project_id, "variants": chosen, "parts_created": created, "skipped": skipped}
 
 
+def project_open(conn, project_id: str) -> dict[str, Any]:
+    """What a tracked project still waits on a person for: parts whose maker is not settled, and lines several makers share."""
+
+    from app.services.supply import settle
+
+    ids = {row["id"] for row in conn.execute(
+        "SELECT DISTINCT p.id FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " WHERE u.project_id = %s",
+        (project_id,),
+    ).fetchall()}
+    variants = ((tracked_project(conn, project_id) or {}).get("variants")) or [BASE_VARIANT]
+    lines = []
+    for line in project_parts(conn, project_id, variants):
+        written = line["manufacturer"].strip()
+        key = match_key(line["mpn"])
+        if (alias_key(written) and (parts.similar_manufacturer(conn, written) or False)) or not key:
+            continue
+        found = conn.execute(
+            "SELECT p.id, m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)", (key,)
+        ).fetchall()
+        if len(found) > 1 and not any(alias_key(written) in parts.part_spelling_keys(conn, row["id"]) for row in found):
+            lines.append({"mpn": line["mpn"], "manufacturer": written, "candidates": [{"part_id": row["id"], "manufacturer": row["name"]} for row in found]})
+    return {"choices": settle.needs_choice(conn, ids), "lines": lines}
+
+
 def project_progress(conn, project_id: str) -> dict[str, Any]:
     """How far the first searches of a tracked project's parts have got, per distributor it is read at."""
 
