@@ -254,8 +254,12 @@ async function decide(listingId: string, decision: "pin" | "reject", fallback: s
   }
 }
 
-export function pinSupplyListing(listingId: string): Promise<void> {
-  return decide(listingId, "pin", "Could not confirm the listing");
+export async function pinSupplyListing(listingId: string, addNumber = false): Promise<void> {
+  const response = await fetchApi(`${BASE}/review/listings/${encodeURIComponent(listingId)}/pin`, {
+    method: "POST",
+    body: JSON.stringify({ add_number: addNumber }),
+  });
+  if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, "Could not confirm the listing"));
 }
 
 export function rejectSupplyListing(listingId: string): Promise<void> {

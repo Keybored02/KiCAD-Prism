@@ -132,10 +132,10 @@ describe("deciding", () => {
     render(<ReviewView user={qa} />);
     const row = await screen.findByRole("article", { name: "Listing 595-LM358DR" });
     fireEvent.click(within(row).getByRole("button", { name: "Confirm as this part" }));
-    expect(await screen.findByText("Same part under another number?")).toBeTruthy();
+    expect(await screen.findByText("Same Part Under Another Number?")).toBeTruthy();
     expect(mocked.pinSupplyListing).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Pin anyway" }));
-    await waitFor(() => expect(mocked.pinSupplyListing).toHaveBeenCalledWith("l2"));
+    fireEvent.click(screen.getByRole("button", { name: "Add as a number of the part" }));
+    await waitFor(() => expect(mocked.pinSupplyListing).toHaveBeenCalledWith("l2", true));
   });
 
   it("rejects a listing", async () => {

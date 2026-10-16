@@ -156,6 +156,13 @@ class SupplyReviewApiTests(unittest.TestCase):
         self.assertEqual(self.listing_state("S2"), "rejected")
         self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [])
 
+    def test_pinning_a_listing_with_another_number_can_add_that_number_to_the_part(self) -> None:
+        body = {"add_number": True}
+        self.assertEqual(self.call("POST", f"/api/supply/review/listings/{self.listing_id('S2')}/pin", body=body).status, 204)
+        with self.store.connection() as conn:
+            self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, self.part.id)], ["LM358DR"])
+        self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [], "it is the part's number now")
+
     def test_a_part_whose_maker_the_answers_do_not_settle_is_a_question_a_designer_can_answer(self) -> None:
         with self.store.connection() as conn:
             made = self.parts.ensure_part(conn, "", "AB-1", SEED_ACTOR)

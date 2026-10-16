@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { SupplyReviewListing } from "@/types/supply";
 import { pinSupplyListing, rejectSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -56,16 +56,19 @@ export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
         ) : null}
       </div>
       {error ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title="Same part under another number?"
-        description={`${listing.raw_mpn} is not ${listing.part?.mpn ?? "this part"}. Its stock and price will count as the part's.`}
-        confirmLabel="Pin anyway"
-        destructive={false}
-        busy={busy}
-        onConfirm={() => { setConfirming(false); decide(pinSupplyListing); }}
-      />
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Same Part Under Another Number?</DialogTitle>
+            <DialogDescription>{listing.raw_mpn} is not {listing.part?.mpn ?? "this part"}. Its stock and price will count as the part's.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button>
+            <Button variant="outline" disabled={busy} onClick={() => { setConfirming(false); decide((id) => pinSupplyListing(id, false)); }}>Pin this listing only</Button>
+            <Button disabled={busy} onClick={() => { setConfirming(false); decide((id) => pinSupplyListing(id, true)); }}>Add as a number of the part</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 }

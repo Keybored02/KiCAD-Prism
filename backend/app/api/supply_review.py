@@ -136,18 +136,27 @@ async def confirm_alias(
     return await _run(run)
 
 
+class PinRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The listing is numbered otherwise than the part: also say the part is sold under that number.
+    add_number: bool = False
+
+
 @router.post("/listings/{listing_id}/pin", status_code=204)
-async def pin_listing(listing_id: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> None:
+async def pin_listing(listing_id: str, body: Optional[PinRequest] = None, approver: AuthenticatedUser = Depends(require_supply_approver)) -> None:
     """Confirm the listing is the part it is a candidate for."""
 
     def run() -> None:
         with _store().connection() as conn:
-            row = conn.execute("SELECT part_id FROM listings WHERE id = %s", (listing_id,)).fetchone()
+            row = conn.execute("SELECT part_id, raw_mpn FROM listings WHERE id = %s", (listing_id,)).fetchone()
             if row is None:
                 raise discovery.ListingNotFound(listing_id)
             if row["part_id"] is None:
                 raise ValueError("This listing has no candidate part to confirm.")
             discovery.pin_listing(conn, listing_id, row["part_id"], approver.email)
+            if body is not None and body.add_number and row["raw_mpn"]:
+                parts.add_number(conn, row["part_id"], row["raw_mpn"], approver.email, "person")
 
     await _run(run)
 

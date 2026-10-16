@@ -42,10 +42,13 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
         """,
         (limit,),
     ).fetchall()
+    others: dict[str, set[str]] = {}
+    for item in conn.execute("SELECT part_id, match_key FROM part_numbers").fetchall():
+        others.setdefault(item["part_id"], set()).add(item["match_key"])
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
         number = match_key(row["raw_mpn"] or "")
-        if not number or number == row["match_key"]:
+        if not number or number == row["match_key"] or number in others.get(row["part_id"], ()):
             continue
         group = groups.setdefault(row["part_id"], {"part_id": row["part_id"], "mpn": row["mpn"], "manufacturer": row["manufacturer"], "listings": []})
         group["listings"].append({"id": row["id"], "sku": row["sku"], "raw_mpn": row["raw_mpn"], "connector": row["connector"]})
