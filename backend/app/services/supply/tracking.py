@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from app.services.supply import admission, parts, usage
 from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
-from app.services.supply.identity import alias_key
+from app.services.supply.identity import alias_key, match_key
 
 TIER_1, TIER_2 = 1, 2
 RATES = ("daily", "weekly", "monthly")
@@ -153,7 +153,7 @@ def track_project(
     unknown = [name for name in chosen if name not in stored]
     if unknown:
         raise TrackingError(f"This project has no design variant named {unknown[0]!r}.")
-    skipped: list[dict[str, str]] = []
+    skipped: list[dict[str, Any]] = []
     created = 0
     for line in project_parts(conn, project_id, chosen):
         try:
@@ -163,7 +163,16 @@ def track_project(
                 created += 0 if before else 1
         except parts.UnknownManufacturer:
             # Several makers have this number and the line does not say which: a person picks (section 11 of the plan).
-            skipped.append({"mpn": line["mpn"], "reason": "needs_choice"})
+            skipped.append({
+                "mpn": line["mpn"], "reason": "needs_choice", "manufacturer": line["manufacturer"].strip(),
+                "candidates": [
+                    {"part_id": row["id"], "manufacturer": row["name"]}
+                    for row in conn.execute(
+                        "SELECT p.id, m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)",
+                        (match_key(line["mpn"]),),
+                    ).fetchall()
+                ],
+            })
     excluded: list[str] = []
     built_at: list[str] = []
     if connector_ids is not None:
@@ -185,6 +194,16 @@ def track_project(
     # The distributors may have changed without any tier changing.
     admission.sync(conn)
     return {"project_id": project_id, "variants": chosen, "parts_created": created, "skipped": skipped}
+
+
+def choose_line(conn, part_id: str, written: str, actor: str) -> None:
+    """A person says a BOM line's maker spelling names this part (one of several with the line's number)."""
+
+    parts.get_part(conn, part_id)
+    if not alias_key(written):
+        raise TrackingError("The line names no maker. Name it on the symbol, or choose it in Review.")
+    parts.record_spelling(conn, part_id, written, "person")
+    write_audit(conn, actor_text(actor), "tracking.line_choice", part_id, {"manufacturer": written.strip()}, subject_kind="part")
 
 
 def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "system") -> dict[str, int]:

@@ -84,6 +84,26 @@ def _track(project_id: str, body: ProjectIn, actor: str) -> Callable[[Any], Any]
     return change
 
 
+class LineChoiceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    part_id: str = Field(min_length=1, max_length=64)
+    manufacturer: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/projects/{project_id}/lines/choose", status_code=204)
+async def choose_line(project_id: str, body: LineChoiceIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
+    """Say which of several parts a BOM line's maker spelling names."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def run() -> None:
+        with _store().connection() as conn:
+            tracking.choose_line(conn, body.part_id, body.manufacturer, user.email)
+
+    await _run(run)
+
+
 @router.get("")
 async def overview(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:

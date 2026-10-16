@@ -84,6 +84,22 @@ class TrackingTests(unittest.TestCase):
         self.assertEqual((got["tier"], got["rate"]), (1, "daily"))
         self.assertEqual(got["reasons"], [{"kind": "project", "ref": "p1", "variant": ""}])
 
+    def test_a_line_that_several_makers_share_is_listed_with_the_parts_to_choose_from_and_a_choice_tracks_it(self) -> None:
+        with self.store.connection() as conn:
+            self.parts.ensure_manufacturer(conn, "Texas Instruments", ACTOR)
+            self.parts.ensure_manufacturer(conn, "Onsemi", ACTOR)
+            ti = self.parts.ensure_part(conn, "Texas Instruments", "LM358D", ACTOR)
+            self.parts.ensure_part(conn, "Onsemi", "LM358D", ACTOR)
+        self.project("p1", [component("U1", "Some Other Name", "LM358D"), component("R1", "Acme", "R-1")])
+        first = self.track("p1")
+        (waiting,) = first["skipped"]
+        self.assertEqual((waiting["reason"], waiting["manufacturer"], sorted(c["manufacturer"] for c in waiting["candidates"])),
+                         ("needs_choice", "Some Other Name", ["Onsemi", "Texas Instruments"]))
+        with self.store.connection() as conn:
+            self.tracking.choose_line(conn, ti.id, "Some Other Name", ACTOR)
+        self.assertEqual(self.track("p1")["skipped"], [])
+        self.assertEqual(self.tier("Texas Instruments", "LM358D")["tier"], 1)
+
     def test_only_the_chosen_variants_are_tracked(self) -> None:
         self.project(
             "p1", [component("R1", "Acme", "R-1")],

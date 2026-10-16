@@ -225,6 +225,9 @@ def ensure_part(conn, manufacturer_name: str, mpn: str, actor: str, *, may_creat
         record_spelling(conn, part_id, written, "bom")
         return get_part(conn, part_id)
     candidates = [row["id"] for row in conn.execute("SELECT id FROM parts WHERE match_key = %s ORDER BY created_at", (key,)).fetchall()]
+    named = [part_id for part_id in candidates if alias_key(written) and alias_key(written) in part_spelling_keys(conn, part_id)]
+    if len(named) == 1:
+        return get_part(conn, named[0])
     if len(candidates) == 1:
         record_spelling(conn, candidates[0], written, "bom")
         return get_part(conn, candidates[0])
