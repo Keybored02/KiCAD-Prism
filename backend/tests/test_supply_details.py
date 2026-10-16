@@ -169,28 +169,42 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(self.run_notices({}).read, 0)
 
     def test_digikeys_notice_quota_is_its_own_and_running_out_leaves_stock_and_prices_alone(self) -> None:
-        from app.services.supply import details, ledger, trouble
+        from app.services.supply import details, trouble
         from app.services.supply.providers.base import RateLimited
-
-        with self.store.connection() as conn:
-            ledger._count(conn, self.digikey, NOW.date(), 1, ledger.KIND_NOTICES, "tier1", 44)  # noqa: SLF001
-        self.assertEqual(self.run_notices({}).read, 1, "45 of 50 a day go to scheduled reads: one left")
-        with self.store.connection() as conn:
-            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
-        self.assertEqual(self.run_notices({}).stopped, details.NOTICE_QUOTA)
 
         class Refusing:
             def change_notices(self, sku, user_token):
                 raise RateLimited("over the notice quota")
 
-        with self.store.connection() as conn:
-            conn.execute("DELETE FROM call_counts")
-            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
         summary = details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "t")
         self.assertEqual(summary.stopped, details.NOTICE_QUOTA)
         self.assertFalse(trouble.cooling_down(self.store, self.digikey, NOW), "the product API is not paused")
-        self.assertEqual(details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "t").stopped,
-                         details.NOTICE_QUOTA, "no more notice calls today once it refused")
+        again = details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "t")
+        self.assertEqual((again.read, again.stopped), (0, details.NOTICE_QUOTA), "no more notice calls today once it refused")
+
+    def test_notice_calls_stop_when_digikey_says_its_count_is_zero_and_start_again_in_the_next_day(self) -> None:
+        from app.services.supply import details
+
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO limit_marks (connector_id, at, kind, remaining, quota, scope) VALUES (%s, %s, 'remaining', 0, 50, 'changenotifications')",
+                (self.digikey, NOW - timedelta(hours=1)),
+            )
+        self.assertEqual(self.run_notices({}).stopped, details.NOTICE_QUOTA)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE limit_marks SET at = %s", (NOW - timedelta(days=1),))
+        self.assertIsNone(self.run_notices({}).stopped)
+
+    def test_obsolete_parts_are_skipped_and_parts_in_the_news_are_read_again_within_the_week(self) -> None:
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 0, 'obsolete')", (self.dk_b, NOW))
+        self.assertEqual(self.run_notices({}).read, 1, "the obsolete part is not asked about")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=2),))
+        self.assertEqual(self.run_notices({}).read, 0, "read two days ago: not yet due")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO events (at, kind, part_id) VALUES (%s, 'lifecycle_changed', %s)", (NOW - timedelta(hours=3), self.part_a))
+        self.assertEqual(self.run_notices({}).read, 1, "news about the part brings its notices forward")
 
     def test_without_a_sign_in_notices_are_skipped_and_a_refusal_marks_the_grant(self) -> None:
         from app.services.supply import details, oauth

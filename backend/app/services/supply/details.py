@@ -26,9 +26,10 @@ from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthErro
 EVERY = {"notices": timedelta(days=7), "substances": timedelta(days=30)}
 REDO_AFTER = EVERY["notices"]
 MAX_PER_RUN = 5
-# Of a notice API's own daily quota (``ProviderSpec.notice_daily_limit``), the share scheduled reads may use; the rest is
-# kept for a person's Check notices.
-NOTICE_SHARE = 0.9
+# Something a reading showed about a part that a notice may explain: its notices are read soon, whatever the week's turn says.
+NEWS_EVENTS = ("lifecycle_changed", "normally_stocking_lost", "param_changed", "listing_gone")
+NEWS_WINDOW = timedelta(days=3)
+# DigiKey's change-notice API has a quota of its own (50 a day). Prism stops when DigiKey says it is used up.
 NOTICE_QUOTA = "notice_quota"
 
 
@@ -77,14 +78,20 @@ def due(conn, connector_id: str, kind: str, now: datetime, limit: int, *, untrac
             WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
               AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
               AND (%(kind)s <> 'substances' OR pt.tier = 1)
+              AND (%(kind)s <> 'notices' OR NOT EXISTS (
+                  SELECT 1 FROM offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete'))
             ORDER BY l.part_id, (pk.listing_id = l.id) DESC NULLS LAST, l.sku
         ) per_part
         WHERE last_checked IS NULL OR last_checked <= %(since)s
-        ORDER BY last_checked NULLS FIRST, sku
+           OR (%(kind)s = 'notices' AND last_checked <= %(day_ago)s AND part_id IN (
+               SELECT e.part_id FROM events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s))
+        ORDER BY (part_id IN (SELECT e.part_id FROM events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s)) DESC,
+                 last_checked NULLS FIRST, sku
         LIMIT %(limit)s
         """,
         {
             "connector": connector_id, "kind": kind, "since": now - EVERY[kind], "limit": limit,
+            "day_ago": now - timedelta(days=1), "news": list(NEWS_EVENTS), "news_since": now - NEWS_WINDOW,
             "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
         },
     ).fetchall()
@@ -136,25 +143,28 @@ def _spend(
     )
 
 
-def _notices_left(service, connector, now: datetime, interactive: bool) -> int | None:
-    """Calls left today on a notice API with its own quota, or None when notices share the connector's budget. None left
-    once the API has refused a call today: its count is the provider's, not Prism's."""
+def _notice_quota_used_up(service, connector, now: datetime) -> bool:
+    """Whether the provider has said today that its change-notice quota is gone: it refused a call, or its own count of
+    what is left reached zero. Prism keeps no count of its own for it."""
 
-    allowed = registry.get_spec(connector["provider"]).notice_daily_limit
-    if not allowed:
-        return None
+    if not registry.get_spec(connector["provider"]).notice_daily_limit:
+        return False
     with service.store.connection() as conn:
         account = accounts.resolve(conn, connector["id"])
         day = quota.provider_day(now, account.reset_time, account.reset_tz)
-        row = conn.execute(
-            "SELECT COALESCE(SUM(calls) FILTER (WHERE kind = %s), 0) AS used, "
-            "COALESCE(SUM(calls) FILTER (WHERE kind = %s AND purpose = %s), 0) AS refused "
-            "FROM call_counts WHERE connector_id = ANY(%s) AND day = %s",
-            (ledger.KIND_NOTICES, ledger.KIND_REFUSED, ledger.KIND_NOTICES, list(account.members), day),
+        refused = conn.execute(
+            "SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day = %s AND kind = %s AND purpose = %s",
+            (list(account.members), day, ledger.KIND_REFUSED, ledger.KIND_NOTICES),
+        ).fetchone()["n"]
+        if refused:
+            return True
+        start, _end = quota.day_bounds(now, account.reset_time, account.reset_tz)
+        latest = conn.execute(
+            "SELECT remaining FROM limit_marks WHERE connector_id = ANY(%s) AND kind = 'remaining' AND scope = 'changenotifications' "
+            "AND at >= %s ORDER BY at DESC LIMIT 1",
+            (list(account.members), start),
         ).fetchone()
-    if row["refused"]:
-        return 0
-    return max(0, (allowed if interactive else int(allowed * NOTICE_SHARE)) - int(row["used"]))
+    return latest is not None and latest["remaining"] == 0
 
 
 def _notices(service, connector, now, provider, token_for, limit) -> DetailsSummary:
@@ -195,25 +205,21 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
         return DetailsSummary(stopped=exc.code)
     except (ProviderError, oauth.SignInError):
         return DetailsSummary(stopped="unavailable")
-    left = _notices_left(service, connector, now, interactive)
-    if left == 0:
+    if _notice_quota_used_up(service, connector, now):
         return DetailsSummary(stopped=NOTICE_QUOTA)
+    own_quota = bool(registry.get_spec(connector["provider"]).notice_daily_limit)
     provider = provider or service.load_provider(connector_id)
     read = new = 0
     for row in rows:
-        if left is not None and left <= 0:
-            return DetailsSummary(read, new, NOTICE_QUOTA)
         if not _spend(service, connector, now, interactive, tier=row.get("tier", 2), spare=spare):
             return DetailsSummary(read, new, "budget")
-        if left is not None:
-            left -= 1
         try:
             notices = provider.change_notices(row["sku"], token)
         except AuthError:
             oauth.mark_refused(service.store, connector_id)
             return DetailsSummary(read, new, "sign_in_refused")
         except RateLimited as exc:
-            if left is None:
+            if not own_quota:
                 trouble.react(service, service.store, connector_id, exc, now)
                 return DetailsSummary(read, new, exc.code)
             # The notice API's own quota is used up: notices wait for tomorrow, stock and prices go on.
