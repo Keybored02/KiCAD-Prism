@@ -296,6 +296,14 @@ class UsageDatabaseTests(unittest.TestCase):
         searched = self.call("GET", "/api/supply/part-groups", query="scope=all&q=A-ONLY").json
         self.assertEqual([g["project_id"] for g in searched["groups"]], ["p1"], "a group with no match is left out")
 
+    def test_the_followed_scope_is_what_is_tracked_or_in_a_project(self) -> None:
+        self.part("Acme", "IN-PROJECT")
+        self.part("Acme", "TRACKED-ONLY", watch=True)
+        self.part("Acme", "NEITHER")
+        self.store_project("p1", "Board A", [component("R1", "Acme", "IN-PROJECT")])
+        listed = self.call("GET", "/api/supply/parts", query="scope=followed").json
+        self.assertEqual(sorted(item["mpn"] for item in listed["items"]), ["IN-PROJECT", "TRACKED-ONLY"])
+
     def test_the_part_detail_says_where_it_is_used(self) -> None:
         part_id = self.part("Acme", "USED-1")
         self.store_project("p1", "Board A", [component("R2", "Acme", "USED-1"), component("R1", "Acme", "USED-1")])

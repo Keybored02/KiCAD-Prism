@@ -1,5 +1,5 @@
-/** The five Supply tabs, and where the old addresses lead. */
-export type SupplyTab = "dashboard" | "parts" | "review" | "insights" | "connectors";
+/** The six Supply tabs, and where the old addresses lead. */
+export type SupplyTab = "dashboard" | "parts" | "projects" | "review" | "insights" | "connectors";
 
 export interface SupplyPlace {
   tab: SupplyTab;
@@ -14,6 +14,7 @@ export function resolvePlace(view: string | null, insight: string | null, tool: 
   const insightView = insight === "planning" ? "planning" : "market";
   switch (view) {
     case "parts":
+    case "projects":
     case "review":
     case "connectors":
     case "insights":

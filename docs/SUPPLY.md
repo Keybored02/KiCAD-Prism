@@ -9,7 +9,8 @@ and no purchase support.
 | Place | What it answers |
 | --- | --- |
 | **Supply > Dashboard** | What needs a person: counts that open the place that deals with them (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then one list of alerts, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
-| **Supply > Parts** | Every part Prism knows, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
+| **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
+| **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). |
 | **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
 | **Supply > Insights** | Market and Planning, two views of one tab. |
 | **Supply > Connectors** | Distributor accounts and the call budget. |
@@ -93,7 +94,7 @@ tracked project, someone's choice, a watched component or its approved alternate
   distributor carries them and how many listings they have there, so a distributor that carries few of your parts is not the
   limit for the rest. Once tracking has spent for a week, the estimate is corrected by what it really spent. A distributor with
   fewer than 10 parts searched shows no figure, and one with parts already waiting shows none left.
-- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. Parts are grouped by the projects that use them (tracked projects first, closed until opened, the parts in no project last), and more load as you scroll.
+- **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project.
 - **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
@@ -106,7 +107,7 @@ tracked project, someone's choice, a watched component or its approved alternate
 - **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
   check offers the same for the parts on a release BOM.
-- **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. Parts are grouped by the projects that use them (tracked projects first, closed until opened, the parts in no project last), and more load as you scroll.
+- **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project.
 - **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Spare budget** is what would go unused: outside working hours, on non-working days and in the last three hours of a

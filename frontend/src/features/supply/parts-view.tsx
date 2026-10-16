@@ -16,8 +16,10 @@ import type { PartsFilter, PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
 import { refreshSupplyUsage } from "./supply-api";
-import { PartGroups } from "./project-groups";
-import { useSupplyPartGroups } from "./use-supply-parts";
+import { LoadMore } from "./load-more";
+import { PartsTable } from "./parts-table";
+import { useSupplyPartsFeed } from "./use-supply-parts";
+import { SearchBox } from "./search-box";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { SeedFromCatalogButton } from "./seed-from-catalog-button";
 import { TrackingRoomLine } from "./tracking-room";
@@ -30,6 +32,7 @@ const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
 };
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
+  { id: "followed", label: "Tracked and in projects" },
   { id: "watched", label: "Tracked" },
   { id: "tier1", label: "Tier 1" },
   { id: "tier2", label: "Tier 2" },
@@ -43,23 +46,19 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
 export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");
-  const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "watched";
+  const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "followed";
   const query = searchParams.get("partsQ") ?? "";
   const requestedOnly = searchParams.get("partsOnly");
   const only: PartsFilter = requestedOnly && requestedOnly in FILTER_LABEL ? (requestedOnly as PartsFilter) : "";
   const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const loaded = useSupplyPartGroups(scope, query, only);
-  const { status, data, error, retry } = loaded;
-  // The groups load their own parts, so a change starts them again.
-  const [version, setVersion] = useState(0);
-  const refresh = async () => { await loaded.refresh(); setVersion((current) => current + 1); };
+  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh } = useSupplyPartsFeed(scope, query, only);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
     if (scope !== "in_use") return;
-    void refreshSupplyUsage().then(() => loaded.refresh()).catch(() => undefined);
+    void refreshSupplyUsage().then(() => refresh()).catch(() => undefined);
     // `refresh` changes with the query; the usage read is for entering the scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
@@ -102,7 +101,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
                 size="sm"
                 variant={scope === item.id ? "secondary" : "ghost"}
                 aria-pressed={scope === item.id}
-                onClick={() => setParams({ partsScope: item.id === "watched" ? null : item.id })}
+                onClick={() => setParams({ partsScope: item.id === "followed" ? null : item.id })}
               >
                 {item.label}
               </Button>
@@ -115,7 +114,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
             </Button>
           ) : null}
         </div>
-        {scope === "watched" ? <TrackingRoomLine /> : null}
+        {scope === "followed" || scope === "watched" ? <TrackingRoomLine /> : null}
 
         {status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading parts" /> : null}
         {status === "error" ? (
@@ -129,20 +128,13 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
         {status === "ready" && data ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {data.groups.length === 0 ? (
+            {items.length === 0 ? (
               <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
-                <PartGroups
-                  key={version}
-                  groups={data.groups}
-                  scope={scope}
-                  query={query}
-                  only={only}
-                  selectedId={openPart}
-                  onOpen={(partId) => setParams({ part: partId })}
-                />
-                <p className="text-xs text-muted-foreground">{`${data.total.toLocaleString()} ${data.total === 1 ? "part" : "parts"}`}</p>
+                <PartsTable items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} />
+                <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
+                <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>
             )}
           </>
@@ -172,38 +164,21 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
   );
 }
 
-function SearchBox({ initial, onSearch }: { initial: string; onSearch: (text: string) => void }) {
-  const [text, setText] = useState(initial);
-  return (
-    <form
-      className="flex items-center gap-2"
-      role="search"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSearch(text.trim());
-      }}
-    >
-      <Input aria-label="Search parts" className="h-8 w-64" placeholder="Part number or manufacturer" value={text} onChange={(event) => setText(event.target.value)} />
-      <Button type="submit" size="sm" variant="outline"><Search className="h-4 w-4" />Search</Button>
-    </form>
-  );
-}
-
 function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope; searching: boolean; canEdit: boolean; onWatch: () => void }) {
   return (
     <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
       <PackageSearch className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" ? "No tracked parts yet" : scope === "in_use" ? "No parts in use yet" : "No parts yet"}</p>
+      <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" || scope === "followed" ? "No tracked parts yet" : scope === "in_use" ? "No parts in use yet" : "No parts yet"}</p>
       <p className="max-w-md text-sm text-muted-foreground">
         {searching
           ? "Try a shorter part number or another manufacturer."
-          : scope === "watched"
-            ? "Watch a part to have its stock read regularly."
+          : scope === "watched" || scope === "followed"
+            ? "Track a part, or track a project, to have its stock read regularly."
             : scope === "in_use"
               ? "No project BOM that Prism has read uses a part it knows. Open a project BOM, then watch its parts."
               : "Parts appear here once they are watched or matched."}
       </p>
-      {!searching && scope === "watched" && canEdit ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
+      {!searching && (scope === "watched" || scope === "followed") && canEdit ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
       {!searching && scope === "in_use" && canEdit ? <ReadProjectBomsButton /> : null}
     </div>
   );

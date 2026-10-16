@@ -9,6 +9,7 @@ vi.mock("./insights-view", () => ({ InsightsView: ({ view }: { view: string }) =
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
+vi.mock("./projects-view", () => ({ ProjectsView: () => <div>Projects content</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
 
@@ -36,9 +37,9 @@ describe("the Supply section", () => {
     expect(screen.getByRole("tab", { name: "Dashboard" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("has five tabs", async () => {
+  it("has six tabs", async () => {
     renderAt("qa");
-    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Review", "Insights", "Connectors"]);
+    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Projects", "Review", "Insights", "Connectors"]);
   });
 
   it("keeps old addresses working", async () => {

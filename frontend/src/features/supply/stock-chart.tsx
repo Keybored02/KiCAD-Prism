@@ -5,6 +5,9 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import type { SupplyPartDetail } from "@/types/supply";
 import { coverageChanges, formatDay } from "./chart-format";
 
+/** Up to this many days the readings are drawn as dots, so one or two still show. */
+const FEW = 14;
+
 const CONFIG: ChartConfig = { stock: { label: "In stock", color: "hsl(var(--primary))" } };
 
 interface StockChartProps {
@@ -45,7 +48,7 @@ export default function StockChart({ history, threshold }: StockChartProps) {
             <ReferenceLine y={threshold} stroke="hsl(var(--destructive))" strokeDasharray="4 4"
               label={{ value: "Threshold", position: "insideBottomRight", fill: "hsl(var(--destructive))", fontSize: 11 }} />
           ) : null}
-          <Line dataKey="stock" type="stepAfter" stroke="var(--color-stock)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line dataKey="stock" type="stepAfter" stroke="var(--color-stock)" strokeWidth={2} dot={history.length <= FEW ? { r: 3 } : false} isAnimationActive={false} />
         </LineChart>
       </ChartContainer>
     </div>

@@ -22,7 +22,7 @@ from app.services.supply.vocabulary import Lifecycle
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
-Scope = Literal["watched", "in_use", "all", "tier1", "tier2", "waiting", "pick"]
+Scope = Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"]
 Filter = Literal["", "at_risk", "out_of_stock", "lifecycle"]
 _NEEDS_A_LOOK = ("fatal", "error", "warning")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
@@ -296,13 +296,14 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
 
     conditions = [{
         "all": "TRUE", "watched": "pt.part_id IS NOT NULL", "in_use": "(" + _IN_USE + ")",
+        "followed": "(pt.part_id IS NOT NULL OR " + _IN_USE + ")",
         "tier1": "pt.tier = 1", "tier2": "pt.tier = 2",
         "waiting": "EXISTS (SELECT 1 FROM admissions ad WHERE ad.part_id = p.id AND ad.state = 'waiting')",
         "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM listings pl WHERE pl.part_id = p.id AND pl.match_state IN ('exact', 'manual') "
                 "AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = pl.part_id AND pk.connector_id = pl.connector_id) "
                 "GROUP BY pl.connector_id HAVING COUNT(*) > 1)",
     }[scope]]
-    params: list[Any] = usage.role_params(role) if scope == "in_use" else []
+    params: list[Any] = usage.role_params(role) if scope in ("in_use", "followed") else []
     text = query.strip()
     if text:
         conditions.append("(p.mpn ILIKE %s OR m.name ILIKE %s)")

@@ -68,13 +68,13 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             ))}
           </p>
         ) : null}
-        {values.length > 1 ? (
+        {values.length > 0 ? (
           <div className="space-y-1">
             <Suspense fallback={<Sparkline values={values} label="Stock over the last 90 days" />}>
               <StockChart history={detail.history} threshold={detail.watch?.threshold ?? null} />
             </Suspense>
             <p className="text-xs text-muted-foreground">
-              {values.length} days. Low {low?.toLocaleString()}, high {high?.toLocaleString()}.
+              {values.length} {values.length === 1 ? "day" : "days"}. Low {low?.toLocaleString()}, high {high?.toLocaleString()}.
             </p>
           </div>
         ) : (

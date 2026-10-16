@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boxes, LayoutDashboard, LineChart, ListChecks, Plug, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, Plug, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
@@ -12,11 +12,13 @@ const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ 
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const InsightsView = lazy(() => import("./insights-view").then((module) => ({ default: module.InsightsView })));
 const SupplyConnectorsView = lazy(() => import("./connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
+const ProjectsView = lazy(() => import("./projects-view").then((module) => ({ default: module.ProjectsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", title: "Supply Dashboard", icon: LayoutDashboard },
   { id: "parts", label: "Parts", title: "Tracked Parts", icon: Boxes },
+  { id: "projects", label: "Projects", title: "Projects", icon: FolderKanban },
   { id: "review", label: "Review", title: "Supply Review", icon: ListChecks },
   { id: "insights", label: "Insights", title: "Supply Insights", icon: LineChart },
   { id: "connectors", label: "Connectors", title: "Distributor Connectors", icon: Plug },
@@ -92,6 +94,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
         <div className="min-h-0 flex-1 overflow-hidden">
           {view === "dashboard" && <DashboardView user={user} />}
           {view === "parts" && <PartsView user={user} headerSlot={headerSlot} />}
+          {view === "projects" && <ProjectsView user={user} />}
           {view === "review" && <ReviewView user={user} />}
           {view === "insights" && <InsightsView view={place.insight} />}
           {view === "connectors" && <SupplyConnectorsView user={user} headerSlot={headerSlot} />}

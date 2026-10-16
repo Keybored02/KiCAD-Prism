@@ -539,7 +539,7 @@ export type SupplyStatus = "ok" | "warning" | "error" | "fatal" | "unknown";
 export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
 /** How often a listing is read: its part's tracking rate. */
 export type SupplyTier = "daily" | "weekly" | "monthly";
-export type PartsScope = "watched" | "tier1" | "tier2" | "in_use" | "waiting" | "pick" | "all";
+export type PartsScope = "followed" | "watched" | "tier1" | "tier2" | "in_use" | "waiting" | "pick" | "all";
 /** One group of parts the Overview counts; empty is no narrowing. */
 export type PartsFilter = "" | "at_risk" | "out_of_stock" | "lifecycle";
 /** Why a part with nothing counted is in trouble. */
