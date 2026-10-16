@@ -207,6 +207,31 @@ def not_this_maker(conn, part_id: str, key: str, actor: str) -> int:
     return len(chosen["listings"])
 
 
+def undo_alias(conn, key: str, actor: str) -> int:
+    """Take back a spelling Prism learned for a maker. It is not learned again for that maker. Returns the listings that stop counting."""
+
+    actor = actor_text(actor)
+    row = conn.execute("SELECT manufacturer_id FROM manufacturer_aliases WHERE alias_key = %s AND source = 'learned'", (key,)).fetchone()
+    if row is None:
+        raise ValueError("Prism did not learn that spelling.")
+    conn.execute("INSERT INTO alias_rejections (alias_key, manufacturer_id, rejected_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (key, row["manufacturer_id"], actor))
+    conn.execute("DELETE FROM manufacturer_aliases WHERE alias_key = %s", (key,))
+    conn.execute("DELETE FROM part_spellings WHERE alias_key = %s AND source = 'learned'", (key,))
+    moved = 0
+    for listing in conn.execute(
+        "SELECT l.id, l.sku, l.raw_mpn, l.raw_manufacturer, l.part_id FROM listings l WHERE l.match_state = 'exact' AND l.part_id IS NOT NULL"
+    ).fetchall():
+        if alias_key(listing["raw_manufacturer"] or "") != key:
+            continue
+        part = parts.get_part(conn, listing["part_id"])
+        if same_maker(listing["raw_manufacturer"], part.manufacturer_name, parts._known_keys(conn).get) or key in parts.part_spelling_keys(conn, part.id):  # noqa: SLF001
+            continue
+        conn.execute("UPDATE listings SET match_state = 'near', match_reason = 'same part number, different manufacturer', matched_by = %s WHERE id = %s", (actor, listing["id"]))
+        moved += 1
+    write_audit(conn, actor, "alias.undo", key, {"listings": moved}, subject_kind="manufacturer_alias")
+    return moved
+
+
 def learn_aliases(conn) -> int:
     """A spelling that two or more parts of one maker carry becomes a spelling of that maker for every part.
 

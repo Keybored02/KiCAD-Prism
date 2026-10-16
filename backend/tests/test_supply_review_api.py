@@ -134,15 +134,14 @@ class SupplyReviewApiTests(unittest.TestCase):
 
     def test_the_queue_lists_what_waits_for_a_person(self) -> None:
         queue = self.call("GET", "/api/supply/review", role="designer").json
-        self.assertEqual(queue["counts"], {"aliases": 1, "unresolved": 1, "near": 1})
+        self.assertEqual(queue["counts"], {"aliases": 1, "unresolved": 1, "near": 0})
         (alias,) = queue["aliases"]
         self.assertEqual((alias["alias_key"], alias["alias_text"], alias["waiting_listings"]), ("ti", "TI", 1))
         by_sku = {item["sku"]: item for item in queue["listings"]}
-        self.assertEqual(sorted(by_sku), ["S1", "S2"], "the exact listing is not in the queue")
+        self.assertEqual(sorted(by_sku), ["S1"], "the exact listing is not in the queue, and another number is kept on the part, not queued")
         self.assertEqual(by_sku["S1"]["match_state"], "manufacturer_unresolved")
         self.assertEqual(by_sku["S1"]["connector_name"], "Sim")
         self.assertEqual(by_sku["S1"]["part"], {"id": self.part.id, "mpn": "LM358D", "manufacturer": "Texas Instruments"})
-        self.assertEqual(by_sku["S2"]["match_reason"], "different part number")
         self.assertEqual(queue["manufacturers"], [{"id": self.part.manufacturer_id, "name": "Texas Instruments", "part_count": 1}])
 
     def test_listings_pinned_under_another_number_are_listed_by_part_and_taken_off_together(self) -> None:
@@ -156,6 +155,30 @@ class SupplyReviewApiTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/supply/review/listings/reject-many", body={"listing_ids": ids}).json, {"rejected": 1})
         self.assertEqual(self.listing_state("S2"), "rejected")
         self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [])
+
+    def test_a_part_whose_maker_the_answers_do_not_settle_is_a_question_a_designer_can_answer(self) -> None:
+        with self.store.connection() as conn:
+            made = self.parts.ensure_part(conn, "", "AB-1", SEED_ACTOR)
+        self.discovery.DiscoveryService(
+            lambda _id: StubProvider(self.PartMatch("fake", "Q1", "AB-1", "Acme"), self.PartMatch("fake", "Q2", "AB-1", "Bolt Co")), self.store
+        ).discover(made.id, self.connector_id)
+        queue = self.call("GET", "/api/supply/review", role="designer").json
+        (question,) = [item for item in queue["choices"] if item["part_id"] == made.id]
+        key = next(option["key"] for option in question["options"] if option["spelling"] == "Bolt Co")
+        self.assertEqual(self.call("POST", f"/api/supply/review/choices/{made.id}/choose", body={"key": key}, role="viewer").status, 403)
+        self.assertEqual(self.call("POST", f"/api/supply/review/choices/{made.id}/choose", body={"key": key}, role="designer").json, {"result": "settled"})
+        self.assertEqual(self.listing_state("Q2"), "exact")
+        self.assertEqual([item for item in self.call("GET", "/api/supply/review").json["choices"] if item["part_id"] == made.id], [])
+
+    def test_a_spelling_prism_learned_can_be_undone_by_those_who_decide(self) -> None:
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, manufacturer_id, status, source) "
+                         "SELECT 'texas instr', 'Texas Instr', manufacturer_id, 'confirmed', 'learned' FROM parts LIMIT 1")
+        matched = self.call("GET", "/api/supply/review").json["matched"]
+        self.assertEqual([item["alias_key"] for item in matched["aliases"]], ["texas instr"])
+        self.assertEqual(self.call("POST", "/api/supply/review/aliases/texas instr/undo", role="designer").status, 403)
+        self.assertEqual(self.call("POST", "/api/supply/review/aliases/texas instr/undo").status, 200)
+        self.assertEqual(self.call("GET", "/api/supply/review").json["matched"]["aliases"], [])
 
     # --- decisions --------------------------------------------------------
 

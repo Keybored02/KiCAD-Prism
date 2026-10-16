@@ -13,8 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api import supply_connectors
-from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
-from app.services.supply import discovery, parts, review
+from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_tracker
+from app.services.supply import discovery, parts, review, settle
 
 router = APIRouter(prefix="/api/supply/review", tags=["supply"])
 
@@ -65,6 +65,43 @@ async def get_review_queue(_user: AuthenticatedUser = Depends(require_supply_rea
             return review.review_queue(conn)
 
     return await _run(read)
+
+
+class ChoiceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/choices/{part_id}/choose")
+async def choose_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, str]:
+    """Say which maker a part is (or, for a part with a known maker, that the listed maker is the same)."""
+
+    def run() -> dict[str, str]:
+        with _store().connection() as conn:
+            return {"result": settle.choose(conn, part_id, body.key, user.email)}
+
+    return await _run(run)
+
+
+@router.post("/choices/{part_id}/other")
+async def other_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
+    """Say the listings of one maker are not this part."""
+
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            return {"rejected": settle.not_this_maker(conn, part_id, body.key, user.email)}
+
+    return await _run(run)
+
+
+@router.post("/aliases/{alias_key}/undo")
+async def undo_alias(alias_key: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, int]:
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            return {"listings": settle.undo_alias(conn, alias_key, approver.email)}
+
+    return await _run(run)
 
 
 @router.post("/aliases/confirm")

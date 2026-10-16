@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.supply import discovery, parts
+from app.services.supply import discovery, parts, settle
 from app.services.supply.identity import alias_key, match_key
 
-_WAITING_STATES = (discovery.UNRESOLVED, discovery.NEAR)
+# Another maker's listing of a number (near) is kept on the part and shown there; only the legacy waiting state is queued.
+_WAITING_STATES = (discovery.UNRESOLVED,)
 
 
 def manufacturers(conn, *, limit: int = 1000) -> list[dict[str, Any]]:
@@ -49,6 +50,32 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
         group = groups.setdefault(row["part_id"], {"part_id": row["part_id"], "mpn": row["mpn"], "manufacturer": row["manufacturer"], "listings": []})
         group["listings"].append({"id": row["id"], "sku": row["sku"], "raw_mpn": row["raw_mpn"], "connector": row["connector"]})
     return list(groups.values())
+
+
+def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
+    """What Prism decided by itself and a person may undo: the spellings it learned for a maker, and the parts it settled."""
+
+    learned = conn.execute(
+        """
+        SELECT a.alias_key, a.alias_text, m.name AS manufacturer, a.first_seen_at,
+               (SELECT COUNT(*) FROM part_spellings s WHERE s.alias_key = a.alias_key) AS parts
+        FROM manufacturer_aliases a JOIN manufacturers m ON m.id = a.manufacturer_id
+        WHERE a.source = 'learned' ORDER BY a.first_seen_at DESC LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    settled = conn.execute(
+        """
+        SELECT e.subject_id AS part_id, p.mpn, m.name AS manufacturer, e.at
+        FROM audit_events e JOIN parts p ON p.id = e.subject_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        WHERE e.action = 'part.settle' AND e.actor = %s ORDER BY e.at DESC LIMIT %s
+        """,
+        (settle.SYSTEM, limit),
+    ).fetchall()
+    return {
+        "aliases": [{**dict(row), "first_seen_at": row["first_seen_at"].isoformat(), "parts": int(row["parts"])} for row in learned],
+        "parts": [{**dict(row), "at": row["at"].isoformat()} for row in settled],
+    }
 
 
 def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
@@ -111,6 +138,8 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
             for row in rows
         ],
         "other_numbers": other_number_pins(conn),
+        "choices": settle.needs_choice(conn),
+        "matched": matched_by_prism(conn),
         "counts": {"aliases": len(aliases), "unresolved": counts.get(discovery.UNRESOLVED, 0), "near": counts.get(discovery.NEAR, 0)},
         "manufacturers": manufacturers(conn),
     }
