@@ -559,6 +559,8 @@ export interface SupplyPartRow {
   jlc?: JlcClass | null;
   mpn: string;
   manufacturer: string;
+  /** The maker is as written and no distributor has confirmed it yet. */
+  manufacturer_provisional?: boolean;
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
   problem: SupplyProblem | null;

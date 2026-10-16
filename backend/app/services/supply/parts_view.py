@@ -128,7 +128,7 @@ _USES = "FROM " + usage.ALL_USES + " u JOIN bom_usage_projects up ON up.project_
 _IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
 
 _ROW_SELECT = (
-    "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
+    "SELECT p.id, p.mpn, m.name AS manufacturer, m.provisional AS maker_provisional, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
     "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons, "
     "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
     "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
@@ -249,6 +249,8 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "id": row["id"],
             "mpn": row["mpn"],
             "manufacturer": row["manufacturer"],
+            # Written by a person or a BOM and not yet confirmed by a distributor's answer.
+            "manufacturer_provisional": bool(row["maker_provisional"]),
             "watch": _watch_dto(row),
             "tracking": _tracking_dto(row),
             "status": part_status(mine["stock"], row["threshold"], lifecycle, mine["problem"]).value,

@@ -16,6 +16,7 @@ from typing import Any, Callable
 from app.services.supply import ledger, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.identity import match_key
+from app.services.supply.makers import same_maker
 from app.services.supply.models import PartMatch
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
@@ -125,5 +126,5 @@ def _candidate(connector: dict[str, Any], match: PartMatch, asked_manufacturer: 
         "manufacturer": match.manufacturer,
         "description": match.description,
         "product_url": match.product_url,
-        "manufacturer_matches": bool(asked) and match.manufacturer.strip().casefold() == asked,
+        "manufacturer_matches": bool(asked) and same_maker(asked_manufacturer, match.manufacturer),
     }

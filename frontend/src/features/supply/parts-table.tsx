@@ -42,7 +42,7 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                   {part.mpn}
                 </button>
                 <span className="ml-1.5"><JlcIcon jlc={part.jlc} /></span>
-                <div className="text-xs text-muted-foreground">{part.manufacturer}</div>
+                <div className="text-xs text-muted-foreground">{part.manufacturer}{part.manufacturer_provisional ? " (not confirmed)" : ""}</div>
                 {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
                 {part.used_in > 0 ? <div className="text-xs text-muted-foreground">Used in {part.used_in} {part.used_in === 1 ? "project" : "projects"}</div> : null}
               </td>

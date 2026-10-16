@@ -90,7 +90,9 @@ def compute(conn) -> dict[str, dict[str, Any]]:
     ]
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        groups.setdefault(row["manufacturer"], []).append(row)
+        # A maker nobody has confirmed (or none at all) is not a group of its own.
+        if row["manufacturer"] != "Not known yet":
+            groups.setdefault(row["manufacturer"], []).append(row)
         if row["category"]:
             groups.setdefault(CATEGORY_PREFIX + row["category"], []).append(row)
     scopes: dict[str, dict[str, Any]] = {}
