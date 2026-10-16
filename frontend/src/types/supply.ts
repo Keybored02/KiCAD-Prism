@@ -978,11 +978,21 @@ export interface TrackingPreview {
   connectors: BudgetShare[];
   /** Nothing the change adds fits at any connector. */
   fits_nowhere: boolean;
-  tracked?: { parts_created: number; skipped: Array<{ mpn: string; reason: string }> };
+  tracked?: {
+    parts_created: number;
+    skipped: Array<{ mpn: string; reason: string; manufacturer?: string; candidates?: Array<{ part_id: string; manufacturer: string }> }>;
+  };
+}
+
+/** How far the first searches of a project's parts have got, per distributor. */
+export interface TrackProgress {
+  parts: number;
+  finished: boolean;
+  connectors: Array<{ connector_id: string; name: string; parts: number; searched: number }>;
 }
 
 export interface ProjectTrackingState {
-  tracked: { project_id: string; variants: string[]; all_variants: boolean; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
+  tracked: { project_id: string; variants: string[]; all_variants: boolean; buying_for?: string; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
   has_usage: boolean;
   variants: string[];
 }

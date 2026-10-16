@@ -91,6 +91,19 @@ class LineChoiceIn(BaseModel):
     manufacturer: str = Field(min_length=1, max_length=200)
 
 
+@router.get("/projects/{project_id}/progress")
+async def project_progress(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """How far the first searches of the project's parts have got, per distributor."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return tracking.project_progress(conn, project_id)
+
+    return await _run(read)
+
+
 @router.post("/projects/{project_id}/lines/choose", status_code=204)
 async def choose_line(project_id: str, body: LineChoiceIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
     """Say which of several parts a BOM line's maker spelling names."""

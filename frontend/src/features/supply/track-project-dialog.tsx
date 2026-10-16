@@ -1,170 +1,128 @@
-import { useEffect, useMemo, useState } from "react";
-import { Radar } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Loader2, Radar } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import type { ProjectTrackingState, SupplyConnector, TrackingPreview } from "@/types/supply";
-import { BudgetPreview } from "./budget-preview";
-import { listSupplyConnectors } from "./supply-api";
-import { getProjectTracking, previewTrackProject, readProjectBom, trackProject, untrackProject } from "./tracking-api";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { TrackingPreview } from "@/types/supply";
+import { TrackChooseStep } from "./track-choose-step";
+import { TrackLinesStep, type TrackLine } from "./track-lines-step";
+import { TrackProgressStep } from "./track-progress-step";
+import { chooseTrackLine, trackProject, untrackProject } from "./tracking-api";
+import { useTrackProject } from "./use-track-project";
 
-const READ_POLL_MS = 5000;
-const READ_POLLS = 60;
+type Step = "choose" | "lines" | "tracking";
 
-/** Choose the designs and the distributors, see what following the project costs, and track it where there is room. */
+const TITLE: Record<Step, string> = { choose: "Track Project", lines: "Settle Lines", tracking: "Checking Distributors" };
+
+/** The lines the preview could not place: several makers share their number. */
+function waitingLines(preview: TrackingPreview | null): TrackLine[] {
+  return (preview?.tracked?.skipped ?? []).flatMap((item) =>
+    item.reason === "needs_choice" ? [{ mpn: item.mpn, manufacturer: item.manufacturer ?? "", candidates: item.candidates ?? [] }] : []);
+}
+
+/** How many parts tracking would take on, from the preview. */
+function partsOf(preview: TrackingPreview | null): number {
+  return Math.max(0, ...(preview?.connectors ?? []).map((item) => (item.admitted_new ?? 0) + (item.waiting_new ?? 0)));
+}
+
+/**
+ * Every decision tracking a project needs, in one dialog: the designs, the distributors, what it buys for, the lines that
+ * need a word, then the work starts and its progress shows here. Closing leaves the searching running.
+ */
 function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: string; onClose: () => void; onChanged: () => void }) {
-  const [state, setState] = useState<ProjectTrackingState | null>(null);
-  const [connectors, setConnectors] = useState<SupplyConnector[]>([]);
-  const [variants, setVariants] = useState<string[]>([""]);
-  const [allVariants, setAllVariants] = useState(false);
-  const [chosen, setChosen] = useState<string[] | null>(null);
-  const [preview, setPreview] = useState<TrackingPreview | null>(null);
-  const [error, setError] = useState("");
+  const track = useTrackProject(projectId);
+  const { state, preview } = track;
+  const [step, setStep] = useState<Step>("choose");
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<TrackingPreview | null>(null);
+  const lines = useMemo(() => waitingLines(preview), [preview]);
+  const parts = partsOf(preview);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    Promise.all([getProjectTracking(projectId, controller.signal), listSupplyConnectors(controller.signal)])
-      .then(([tracking, list]) => {
-        setState(tracking);
-        setConnectors(list.filter((item) => item.enabled && item.metered));
-        if (tracking.tracked) {
-          setVariants(tracking.tracked.variants);
-          setAllVariants(tracking.tracked.all_variants);
-          setChosen(tracking.tracked.connector_ids);
-        }
-      })
-      .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
-    return () => controller.abort();
-  }, [projectId]);
-
-  // A project whose BOM Prism has not read: read it, or queue its index and look again until it lands.
-  const needsRead = state !== null && !state.has_usage;
-  useEffect(() => {
-    if (!needsRead) return;
-    const controller = new AbortController();
-    let polls = 0;
-    const look = () => {
-      polls += 1;
-      if (polls > READ_POLLS) { clearInterval(timer); return; }
-      readProjectBom(projectId)
-        .then(() => getProjectTracking(projectId, controller.signal))
-        .then((next) => { if (next.has_usage) { clearInterval(timer); setState(next); } })
-        .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
-    };
-    const timer = setInterval(look, READ_POLL_MS);
-    look();
-    return () => { controller.abort(); clearInterval(timer); };
-  }, [needsRead, projectId]);
-
-  // Distributors for the choice: the ones every project uses by default, plus any assembly-only one a person adds.
-  const defaults = useMemo(() => connectors.flatMap((item) => (item.assembly_only ? [] : [item.id])), [connectors]);
-  const assembly = useMemo(() => connectors.filter((item) => item.assembly_only), [connectors]);
-  const regular = useMemo(() => connectors.filter((item) => !item.assembly_only), [connectors]);
-  const ids = chosen ?? defaults;
-  const followed = useMemo(() => new Set(variants), [variants]);
-  const bought = useMemo(() => new Set(ids), [ids]);
-  const choice = useMemo(() => ({ variants, all_variants: allVariants, connector_ids: chosen }), [variants, allVariants, chosen]);
-
-  useEffect(() => {
-    if (!state?.has_usage) return;
-    const controller = new AbortController();
-    previewTrackProject(projectId, choice, controller.signal)
-      .then((next) => { setPreview(next); setError(""); })
-      .catch((caught: Error) => { if (!controller.signal.aborted) { setPreview(null); setError(caught.message); } });
-    return () => controller.abort();
-  }, [projectId, choice, state?.has_usage]);
-
-  const toggleVariant = (name: string, on: boolean) =>
-    setVariants((current) => (on ? [...current, name] : current.filter((item) => item !== name)));
-  const toggleConnector = (id: string, on: boolean) => setChosen(on ? [...ids, id] : ids.filter((item) => item !== id));
-
-  const apply = () => {
+  const start = () => {
     setBusy(true);
-    trackProject(projectId, choice)
-      .then((result) => {
-        const waiting = result.connectors.reduce((count, item) => count + Math.max(item.waiting_new ?? 0, 0), 0);
-        toast.success("Tracking this project", { description: waiting > 0 ? `${waiting} parts wait for room at a distributor.` : undefined });
-        onChanged();
-        onClose();
-      })
-      .catch((caught: Error) => setError(caught.message))
+    trackProject(projectId, track.choice)
+      .then((done) => { setResult(done); setStep("tracking"); onChanged(); })
+      .catch((caught: Error) => track.setError(caught.message))
+      .finally(() => setBusy(false));
+  };
+  const next = () => (lines.length > 0 && step === "choose" ? setStep("lines") : start());
+  const choose = (line: TrackLine, partId: string) => {
+    setBusy(true);
+    chooseTrackLine(projectId, partId, line.manufacturer)
+      .then(() => track.recheck())
+      .catch((caught: Error) => track.setError(caught.message))
       .finally(() => setBusy(false));
   };
   const stop = () => {
     setBusy(true);
     untrackProject(projectId)
       .then(() => { toast.success("No longer tracking this project"); onChanged(); onClose(); })
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: Error) => track.setError(caught.message))
       .finally(() => setBusy(false));
   };
+  const finished = useCallback(() => onChanged(), [onChanged]);
 
+  const reading = track.needsRead;
+  const title = reading ? "Reading BOM" : TITLE[step];
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{state?.tracked ? "Tracking this project" : "Track this project"}</DialogTitle>
+          <DialogTitle>{state?.tracked && step === "choose" ? "Tracking Project" : title}</DialogTitle>
           <DialogDescription>
-            Its parts are read daily within each distributor's call budget. Parts that do not fit wait for room and are read from spare budget.
+            {reading ? "Prism is reading the project's BOM." : step === "choose" ? "Parts are read daily within each call budget." : step === "lines" ? "Pick the part each line means." : "First searches of the project's parts."}
           </DialogDescription>
         </DialogHeader>
-        {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-        {state && !state.has_usage ? (
-          <p className="text-sm text-muted-foreground">Reading this project's BOM. This can take a minute; the dialog continues when it is done.</p>
-        ) : null}
-        {state?.has_usage ? (
-          <div className="space-y-3">
-            <fieldset className="space-y-1">
-              <legend className="text-xs text-muted-foreground">Designs to follow</legend>
-              {["", ...state.variants].map((name) => (
-                <div key={name || "base"} className="flex items-center gap-2">
-                  <Checkbox id={`var-${name || "base"}`} checked={allVariants || followed.has(name)} disabled={allVariants} onCheckedChange={(on) => toggleVariant(name, on === true)} />
-                  <Label htmlFor={`var-${name || "base"}`} className="font-normal">{name || "Base design"}</Label>
-                </div>
-              ))}
-              {state.variants.length > 0 ? (
-                <div className="flex items-center gap-2">
-                  <Checkbox id="var-all" checked={allVariants} onCheckedChange={(on) => setAllVariants(on === true)} />
-                  <Label htmlFor="var-all" className="font-normal">Follow every design, also those added later</Label>
-                </div>
-              ) : null}
-            </fieldset>
-            <fieldset className="space-y-1">
-              <legend className="text-xs text-muted-foreground">Bought from</legend>
-              {regular.map((item) => (
-                <div key={item.id} className="flex items-center gap-2">
-                  <Checkbox id={`con-${item.id}`} checked={bought.has(item.id)} onCheckedChange={(on) => toggleConnector(item.id, on === true)} />
-                  <Label htmlFor={`con-${item.id}`} className="font-normal">
-                    {item.display_name}
-                  </Label>
-                </div>
-              ))}
-            </fieldset>
-            {assembly.map((item) => (
-              <fieldset key={item.id} className="space-y-1">
-                <legend className="text-xs text-muted-foreground">Built at {item.display_name}?</legend>
-                <p className="text-xs text-muted-foreground">Its parts are then also read there, for what it can place and at what price. Its stock is never counted.</p>
-                <div className="flex items-center gap-2">
-                  <Checkbox id={`con-${item.id}`} checked={bought.has(item.id)} onCheckedChange={(on) => toggleConnector(item.id, on === true)} />
-                  <Label htmlFor={`con-${item.id}`} className="font-normal">Yes, built at {item.display_name}</Label>
-                </div>
-              </fieldset>
-            ))}
-            {preview ? <BudgetPreview connectors={preview.connectors} /> : null}
-            {preview?.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor. Free room or raise a budget first.</p> : null}
+        {track.error ? <Alert variant="destructive"><AlertDescription>{track.error}</AlertDescription></Alert> : null}
+
+        {reading ? (
+          <div className="space-y-3 py-2">
+            <div className="h-2 w-full overflow-hidden bg-secondary" role="progressbar" aria-label="Reading the BOM">
+              <div className="h-full w-1/3 animate-pulse bg-primary" />
+            </div>
+            <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />This can take a minute.</p>
           </div>
         ) : null}
-        <DialogFooter>
-          {state?.tracked ? <Button variant="outline" disabled={busy} onClick={stop}>Stop tracking</Button> : null}
-          <Button variant="outline" onClick={onClose}>Close</Button>
-          <Button disabled={busy || !state?.has_usage || (variants.length === 0 && !allVariants) || preview?.fits_nowhere === true} onClick={apply}>
-            {state?.tracked ? "Save" : "Track where there is room"}
-          </Button>
-        </DialogFooter>
+
+        {!reading && state?.has_usage && step === "choose" ? (
+          <TrackChooseStep
+            designs={["", ...state.variants]}
+            followed={new Set(track.variants)}
+            allDesigns={track.allVariants}
+            onDesign={track.toggleVariant}
+            onAllDesigns={track.setAllVariants}
+            regular={track.regular}
+            assembly={track.assembly}
+            bought={new Set(track.ids)}
+            onConnector={track.toggleConnector}
+            buyingFor={track.buyingFor}
+            onBuyingFor={track.setBuyingFor}
+            preview={preview}
+            canRaise
+          />
+        ) : null}
+        {step === "lines" ? <TrackLinesStep lines={lines} busy={busy} onChoose={choose} /> : null}
+        {step === "tracking" ? <TrackProgressStep projectId={projectId} result={result} onFinished={finished} /> : null}
+
+        <div className="flex justify-end gap-2">
+          {state?.tracked && step === "choose" ? <Button variant="outline" disabled={busy} onClick={stop}>Stop tracking</Button> : null}
+          {step === "tracking" ? (
+            <Button onClick={onClose}>Close</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              {step === "lines" ? <Button variant="outline" disabled={busy} onClick={start}>Skip these</Button> : null}
+              <Button
+                disabled={busy || reading || !state?.has_usage || (track.variants.length === 0 && !track.allVariants) || preview?.fits_nowhere === true}
+                onClick={step === "lines" ? start : next}
+              >
+                {step === "choose" && lines.length > 0 ? "Next" : parts > 0 ? `${state?.tracked ? "Save" : "Track"} (${parts.toLocaleString()})` : state?.tracked ? "Save" : "Track"}
+              </Button>
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -100,6 +100,25 @@ class TrackingTests(unittest.TestCase):
         self.assertEqual(self.track("p1")["skipped"], [])
         self.assertEqual(self.tier("Texas Instruments", "LM358D")["tier"], 1)
 
+    def test_progress_counts_the_projects_parts_and_how_many_have_been_searched_at_each_distributor(self) -> None:
+        import os
+
+        from app.services.supply.connectors import ConnectorService
+        from app.services.trackers.secrets import CredentialKeyring
+
+        ring = CredentialKeyring({"t": os.urandom(32)}, "t")
+        cid = ConnectorService(self.store, keyring_factory=lambda: ring, allow_dev=lambda: True).create(actor=ACTOR, provider="fake", daily_budget=1000)["id"]
+        self.project("p1", [component("R1", "Acme", "R-1"), component("R2", "Acme", "R-2")])
+        self.track("p1")
+        with self.store.connection() as conn:
+            before = self.tracking.project_progress(conn, "p1")
+            part = self.parts.find_part(conn, "Acme", "R-1")
+            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, NOW(), 1)", (part.id, cid))
+            after = self.tracking.project_progress(conn, "p1")
+        self.assertEqual((before["parts"], before["finished"]), (2, False))
+        self.assertEqual([(c["parts"], c["searched"]) for c in before["connectors"]], [(2, 0)])
+        self.assertEqual([(c["parts"], c["searched"]) for c in after["connectors"]], [(2, 1)])
+
     def test_only_the_chosen_variants_are_tracked(self) -> None:
         self.project(
             "p1", [component("R1", "Acme", "R-1")],

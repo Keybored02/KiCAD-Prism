@@ -1,0 +1,85 @@
+import { useEffect, useMemo, useState } from "react";
+
+import type { ProjectTrackingState, SupplyConnector, TrackingPreview } from "@/types/supply";
+import type { BuyingFor } from "./track-choose-step";
+import { listSupplyConnectors } from "./supply-api";
+import { getProjectTracking, previewTrackProject, readProjectBom } from "./tracking-api";
+
+const READ_POLL_MS = 5000;
+const READ_POLLS = 60;
+
+/** What the track dialog works from: the project's state, the distributors, the choices, and the cost of the choices. */
+export function useTrackProject(projectId: string) {
+  const [state, setState] = useState<ProjectTrackingState | null>(null);
+  const [connectors, setConnectors] = useState<SupplyConnector[]>([]);
+  const [variants, setVariants] = useState<string[]>([""]);
+  const [allVariants, setAllVariants] = useState(false);
+  const [buyingFor, setBuyingFor] = useState<BuyingFor>("prototypes");
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const [preview, setPreview] = useState<TrackingPreview | null>(null);
+  const [error, setError] = useState("");
+  const [again, setAgain] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([getProjectTracking(projectId, controller.signal), listSupplyConnectors(controller.signal)])
+      .then(([tracking, list]) => {
+        setState(tracking);
+        setConnectors(list.filter((item) => item.enabled && item.metered));
+        if (tracking.tracked) {
+          setVariants(tracking.tracked.variants);
+          setAllVariants(tracking.tracked.all_variants);
+          setChosen(tracking.tracked.connector_ids);
+          setBuyingFor(tracking.tracked.buying_for === "production" ? "production" : "prototypes");
+        }
+      })
+      .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
+    return () => controller.abort();
+  }, [projectId]);
+
+  // A project whose BOM Prism has not read: read it, or queue its index and look again until it lands.
+  const needsRead = state !== null && !state.has_usage;
+  useEffect(() => {
+    if (!needsRead) return;
+    const controller = new AbortController();
+    let polls = 0;
+    const look = () => {
+      polls += 1;
+      if (polls > READ_POLLS) { clearInterval(timer); return; }
+      readProjectBom(projectId)
+        .then(() => getProjectTracking(projectId, controller.signal))
+        .then((next) => { if (next.has_usage) { clearInterval(timer); setState(next); } })
+        .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
+    };
+    const timer = setInterval(look, READ_POLL_MS);
+    look();
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [needsRead, projectId]);
+
+  // Distributors for the choice: the ones every project uses by default, plus any assembly-only one a person adds.
+  const defaults = useMemo(() => connectors.flatMap((item) => (item.assembly_only ? [] : [item.id])), [connectors]);
+  const assembly = useMemo(() => connectors.filter((item) => item.assembly_only), [connectors]);
+  const regular = useMemo(() => connectors.filter((item) => !item.assembly_only), [connectors]);
+  const ids = chosen ?? defaults;
+  const choice = useMemo(
+    () => ({ variants, all_variants: allVariants, buying_for: buyingFor, connector_ids: chosen }),
+    [variants, allVariants, buyingFor, chosen],
+  );
+
+  useEffect(() => {
+    if (!state?.has_usage) return;
+    const controller = new AbortController();
+    previewTrackProject(projectId, choice, controller.signal)
+      .then((next) => { setPreview(next); setError(""); })
+      .catch((caught: Error) => { if (!controller.signal.aborted) { setPreview(null); setError(caught.message); } });
+    return () => controller.abort();
+  }, [projectId, choice, state?.has_usage, again]);
+
+  return {
+    state, setError, error, needsRead, preview, choice, assembly, regular, ids,
+    variants, allVariants, buyingFor, setAllVariants, setBuyingFor,
+    recheck: () => setAgain((count) => count + 1),
+    toggleVariant: (name: string, on: boolean) => setVariants((current) => (on ? [...current, name] : current.filter((item) => item !== name))),
+    toggleConnector: (id: string, on: boolean) => setChosen(on ? [...ids, id] : ids.filter((item) => item !== id)),
+  };
+}

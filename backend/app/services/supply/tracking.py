@@ -196,6 +196,29 @@ def track_project(
     return {"project_id": project_id, "variants": chosen, "parts_created": created, "skipped": skipped}
 
 
+def project_progress(conn, project_id: str) -> dict[str, Any]:
+    """How far the first searches of a tracked project's parts have got, per distributor it is read at."""
+
+    ids = [row["part_id"] for row in conn.execute(
+        "SELECT part_id FROM part_tiers WHERE reasons @> %s::jsonb", (json.dumps([{"kind": "project", "ref": project_id}]),)
+    ).fetchall()]
+    connectors = conn.execute(
+        """
+        SELECT c.id, c.display_name, COUNT(DISTINCT a.part_id) AS admitted, COUNT(DISTINCT d.part_id) AS searched
+        FROM connectors c
+        LEFT JOIN admissions a ON a.connector_id = c.id AND a.part_id = ANY(%s) AND a.state = 'admitted'
+        LEFT JOIN discovery_runs d ON d.connector_id = c.id AND d.part_id = ANY(%s)
+        WHERE c.enabled GROUP BY c.id, c.display_name ORDER BY lower(c.display_name)
+        """,
+        (ids, ids),
+    ).fetchall()
+    rows = [
+        {"connector_id": row["id"], "name": row["display_name"], "parts": int(row["admitted"]), "searched": min(int(row["searched"]), int(row["admitted"]) or int(row["searched"]))}
+        for row in connectors if row["admitted"]
+    ]
+    return {"parts": len(ids), "connectors": rows, "finished": all(item["searched"] >= item["parts"] for item in rows)}
+
+
 def choose_line(conn, part_id: str, written: str, actor: str) -> None:
     """A person says a BOM line's maker spelling names this part (one of several with the line's number)."""
 

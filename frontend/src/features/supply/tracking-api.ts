@@ -1,6 +1,6 @@
 import { fetchJson } from "@/lib/api";
 import type {
-  AlertRules, BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackingPreview, TrackingRoom,
+  AlertRules, BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackProgress, TrackingPreview, TrackingRoom,
 } from "@/types/supply";
 
 const BASE = "/api/supply/tracking";
@@ -11,8 +11,23 @@ export interface ProjectChoice {
   variants: string[];
   /** Follow every design the project has, also those it gets later. */
   all_variants?: boolean;
+  /** What the project buys for: sets the packaging that is followed. */
+  buying_for?: "prototypes" | "production";
   /** The distributors the project is bought from; null is all but the assembly-only ones. */
   connector_ids: string[] | null;
+}
+
+/** Say which of several parts a BOM line's maker spelling names. */
+export async function chooseTrackLine(projectId: string, partId: string, manufacturer: string): Promise<void> {
+  await fetchJson(
+    `${BASE}/projects/${encodeURIComponent(projectId)}/lines/choose`,
+    { method: "POST", body: JSON.stringify({ part_id: partId, manufacturer }) },
+    "Could not record the choice",
+  );
+}
+
+export function getTrackProgress(projectId: string, signal?: AbortSignal): Promise<TrackProgress> {
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/progress`, { signal }, "Could not read the progress");
 }
 
 /** Read the project's BOM now; "reading" when its newest revision is still being indexed. */
