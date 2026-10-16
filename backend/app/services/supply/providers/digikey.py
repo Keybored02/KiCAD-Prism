@@ -62,11 +62,10 @@ from app.services.supply.providers.base import (
     CAP_SEARCH,
     AuthError,
     CredentialField,
+    NotFound,
     ProviderConfig,
     ProviderError,
     ProviderSpec,
-    RateLimited,
-    Unavailable,
 )
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
@@ -208,9 +207,7 @@ class DigiKeyProvider:
                 try:
                     self.last_batch_calls += 1
                     answer = self._call("GET", f"/search/{_quote(sku)}/productdetails")
-                except (AuthError, RateLimited, Unavailable):
-                    raise
-                except ProviderError:
+                except NotFound:
                     continue  # a number DigiKey no longer knows: left out, as the contract says
                 answers[sku] = answer
                 for variation in (answer.get("Product") or {}).get("ProductVariations") or []:
@@ -241,9 +238,7 @@ class DigiKeyProvider:
     def get_part_data(self, match: PartMatch) -> PartData:
         try:
             product = (self._call("GET", f"/search/{_quote(match.sku)}/productdetails").get("Product")) or {}
-        except (AuthError, RateLimited, Unavailable):
-            raise
-        except ProviderError:
+        except NotFound:
             return PartData(match=match)
         variation = next(
             (v for v in product.get("ProductVariations") or [] if str((v or {}).get("DigiKeyProductNumber")) == match.sku), {}

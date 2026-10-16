@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.services.supply.providers import digikey, farnell, registry, unrecognised  # noqa: E402
-from app.services.supply.providers.base import AuthError, ProviderConfig, ProviderError, RateLimited  # noqa: E402
+from app.services.supply.providers.base import AuthError, NotFound, ProviderConfig, ProviderError, RateLimited  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle, Packaging  # noqa: E402
 from test_supply_distributors import FakeClient  # noqa: E402
 
@@ -159,12 +159,22 @@ class DigiKeyTests(unittest.TestCase):
                 (offer,) = provider.get_offers(["296-1395-1-ND"])
         self.assertEqual((offer.lifecycle, len(logged.records)), (Lifecycle.UNKNOWN, 1))
 
+    def test_a_block_page_is_not_read_as_a_number_digikey_no_longer_knows(self) -> None:
+        from app.services.supply.providers.base import Blocked
+
+        client = FakeClient({
+            "/v1/oauth2/token": [TOKEN],
+            DETAILS.format("296-1395-1-ND"): [Blocked("a web page")],
+        })
+        with self.assertRaises(Blocked):
+            dk_provider(client).get_offers(["296-1395-1-ND"])
+
     def test_what_digikey_does_not_say_is_left_out_not_guessed(self) -> None:
         no_stock = dk_product([{**variation(), "QuantityAvailableforPackageType": None}])
         client = FakeClient({
             "/v1/oauth2/token": [TOKEN],
             DETAILS.format("296-1395-1-ND"): [dk_details(no_stock)],
-            DETAILS.format("GONE-ND"): [ProviderError("HTTP 404")],
+            DETAILS.format("GONE-ND"): [NotFound("HTTP 404")],
             DETAILS.format("OTHER-ND"): [dk_details(dk_product())],
         })
         self.assertEqual(dk_provider(client).get_offers(["296-1395-1-ND", "GONE-ND", "OTHER-ND"]), [])

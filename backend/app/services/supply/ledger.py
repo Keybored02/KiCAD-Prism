@@ -84,11 +84,13 @@ def try_spend(
     counted_for: str | None = None,
     delay_seconds: int = 0,
     spare: bool = False,
+    keep_pool_pct: int = 0,
 ) -> bool:
     """Spend ``units`` calls if the budget allows. Returns whether it did.
 
     ``delay_seconds`` holds background spending back after the provider's reset (``quota.start_delay_seconds``).
     ``spare`` spends budget that would otherwise go unused (``quota.spare_allowance``), by the workspace's working week.
+    ``keep_pool_pct`` (pool spending only) refuses the call once less than that share of the pool would be left for people.
 
     ``connector_id`` is the ledger's owner (the account's first connector); ``counted_for`` is the connector the calls
     are counted against in ``call_counts``. The day's row is locked while the allowance is computed, so concurrent
@@ -119,6 +121,7 @@ def try_spend(
         allowance = quota.spare_allowance(state, now, week, reset_time=reset_time, tz=reset_tz)
     elif interactive:
         allowance = quota.interactive_allowance(state)
+        allowance -= quota.interactive_reserve(daily_budget, reserve_pct) * keep_pool_pct // 100
     else:
         allowance = quota.background_allowance(state, now, reset_time=reset_time, tz=reset_tz, delay_seconds=delay_seconds)
     if units > allowance:
@@ -172,7 +175,7 @@ def note_refusal(store, connector_id: str, *, now: datetime, purpose: str | None
 
 def spend_call(
     store, connector: Mapping, *, now: datetime, interactive: bool = False, units: int = 1,
-    kind: str = KIND_OFFERS, purpose: str | None = None, spare: bool = False,
+    kind: str = KIND_OFFERS, purpose: str | None = None, spare: bool = False, keep_pool_pct: int = 0,
 ) -> bool:
     """Spend calls for a connector against its account, in their own transaction. Free connectors never get here."""
 
@@ -182,6 +185,6 @@ def spend_call(
             conn, account.ledger_id, units, interactive=interactive,
             daily_budget=account.daily_budget, reserve_pct=account.reserve_pct, now=now,
             reset_time=account.reset_time, reset_tz=account.reset_tz,
-            kind=kind, purpose=purpose, counted_for=connector["id"], spare=spare,
+            kind=kind, purpose=purpose, counted_for=connector["id"], spare=spare, keep_pool_pct=keep_pool_pct,
             delay_seconds=quota.start_delay_seconds(account.ledger_id, quota.provider_day(now, account.reset_time, account.reset_tz)),
         )

@@ -189,13 +189,13 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.discoverer_().run(cid).searched, 0)
 
     def test_searches_spend_the_budget_and_stop_with_it(self) -> None:
-        cid = self.connector(daily_budget=20)  # a pool of 2 calls for first searches
+        cid = self.connector(daily_budget=20)  # a pool of 2 calls, half of it kept for people: 1 for first searches
         for n in range(4):
             self.watch(f"P{n}")
         summary = self.discoverer_().run(cid)
-        self.assertEqual((summary.searched, summary.stopped), (2, "budget"))
-        self.assertEqual(len(self.rows("SELECT * FROM discovery_runs")), 2)
-        self.assertEqual(self.rows("SELECT spent FROM quota_ledger")[0]["spent"], 2)
+        self.assertEqual((summary.searched, summary.stopped), (1, "budget"))
+        self.assertEqual(len(self.rows("SELECT * FROM discovery_runs")), 1)
+        self.assertEqual(self.rows("SELECT spent FROM quota_ledger")[0]["spent"], 1)
 
     def test_free_connectors_search_without_spending(self) -> None:
         cid = self.connector("csv")

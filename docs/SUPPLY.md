@@ -58,8 +58,8 @@ Prism follows a part at one of two tiers. **Tier 1** is read every day; **tier 2
 (tier 3) is read only when someone asks. A part is in the highest tier any reason gives it, and the part sheet says why: a
 tracked project, someone's choice, a watched component or its approved alternates, or a watch from before tiers (tier 2).
 
-- **Track a project:** on the BOM (Visualizers) choose **Track this project**. Pick the designs to follow and the
-  distributors you buy from. A distributor that only assembles (JLCPCB) appears as "Built at ..." and is read only when
+- **Track a project:** on the BOM (Visualizers) choose **Track this project**. Pick the designs to follow (or **Follow every design**, which also takes in designs added to the project later) and the
+  distributors you buy from. A tracked project that is deleted from the workspace stops being tracked at the next BOM refresh. A distributor that only assembles (JLCPCB) appears as "Built at ..." and is read only when
   you tick it. Before anything is applied you see, per distributor, the calls a day it adds, how many parts will be read
   and how many will wait. **Track where there is room** reads what fits; the rest waits for room and is read from spare
   budget. If nothing fits anywhere it is refused. If Prism has not read the project's BOM yet, the dialog reads it (building its index when needed) and goes on. A distributor added later is used for the project too, unless you unticked it; an assembly-only one only when ticked.
@@ -80,6 +80,9 @@ tracked project, someone's choice, a watched component or its approved alternate
   pick it offers the same packaging for the other waiting parts at that distributor with the same choice, listed so you can
   untick any. Only the picked listing is read and counted. If it stops being listed, the part is read at all its listings
   again.
+- **First searches and the pool:** when parts are tracked, their first search at each distributor comes from the pool, but only
+  half of it; the rest stays for Read now, Check notices and Fill from distributor. The remainder of a large batch waits for
+  spare budget.
 - **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening; the bar shows
   how many parts are read. The release check offers the same for the parts on a release BOM.

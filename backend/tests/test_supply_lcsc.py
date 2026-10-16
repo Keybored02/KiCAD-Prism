@@ -54,6 +54,13 @@ class LcscTests(unittest.TestCase):
         spec = registry.get_spec("lcsc")
         self.assertEqual((spec.required_credentials, spec.max_batch), ((), 1))
 
+    def test_a_refusal_is_the_bot_filter_not_a_rejected_credential(self) -> None:
+        from app.services.supply.providers.base import AuthError, Blocked
+
+        client = FakeClient({PATH: [AuthError("HTTP 403")]})
+        with self.assertRaises(Blocked):
+            provider(client).get_offers(["C2040"])
+
     def test_an_offer_carries_stock_prices_and_the_page(self) -> None:
         client = FakeClient({PATH: [answer(product())]})
         (offer,) = provider(client).get_offers(["c2040"])

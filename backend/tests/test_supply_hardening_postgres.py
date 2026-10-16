@@ -193,6 +193,15 @@ class HardeningTests(unittest.TestCase):
 
     # --- budget and cooldown ----------------------------------------------
 
+    def test_keeping_part_of_the_pool_leaves_it_for_people(self) -> None:
+        cid = self.connector(daily_budget=100, interactive_reserve_pct=10)
+        connector = self.connectors.get(cid)
+        taken = 0
+        while self.ledger.spend_call(self.store, connector, now=self.clock.now, interactive=True, keep_pool_pct=50):
+            taken += 1
+        self.assertEqual(taken, 5, "half of the 10-call pool")
+        self.assertTrue(self.ledger.spend_call(self.store, connector, now=self.clock.now, interactive=True), "people still have the rest")
+
     def test_a_connector_with_no_budget_for_now_queues_no_job(self) -> None:
         cid = self.connector(daily_budget=10, interactive_reserve_pct=0)
         self.watch()

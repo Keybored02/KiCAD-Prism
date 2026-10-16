@@ -921,7 +921,7 @@ export interface TrackingPreview {
 }
 
 export interface ProjectTrackingState {
-  tracked: { project_id: string; variants: string[]; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
+  tracked: { project_id: string; variants: string[]; all_variants: boolean; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
   has_usage: boolean;
   variants: string[];
 }

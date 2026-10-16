@@ -31,6 +31,8 @@ class ProjectIn(BaseModel):
     variants: list[str] = Field(default_factory=lambda: [""], max_length=usage.MAX_VARIANTS + 1)
     # The distributors the project is bought from; empty (null) means all but the assembly-only ones.
     connector_ids: list[str] | None = Field(default=None, max_length=50)
+    # Follow every design the project has, also those it gets later (variants is then ignored).
+    all_variants: bool = False
 
 
 class PartIn(BaseModel):
@@ -75,7 +77,7 @@ def _read_project_bom(conn, project_id: str) -> str:
 def _track(project_id: str, body: ProjectIn, actor: str) -> Callable[[Any], Any]:
     def change(conn) -> dict[str, Any]:
         _read_project_bom(conn, project_id)
-        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids)
+        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants)
 
     return change
 

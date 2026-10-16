@@ -41,11 +41,20 @@ describe("tracking a project", () => {
     fireEvent.click(screen.getByRole("button", { name: /Track this project/ }));
     expect(await screen.findByLabelText("Call budget")).toBeTruthy();
     expect(screen.getByText("120 calls")).toBeTruthy();
-    expect(tracking.previewTrackProject).toHaveBeenLastCalledWith("prj_1", { variants: [""], connector_ids: null }, expect.anything());
+    expect(tracking.previewTrackProject).toHaveBeenLastCalledWith("prj_1", { variants: [""], all_variants: false, connector_ids: null }, expect.anything());
     expect(screen.getByLabelText("Yes, built at JLCPCB")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Lite"));
     fireEvent.click(screen.getByRole("button", { name: "Track where there is room" }));
-    await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith("prj_1", { variants: ["", "Lite"], connector_ids: null }));
+    await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith("prj_1", { variants: ["", "Lite"], all_variants: false, connector_ids: null }));
+  });
+
+  it("can follow every design, also those added later", async () => {
+    tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: true, variants: ["Lite"] });
+    render(<TrackProjectButton projectId="prj_1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Track this project/ }));
+    fireEvent.click(await screen.findByLabelText("Follow every design, also those added later"));
+    fireEvent.click(screen.getByRole("button", { name: "Track where there is room" }));
+    await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith("prj_1", { variants: [""], all_variants: true, connector_ids: null }));
   });
 
   it("refuses to track when nothing fits anywhere", async () => {

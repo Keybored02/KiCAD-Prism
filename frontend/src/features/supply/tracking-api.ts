@@ -9,6 +9,8 @@ const put = (body: unknown): RequestInit => ({ method: "PUT", body: JSON.stringi
 
 export interface ProjectChoice {
   variants: string[];
+  /** Follow every design the project has, also those it gets later. */
+  all_variants?: boolean;
   /** The distributors the project is bought from; null is all but the assembly-only ones. */
   connector_ids: string[] | null;
 }

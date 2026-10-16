@@ -35,6 +35,8 @@ from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_OFFERS,
     CAP_SEARCH,
+    AuthError,
+    Blocked,
     ProviderConfig,
     ProviderError,
     ProviderSpec,
@@ -79,9 +81,12 @@ class LcscProvider:
 
     def _search(self, keyword: str) -> list[dict[str, Any]]:
         self._pace()
-        answer = self._client.request_json(
-            "GET", SEARCH_URL, params={"keyword": keyword, "currentPage": 1, "pageSize": SEARCH_PAGE_SIZE},
-        )
+        try:
+            answer = self._client.request_json(
+                "GET", SEARCH_URL, params={"keyword": keyword, "currentPage": 1, "pageSize": SEARCH_PAGE_SIZE},
+            )
+        except AuthError as exc:
+            raise Blocked("EasyEDA refused the request") from exc
         if not isinstance(answer, dict) or answer.get("code") not in (0, 200):
             raise ProviderError("EasyEDA did not answer the part search")
         found = (answer.get("result") or {}).get("productList") or []
@@ -89,7 +94,11 @@ class LcscProvider:
 
     def _detail(self, sku: str) -> dict[str, Any] | None:
         self._pace()
-        answer = self._client.request_json("GET", DETAIL_URL, params={"productCode": sku})
+        try:
+            answer = self._client.request_json("GET", DETAIL_URL, params={"productCode": sku})
+        except AuthError as exc:
+            # The service takes no key, so a refusal is its bot filter, not a rejected credential.
+            raise Blocked("LCSC refused the request") from exc
         if not isinstance(answer, dict):
             raise ProviderError("LCSC answered with something other than an object")
         result = answer.get("result")

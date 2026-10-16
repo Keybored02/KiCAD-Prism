@@ -20,6 +20,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
   const [state, setState] = useState<ProjectTrackingState | null>(null);
   const [connectors, setConnectors] = useState<SupplyConnector[]>([]);
   const [variants, setVariants] = useState<string[]>([""]);
+  const [allVariants, setAllVariants] = useState(false);
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [preview, setPreview] = useState<TrackingPreview | null>(null);
   const [error, setError] = useState("");
@@ -33,6 +34,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
         setConnectors(list.filter((item) => item.enabled && item.metered));
         if (tracking.tracked) {
           setVariants(tracking.tracked.variants);
+          setAllVariants(tracking.tracked.all_variants);
           setChosen(tracking.tracked.connector_ids);
         }
       })
@@ -66,7 +68,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
   const ids = chosen ?? defaults;
   const followed = useMemo(() => new Set(variants), [variants]);
   const bought = useMemo(() => new Set(ids), [ids]);
-  const choice = useMemo(() => ({ variants, connector_ids: chosen }), [variants, chosen]);
+  const choice = useMemo(() => ({ variants, all_variants: allVariants, connector_ids: chosen }), [variants, allVariants, chosen]);
 
   useEffect(() => {
     if (!state?.has_usage) return;
@@ -120,10 +122,16 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
               <legend className="text-xs text-muted-foreground">Designs to follow</legend>
               {["", ...state.variants].map((name) => (
                 <div key={name || "base"} className="flex items-center gap-2">
-                  <Checkbox id={`var-${name || "base"}`} checked={followed.has(name)} onCheckedChange={(on) => toggleVariant(name, on === true)} />
+                  <Checkbox id={`var-${name || "base"}`} checked={allVariants || followed.has(name)} disabled={allVariants} onCheckedChange={(on) => toggleVariant(name, on === true)} />
                   <Label htmlFor={`var-${name || "base"}`} className="font-normal">{name || "Base design"}</Label>
                 </div>
               ))}
+              {state.variants.length > 0 ? (
+                <div className="flex items-center gap-2">
+                  <Checkbox id="var-all" checked={allVariants} onCheckedChange={(on) => setAllVariants(on === true)} />
+                  <Label htmlFor="var-all" className="font-normal">Follow every design, also those added later</Label>
+                </div>
+              ) : null}
             </fieldset>
             <fieldset className="space-y-1">
               <legend className="text-xs text-muted-foreground">Bought from</legend>
@@ -153,7 +161,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
         <DialogFooter>
           {state?.tracked ? <Button variant="outline" disabled={busy} onClick={stop}>Stop tracking</Button> : null}
           <Button variant="outline" onClick={onClose}>Close</Button>
-          <Button disabled={busy || !state?.has_usage || variants.length === 0 || preview?.fits_nowhere === true} onClick={apply}>
+          <Button disabled={busy || !state?.has_usage || (variants.length === 0 && !allVariants) || preview?.fits_nowhere === true} onClick={apply}>
             {state?.tracked ? "Save" : "Track where there is room"}
           </Button>
         </DialogFooter>

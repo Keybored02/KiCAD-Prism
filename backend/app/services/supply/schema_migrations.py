@@ -1422,6 +1422,12 @@ def _m054_limit_scopes(conn) -> None:
     )
 
 
+def _m055_follow_all_variants(conn) -> None:
+    """A tracked project can follow every design variant it has, including ones added to it later."""
+
+    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS all_variants BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1477,6 +1483,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (52, "usage_symbol_facts", _m052_usage_symbol_facts),
     (53, "no_stored_files", _m053_no_stored_files),
     (54, "limit_scopes", _m054_limit_scopes),
+    (55, "follow_all_variants", _m055_follow_all_variants),
 ]
 
 

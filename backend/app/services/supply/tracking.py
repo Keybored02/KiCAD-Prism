@@ -49,7 +49,7 @@ def check_tier(tier: Any, rate: Any) -> tuple[int, str]:
 # --- projects ---------------------------------------------------------------
 
 
-_PROJECT_COLUMNS = "project_id, variants, excluded_ids, assembly_ids, tracked_by, tracked_at"
+_PROJECT_COLUMNS = "project_id, variants, all_variants, excluded_ids, assembly_ids, tracked_by, tracked_at"
 
 
 def _kinds(conn) -> tuple[set[str], set[str]]:
@@ -103,6 +103,25 @@ def project_parts(conn, project_id: str, variants: Sequence[str]) -> list[dict[s
     return [dict(row) for row in rows]
 
 
+def _stored_variants(conn, project_id: str) -> set[str]:
+    return {row["variant"] for row in conn.execute(
+        "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s", (project_id,)
+    ).fetchall()} | {BASE_VARIANT}
+
+
+def follow_new_variants(conn, project_id: str) -> bool:
+    """For a project that follows every design: take in the ones its newest BOM has. True when the list changed."""
+
+    row = conn.execute("SELECT variants, all_variants FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    if not row or not row["all_variants"]:
+        return False
+    now = sorted(_stored_variants(conn, project_id))
+    if now == sorted(row["variants"]):
+        return False
+    conn.execute("UPDATE tracked_projects SET variants = %s WHERE project_id = %s", (now, project_id))
+    return True
+
+
 def track_project(
     conn,
     project_id: str,
@@ -111,21 +130,23 @@ def track_project(
     *,
     connector_ids: Sequence[str] | None = None,
     may_create_manufacturer: bool = True,
+    all_variants: bool = False,
 ) -> dict[str, Any]:
     """Track a project: its chosen variants' parts join tier 1. Returns what was tracked and what was skipped.
 
     ``variants`` names the designs; ``''`` is the base design. ``connector_ids`` limits the distributors the project's
     parts are read at (None: every distributor but those that are assembly-only). It is stored as what is left out, so a
-    distributor added later is used for the project too; assembly-only ones are used only when named.
+    distributor added later is used for the project too; assembly-only ones are used only when named. With ``all_variants`` the
+    project follows every design it has now and any it gets later (``variants`` is then ignored).
     """
 
     actor = actor_text(actor)
     chosen = list(dict.fromkeys(variants)) or [BASE_VARIANT]
     if not conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone():
         raise TrackingError("Prism has not read this project's BOM yet. Open its Visualizers once so the BOM is built.")
-    stored = {row["variant"] for row in conn.execute(
-        "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s", (project_id,)
-    ).fetchall()} | {BASE_VARIANT}
+    stored = _stored_variants(conn, project_id)
+    if all_variants:
+        chosen = sorted(stored)
     unknown = [name for name in chosen if name not in stored]
     if unknown:
         raise TrackingError(f"This project has no design variant named {unknown[0]!r}.")
@@ -150,14 +171,14 @@ def track_project(
         excluded, built_at = sorted(regular - named), sorted(named & assembly)
     conn.execute(
         """
-        INSERT INTO tracked_projects (project_id, variants, excluded_ids, assembly_ids, tracked_by) VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, excluded_ids = EXCLUDED.excluded_ids,
+        INSERT INTO tracked_projects (project_id, variants, all_variants, excluded_ids, assembly_ids, tracked_by) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, all_variants = EXCLUDED.all_variants, excluded_ids = EXCLUDED.excluded_ids,
             assembly_ids = EXCLUDED.assembly_ids
         """,
-        (project_id, chosen, excluded, built_at, actor),
+        (project_id, chosen, all_variants, excluded, built_at, actor),
     )
     write_audit(conn, actor, "tracking.project", project_id,
-                {"variants": chosen, "connector_ids": list(connector_ids) if connector_ids is not None else None},
+                {"variants": chosen, "all_variants": all_variants, "connector_ids": list(connector_ids) if connector_ids is not None else None},
                 subject_kind="project")
     recompute(conn)
     # The distributors may have changed without any tier changing.

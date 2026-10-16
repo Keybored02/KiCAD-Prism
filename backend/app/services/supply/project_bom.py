@@ -124,12 +124,19 @@ def refresh_tracked(
         return {}
     _refreshed_at = time.monotonic()
     tracked = {item["project_id"]: item for item in tracking.list_tracked_projects(conn)}
-    counts = {"updated": 0, "unchanged": 0, "reading": 0}
-    for project, roles in projects(tracked):
+    counts = {"updated": 0, "unchanged": 0, "reading": 0, "removed": 0}
+    found = projects(tracked)
+    # A project deleted from the workspace is no longer followed.
+    for gone in sorted(set(tracked) - {str(project.id) for project, _roles in found}):
+        tracking.untrack_project(conn, gone, "system")
+        counts["removed"] += 1
+    for project, roles in found:
         variants = list(tracked[str(project.id)]["variants"])
         before = _lines(conn, str(project.id), variants)
         status = read(conn, project, roles, now, existing=existing, queue=queue, identities=identities)
         counts[status] = counts.get(status, 0) + 1
         if status == "updated":
             _event(conn, project, roles, before, _lines(conn, str(project.id), variants), now)
+        # A design the new revision added is followed from now on (its parts are not reported as added).
+        tracking.follow_new_variants(conn, str(project.id))
     return counts
