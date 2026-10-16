@@ -261,6 +261,10 @@ export function rejectSupplyListing(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
 }
 
+export function rejectSupplyListings(listingIds: string[]): Promise<{ rejected: number }> {
+  return post(`${BASE}/review/listings/reject-many`, { listing_ids: listingIds }, "Could not take the listings off");
+}
+
 export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = "", offset = 0, limit = 0): Promise<SupplyPartsPage> {
   const params = new URLSearchParams({ scope });
   if (offset > 0) params.set("offset", String(offset));

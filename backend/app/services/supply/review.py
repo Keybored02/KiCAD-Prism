@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.supply import discovery, parts
-from app.services.supply.identity import alias_key
+from app.services.supply.identity import alias_key, match_key
 
 _WAITING_STATES = (discovery.UNRESOLVED, discovery.NEAR)
 
@@ -23,6 +23,32 @@ def manufacturers(conn, *, limit: int = 1000) -> list[dict[str, Any]]:
         (limit,),
     ).fetchall()
     return [{"id": row["id"], "name": row["name"], "part_count": int(row["part_count"])} for row in rows]
+
+
+def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
+    """Listings a person pinned as a part although their number is another one, grouped by part.
+
+    A distributor's loose search returns look-alikes (ACAG0301-2450-T for TSR 1-2450); pinned, their stock counts as the
+    part's. Taking them off is one decision per part.
+    """
+
+    rows = conn.execute(
+        """
+        SELECT l.id, l.sku, l.raw_mpn, c.display_name AS connector, p.id AS part_id, p.mpn, p.match_key, m.name AS manufacturer
+        FROM listings l JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        JOIN connectors c ON c.id = l.connector_id
+        WHERE l.match_state = 'manual' ORDER BY lower(p.mpn), c.display_name, l.sku LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        number = match_key(row["raw_mpn"] or "")
+        if not number or number == row["match_key"]:
+            continue
+        group = groups.setdefault(row["part_id"], {"part_id": row["part_id"], "mpn": row["mpn"], "manufacturer": row["manufacturer"], "listings": []})
+        group["listings"].append({"id": row["id"], "sku": row["sku"], "raw_mpn": row["raw_mpn"], "connector": row["connector"]})
+    return list(groups.values())
 
 
 def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
@@ -84,6 +110,7 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
             }
             for row in rows
         ],
+        "other_numbers": other_number_pins(conn),
         "counts": {"aliases": len(aliases), "unresolved": counts.get(discovery.UNRESOLVED, 0), "near": counts.get(discovery.NEAR, 0)},
         "manufacturers": manufacturers(conn),
     }

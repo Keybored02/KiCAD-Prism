@@ -121,10 +121,21 @@ describe("deciding", () => {
   it("confirms a listing as the part it is a candidate for", async () => {
     mocked.pinSupplyListing.mockResolvedValue(undefined);
     render(<ReviewView user={qa} />);
+    const row = await screen.findByRole("article", { name: "Listing 595-LM358" });
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm as this part" }));
+    await waitFor(() => expect(mocked.pinSupplyListing).toHaveBeenCalledWith("l1"));
+    await waitFor(() => expect(mocked.getSupplyReviewQueue).toHaveBeenCalledTimes(2));
+  });
+
+  it("asks before pinning a listing that has another number than the part", async () => {
+    mocked.pinSupplyListing.mockResolvedValue(undefined);
+    render(<ReviewView user={qa} />);
     const row = await screen.findByRole("article", { name: "Listing 595-LM358DR" });
     fireEvent.click(within(row).getByRole("button", { name: "Confirm as this part" }));
+    expect(await screen.findByText("Same part under another number?")).toBeTruthy();
+    expect(mocked.pinSupplyListing).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Pin anyway" }));
     await waitFor(() => expect(mocked.pinSupplyListing).toHaveBeenCalledWith("l2"));
-    await waitFor(() => expect(mocked.getSupplyReviewQueue).toHaveBeenCalledTimes(2));
   });
 
   it("rejects a listing", async () => {
@@ -138,7 +149,7 @@ describe("deciding", () => {
   it("keeps the row and shows the reason when a decision fails", async () => {
     mocked.pinSupplyListing.mockRejectedValue(new ApiHttpError(403, "Supply review access required"));
     render(<ReviewView user={qa} />);
-    const row = await screen.findByRole("article", { name: "Listing 595-LM358DR" });
+    const row = await screen.findByRole("article", { name: "Listing 595-LM358" });
     fireEvent.click(within(row).getByRole("button", { name: "Confirm as this part" }));
     expect(await within(row).findByRole("alert")).toHaveProperty("textContent", "Supply review access required");
     expect(mocked.getSupplyReviewQueue).toHaveBeenCalledTimes(1);

@@ -98,6 +98,25 @@ async def pin_listing(listing_id: str, approver: AuthenticatedUser = Depends(req
     await _run(run)
 
 
+class RejectManyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    listing_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+@router.post("/listings/reject-many")
+async def reject_listings(body: RejectManyRequest, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, int]:
+    """Take several listings off their part in one go (the pins with another number)."""
+
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            for listing_id in dict.fromkeys(body.listing_ids):
+                discovery.reject_listing(conn, listing_id, approver.email)
+        return {"rejected": len(set(body.listing_ids))}
+
+    return await _run(run)
+
+
 @router.post("/listings/{listing_id}/reject", status_code=204)
 async def reject_listing(listing_id: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> None:
     def run() -> None:

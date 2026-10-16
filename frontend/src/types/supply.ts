@@ -470,9 +470,18 @@ export interface SupplyReviewListing {
   part: { id: string; mpn: string; manufacturer: string } | null;
 }
 
+export interface SupplyOtherNumberGroup {
+  part_id: string;
+  mpn: string;
+  manufacturer: string;
+  listings: Array<{ id: string; sku: string; raw_mpn: string; connector: string }>;
+}
+
 export interface SupplyReviewQueue {
   aliases: SupplyReviewAlias[];
   listings: SupplyReviewListing[];
+  /** Listings pinned as a part although numbered otherwise, by part. */
+  other_numbers?: SupplyOtherNumberGroup[];
   counts: { aliases: number; unresolved: number; near: number };
   manufacturers: SupplyManufacturer[];
 }
@@ -971,6 +980,10 @@ export interface PackagingWaiting {
 export interface PackagingListing {
   id: string;
   sku: string;
+  /** The number the distributor lists it under. */
+  raw_mpn?: string;
+  /** It is listed under another number than the part's. */
+  other_number?: boolean;
   packaging: string;
   moq: number | null;
   order_multiple: number | null;
@@ -988,6 +1001,8 @@ export interface PackagingOptions {
   connector_id: string;
   picked: string | null;
   saves_calls_a_day: number;
+  /** The viewer may take a listing off the part. */
+  can_unpin?: boolean;
   listings: PackagingListing[];
 }
 

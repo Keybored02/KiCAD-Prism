@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import packaging_picks, parts
 
@@ -58,10 +59,11 @@ async def waiting(_user: AuthenticatedUser = Depends(require_supply_reader)) -> 
 
 
 @router.get("/{part_id}/{connector_id}")
-async def options(part_id: str, connector_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+async def options(part_id: str, connector_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return packaging_picks.options(conn, part_id, connector_id)
+            # Taking a listing off the part is a decision for those who may pin one.
+            return {**packaging_picks.options(conn, part_id, connector_id), "can_unpin": user.role in SUPPLY_APPROVE_ROLES}
 
     return await _run(read)
 

@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { SupplyReviewListing } from "@/types/supply";
 import { pinSupplyListing, rejectSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -13,6 +16,9 @@ interface ListingRowProps {
 
 export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
   const { busy, error, run } = useConnectorSubmit();
+  const [confirming, setConfirming] = useState(false);
+  // A pin counts the listing's stock as the part's; with another number that is a claim worth a second look.
+  const otherNumber = Boolean(listing.part) && numberKey(listing.raw_mpn) !== numberKey(listing.part?.mpn ?? "");
   const decide = (action: (id: string) => Promise<void>) =>
     void run(async () => {
       await action(listing.id);
@@ -40,7 +46,7 @@ export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
         </div>
         {canDecide && listing.part ? (
           <div className="flex shrink-0 gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => decide(pinSupplyListing)}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => (otherNumber ? setConfirming(true) : decide(pinSupplyListing))}>
               Confirm as this part
             </Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => decide(rejectSupplyListing)}>
@@ -50,8 +56,23 @@ export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
         ) : null}
       </div>
       {error ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Same part under another number?"
+        description={`${listing.raw_mpn} is not ${listing.part?.mpn ?? "this part"}. Its stock and price will count as the part's.`}
+        confirmLabel="Pin anyway"
+        destructive={false}
+        busy={busy}
+        onConfirm={() => { setConfirming(false); decide(pinSupplyListing); }}
+      />
     </article>
   );
+}
+
+/** A part number without spaces, dashes and case, as the backend compares them. */
+function numberKey(number: string): string {
+  return number.normalize("NFKC").replace(/[\s_\-\u2010-\u2014\u2212]+/g, "").toUpperCase();
 }
 
 function capitalize(text: string): string {

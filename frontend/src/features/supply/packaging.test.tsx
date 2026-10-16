@@ -8,18 +8,23 @@ vi.mock("./packaging-api", () => ({
   listPackagingWaiting: vi.fn(), getPackagingOptions: vi.fn(), pickPackaging: vi.fn(), clearPackagingPick: vi.fn(), applySimilarPicks: vi.fn(),
 }));
 
+vi.mock("./supply-api", () => ({ rejectSupplyListings: vi.fn() }));
+
 import * as api from "./packaging-api";
+import { rejectSupplyListings } from "./supply-api";
 import { PackagingPickDialog } from "./packaging-pick-dialog";
 import { PackagingSection } from "./packaging-section";
 
 const mocked = vi.mocked(api);
+const unpin = vi.mocked(rejectSupplyListings);
 
 const options: PackagingOptions = {
   part_id: "p1", connector_id: "c1", picked: null, saves_calls_a_day: 1,
   listings: [
-    { id: "l1", sku: "C1", packaging: "cut_tape", moq: 1, order_multiple: 1, stock: 500, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": "0.5", "100": "0.4", "1000": "0.4" }, fetched_at: null },
-    { id: "l2", sku: "C2", packaging: "tape_reel", moq: 3000, order_multiple: 3000, stock: 9000, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": null, "100": null, "1000": null }, fetched_at: null },
+    { id: "l1", sku: "C1", packaging: "cut_tape", moq: 1, order_multiple: 1, stock: 500, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": "0.5", "100": "0.4", "1000": "0.4" }, fetched_at: null, raw_mpn: "LM358D", other_number: false },
+    { id: "l2", sku: "C2", packaging: "tape_reel", moq: 3000, order_multiple: 3000, stock: 9000, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": null, "100": null, "1000": null }, fetched_at: null, raw_mpn: "LM358D-T", other_number: true },
   ],
+  can_unpin: true,
 };
 
 beforeEach(() => {
@@ -29,16 +34,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("picking a packaging", () => {
-  it("sets the listings side by side, marks what differs and says what picking saves", async () => {
+  it("lists the listings with chips, marks a different number and says what picking saves", async () => {
     mocked.pickPackaging.mockResolvedValue({ picked: "l2", packaging: "tape_reel", similar: [] });
     const changed = vi.fn();
     const closed = vi.fn();
     render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={closed} onChanged={changed} />);
-    const table = await screen.findByRole("table", { name: "Listings" });
+    const list = await screen.findByRole("list", { name: "Listings" });
     expect(screen.getByText(/saves 1.00 calls a day/)).toBeTruthy();
-    expect(within(table).getByText("Stock *")).toBeTruthy();
-    expect(within(table).getByText("Marketplace")).toBeTruthy();
-    fireEvent.click(within(table).getAllByRole("button", { name: "Pick this" })[1]);
+    expect(within(list).getAllByText("Different number")).toHaveLength(1);
+    expect(within(list).getByText("9,000 in stock")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pick C2" }));
     await waitFor(() => expect(mocked.pickPackaging).toHaveBeenCalledWith("p1", "c1", "l2"));
     await waitFor(() => expect(closed).toHaveBeenCalled());
     expect(changed).toHaveBeenCalled();
@@ -54,11 +59,29 @@ describe("picking a packaging", () => {
     });
     mocked.applySimilarPicks.mockResolvedValue({ picked: 1 });
     render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
-    fireEvent.click((await screen.findAllByRole("button", { name: "Pick this" }))[1]);
+    fireEvent.click(await screen.findByRole("button", { name: "Pick C2" }));
     const list = await screen.findByRole("list", { name: "Similar parts" });
     fireEvent.click(within(list).getByLabelText(/^C, Acme/));
     fireEvent.click(screen.getByRole("button", { name: "Apply to 1" }));
     await waitFor(() => expect(mocked.applySimilarPicks).toHaveBeenCalledWith("c1", "tape_reel", ["p2"]));
+  });
+});
+
+describe("a listing under another number", () => {
+  it("can be unpinned by those who decide, and then leaves the list", async () => {
+    mocked.getPackagingOptions.mockResolvedValue(options);
+    unpin.mockResolvedValue({ rejected: 1 });
+    render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Unpin C2" }));
+    await waitFor(() => expect(unpin).toHaveBeenCalledWith(["l2"]));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Pick C2" })).toBeNull());
+  });
+
+  it("is not offered to those who may only pick", async () => {
+    mocked.getPackagingOptions.mockResolvedValue({ ...options, can_unpin: false });
+    render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
+    await screen.findByRole("button", { name: "Pick C2" });
+    expect(screen.queryByRole("button", { name: "Unpin C2" })).toBeNull();
   });
 });
 

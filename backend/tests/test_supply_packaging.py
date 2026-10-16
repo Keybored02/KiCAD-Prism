@@ -96,6 +96,16 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual(options["listings"][0]["prices"], {"1": "0.5", "100": "0.4", "1000": "0.4"})
         self.assertIsNone(options["picked"])
 
+    def test_a_listing_under_another_number_is_marked_and_unpinning_is_for_those_who_decide(self) -> None:
+        a = self.part("A", ("cut_tape", "tape_reel"))
+        with self.store.connection() as conn:
+            conn.execute("UPDATE listings SET raw_mpn = 'A' WHERE id = 'A-0'")
+            conn.execute("UPDATE listings SET raw_mpn = 'A-T' WHERE id = 'A-1'")
+        options = self.call("GET", f"/{a}/{self.cid}").json
+        self.assertEqual([item["other_number"] for item in options["listings"]], [False, True])
+        self.assertFalse(options["can_unpin"])
+        self.assertTrue(self.call("GET", f"/{a}/{self.cid}", role="qa").json["can_unpin"])
+
     def test_a_pick_follows_one_listing_counts_only_its_stock_and_cuts_the_cost(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"), stock=100)
         with self.store.connection() as conn:

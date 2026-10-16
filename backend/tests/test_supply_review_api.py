@@ -141,6 +141,18 @@ class SupplyReviewApiTests(unittest.TestCase):
         self.assertEqual(by_sku["S2"]["match_reason"], "different part number")
         self.assertEqual(queue["manufacturers"], [{"id": self.part.manufacturer_id, "name": "Texas Instruments", "part_count": 1}])
 
+    def test_listings_pinned_under_another_number_are_listed_by_part_and_taken_off_together(self) -> None:
+        self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [])
+        self.assertEqual(self.call("POST", f"/api/supply/review/listings/{self.listing_id('S2')}/pin").status, 204)
+        self.assertEqual(self.call("POST", f"/api/supply/review/listings/{self.listing_id('S1')}/pin").status, 204)
+        (group,) = self.call("GET", "/api/supply/review").json["other_numbers"]
+        self.assertEqual((group["mpn"], [item["sku"] for item in group["listings"]]), ("LM358D", ["S2"]), "S1 has the part's own number")
+        ids = [item["id"] for item in group["listings"]]
+        self.assertEqual(self.call("POST", "/api/supply/review/listings/reject-many", body={"listing_ids": ids}, role="designer").status, 403)
+        self.assertEqual(self.call("POST", "/api/supply/review/listings/reject-many", body={"listing_ids": ids}).json, {"rejected": 1})
+        self.assertEqual(self.listing_state("S2"), "rejected")
+        self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [])
+
     # --- decisions --------------------------------------------------------
 
     def test_a_spelling_nothing_waits_on_is_not_listed(self) -> None:

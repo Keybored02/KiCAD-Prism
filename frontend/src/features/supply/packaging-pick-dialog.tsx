@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -6,19 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { PackagingListing, PackagingOptions, PackagingSimilar } from "@/types/supply";
+import { rejectSupplyListings } from "./supply-api";
 import { applySimilarPicks, clearPackagingPick, getPackagingOptions, pickPackaging } from "./packaging-api";
 
-const ROWS: ReadonlyArray<{ label: string; value: (item: PackagingListing) => string }> = [
-  { label: "Packaging", value: (item) => item.packaging.replace("_", " ") },
-  { label: "SKU", value: (item) => item.sku },
-  { label: "Minimum order", value: (item) => (item.moq === null ? "" : `${item.moq} in ${item.order_multiple ?? 1}s`) },
-  { label: "Price at 1", value: (item) => (item.prices["1"] ? `${item.prices["1"]} ${item.currency}` : "") },
-  { label: "Price at 100", value: (item) => (item.prices["100"] ? `${item.prices["100"]} ${item.currency}` : "") },
-  { label: "Price at 1,000", value: (item) => (item.prices["1000"] ? `${item.prices["1000"]} ${item.currency}` : "") },
-  { label: "Stock", value: (item) => (item.stock === null ? "" : item.stock.toLocaleString()) },
-  { label: "Lead time", value: (item) => (item.lead_time_days === null ? "" : `${item.lead_time_days} days`) },
-  { label: "Marketplace", value: (item) => (item.marketplace ? "yes" : "no") },
-];
+const money = (item: PackagingListing, quantity: string) => (item.prices[quantity] ? `${item.prices[quantity]} ${item.currency}` : "");
+
+function Chip({ children, tone }: { children: ReactNode; tone?: "warning" }) {
+  return <span className={tone === "warning" ? "bg-warning/15 px-2 py-0.5 text-warning" : "bg-secondary px-2 py-0.5"}>{children}</span>;
+}
 
 /** Listings of one part at one distributor, side by side, values that differ marked. Pick the one to follow. */
 export function PackagingPickDialog({
@@ -37,11 +32,6 @@ export function PackagingPickDialog({
     return () => controller.abort();
   }, [partId, connectorId]);
 
-  const differs = useMemo(
-    () => new Set(ROWS.filter((row) => new Set((options?.listings ?? []).map(row.value)).size > 1).map((row) => row.label)),
-    [options],
-  );
-
   const pick = (listing: PackagingListing) => {
     pickPackaging(partId, connectorId, listing.id)
       .then((result) => {
@@ -50,6 +40,15 @@ export function PackagingPickDialog({
         setSimilar({ packaging: result.packaging, items: result.similar });
         setChosen(new Set(result.similar.map((item) => item.part_id)));
         setOptions((current) => (current ? { ...current, picked: listing.id } : current));
+      })
+      .catch((caught: Error) => setError(caught.message));
+  };
+  const unpin = (listing: PackagingListing) => {
+    rejectSupplyListings([listing.id])
+      .then(() => {
+        onChanged();
+        setOptions((current) => (current ? { ...current, listings: current.listings.filter((item) => item.id !== listing.id) } : current));
+        toast.success(`${listing.sku} taken off the part`);
       })
       .catch((caught: Error) => setError(caught.message));
   };
@@ -70,41 +69,46 @@ export function PackagingPickDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="w-[min(95vw,64rem)] sm:max-w-none">
         <DialogHeader>
           <DialogTitle>{similar ? "Same for similar parts?" : "Pick a packaging"}</DialogTitle>
           <DialogDescription>
             {similar
               ? `These parts at this distributor offer the same packagings. Pick ${similar.packaging.replace("_", " ")} for the ones you tick.`
-              : "Only the listing you pick is read, and only its stock counts. Values that differ are marked."}
+              : "Only the listing you pick is read, and only its stock counts."}
           </DialogDescription>
         </DialogHeader>
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         {!similar && options ? (
           <div className="space-y-2">
-            {options.saves_calls_a_day > 0 ? <p className="text-sm">Picking saves {options.saves_calls_a_day.toFixed(2)} calls a day at this distributor.</p> : null}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs" aria-label="Listings">
-                <tbody>
-                  {ROWS.map((row) => (
-                    <tr key={row.label} className="border-t">
-                      <th scope="row" className="py-1 pr-2 text-left font-normal text-muted-foreground">{row.label}{differs.has(row.label) ? " *" : ""}</th>
-                      {options.listings.map((item) => <td key={item.id} className={differs.has(row.label) ? "px-2 font-medium" : "px-2"}>{row.value(item)}</td>)}
-                    </tr>
-                  ))}
-                  <tr className="border-t">
-                    <td />
-                    {options.listings.map((item) => (
-                      <td key={item.id} className="px-2 py-1">
-                        <Button size="sm" variant={options.picked === item.id ? "default" : "outline"} onClick={() => pick(item)}>
-                          {options.picked === item.id ? "Picked" : "Pick this"}
-                        </Button>
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            {options.saves_calls_a_day > 0 ? <p className="text-xs text-muted-foreground">Picking saves {options.saves_calls_a_day.toFixed(2)} calls a day here.</p> : null}
+            <ul className="max-h-[60vh] divide-y overflow-y-auto border" aria-label="Listings">
+              {options.listings.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 hover:bg-muted/30">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{item.sku}</p>
+                    <p className="truncate text-xs text-muted-foreground">{item.raw_mpn || "No number listed"}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    {item.other_number ? <Chip tone="warning">Different number</Chip> : null}
+                    <Chip>{item.packaging.replace("_", " ")}</Chip>
+                    {item.stock !== null ? <Chip>{item.stock.toLocaleString()} in stock</Chip> : null}
+                    {money(item, "100") ? <Chip>{money(item, "100")} at 100</Chip> : null}
+                    {item.moq !== null ? <Chip>min {item.moq}{(item.order_multiple ?? 1) > 1 ? ` in ${item.order_multiple}s` : ""}</Chip> : null}
+                    {item.lead_time_days !== null ? <Chip>{item.lead_time_days} days</Chip> : null}
+                    {item.marketplace ? <Chip>Marketplace</Chip> : null}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {item.other_number && options.can_unpin ? (
+                      <Button size="sm" variant="ghost" aria-label={`Unpin ${item.sku}`} onClick={() => unpin(item)}>Unpin</Button>
+                    ) : null}
+                    <Button size="sm" variant={options.picked === item.id ? "default" : "outline"} aria-label={`Pick ${item.sku}`} onClick={() => pick(item)}>
+                      {options.picked === item.id ? "Picked" : "Pick"}
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
         {similar ? (
