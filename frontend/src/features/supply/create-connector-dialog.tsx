@@ -75,7 +75,7 @@ function CreateForm({
       }}
     >
       <DialogHeader>
-        <DialogTitle>Add connector</DialogTitle>
+        <DialogTitle>Add Connector</DialogTitle>
         <DialogDescription>One connector per provider and storefront. Credentials are stored encrypted.</DialogDescription>
       </DialogHeader>
 

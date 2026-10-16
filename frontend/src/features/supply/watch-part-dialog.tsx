@@ -76,7 +76,7 @@ function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (wa
       }}
     >
       <DialogHeader>
-        <DialogTitle>Watch a part</DialogTitle>
+        <DialogTitle>Track a Part</DialogTitle>
         <DialogDescription>
           Prism looks for it at your connectors, reads its stock and price regularly, and warns before it runs out.
         </DialogDescription>

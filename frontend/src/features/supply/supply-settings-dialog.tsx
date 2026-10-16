@@ -35,7 +35,7 @@ export function SupplySettingsDialog({ open, onOpenChange }: SupplySettingsDialo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Supply settings</DialogTitle>
+          <DialogTitle>Supply Settings</DialogTitle>
           <DialogDescription>
             How parts are judged. A change applies to every health figure and status from now on, and is recorded.
           </DialogDescription>

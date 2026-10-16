@@ -71,7 +71,7 @@ export function PackagingPickDialog({
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="w-[min(95vw,64rem)] sm:max-w-none">
         <DialogHeader>
-          <DialogTitle>{similar ? "Same for similar parts?" : "Pick a packaging"}</DialogTitle>
+          <DialogTitle>{similar ? "Same for Similar Parts?" : "Pick a Packaging"}</DialogTitle>
           <DialogDescription>
             {similar
               ? `These parts at this distributor offer the same packagings. Pick ${similar.packaging.replace("_", " ")} for the ones you tick.`

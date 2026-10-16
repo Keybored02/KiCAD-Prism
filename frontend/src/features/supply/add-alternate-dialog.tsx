@@ -54,7 +54,7 @@ function AlternateForm({ componentId, approves, onClose, onAdded }: Omit<AddAlte
       }}
     >
       <DialogHeader>
-        <DialogTitle>Add an alternate</DialogTitle>
+        <DialogTitle>Add an Alternate</DialogTitle>
         <DialogDescription>
           {approves
             ? "Another manufacturer part that may stand in for this component. It is approved as you add it."

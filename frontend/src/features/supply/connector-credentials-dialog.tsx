@@ -63,7 +63,7 @@ function CredentialsForm({
       }}
     >
       <DialogHeader>
-        <DialogTitle>Replace credentials</DialogTitle>
+        <DialogTitle>Replace Credentials</DialogTitle>
         <DialogDescription>
           Saved credentials are never shown. Enter every value to replace them.
         </DialogDescription>
