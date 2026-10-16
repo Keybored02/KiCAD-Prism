@@ -94,7 +94,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
 
   return (
     <div className="relative h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-4xl space-y-5">
+      <div className="space-y-5">
         <div className="flex flex-wrap items-start justify-end gap-3">
           <PermissionHint blocked={!isAdmin} action="add connectors" allowedRoles={["admin"]}>
             <Button disabled={!canAdd} onClick={() => setDialog({ kind: "create" })}>
@@ -117,7 +117,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
         ) : null}
         {status === "ready" && connectors.length === 0 ? <EmptyState noProviders={providers.length === 0} isAdmin={isAdmin} /> : null}
         {status === "ready" && connectors.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(24rem,1fr))] gap-3">
             {connectors.map((connector) => (
               <ConnectorCard
                 key={connector.id}
@@ -189,7 +189,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
 
 function ConnectorsSkeleton() {
   return (
-    <div className="grid gap-3 md:grid-cols-2" aria-label="Loading connectors">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(24rem,1fr))] gap-3" aria-label="Loading connectors">
       <Skeleton className="h-44 w-full" />
       <Skeleton className="h-44 w-full" />
     </div>

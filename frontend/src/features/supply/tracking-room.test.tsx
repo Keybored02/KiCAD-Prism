@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TrackingRoom, TrackingRoomAccount } from "@/types/supply";
@@ -53,7 +53,10 @@ describe("room to track", () => {
       { daily: { room: 794, limited_by: "DigiKey" }, weekly: { room: 3146, limited_by: "DigiKey" } },
     ));
     render(<TrackingRoomSection />);
-    const section = await screen.findByRole("region", { name: "Room to track" });
+    const section = await screen.findByRole("region", { name: "Call budget" });
+    expect(within(section).getByRole("progressbar", { name: "Daily parts committed calls" }).getAttribute("aria-valuenow")).toBe("1");
+    expect(within(section).queryByRole("row", { name: /TME/ })).toBeNull();
+    fireEvent.click(within(section).getByRole("button", { name: /Per distributor/ }));
     const tme = within(section).getByRole("row", { name: /TME/ });
     expect(within(tme).getByText("32,000")).toBeTruthy();
     expect(within(tme).getByText(/spent 1.5 calls a day last week, against 1.2 estimated/)).toBeTruthy();
