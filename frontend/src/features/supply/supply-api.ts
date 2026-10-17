@@ -397,6 +397,15 @@ export async function clearPreferredDistributor(partId: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preferred`, { method: "DELETE" }, "Could not clear the preferred distributor");
 }
 
+/** Mark a part export controlled (with its class) or not; it wins over what distributors state. */
+export async function setTradeMark(partId: string, control: "controlled" | "none", eccn: string): Promise<void> {
+  await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/trade-mark`, { method: "PUT", body: JSON.stringify({ control, eccn }) }, "Could not set the export control");
+}
+
+export async function clearTradeMark(partId: string): Promise<void> {
+  await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/trade-mark`, { method: "DELETE" }, "Could not clear the export control");
+}
+
 /** A part's stock and price per distributor over the last `days` days. */
 export function getPartHistory(partId: string, days: number, signal?: AbortSignal): Promise<PartHistory> {
   return fetchJson<PartHistory>(`${BASE}/parts/${encodeURIComponent(partId)}/history?days=${days}`, { signal }, "Could not load the history");

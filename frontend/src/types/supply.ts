@@ -710,6 +710,14 @@ export interface SupplyPartDetail {
   };
   /** The distributor a person prefers for this part: shown first. */
   preferred_connector_id?: string | null;
+  /** Export control: what distributors state, and a person's mark that wins over it. */
+  trade?: {
+    control: "controlled" | "none" | "disputed" | "unknown";
+    eccn: string[];
+    stated: string;
+    stated_eccn: string[];
+    mark: { control: "controlled" | "none"; eccn: string; set_by: string; set_at: string } | null;
+  };
 }
 
 export interface SupplyManufacturer {
@@ -1317,6 +1325,12 @@ export interface SupplyDashboard {
   alerts_by_day: Array<Record<string, number | string>>;
   project_costs: Array<{ project_id: string; project_name: string; currency: string; points: Array<[string, number]> }>;
   insights_ready: number;
+  /** Lifecycle against availability, a row per lifecycle. */
+  risk_grid: Array<{ lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown"; two_plus: number; one: number; out: number; not_read: number }>;
+  /** Last-time-buy and last-ship dates in the next year, soonest first. */
+  deadlines: Array<{ part_id: string; mpn: string; manufacturer: string; kind: "last_time_buy" | "last_time_ship" | "last_buy_date"; date: string; source: string; url: string }>;
+  /** The tracked projects with their closed-row figures. */
+  projects: Array<{ project_id: string; project_name: string; count: number; statuses: Partial<Record<SupplyStatus, number>>; stats: SupplyGroupStats }>;
 }
 
 export interface SupplyDistributorBehaviour {
@@ -1336,4 +1350,21 @@ export interface SupplyInsightsPage {
   market: SupplyMarket;
   /** The last stored values of each market figure over all followed parts, oldest first. */
   market_trends: Record<string, number[]>;
+  sourcing: {
+    coverage: Array<{ connector_id: string; name: string; provider: string; tracked: number; listed: number; in_stock: number; cheapest: number }>;
+    resilience: Record<"none" | "one" | "two" | "three_plus" | "unknown" | "not_read", number>;
+  };
+  lifecycle: {
+    mix: Record<"active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown", number>;
+    outlook: Record<"ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown", number>;
+    compliance: { rohs: Record<"compliant" | "not_compliant" | "not_applicable" | "unknown", number>; reach: Record<"compliant" | "affected" | "not_applicable" | "unknown", number> };
+  };
+  lead_times: Array<{ bucket: "under_2w" | "2_to_8w" | "8_to_16w" | "16_to_26w" | "over_26w" | "none"; parts: number }>;
+  price_movers: { up: Array<{ part_id: string; mpn: string; manufacturer: string; percent: number }>; down: Array<{ part_id: string; mpn: string; manufacturer: string; percent: number }> };
+  trade: {
+    origins: Array<{ country: string; parts: number }>;
+    other_origins: number;
+    control: Record<"controlled" | "none" | "disputed" | "unknown", number>;
+    controlled: Array<{ part_id: string; mpn: string; manufacturer: string; eccn: string; state: "controlled" | "disputed"; by_person: boolean }>;
+  };
 }

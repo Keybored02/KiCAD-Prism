@@ -80,9 +80,11 @@ describe("the dashboard", () => {
     expect(tile.textContent).toContain("1 in 7 days");
     fireEvent.click(await screen.findByRole("button", { name: "Under 2 weeks: 1" }));
     expect(search()).toContain("partsOnly=runs_out_2w");
-    fireEvent.click(screen.getByRole("button", { name: "Needs attention: 1" }));
-    expect(search()).toContain("partsOnly=at_risk");
-    fireEvent.click(screen.getByRole("button", { name: /^One distributor/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Not recommended for new designs, 2+ distributors: 0" }));
+    expect(search()).not.toContain("partsOnly=lifecycle");
+    fireEvent.click(screen.getByRole("button", { name: "Not recommended for new designs, Out: 1" }));
+    expect(search()).toContain("partsOnly=lifecycle");
+    fireEvent.click(screen.getByRole("button", { name: "Active, One: 1" }));
     expect(search()).toContain("partsOnly=one_distributor");
   });
 
@@ -105,17 +107,24 @@ describe("the dashboard", () => {
     expect(screen.getByText("PCN-1")).toBeTruthy();
   });
 
-  it("narrows the alerts when a kind is chosen in the chart's legend", async () => {
-    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ alerts_by_day: [{ day: "2026-03-01", out_of_stock: 1, pcn: 1 }] }));
-    mocked.listSupplyAlerts.mockResolvedValue({ items: [
-      alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } }),
-      alertFixture({ id: 2, kind: "pcn", severity: "warning", mpn: "PCN-1", detail: { title: "Change" } }),
-    ] });
+  it("lists the dates that cannot be missed, soonest first, and the tracked projects", async () => {
+    const soon = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({
+      deadlines: [{ part_id: "p7", mpn: "OLD-7", manufacturer: "Acme", kind: "last_time_buy", date: soon, source: "notice", url: "" }],
+      projects: [{
+        project_id: "prj_1", project_name: "Power board", count: 3, statuses: { error: 1, ok: 2 },
+        stats: { at_risk: 1, out: 0, end_of_life: 0, one_distributor: 2, runs_out_soon: 0, boards: 120, cost_per_board: "18.40", currency: "EUR", cost_change_percent: 3 },
+      }],
+    }));
     renderView();
-    const legend = await screen.findByRole("list", { name: "Kinds of alert" });
-    fireEvent.click(within(legend).getByRole("button", { name: "Change notice" }));
-    expect(screen.queryByText("OOS-1")).toBeNull();
-    expect(screen.getByText("PCN-1")).toBeTruthy();
+    const deadlines = await screen.findByRole("region", { name: "Dates you cannot miss" });
+    expect(within(deadlines).getByText("OLD-7")).toBeTruthy();
+    expect(within(deadlines).getByText("in 20 days")).toBeTruthy();
+    fireEvent.click(within(deadlines).getByRole("button", { name: "OLD-7" }));
+    expect(search()).toContain("part=p7");
+    const projects = screen.getByRole("region", { name: "Tracked projects" });
+    expect(within(projects).getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
+    expect(within(projects).getByText("120")).toBeTruthy();
   });
 
   it("opens a part from an alert", async () => {

@@ -43,6 +43,25 @@ function page(overrides: Partial<SupplyInsightsPage> = {}): SupplyInsightsPage {
         { scope: "TI", kind: "manufacturer", sample: 4, metrics: { out_of_stock: { value: 0.5, before: 0.1 } } },
       ],
     },
+    sourcing: {
+      coverage: [{ connector_id: "c1", name: "DigiKey", provider: "digikey", tracked: 6, listed: 5, in_stock: 4, cheapest: 3 }],
+      resilience: { none: 1, one: 2, two: 2, three_plus: 1, unknown: 0, not_read: 0 },
+    },
+    lifecycle: {
+      mix: { active: 4, nrnd: 1, last_time_buy: 0, obsolete: 0, unknown: 1 },
+      outlook: { ended: 0, under_2_years: 1, "2_to_5_years": 0, no_signs: 4, unknown: 1 },
+      compliance: { rohs: { compliant: 4, not_compliant: 1, not_applicable: 0, unknown: 1 }, reach: { compliant: 3, affected: 0, not_applicable: 0, unknown: 3 } },
+    },
+    lead_times: [
+      { bucket: "under_2w", parts: 1 }, { bucket: "2_to_8w", parts: 2 }, { bucket: "8_to_16w", parts: 1 }, { bucket: "16_to_26w", parts: 1 },
+      { bucket: "over_26w", parts: 0 }, { bucket: "none", parts: 1 },
+    ],
+    price_movers: { up: [{ part_id: "p3", mpn: "NE5532", manufacturer: "TI", percent: 12 }], down: [] },
+    trade: {
+      origins: [{ country: "Malaysia", parts: 3 }, { country: "Unknown", parts: 3 }], other_origins: 0,
+      control: { controlled: 1, none: 3, disputed: 0, unknown: 2 },
+      controlled: [{ part_id: "p9", mpn: "ADS1115", manufacturer: "TI", eccn: "3A991", state: "controlled", by_person: false }],
+    },
     ...overrides,
   };
 }
@@ -64,7 +83,7 @@ describe("the insights page", () => {
   it("has a section for each question, with a way to jump to it", async () => {
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });
-    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Runway", "Market", "Distributors"]);
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Runway", "Sourcing", "Lifecycle and compliance", "Lead times and prices", "Market", "Trade"]);
     expect(screen.getByText("TI: 50% of the parts you follow are out of stock, up from 10%.")).toBeTruthy();
   });
 
@@ -75,7 +94,7 @@ describe("the insights page", () => {
     expect(screen.getByText(/3 without a falling rate yet, 1 without a quoted lead time/)).toBeTruthy();
     expect(await screen.findByRole("button", { name: "LM358" })).toBeTruthy();
     expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "draining", 0, 50, "");
-    fireEvent.click(screen.getByRole("button", { name: /One distributor/ }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Finding" })).getByRole("button", { name: /One distributor/ }));
     await screen.findByRole("button", { name: "LM358" });
     expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "one_distributor", 0, 50, "");
   });
@@ -102,5 +121,18 @@ describe("the insights page", () => {
     expect(await screen.findByText("Backend is down")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("navigation", { name: "Insights" })).toBeTruthy();
+  });
+});
+
+describe("the insights sections added with the rework", () => {
+  it("shows coverage, lifecycle with its unknown, lead times, price movers and trade", async () => {
+    renderView();
+    expect(await screen.findByText("DigiKey lists 5 of 6 parts")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Not recommended for new designs: 1" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Lifecycle" })).toBeTruthy();
+    expect(screen.getByText("1 part is quoted over 16 weeks")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "NE5532" })).toBeTruthy();
+    expect(screen.getByText("1 part is export controlled")).toBeTruthy();
+    expect(screen.getByText("3A991")).toBeTruthy();
   });
 });

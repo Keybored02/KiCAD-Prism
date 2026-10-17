@@ -4,9 +4,9 @@ import { useSearchParams } from "react-router-dom";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { SupplyInsightsPage } from "@/types/supply";
+import type { PartsFilter, SupplyInsightsPage } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
-import { DistributorsSection } from "./distributors-section";
+import { LeadAndPricesSection, LifecycleSection, SourcingSection, TradeSection } from "./insights-sections";
 import { MarketSection } from "./market-section";
 import { getSupplyInsights } from "./supply-api";
 import { useLoaded } from "./use-loaded";
@@ -17,8 +17,11 @@ const RunwaySection = lazy(() => import("./runway-section").then((module) => ({ 
 const SECTIONS = [
   { id: "signals", label: "Signals" },
   { id: "runway", label: "Runway" },
+  { id: "sourcing", label: "Sourcing" },
+  { id: "lifecycle", label: "Lifecycle and compliance" },
+  { id: "lead-times", label: "Lead times and prices" },
   { id: "market", label: "Market" },
-  { id: "distributors", label: "Distributors" },
+  { id: "trade", label: "Trade" },
 ] as const;
 
 const jump = (id: string) => document.getElementById(`insights-${id}`)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -49,6 +52,7 @@ export function InsightsView() {
   const page = loaded.data;
   const signals = page.market.signals ?? [];
   const openGroup = (name: string) => go("parts", { partsQ: name });
+  const openFilter = (filter: PartsFilter) => go("parts", filter ? { partsOnly: filter } : {});
 
   return (
     <div className="h-full overflow-y-auto">
@@ -75,14 +79,29 @@ export function InsightsView() {
             <div className="p-3"><Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwaySection page={page} onOpen={openPart} /></Suspense></div>
           </CollapsibleSection>
         </div>
+        <div id="insights-sourcing" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={page.sourcing.coverage.length} startOpen>
+            <div className="p-3"><SourcingSection page={page} onOpen={openFilter} /></div>
+          </CollapsibleSection>
+        </div>
+        <div id="insights-lifecycle" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-lifecycle" title="Lifecycle and compliance" count={-1} startOpen>
+            <div className="p-3"><LifecycleSection page={page} onOpen={openFilter} /></div>
+          </CollapsibleSection>
+        </div>
+        <div id="insights-lead-times" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-lead-times" title="Lead times and prices" count={-1} startOpen>
+            <div className="p-3"><LeadAndPricesSection page={page} onOpenPart={openPart} /></div>
+          </CollapsibleSection>
+        </div>
         <div id="insights-market" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-market" title="Market, your parts" count={page.market.scopes.length} startOpen>
             <div className="p-3"><MarketSection market={page.market} trends={page.market_trends} onOpenGroup={openGroup} /></div>
           </CollapsibleSection>
         </div>
-        <div id="insights-distributors" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-distributors" title="Distributors" count={page.distributors.repricing.length} startOpen>
-            <div className="p-3"><DistributorsSection distributors={page.distributors} /></div>
+        <div id="insights-trade" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-trade" title="Trade" count={-1} startOpen>
+            <div className="p-3"><TradeSection page={page} onOpenPart={openPart} /></div>
           </CollapsibleSection>
         </div>
       </div>

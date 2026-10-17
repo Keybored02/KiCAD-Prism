@@ -22,6 +22,7 @@ import { ParametersSection } from "./parameters-section";
 import { PriceTrend } from "./price-trend";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
 import { TrackingControl } from "./tracking-control";
+import { TradeTag } from "./trade-tag";
 import { WatchSettings } from "./watch-settings";
 import { VendorName } from "./vendor-name";
 
@@ -48,6 +49,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             <Badge variant={detail.lifecycle === "active" || detail.lifecycle === "unknown" ? "outline" : "warning"}>
               {LIFECYCLE_LABEL[detail.lifecycle]}
             </Badge>
+            <TradeTag partId={detail.part.id} trade={detail.trade} canEdit={canEdit} onChanged={onChanged} />
             {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
           </div>
         </div>

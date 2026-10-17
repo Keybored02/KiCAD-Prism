@@ -5,11 +5,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@/types/auth";
-import type { PartsFilter, SupplyDashboard, SupplyOverview, SupplyReviewQueue, SupplyStatus } from "@/types/supply";
+import type { PartsFilter, SupplyDashboard, SupplyOverview, SupplyReviewQueue } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
-import { HoldersCard, RunwayCard, StatusBarCard } from "./dashboard-charts";
-import { AlertsByDayCard, ProjectCostCard } from "./dashboard-lazy-cards";
+import { RunwayCard } from "./dashboard-charts";
+import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
 import { TileButton, type Tile } from "./dashboard-tiles";
 import { RecentChanges } from "./recent-changes";
 import { getSupplyDashboard, getSupplyReviewQueue } from "./supply-api";
@@ -20,9 +20,6 @@ import { useSupplyOverview } from "./use-supply-parts";
 
 const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
   out_now: "out_of_stock", runs_out_2w: "runs_out_2w", runs_out_8w: "runs_out_8w", runs_out_later: "runs_out_later", steady: "steady", few_readings: "few_readings",
-};
-const HOLDERS_FILTER: Record<keyof SupplyDashboard["holders"], PartsFilter> = {
-  none: "out_of_stock", one: "one_distributor", two: "", three_plus: "", unknown: "few_readings",
 };
 
 function reviewCountOf(review: SupplyReviewQueue | null | undefined): number | undefined {
@@ -52,7 +49,6 @@ export function DashboardView({ user }: { user: User | null }) {
     { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
     { label: "Needs you", value: reviewCountOf(review.data), icon: ListChecks, onClick: () => go("review") },
   ];
-  const openStatus = (status: SupplyStatus) => parts(status === "ok" || status === "unknown" ? "" : "at_risk")();
 
   return (
     <div className="relative h-full overflow-y-auto p-4">
@@ -74,11 +70,10 @@ export function DashboardView({ user }: { user: User | null }) {
             </div>
             {overview.data ? <p className="text-xs text-muted-foreground">{dataAge(overview.data)}</p> : null}
             <div className="grid gap-3 lg:grid-cols-2">
-              <StatusBarCard statuses={data.statuses} onOpen={openStatus} />
+              <RiskGridCard grid={data.risk_grid} onOpen={(filter) => parts(filter)()} />
+              <DeadlinesCard deadlines={data.deadlines} onOpenPart={openPart} />
               <RunwayCard runway={data.runway} onOpen={(key) => parts(RUNWAY_FILTER[key])()} />
-              <HoldersCard holders={data.holders} onOpen={(key) => parts(HOLDERS_FILTER[key])()} />
-              <AlertsByDayCard days={data.alerts_by_day} onKind={(kind) => { setAlertKind(kind); document.getElementById("dashboard-alerts")?.scrollIntoView?.(); }} />
-              {data.project_costs.length > 0 ? <ProjectCostCard projects={data.project_costs} /> : null}
+              <ProjectsTableCard projects={data.projects} />
             </div>
           </>
         ) : null}
