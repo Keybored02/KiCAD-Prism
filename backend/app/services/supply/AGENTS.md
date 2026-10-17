@@ -59,6 +59,12 @@ root first.
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
+| `notice_budget.py` | The change-notice allowance of a provider with a quota of its own (DigiKey, 50 a day): counted in `call_counts`, not in the product budget; five kept for people, scheduled reads spread over the interval that fits, untracked parts last. |
+| `part_history.py` | A part's stock and price per distributor over a number of days, carried to each listing's last read, for the part sheet's lines and its larger dialog. |
+| `preferences.py` | A person's preferred distributor for a part (`part_preferences`); it orders and marks, and prices the BOM when the setting is on. |
+| `trade_marks.py` | Whether a part is export controlled: what distributors state, and a person's mark that wins. |
+| `risk_views.py` | The Dashboard and Insights risk views: lifecycle against availability, deadlines, distributor coverage, lifecycle and compliance mixes, lead times, price movers, trade. |
+| `providers/packaging_hints.py` | Packaging read from words, and guessed from a SKU or order terms when a distributor says nothing (marked inferred). |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings of admitted pairs (the picked listing when one is picked), tier 1 first, in batches within the call budget, and records offers; a sample only when something changed or the last is a day old. `spare=` reads waiting pairs or tier-2 parts early from spare budget. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |

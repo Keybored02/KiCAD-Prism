@@ -112,10 +112,12 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, l.sku, l.raw_mpn, l.raw_manufacturer,
-               l.match_state, l.match_reason, l.first_seen_at,
+               l.match_state, l.match_reason, l.first_seen_at, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
+               o.reel_size, o.packaging_inferred,
                p.id AS part_id, p.mpn AS part_mpn, m.name AS part_manufacturer
         FROM listings l
         JOIN connectors c ON c.id = l.connector_id
+        LEFT JOIN offers o ON o.listing_id = l.id
         LEFT JOIN parts p ON p.id = l.part_id
         LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
         WHERE l.match_state = ANY(%s)
@@ -157,6 +159,7 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
                 "raw_manufacturer": row["raw_manufacturer"],
                 "match_state": row["match_state"],
                 "match_reason": row["match_reason"],
+                "packaging": row["packaging"], "reel_size": row["reel_size"], "packaging_inferred": bool(row["packaging_inferred"]),
                 "first_seen_at": row["first_seen_at"].isoformat(),
                 "part": (
                     {"id": row["part_id"], "mpn": row["part_mpn"], "manufacturer": row["part_manufacturer"]}

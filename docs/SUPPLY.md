@@ -8,11 +8,11 @@ and no purchase support.
 
 | Place | What it answers |
 | --- | --- |
-| **Supply > Dashboard** | What needs a person: counts with their change over seven days and a 30-day line (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), charts that open the parts behind them (parts by status, when stock runs out, how many distributors hold stock, alerts opened over 30 days, the cost of one board per tracked project; each has a table view behind an icon), then the alerts with a chip for each kind, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
+| **Supply > Dashboard** | What needs a person: counts with their change over seven days and a 30-day line (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then what is behind them: a grid of lifecycle against how many distributors hold stock (unknown is its own row and column), the last-time-buy and last-ship dates of the next year in days, when stock runs out, and a table of the tracked projects (parts at risk, parts held by one distributor, boards the stock covers, cost per board and its 30-day move). Each opens the parts or the project behind it and has a table view behind an icon. Then the alerts with a chip for each kind and how long each has been open, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
 | **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
-| **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). |
+| **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). A closed row has three lines: the designs and packaging followed, a bar of the parts by status with the counts that need a look (at risk, out, end of life, one distributor, running out within two weeks), and for a tracked project its cost per board and 30-day move, how many boards the stock covers, how old the BOM read is and its open alerts. An arrow button opens the project. |
 | **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
-| **Supply > Insights** | One page, four sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Market, Distributors (how often each changes price, who moves first, who restocks first, arrivals on time, across all tracked parts). |
+| **Supply > Insights** | One page, seven sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Sourcing (how many of your parts each distributor lists, holds and is cheapest for; how many distributors hold each part; and, folded away, how often each changes price, who moves first, who restocks first, arrivals on time), Lifecycle and compliance (lifecycle mix, when parts will end, RoHS and REACH), Lead times and prices (lead times in buckets, the biggest price rises and falls over 30 days), Market, Trade (country of origin, export controlled parts). Unknown is always its own grey bar. |
 | **Supply > Connectors** | Distributor accounts and the call budget. |
 | **Project > Supply** | How one product stands: tracking, its parts, releases, line notes. Reads the stored BOM of the default branch, never a checked-out commit. |
 | **Project > Visualizers > BOM** | This BOM line, now. Supply shows only at the latest revision, not at a commit checked out from History. |
@@ -34,7 +34,7 @@ Supply > Connectors. One connector per provider and storefront.
 | --- | --- | --- |
 | TME | API token and secret | Prices follow the account's country. |
 | Mouser | API key | Answers in the account's language. About 1,000 calls a day. |
-| DigiKey | Client id and secret | One part per call, so it is slow for large watchlists. The API allows 1,000 calls a day. Change notice calls count against those 1,000 and also have a limit of their own, 50 a day: Prism asks until DigiKey says that count is used up (its own figure reaching zero, or a refusal), then notices wait for the next day while stock and prices go on. Notices are read weekly, oldest first; a part with news (lifecycle change, a distributor that stopped listing it) is read again within a day; obsolete parts are not asked about. Change notices also need an administrator's sign-in at DigiKey (below). |
+| DigiKey | Client id and secret | One part per call, so it is slow for large watchlists. The API allows 1,000 calls a day. Change notices have a quota of their own, 50 a day, counted apart from the 1,000: five are kept for "Check notices", the scheduled reads take about a seventh of the tracked parts a day (oldest first; more than 45 a day would be needed past 315 parts, and then the interval stretches to fit), a part with news (lifecycle change, a distributor that stopped listing it) is read within a day, and notices of parts nobody tracks are read only in the last three hours of the provider's day. A refusal or DigiKey's own count reaching zero stops notices for the day while stock and prices go on. Obsolete parts are not asked about. The connector card shows the day's notice calls as a second bar. Change notices also need an administrator's sign-in at DigiKey (below). |
 | Farnell, Newark, element14 | API key, store, currency | Choose the store carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. Farnell's answer does not name its currency, so Prism uses the store's own for UK (GBP), the euro-zone stores (EUR) and Newark US and Canada. For any other store, set the currency on the connector or offers show no price. Product links are the store's search for the SKU. Checked against the live service on 2026-10-13. |
 | Avnet | Client ID, client secret, scope, subscription key | From the Avnet API portal after Avnet approves a subscription to the price and quantity API: the subscription key and a client secret are on the portal's Profile page, with the client ID and scope. Avnet answers by manufacturer part number only (at least 4 characters), with one price at the quantity it offers, customer specific. Not yet run against the live service. |
 | LCSC | Nothing | Searches by manufacturer part number through EasyEDA's part search, or reads an LCSC number (`C2040`) directly. Prices are in US dollars. Not a published API; it can change. |
@@ -60,8 +60,8 @@ tracked project, someone's choice, a watched component or its approved alternate
 
 - **Track a project:** on the BOM (Visualizers) or in Project > Supply choose **Track this project**. One dialog asks everything:
   the designs (and **Also designs added later**), the distributors you buy from (an assembly-only one such as JLCPCB shows
-  as "Built at ..." and is read only when ticked) and what you are **buying for**, Prototypes (follow the packaging with
-  the smallest order, cut tape in practice) or Production (follow reels). Each distributor's call budget shows as a bar:
+  as "Built at ..." and is read only when ticked) and the **Packaging** you prefer: cut tape (the default), custom reel (Digi-Reel, MouseReel), full reel, tube or tray,
+  or the smallest order. Where a distributor does not offer it, the nearest is followed. Each distributor's call budget shows as a bar:
   what is committed, what this adds, and how many parts would wait for room. If Prism has not read the project's BOM yet, the
   dialog reads it first. Lines whose part number several makers share are listed with the parts to choose from, one click each.
   **Track (N)** then starts the work and the dialog shows the first searches, a bar per distributor; closing it leaves them
@@ -78,11 +78,16 @@ tracked project, someone's choice, a watched component or its approved alternate
   **Connectors** page shows today's spending by purpose, the last two weeks, what waits for room and what costs most.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
   shows the same cost preview before it tracks.
-- **Packaging:** a distributor lists one part as several listings (cut tape, reel, tray) and only one is followed. Prism picks
-  it: the smallest order for a project that buys for prototypes, a reel for production (a part is bought for production
-  only when every tracked project that uses it says so, and a part in no project is bought for prototypes). A pick you make
-  on the part sheet is never changed. If the picked listing stops being listed, the part is picked again. The part sheet's
-  pick dialog lists the listings as rows, marks one numbered differently from the part, and QA can unpin it.
+- **Packaging:** a distributor lists one part as several listings (cut tape, reel, tray) and only one is followed. Each listing says
+  which it is (cut tape, custom reel, reel with its size, tray, tube) from what the distributor states; a guess from the
+  number or the order terms is shown in italics and never counts as certain. Prism picks the listing that matches the project's
+  packaging, the nearest where there is none (it notes "Full reel, not offered here"). A part in several tracked projects
+  follows the smaller packaging; a part in no project uses its own watch setting, else cut tape. Changing a project's packaging
+  redoes the picks Prism made; a pick you make on the part sheet is never changed. If the picked listing stops being listed,
+  the part is picked again. On the part sheet the listings are grouped by distributor: the followed one is marked, the others
+  read "Not counted" with **Follow this instead**, and **One per distributor** shows what Prism would pick and the calls it
+  saves before it does. DigiKey answers every packaging of a part in one call, so a pick there changes which stock and price
+  count, not the calls. Review lists every part with several listings at a distributor, picked or not, to check and change.
 - **First searches and the pool:** when parts are tracked, their first search at each distributor comes from the pool, but only
   half of it; the rest stays for Read now, Check notices and Fill from distributor. The remainder of a large batch waits for
   spare budget.
@@ -99,11 +104,16 @@ tracked project, someone's choice, a watched component or its approved alternate
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
   shows the same cost preview before it tracks.
-- **Packaging:** a distributor lists one part as several listings (cut tape, reel, tray) and only one is followed. Prism picks
-  it: the smallest order for a project that buys for prototypes, a reel for production (a part is bought for production
-  only when every tracked project that uses it says so, and a part in no project is bought for prototypes). A pick you make
-  on the part sheet is never changed. If the picked listing stops being listed, the part is picked again. The part sheet's
-  pick dialog lists the listings as rows, marks one numbered differently from the part, and QA can unpin it.
+- **Packaging:** a distributor lists one part as several listings (cut tape, reel, tray) and only one is followed. Each listing says
+  which it is (cut tape, custom reel, reel with its size, tray, tube) from what the distributor states; a guess from the
+  number or the order terms is shown in italics and never counts as certain. Prism picks the listing that matches the project's
+  packaging, the nearest where there is none (it notes "Full reel, not offered here"). A part in several tracked projects
+  follows the smaller packaging; a part in no project uses its own watch setting, else cut tape. Changing a project's packaging
+  redoes the picks Prism made; a pick you make on the part sheet is never changed. If the picked listing stops being listed,
+  the part is picked again. On the part sheet the listings are grouped by distributor: the followed one is marked, the others
+  read "Not counted" with **Follow this instead**, and **One per distributor** shows what Prism would pick and the calls it
+  saves before it does. DigiKey answers every packaging of a part in one call, so a pick there changes which stock and price
+  count, not the calls. Review lists every part with several listings at a distributor, picked or not, to check and change.
 - **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
   check offers the same for the parts on a release BOM.
@@ -141,7 +151,9 @@ How often a part is read: hot every 1.5 hours (pinned, out of stock, at its thre
 is needed), warm every 6 hours, normal daily, cold weekly. When the budget is short, hot goes first and nothing waits
 more than twice its interval. The data age is always shown.
 
-A watch can count only one packaging (cut tape for prototypes, tape and reel for production). Stock, price and warnings for that part then follow it, and listings of unknown packaging are left out. It is set in the part sheet.
+A watch can count only one packaging (cut tape, custom reel, full reel, tray, tube or bulk). Stock, price and warnings for that part then follow it, and listings of unknown packaging are left out. It is set in the part sheet.
+
+On the part sheet, a star on a distributor makes it the part's **preferred** one: it comes first and is marked in lists. It changes no figure; the stock total and the cheapest price stay across every distributor. With **Preferred distributors** switched on in Supply settings, the BOM is priced at the part's preferred distributor, then at the workspace's order, when one holds enough stock for the build, else at the cheapest (off by default). Stock and price are drawn as a line per distributor in its colour, stepping from reading to reading and dashed when a distributor has not been read for longer than the part's rate allows; a chart opens larger with 1 month, 3 months, 6 months, 1 year or all. A distributor's ECCN other than EAR99 shows as **Export controlled 3A991** beside the lifecycle (**ECCN disputed** when they differ); a person can set it by hand, which wins over the distributors.
 
 A catalog component can be watched as a whole (Approved parts > Watch component): its part, and with "Include approved alternates" every alternate approved for it, now and later.
 

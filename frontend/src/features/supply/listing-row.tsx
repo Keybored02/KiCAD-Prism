@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { SupplyReviewListing } from "@/types/supply";
 import { pinSupplyListing, rejectSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
+import { PackagingChip } from "./packaging-chip";
 import { VendorName } from "./vendor-name";
 
 interface ListingRowProps {
@@ -32,6 +33,7 @@ export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold">{listing.sku}</span>
             <VendorName provider={listing.provider} name={listing.connector_name} className="text-xs text-muted-foreground" />
+            {listing.packaging && listing.packaging !== "unknown" ? <span className="text-xs text-muted-foreground"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></span> : null}
             <Badge variant={listing.match_state === "near" ? "outline" : "warning"}>
               {listing.match_state === "near" ? "Near match" : "Spelling not mapped"}
             </Badge>

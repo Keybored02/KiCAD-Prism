@@ -414,6 +414,9 @@ export interface SupplyReviewListing {
   raw_manufacturer: string;
   match_state: "manufacturer_unresolved" | "near";
   match_reason: string;
+  packaging?: string;
+  reel_size?: number | null;
+  packaging_inferred?: boolean;
   first_seen_at: string;
   /** The part this listing is a candidate for. */
   part: { id: string; mpn: string; manufacturer: string } | null;
