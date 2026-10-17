@@ -6,7 +6,7 @@ import type { BudgetNotices, SupplyCapacity, SupplyConnector } from "@/types/sup
 import { budgetUsedPercent, formatWhen } from "./connector-status";
 
 /** The change-notice quota some providers keep apart from their product calls, with how the tracked parts use it. */
-function NoticeBar({ notices }: { notices: BudgetNotices }) {
+export function NoticeBar({ notices }: { notices: BudgetNotices }) {
   const used = notices.limit > 0 ? Math.min(100, Math.round((notices.used / notices.limit) * 100)) : 0;
   const pace = notices.parts > 0
     ? `${notices.parts.toLocaleString()} parts, ${notices.interval_days === 7 ? "weekly" : `every ${notices.interval_days} days`}, about ${notices.per_day.toLocaleString()} a day`
@@ -26,7 +26,7 @@ function NoticeBar({ notices }: { notices: BudgetNotices }) {
 }
 
 /** Today's calls against the daily budget. */
-export function CallBudget({ connector, detail, notices }: { connector: SupplyConnector; detail?: ReactNode; notices?: BudgetNotices | null }) {
+export function CallBudget({ connector, detail }: { connector: SupplyConnector; detail?: ReactNode }) {
   const used = budgetUsedPercent(connector);
   const [open, setOpen] = useState(false);
   return (
@@ -52,7 +52,6 @@ export function CallBudget({ connector, detail, notices }: { connector: SupplyCo
         <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
       </div>
       <p className="text-[11px] text-muted-foreground">{connector.interactive_reserve_pct}% held for lookups</p>
-      {notices ? <NoticeBar notices={notices} /> : null}
       {detail && open ? <div className="pt-2">{detail}</div> : null}
     </div>
   );

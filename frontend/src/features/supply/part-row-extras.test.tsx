@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DistributorSquares, PriceMove, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
@@ -12,18 +12,20 @@ describe("what a part row shows at a glance", () => {
     expect(screen.getByText("Power board, Sensor +3")).toBeTruthy();
   });
 
-  it("draws a square per distributor, filled with stock and hollow without, and rings the preferred one", () => {
+  it("draws a square per distributor, filled with stock and hollow without, rings the preferred one and opens a card on hover", async () => {
     render(<DistributorSquares part={partRowFixture({
       preferred_connector_id: "c2",
       distributors: [
         { connector_id: "c1", provider: "digikey", name: "DigiKey", stock: 120 },
-        { connector_id: "c2", provider: "mouser", name: "Mouser", stock: 0 },
+        { connector_id: "c2", provider: "mouser", name: "Mouser", stock: 0, price: "0.31", currency: "EUR" },
       ],
     })} />);
-    expect(screen.getByTitle("DigiKey: 120 in stock").getAttribute("style")).toContain("background-color");
-    const mouser = screen.getByTitle("Mouser: none in stock, preferred");
-    expect(mouser.className).toContain("ring-1");
+    expect(screen.getByRole("button", { name: "DigiKey: 120 in stock" }).getAttribute("style")).toContain("background-color");
+    const mouser = screen.getByRole("button", { name: "Mouser: none in stock, preferred" });
+    expect(mouser.className).toContain("ring-2");
     expect(mouser.getAttribute("style")).toContain("transparent");
+    fireEvent.mouseEnter(mouser);
+    expect(await screen.findByText("None in stock")).toBeTruthy();
   });
 
   it("shows the price move, the rate with the lead time, and the flags", () => {

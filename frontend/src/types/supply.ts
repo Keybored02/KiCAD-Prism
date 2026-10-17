@@ -570,7 +570,7 @@ export interface SupplyPartRow {
   /** The first two projects using it, by name. */
   project_names?: string[];
   /** The distributors that list it: stock above zero is filled. */
-  distributors?: Array<{ connector_id: string; provider: string; name: string; stock: number }>;
+  distributors?: Array<{ connector_id: string; provider: string; name: string; stock: number; price?: string | null; currency?: string }>;
   preferred_connector_id?: string | null;
   /** Cheapest price over 30 days, in percent. */
   price_change_percent?: number | null;

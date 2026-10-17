@@ -506,8 +506,11 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
         by_connector: dict[str, dict[str, Any]] = {}
         for offer in here:
-            entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0})
+            entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0, "price": None, "currency": ""})
             entry["stock"] += int(offer["stock"] or 0)
+            price, currency, _quantity = _cheapest([offer])
+            if price is not None and (entry["price"] is None or Decimal(price) < Decimal(entry["price"])):
+                entry["price"], entry["currency"] = price, currency
         flags = []
         if item["id"] in waiting:
             flags.append("waiting")

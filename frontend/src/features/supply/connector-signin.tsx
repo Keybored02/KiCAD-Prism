@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { SupplySignin } from "@/types/supply";
+import type { BudgetNotices, SupplySignin } from "@/types/supply";
+import { NoticeBar } from "./connector-card-parts";
 import { formatWhen } from "./connector-status";
 import { forgetSupplySignin, getSupplySignin, startSupplySignin } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -15,7 +16,7 @@ const STATE_TEXT: Record<SupplySignin["state"], string> = {
 };
 
 /** DigiKey change notices need a person's sign-in at DigiKey. Administrators start it and see who did it and until when. */
-export function ConnectorSignin({ connectorId }: { connectorId: string }) {
+export function ConnectorSignin({ connectorId, notices }: { connectorId: string; notices?: BudgetNotices | null }) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplySignin(connectorId, signal), [connectorId]);
   const loaded = useLoaded<SupplySignin>(`${connectorId}:signin`, fetcher, "Could not load the sign-in");
   const { busy, error, run } = useConnectorSubmit();
@@ -25,6 +26,7 @@ export function ConnectorSignin({ connectorId }: { connectorId: string }) {
   return (
     <div className="mt-3 space-y-1.5 border-t pt-3 text-xs">
       <p className="font-medium">Change notices</p>
+      {notices ? <NoticeBar notices={notices} /> : null}
       <p className="text-muted-foreground">
         {status.signed_in
           ? `Signed in by ${status.granted_by}${status.expires_at ? ` until ${formatWhen(status.expires_at)}` : ""}.`
