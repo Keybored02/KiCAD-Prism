@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
-import { Loader2, Radar } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, Radar, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { TrackingPreview } from "@/types/supply";
@@ -10,7 +11,7 @@ import { TrackChooseStep } from "./track-choose-step";
 import { TrackLinesStep, type TrackLine } from "./track-lines-step";
 import { RaiseBudgetDialog } from "./raise-budget-dialog";
 import { TrackProgressStep } from "./track-progress-step";
-import { chooseTrackLine, trackProject, untrackProject } from "./tracking-api";
+import { chooseTrackLine, getProjectTracking, trackProject, untrackProject } from "./tracking-api";
 import { useTrackProject } from "./use-track-project";
 
 type Step = "choose" | "lines" | "tracking";
@@ -137,14 +138,34 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
   );
 }
 
+/** "Track this project" while it is not tracked; once it is, a chip and a settings button that opens the same dialog. */
 export function TrackProjectButton({ projectId, onChanged }: { projectId: string; onChanged?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [tracked, setTracked] = useState<boolean | null>(null);
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    getProjectTracking(projectId, controller.signal)
+      .then((state) => setTracked(Boolean(state.tracked)))
+      .catch(() => { if (!controller.signal.aborted) setTracked(false); });
+    return () => controller.abort();
+  }, [projectId, version]);
+  const changed = () => { setVersion((current) => current + 1); onChanged?.(); };
   return (
     <>
-      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setOpen(true)}>
-        <Radar className="h-3.5 w-3.5" />Track this project
-      </Button>
-      {open ? <TrackProjectDialog projectId={projectId} onClose={() => setOpen(false)} onChanged={onChanged ?? (() => {})} /> : null}
+      {tracked ? (
+        <span className="inline-flex items-center gap-1">
+          <Badge variant="secondary" className="h-7 gap-1 rounded-none"><Radar className="h-3.5 w-3.5" />Tracked</Badge>
+          <Button type="button" size="icon" variant="outline" className="h-7 w-7" aria-label="Tracking settings" title="Tracking settings" onClick={() => setOpen(true)}>
+            <Settings2 className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+      ) : (
+        <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setOpen(true)}>
+          <Radar className="h-3.5 w-3.5" />Track this project
+        </Button>
+      )}
+      {open ? <TrackProjectDialog projectId={projectId} onClose={() => setOpen(false)} onChanged={changed} /> : null}
     </>
   );
 }

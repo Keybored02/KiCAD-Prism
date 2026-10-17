@@ -78,7 +78,7 @@ describe("the project Supply tab", () => {
     renderTab();
     const history = await screen.findByRole("region", { name: "Cost over time" });
     expect(within(history).getByText(/up .*1\.5.* since 2026-09-01/)).toBeTruthy();
-    expect(screen.getByText("Rounding waste")).toBeTruthy();
+    expect(screen.getByText("Left over")).toBeTruthy();
   });
 
   it("offers the costing as a file for a build size", async () => {

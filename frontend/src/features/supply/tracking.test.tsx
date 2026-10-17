@@ -34,6 +34,19 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe("the track button of a tracked project", () => {
+  it("shows a Tracked chip and a settings button instead of asking to track again", async () => {
+    tracking.getProjectTracking.mockResolvedValue({
+      tracked: { project_id: "prj_1", variants: [""], all_variants: false, connector_ids: null, tracked_by: "a", tracked_at: "2026-10-01" },
+      has_usage: true, variants: [],
+    });
+    render(<MemoryRouter><TrackProjectButton projectId="prj_1" /></MemoryRouter>);
+    expect(await screen.findByRole("button", { name: "Tracking settings" })).toBeTruthy();
+    expect(screen.getByText("Tracked")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Track this project/ })).toBeNull();
+  });
+});
+
 describe("tracking a project", () => {
   beforeEach(() => {
     tracking.getTrackProgress.mockResolvedValue({ parts: 100, finished: false, connectors: [{ connector_id: "c1", name: "DigiKey", parts: 100, searched: 40 }] });
@@ -115,6 +128,7 @@ describe("tracking a project", () => {
 
   it("reads the BOM itself when Prism has not, then goes on", async () => {
     tracking.getProjectTracking
+      .mockResolvedValueOnce({ tracked: null, has_usage: true, variants: [] }) // the button's own look
       .mockResolvedValueOnce({ tracked: null, has_usage: false, variants: [] })
       .mockResolvedValue({ tracked: null, has_usage: true, variants: ["Lite"] });
     tracking.readProjectBom.mockResolvedValue({ status: "updated" });
