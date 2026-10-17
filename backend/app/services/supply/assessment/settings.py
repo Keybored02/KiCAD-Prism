@@ -69,6 +69,10 @@ class AssessmentSettings:
     stale_hours: int = 72
     # Prices in other currencies are converted to this one to be compared and totalled.
     base_currency: str = "EUR"
+    # Price the BOM at the preferred distributor when it holds enough stock for the build, else at the cheapest (Altium's preferred suppliers).
+    prefer_distributors: bool = False
+    # Connector ids, most preferred first. A part's own preferred distributor comes before them.
+    distributor_order: tuple[str, ...] = ()
     # Weights of the five sub-scores in health. They are relative; only their proportions matter.
     weights: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({
         "lifecycle": 0.25, "sourcing": 0.2, "inventory": 0.3, "market": 0.1, "compliance": 0.15,
@@ -118,6 +122,8 @@ def to_dto(settings: AssessmentSettings) -> dict:
         "lead_time_days": settings.lead_time_days,
         "stale_hours": settings.stale_hours,
         "base_currency": settings.base_currency,
+        "prefer_distributors": settings.prefer_distributors,
+        "distributor_order": list(settings.distributor_order),
         "weights": {name: settings.weights[name] for name in SUB_SCORES},
         "severity": {check: settings.severity_of(check).value for check in CHECK_LABELS},
     }
@@ -131,6 +137,8 @@ def from_dto(payload: Mapping) -> AssessmentSettings:
         lead_time_days=int(payload.get("lead_time_days", base.lead_time_days)),
         stale_hours=int(payload.get("stale_hours", base.stale_hours)),
         base_currency=str(payload.get("base_currency", base.base_currency)),
+        prefer_distributors=bool(payload.get("prefer_distributors", base.prefer_distributors)),
+        distributor_order=tuple(str(item) for item in payload.get("distributor_order", base.distributor_order)),
         weights=MappingProxyType({name: float(payload.get("weights", {}).get(name, base.weights[name])) for name in SUB_SCORES}),
         severity=MappingProxyType({
             check: Status(payload.get("severity", {}).get(check, base.severity_of(check).value)) for check in CHECK_LABELS
@@ -150,6 +158,12 @@ def validate(payload: Mapping) -> dict:
     currency = payload.get("base_currency", DEFAULTS.base_currency)
     if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha() or not currency.isupper():
         raise ValueError("The base currency must be a three letter code in capitals, such as EUR.")
+    prefer = payload.get("prefer_distributors", DEFAULTS.prefer_distributors)
+    order = payload.get("distributor_order", list(DEFAULTS.distributor_order))
+    if not isinstance(prefer, bool):
+        raise ValueError("Preferring distributors is on or off.")
+    if not isinstance(order, list) or len(order) > 30 or any(not isinstance(item, str) or not item or len(item) > 64 for item in order) or len(set(order)) != len(order):
+        raise ValueError("The preferred distributors are a list of distributors, each once.")
     weights = payload.get("weights", {})
     severity = payload.get("severity", {})
     if not isinstance(weights, Mapping) or not isinstance(severity, Mapping):
@@ -172,6 +186,8 @@ def validate(payload: Mapping) -> dict:
         "lead_time_days": whole("lead_time_days", "The lead time limit", *LEAD_TIME_RANGE),
         "stale_hours": whole("stale_hours", "The data age limit", *STALE_HOURS_RANGE),
         "base_currency": currency,
+        "prefer_distributors": prefer,
+        "distributor_order": order,
         "weights": merged,
         "severity": {check: severity.get(check, DEFAULTS.severity_of(check).value) for check in CHECK_LABELS},
     }

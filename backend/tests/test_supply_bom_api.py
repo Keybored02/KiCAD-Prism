@@ -413,6 +413,29 @@ class BomLookupTests(unittest.TestCase):
     def listing_of(self, conn, sku: str) -> str:
         return conn.execute("SELECT id FROM listings WHERE sku = %s", (sku,)).fetchone()["id"]
 
+    def test_the_preferred_distributor_prices_the_bom_only_when_the_option_is_on_and_it_holds_enough(self) -> None:
+        from app.services.supply import preferences
+        from app.services.supply.assessment import settings_store
+
+        part_id = self.part("Acme", "PREF")
+        other = self.connectors.create(actor=SEED, provider="lcsc", display_name="Other", daily_budget=1000)["id"]
+        self.offer(part_id, "CHEAP", stock=1000, price="0.10")
+        listing = uuid.uuid4().hex
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'DEAR', %s, 'x', 'x', 'exact')", (listing, other, part_id))
+            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, moq, order_multiple, price_breaks, currency, product_url) VALUES (%s, %s, 500, 1, 1, '[[1, \"0.30\"]]'::jsonb, 'EUR', '')", (listing, NOW))
+            preferences.set_preferred(conn, part_id, other, SEED)
+        line = [{"key": "p", "manufacturer": "Acme", "mpn": "PREF", "quantity": 1}]
+        self.assertEqual(self.lookup(line, build=10)["lines"]["p"]["buy"]["sku"], "CHEAP", "off by default: the cheapest")
+        with self.store.connection() as conn:
+            settings_store.save(conn, {"prefer_distributors": True}, SEED)
+        self.assertEqual(self.lookup(line, build=10)["lines"]["p"]["buy"]["sku"], "DEAR", "the preferred one has enough stock")
+        self.assertEqual(self.lookup(line, build=600)["lines"]["p"]["buy"]["sku"], "CHEAP", "not enough there for 600: the cheapest")
+        with self.store.connection() as conn:
+            preferences.clear(conn, part_id, SEED)
+            settings_store.save(conn, {"prefer_distributors": True, "distributor_order": [other]}, SEED)
+        self.assertEqual(self.lookup(line, build=10)["lines"]["p"]["buy"]["sku"], "DEAR", "the workspace order applies without a part's own choice")
+
     def test_attrition_adds_spares_to_the_need_and_takes_them_off_what_can_be_built(self) -> None:
         part_id = self.part("Acme", "R1")
         self.offer(part_id, "A", stock=105)

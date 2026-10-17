@@ -12,6 +12,7 @@ import { ScheduleSettings } from "./schedule-settings";
 import { MakerSpellings } from "./maker-spellings";
 import { ExchangeRates } from "./exchange-rates";
 import { NumberEndings } from "./number-endings";
+import { PreferredDistributors } from "./preferred-distributors";
 import { SvhcListUpload } from "./svhc-list-upload";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
@@ -141,6 +142,8 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
         </div>
         <p className="text-xs text-muted-foreground">Only the proportions matter. Set an area to 0 to leave it out.</p>
       </fieldset>
+
+      <PreferredDistributors draft={draft} onChange={setDraft} />
 
       <SvhcListUpload />
       <ScheduleSettings />

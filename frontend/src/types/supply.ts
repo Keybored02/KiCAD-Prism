@@ -957,6 +957,10 @@ export interface AssessmentSettings {
   stale_hours: number;
   /** Prices in other currencies are converted to this one. */
   base_currency: string;
+  /** Price the BOM at a preferred distributor with enough stock, else the cheapest. */
+  prefer_distributors?: boolean;
+  /** Connector ids, the most preferred first. */
+  distributor_order?: string[];
   /** Relative weight of each risk area in health, 0 to 1. */
   weights: Record<SupplySubScore["name"], number>;
   severity: Record<string, AssessmentSeverity>;

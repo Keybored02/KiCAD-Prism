@@ -28,6 +28,8 @@ class AssessmentSettingsBody(BaseModel):
     lead_time_days: int
     stale_hours: int
     base_currency: str = "EUR"
+    prefer_distributors: bool = False
+    distributor_order: list[str] = []
     weights: Dict[str, float]
     severity: Dict[str, str]
 

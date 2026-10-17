@@ -32,7 +32,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import attrition, fx, parts, parts_view, pricing, usage, watches
+from app.services.supply import attrition, fx, parts, parts_view, preferences, pricing, usage, watches
 from app.services.supply.assessment import component_checks, line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
@@ -147,12 +147,21 @@ def resolve_lines(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | 
     return _resolve(lines, conn)
 
 
+def _preferred_for(part_id: str, own: Mapping[str, str], settings) -> list[str]:
+    """The distributors to price a part at first: its own preferred one, then the workspace's order. Empty while the option is off."""
+
+    if not settings.prefer_distributors:
+        return []
+    return list(dict.fromkeys([*([own[part_id]] if part_id in own else []), *settings.distributor_order]))
+
+
 def _best_purchase(
-    offers: Sequence[Mapping[str, Any]], need: int, rates: fx.Rates | None = None, base: str = "EUR"
+    offers: Sequence[Mapping[str, Any]], need: int, rates: fx.Rates | None = None, base: str = "EUR", preferred: Sequence[str] = ()
 ) -> dict[str, Any] | None:
     """The cheapest single offer for ``need`` pieces.
 
-    Offers that hold enough stock win over cheaper ones that do not. Marketplace stock is not offered.
+    Offers that hold enough stock win over cheaper ones that do not. With ``preferred`` (connector ids, most preferred first)
+    the first of them holding enough stock wins over a cheaper offer elsewhere. Marketplace stock is not offered.
     Offers in different currencies are compared in ``base`` when the rates allow it, and not at all
     when they do not. ``in_base`` is the chosen offer's extended price in ``base``, if it can be told.
     """
@@ -183,7 +192,13 @@ def _best_purchase(
     else:
         sort_key = lambda entry: entry[1]  # noqa: E731
     covered = [entry for entry in candidates if entry[0]]
-    covers, extended, unit, order, offer = min(covered or candidates, key=sort_key)
+    pool = covered or candidates
+    for connector_id in preferred:
+        mine = [entry for entry in covered if entry[4].get("connector_id") == connector_id]
+        if mine:
+            pool = mine
+            break
+    covers, extended, unit, order, offer = min(pool, key=sort_key)
     converted = in_base(extended, offer["currency"])
     spare = order - need
     return {
@@ -293,6 +308,7 @@ def lookup(
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 
     rates = fx.latest(conn)
+    preferred_of = preferences.of_parts(conn, list(per_board)) if settings.prefer_distributors else {}
     results: dict[str, dict[str, Any]] = {}
     for line in lines:
         state, part_id, how = resolved[line.key]
@@ -315,7 +331,7 @@ def lookup(
                 "part_need": part_need,
                 "short": stock is not None and stock < part_need,
                 # Only the first line of a part carries the purchase; the others say where it is.
-                "buy": _best_purchase(offers_here, part_need, rates, settings.base_currency) if line.key == leader else None,
+                "buy": _best_purchase(offers_here, part_need, rates, settings.base_currency, _preferred_for(part_id, preferred_of, settings)) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
                 "assessment": _assessment_line(assessed[part_id]),
             }
