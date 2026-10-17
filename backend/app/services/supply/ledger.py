@@ -45,6 +45,12 @@ def _count(conn, connector_id: str, day, hour: int, kind: str, purpose: str, cal
     )
 
 
+def count_only(conn, connector_id: str, day, hour: int, kind: str, purpose: str, calls: int) -> None:
+    """Count calls in ``call_counts`` without charging the account's daily budget (a quota of the provider's own)."""
+
+    _count(conn, connector_id, day, hour, kind, purpose, calls)
+
+
 def get_state(
     conn,
     connector_id: str,

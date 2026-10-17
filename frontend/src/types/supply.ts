@@ -978,6 +978,14 @@ export interface BudgetCall {
 }
 
 /** Where one connector's call budget goes (GET /api/supply/budget). */
+export interface BudgetNotices {
+  limit: number;
+  used: number;
+  parts: number;
+  interval_days: number;
+  per_day: number;
+}
+
 export interface BudgetConnector {
   connector_id: string;
   name: string;
@@ -995,6 +1003,8 @@ export interface BudgetConnector {
   tracking: BudgetShare | null;
   hourly: BudgetCall[];
   days: BudgetCall[];
+  /** The change-notice quota of a provider that keeps one apart from its product calls (DigiKey). */
+  notices?: BudgetNotices | null;
   owners: {
     projects: Array<{ project_id: string; project_name: string; calls_a_day: number }>;
     parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;

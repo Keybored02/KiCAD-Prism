@@ -59,7 +59,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
         {isAdmin ? <ConnectorMenu connector={connector} onAction={onAction} /> : null}
       </div>
 
-      {connector.metered ? <CallBudget connector={connector} detail={budget ? <BudgetDetail item={budget} /> : undefined} /> : <OffersFile connector={connector} />}
+      {connector.metered ? <CallBudget connector={connector} notices={budget?.notices} detail={budget ? <BudgetDetail item={budget} /> : undefined} /> : <OffersFile connector={connector} />}
       {connector.metered ? <CapacityNote capacity={capacity} /> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">

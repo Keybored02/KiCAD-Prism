@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import accounts, alerts, compliance, facts, ledger, oauth, pcn, quota, trouble, usage
+from app.services.supply import accounts, alerts, compliance, facts, ledger, notice_budget, oauth, pcn, quota, trouble, usage
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 
@@ -40,12 +40,17 @@ class DetailsSummary:
     stopped: str | None = None
 
 
-def due(conn, connector_id: str, kind: str, now: datetime, limit: int, *, untracked: bool = False) -> list[dict[str, Any]]:
+def due(
+    conn, connector_id: str, kind: str, now: datetime, limit: int, *, untracked: bool = False, every: timedelta | None = None
+) -> list[dict[str, Any]]:
     """One listing per part at the connector whose ``kind`` is due: not read for the part within its interval.
 
     Tracked parts are those admitted at this connector (every part at a connector that costs nothing); substances only
     for tier 1. With ``untracked``, the parts nobody tracks that the connector has an offer for, for spare budget.
+    ``every`` stretches the interval (a notice quota too small to read every part weekly).
     """
+
+    interval = every or EVERY[kind]
 
     if untracked:
         rows = conn.execute(
@@ -61,12 +66,12 @@ def due(conn, connector_id: str, kind: str, now: datetime, limit: int, *, untrac
             ORDER BY l.part_id, l.sku
             LIMIT %(limit)s
             """,
-            {"connector": connector_id, "kind": kind, "since": now - EVERY[kind], "limit": limit},
+            {"connector": connector_id, "kind": kind, "since": now - interval, "limit": limit},
         ).fetchall()
         return [dict(row) for row in rows]
     rows = conn.execute(
         """
-        SELECT * FROM (
+        SELECT per_part.*, (part_id IN (SELECT e.part_id FROM events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s)) AS news FROM (
             SELECT DISTINCT ON (l.part_id) l.id, l.sku, l.part_id, l.raw_manufacturer, pt.tier,
                    (SELECT MAX(d.checked_at) FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
                     WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s) AS last_checked
@@ -90,7 +95,7 @@ def due(conn, connector_id: str, kind: str, now: datetime, limit: int, *, untrac
         LIMIT %(limit)s
         """,
         {
-            "connector": connector_id, "kind": kind, "since": now - EVERY[kind], "limit": limit,
+            "connector": connector_id, "kind": kind, "since": now - interval, "limit": limit,
             "day_ago": now - timedelta(days=1), "news": list(NEWS_EVENTS), "news_since": now - NEWS_WINDOW,
             "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
         },
@@ -135,9 +140,13 @@ def run(
 
 
 def _spend(
-    service, connector, now: datetime, interactive: bool = False, *, kind: str = ledger.KIND_NOTICES, tier: int = 2, spare: bool = False
+    service, connector, now: datetime, interactive: bool = False, *, kind: str = ledger.KIND_NOTICES, tier: int = 2, spare: bool = False,
+    news: bool = False,
 ) -> bool:
     purpose = ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare else f"tier{tier}"
+    limit = registry.get_spec(connector["provider"]).notice_daily_limit
+    if kind == ledger.KIND_NOTICES and limit and connector["metered"]:
+        return notice_budget.spend(service.store, connector, limit, now, interactive=interactive, spare=spare, news=news, purpose=purpose)
     return not connector["metered"] or ledger.spend_call(
         service.store, connector, now=now, interactive=interactive, kind=kind, purpose=purpose, spare=spare
     )
@@ -169,7 +178,12 @@ def _notice_quota_used_up(service, connector, now: datetime) -> bool:
 
 def _notices(service, connector, now, provider, token_for, limit) -> DetailsSummary:
     with service.store.connection() as conn:
-        rows = due(conn, connector["id"], "notices", now, limit)
+        spec = registry.get_spec(connector["provider"])
+        stretch = (
+            notice_budget.every(notice_budget.interval_days(notice_budget.tracked_parts(conn, connector["id"]), spec.notice_daily_limit))
+            if spec.notice_daily_limit else None
+        )
+        rows = due(conn, connector["id"], "notices", now, limit, every=stretch)
     return _read_notices(service, connector, rows, now, provider, token_for)
 
 
@@ -211,7 +225,7 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
     provider = provider or service.load_provider(connector_id)
     read = new = 0
     for row in rows:
-        if not _spend(service, connector, now, interactive, tier=row.get("tier", 2), spare=spare):
+        if not _spend(service, connector, now, interactive, tier=row.get("tier", 2), spare=spare, news=bool(row.get("news"))):
             return DetailsSummary(read, new, "budget")
         try:
             notices = provider.change_notices(row["sku"], token)

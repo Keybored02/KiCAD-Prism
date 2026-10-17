@@ -182,6 +182,36 @@ class DetailsTests(unittest.TestCase):
         again = details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "t")
         self.assertEqual((again.read, again.stopped), (0, details.NOTICE_QUOTA), "no more notice calls today once it refused")
 
+    def test_notice_calls_are_counted_apart_and_not_charged_to_the_product_budget(self) -> None:
+        from app.services.supply import notice_budget
+
+        self.run_notices({})
+        with self.store.connection() as conn:
+            charged = conn.execute("SELECT COALESCE(SUM(spent), 0) AS n FROM quota_ledger").fetchone()["n"]
+            plan = notice_budget.plan(conn, self.digikey, 50, NOW)
+        self.assertEqual(charged, 0, "DigiKey's notice API has its own 50 a day")
+        self.assertEqual((plan.used, plan.limit), (2, 50))
+
+    def test_the_interval_stretches_when_the_quota_cannot_read_every_part_weekly(self) -> None:
+        from app.services.supply import notice_budget
+
+        self.assertEqual(notice_budget.interval_days(141, 50), 7)
+        self.assertEqual(notice_budget.interval_days(450, 50), 10, "45 a day leave a tenth day to read 450 parts")
+        self.assertEqual(notice_budget.interval_days(0, 50), 7)
+
+    def test_people_keep_five_calls_of_the_fifty_and_untracked_parts_wait_for_the_end_of_the_day(self) -> None:
+        from app.services.supply import notice_budget
+
+        with self.store.connection() as conn:
+            kinds = dict(limit=50, interactive=False, spare=False, news=False)
+            self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds))
+            self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"spare": True})), "not at the start of the day")
+            conn.execute(
+                "INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 9, 'notices', 'tier2', 46)",
+                (self.digikey, NOW.date()))
+            self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds), "45 are for scheduled reads at most")
+            self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"interactive": True})))
+
     def test_notice_calls_stop_when_digikey_says_its_count_is_zero_and_start_again_in_the_next_day(self) -> None:
         from app.services.supply import details
 

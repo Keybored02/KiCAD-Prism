@@ -65,17 +65,6 @@ describe("connectors list", () => {
     expect(within(card).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("12");
   });
 
-  it("shows the limits a provider reports, and nothing for one that reports none", async () => {
-    load([
-      connectorFixture({ display_name: "Reports", rate_limits: { products: { "x-ratelimit-remaining": "49" }, changenotifications: { "x-ratelimit-limit": "50" } }, rate_limits_at: "2026-10-15T10:00:00Z" }),
-      connectorFixture({ id: "c2", display_name: "Silent" }),
-    ]);
-    render(<SupplyConnectorsView user={admin} />);
-    expect(within(await screen.findByRole("article", { name: "Reports" })).getByText("x-ratelimit-remaining: 49")).toBeTruthy();
-    expect(within(screen.getByRole("article", { name: "Reports" })).getByText("Limits it reports (change notices)")).toBeTruthy();
-    expect(within(screen.getByRole("article", { name: "Silent" })).queryByText("Limits it reports")).toBeNull();
-  });
-
   it("offers the reset time the readings agree on, and applies it on request", async () => {
     const guess = { from: "22:20", to: "22:55", suggested: "22:55", tz: "UTC", windows: 2 };
     load([connectorFixture({ reset_suggestion: guess, rate_limits: { products: { "x-ratelimit-remaining": "9" } }, rate_limits_at: "2026-10-15T10:00:00Z" })]);

@@ -2,11 +2,31 @@ import { ChevronRight, FileSpreadsheet } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { SupplyCapacity, SupplyConnector } from "@/types/supply";
+import type { BudgetNotices, SupplyCapacity, SupplyConnector } from "@/types/supply";
 import { budgetUsedPercent, formatWhen } from "./connector-status";
 
+/** The change-notice quota some providers keep apart from their product calls, with how the tracked parts use it. */
+function NoticeBar({ notices }: { notices: BudgetNotices }) {
+  const used = notices.limit > 0 ? Math.min(100, Math.round((notices.used / notices.limit) * 100)) : 0;
+  const pace = notices.parts > 0
+    ? `${notices.parts.toLocaleString()} parts, ${notices.interval_days === 7 ? "weekly" : `every ${notices.interval_days} days`}, about ${notices.per_day.toLocaleString()} a day`
+    : "No parts to read notices for";
+  return (
+    <div className="space-y-1 pt-2">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-medium uppercase tracking-wider text-muted-foreground">Change notices today</span>
+        <span className="tabular-nums">{notices.used.toLocaleString()} / {notices.limit.toLocaleString()}</span>
+      </div>
+      <div role="progressbar" aria-label="Share of today's change notice calls spent" aria-valuemin={0} aria-valuemax={100} aria-valuenow={used} className="h-1.5 overflow-hidden bg-muted">
+        <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
+      </div>
+      <p className="text-[11px] text-muted-foreground">{pace}</p>
+    </div>
+  );
+}
+
 /** Today's calls against the daily budget. */
-export function CallBudget({ connector, detail }: { connector: SupplyConnector; detail?: ReactNode }) {
+export function CallBudget({ connector, detail, notices }: { connector: SupplyConnector; detail?: ReactNode; notices?: BudgetNotices | null }) {
   const used = budgetUsedPercent(connector);
   const [open, setOpen] = useState(false);
   return (
@@ -32,6 +52,7 @@ export function CallBudget({ connector, detail }: { connector: SupplyConnector; 
         <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
       </div>
       <p className="text-[11px] text-muted-foreground">{connector.interactive_reserve_pct}% held for lookups</p>
+      {notices ? <NoticeBar notices={notices} /> : null}
       {detail && open ? <div className="pt-2">{detail}</div> : null}
     </div>
   );
@@ -68,36 +89,22 @@ export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefine
   );
 }
 
-// The API a provider's limits came from, by the first part of its path: DigiKey counts these separately.
-const SCOPE_LABEL: Record<string, string> = { products: "products", changenotifications: "change notices", v1: "sign-in" };
-
-/** What the provider says about its own limits, when it says any, and when its day seems to reset. */
+/** When the provider's day seems to reset, or is known to. */
 export function ReportedLimits({ connector, isAdmin, onApply }: { connector: SupplyConnector; isAdmin: boolean; onApply: () => void }) {
-  const entries = Object.entries(connector.rate_limits ?? {});
   const guess = connector.reset_suggestion;
-  if (entries.length === 0 && !guess && !connector.reset_from_provider) return null;
-  return (
-    <>
-      {entries.map(([scope, headers]) => (
-        <div key={scope} className="flex flex-wrap gap-1.5">
-          <dt className="text-muted-foreground">{entries.length > 1 ? `Limits it reports (${SCOPE_LABEL[scope] ?? scope})` : "Limits it reports"}</dt>
-          {Object.entries(headers).map(([name, value]) => <dd key={name} className="border px-1.5 py-0.5">{name}: {value}</dd>)}
-        </div>
-      ))}
-      {connector.reset_from_provider ? (
-        <div className="flex gap-1.5">
-          <dt className="text-muted-foreground">Day resets</dt>
-          <dd>{connector.reset_time} {connector.reset_tz}, from the provider's readings</dd>
-        </div>
-      ) : guess ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <dt className="text-muted-foreground">Day seems to reset</dt>
-          <dd>between {guess.from} and {guess.to} {guess.tz} ({guess.windows} readings)</dd>
-          {isAdmin ? <Button variant="outline" size="xs" onClick={onApply}>Use {guess.suggested}</Button> : null}
-        </div>
-      ) : null}
-    </>
-  );
+  if (!guess && !connector.reset_from_provider) return null;
+  return connector.reset_from_provider ? (
+    <div className="flex gap-1.5">
+      <dt className="text-muted-foreground">Day resets</dt>
+      <dd>{connector.reset_time} {connector.reset_tz}, from the provider's readings</dd>
+    </div>
+  ) : guess ? (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <dt className="text-muted-foreground">Day seems to reset</dt>
+      <dd>between {guess.from} and {guess.to} {guess.tz} ({guess.windows} readings)</dd>
+      {isAdmin ? <Button variant="outline" size="xs" onClick={onApply}>Use {guess.suggested}</Button> : null}
+    </div>
+  ) : null;
 }
 
 /** The uploaded file behind a CSV connector, and how old it is. */

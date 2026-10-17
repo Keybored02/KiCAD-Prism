@@ -15,7 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.services.supply import accounts, admission, budget, ledger, quota
+from app.services.supply import accounts, admission, budget, ledger, notice_budget, quota
 from app.services.supply.providers import registry
 
 DAYS = 14
@@ -119,5 +119,7 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
             "hourly": _hourly(conn, row["id"], day),
             "days": _daily(conn, row["id"], day),
             "owners": owners(conn, row["id"], spec, data),
+            # The provider's change-notice quota, apart from the products budget; absent for providers without one.
+            "notices": notice_budget.plan(conn, row["id"], spec.notice_daily_limit, now).dto() if spec.notice_daily_limit else None,
         })
     return result
