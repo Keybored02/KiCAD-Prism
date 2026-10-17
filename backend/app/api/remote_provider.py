@@ -127,10 +127,11 @@ def _attach_supply(payloads: list[dict], user: AuthenticatedUser, origin: str, *
     if not payloads or not _supply_visible(user):
         return
     try:
-        from app.services.supply import panel_payload
+        from app.services.supply import ending_parts, panel_payload
         from app.services.supply.store import supply_store
 
         with supply_store.connection() as conn:
+            marks = ending_parts.restrictions_of(conn, [str(payload["id"]) for payload in payloads])
             if full:
                 found = {payload["id"]: panel_payload.detail(conn, payload, user.role, origin) for payload in payloads}
                 found = {key: value for key, value in found.items() if value}
@@ -143,6 +144,9 @@ def _attach_supply(payloads: list[dict], user: AuthenticatedUser, origin: str, *
         extra = found.get(payload["id"])
         if extra:
             payload["supply"] = {**payload["supply"], **extra}
+        mark = marks.get(str(payload["id"]))
+        if mark and mark["level"] == "not_for_new_designs":
+            payload["supply"] = {**payload["supply"], "restriction": mark["level"]}
 
 
 def _projection_etag(version: str, **parameters: object) -> str:

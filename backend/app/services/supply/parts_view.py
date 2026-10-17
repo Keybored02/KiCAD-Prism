@@ -13,7 +13,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, trade_marks, prices, pricing, promises, settle, stock, usage
+from app.services.supply import facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, trade_marks, prices, pricing, promises, scorecard, settle, stock, usage
+from app.services.supply.assessment import settings_store
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -66,31 +67,6 @@ def _watch_dto(row) -> dict[str, Any] | None:
         return None
     return {"id": row["watch_id"], "threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"],
             "packaging": row["watch_packaging"] or "any"}
-
-
-def _cheapest(offers: list[dict]) -> tuple[str | None, str, int]:
-    """The lowest price, as (price, currency, quantity it is quoted at).
-
-    Prices are compared at the reference quantity. An offer that cannot be bought
-    in that quantity (its minimum order is higher, as with a full reel) only
-    counts when nothing else can, and then it is quoted at what must be ordered.
-    Mixed currencies give no price: nothing here converts them.
-    """
-
-    within, beyond = [], []
-    for offer in offers:
-        if not offer["currency"]:
-            continue
-        breaks = [(int(quantity), Decimal(price)) for quantity, price in offer["price_breaks"]]
-        quantity = pricing.order_quantity(pricing.REFERENCE_QUANTITY, offer["moq"], offer["order_multiple"])
-        price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"])
-        if price is not None:
-            (within if offer["moq"] <= pricing.REFERENCE_QUANTITY else beyond).append((price, offer["currency"], quantity))
-    priced = within or beyond
-    if not priced or len({currency for _, currency, _ in priced}) != 1:
-        return None, "", pricing.REFERENCE_QUANTITY
-    price, currency, quantity = min(priced)
-    return format(price.normalize(), "f"), currency, quantity
 
 
 def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
@@ -163,12 +139,11 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
     return offers
 
 
-def _offer_summary(offers_here: list[dict], policy: str, problem: str | None) -> dict[str, Any]:
+def _offer_summary(offers_here: list[dict], policy: str, problem: str | None, price: dict[str, Any]) -> dict[str, Any]:
     """What a part's counted offers add up to. This is what ``part_summaries`` keeps."""
 
     combined = stock.aggregate(offers_here, policy) if offers_here else None
     lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers_here)
-    price, currency, price_quantity = _cheapest([o for o in offers_here if not o["marketplace"]])
     tiers = [o["tier"] for o in offers_here if o["tier"]]
     return {
         "problem": problem if combined is None else None,
@@ -177,9 +152,7 @@ def _offer_summary(offers_here: list[dict], policy: str, problem: str | None) ->
         "lifecycle": lifecycle.value,
         # Every distributor that lists it has stopped selling it.
         "dropped": bool(offers_here) and all(o["discontinued"] for o in offers_here),
-        "unit_price": price,
-        "price_quantity": price_quantity,
-        "currency": currency,
+        **price,
         "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
         "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
     }
@@ -187,13 +160,18 @@ def _offer_summary(offers_here: list[dict], policy: str, problem: str | None) ->
 
 def _computed(conn, rows, offers: dict[str, list[dict]]) -> dict[str, dict[str, Any]]:
     problems = _problems(conn, [r["id"] for r in rows])
-    return {
-        row["id"]: _offer_summary(
-            [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")],
-            row["watch_packaging"] or "any", problems.get(row["id"]),
+    base = settings_store.load(conn).base_currency
+    rates = fx.latest(conn)
+    quantities = price_quantity.of_parts(conn, [r["id"] for r in rows])
+    found = {}
+    for row in rows:
+        here = [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
+        price = headline_price.headline(
+            [o for o in here if not o["marketplace"]], quantities[row["id"]], base, rates,
+            lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates),
         )
-        for row in rows
-    }
+        found[row["id"]] = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
+    return found
 
 
 def _cached(conn, rows) -> dict[str, dict[str, Any]]:
@@ -493,6 +471,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         names = {row["project_id"]: row["project_name"] for row in conn.execute(
             "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
     offers = offers_by_part(conn, ids)
+    quantities = price_quantity.of_parts(conn, ids)
     waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
     stated: dict[str, dict[str, set[str]]] = {}
@@ -508,7 +487,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         for offer in here:
             entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0, "price": None, "currency": ""})
             entry["stock"] += int(offer["stock"] or 0)
-            price, currency, _quantity = _cheapest([offer])
+            price, currency, _quantity = headline_price.native_price(offer, quantities[item["id"]])
             if price is not None and (entry["price"] is None or Decimal(price) < Decimal(entry["price"])):
                 entry["price"], entry["currency"] = price, currency
         flags = []
@@ -730,6 +709,20 @@ def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     }
 
 
+def _price_block(conn, part_id: str, now: datetime, offers: list[dict]) -> dict[str, Any]:
+    """The part sheet's price: the daily series and move, the quantity it is priced at, and the list price with its range."""
+
+    series, meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
+    block = prices.view(series, now.date())
+    chosen = price_quantity.of_part(conn, part_id)
+    base = settings_store.load(conn).base_currency
+    rates = fx.latest(conn)
+    headline = headline_price.headline(
+        offers, chosen["quantity"], base, rates, lambda: prices.last_in_stock(conn, part_id, base, rates),
+    )
+    return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": headline}
+
+
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
@@ -810,7 +803,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         })
 
     days = history(conn, part_id, now)
-    price_view = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
+    price_view = _price_block(conn, part_id, now, [r for r in counted if not r["marketplace"]])
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name, "first_seen": _first_seen(conn, part_id)},
         "watch": _watch_dto(watch_row),
@@ -850,5 +843,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),
         "market_behaviour": price_behaviour.load(conn, part_id, now) | {"arrivals": promises.reliability(conn, part_id, now.date())},
+        "restock_record": scorecard.for_part(conn, part_id, now.date()),
         "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings, lead_time_trend(conn, part_id, now)),
     }

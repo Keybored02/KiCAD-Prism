@@ -19,7 +19,7 @@ import re
 from decimal import Decimal
 from typing import Any, Mapping
 
-from app.services.supply import facts, parts_view
+from app.services.supply import alternates, facts, parts_view
 
 MAX_CANDIDATES = 12
 MAX_POOL = 300
@@ -127,4 +127,20 @@ def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any
                 "stock": item["stock"], "status": item["status"], "lifecycle": item["lifecycle"],
             })
     found.sort(key=lambda entry: (GRADES.index(entry["grade"]), -(entry["stock"] or 0), entry["mpn"]))
-    return {"candidates": found[:limit], "suggested_by_distributors": sorted(set(suggested)), "judged_on": sorted(base)}
+    return {
+        "candidates": found[:limit], "suggested_by_distributors": sorted(set(suggested)), "judged_on": sorted(base),
+        "suggestions": _suggestions(conn, part_id),
+    }
+
+
+def _suggestions(conn, part_id: str) -> list[dict[str, Any]]:
+    """What distributors suggest in place of the part, with the stock and standing of those Prism already tracks."""
+
+    found = alternates.for_part(conn, part_id)
+    standing = {item["id"]: item for item in parts_view.summaries_for(conn, [entry["part_id"] for entry in found if entry["part_id"]])}
+    for entry in found:
+        item = standing.get(entry["part_id"] or "")
+        entry["stock"] = item["stock"] if item else None
+        entry["status"] = item["status"] if item else None
+        entry["tracked"] = bool(item and (item["tracking"] or item["watch"]))
+    return found

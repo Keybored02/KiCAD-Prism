@@ -181,10 +181,31 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
 - **Costing.** The line drawer shows the pieces bought beyond the need and the next price break. The project tab follows the cost of a
   board over time, shows the rounding waste, and downloads a costing CSV that names no distributor, SKU or link. Spares can be set
   **by package** (small passives get 2%, other parts none).
-- **Alternatives.** On the part sheet, **Find alternatives** grades other parts in the same category as direct, same form-fit-function
-  or functional, from the parameters distributors list, and shows replacements distributors name. It does not compare footprint or
+- **Alternatives.** On the part sheet, **Find alternatives** lists what distributors suggest first (LCSC's alternate parts and Mouser's
+  suggested replacement come with the answers Prism already reads; **Ask DigiKey for substitutes** asks DigiKey, one call, once an hour
+  per part, and Prism asks by itself once, from the committed budget, when a tracked part turns not recommended for new designs, last
+  time buy or obsolete, or a distributor drops it, and again after 30 days). Prism has not compared those with the part, and says so; a
+  suggested part can be tracked. Then it grades other parts in the same category as direct, same form-fit-function or functional,
+  from the parameters distributors list. It does not compare footprint or
   pins. A candidate is proposed to the part's catalog component and QA approves it. A component's parts, with who gives how much
   stock, show in the Sourcing tab and on the part sheet.
+- **Prices.** A part's price in lists is the cheapest listing that can be bought now, at the part's **price quantity**, in the base
+  currency: other currencies are converted at the day's rates (a price whose currency has no rate is left out, and the row says so).
+  When nothing is in stock it shows the cheapest price with a lead time quoted, in amber with that lead time; then the price when the part
+  was last in stock, with its age; then the list price, said so. The part sheet adds the range over distributors and the median (never a
+  mean), and a box to try any quantity without saving it. The price quantity is a Supply setting (100 by default, 1 to 1,000,000), and
+  each part can have its own on the part sheet; the list, the price history, price alerts and the coverage figures follow it. Prism keeps
+  each listing's price breaks when they change, so the history is worked out at the part's quantity; days before they were kept are drawn
+  at 100 and the sheet says so. The BOM still prices at its build quantity.
+- **Restock promises.** Prism keeps stock-outs and restocks as they happen, with the lead time a distributor quoted at the stock-out as a
+  promise to be back by that day. The part sheet shows each distributor's open promise and its record on that part. Insights > Sourcing has a
+  scorecard: stock-outs and days out, restocked first, promises kept, the wait said against the real one, and days in stock, judged only on
+  parts two or more distributors list. A figure shows from five events; it needs months of readings to say much.
+- **LCSC in your currency.** A LCSC connector set to a currency other than USD asks LCSC for it (a cookie, as its site does) and takes LCSC's own
+  price in it, the one an order is charged; if LCSC answers in dollars anyway, the dollar price is converted. The market price index follows each
+  part's own quantity once price breaks have been kept.
+- **Mouser's suggestion.** Mouser names its suggested replacement by Mouser number; **Ask DigiKey for substitutes** also reads each such number
+  at Mouser (one call each, from the interactive reserve) and shows the part number, which stays when Mouser is read again.
 - **Trade classification.** The project tab lists the export control class (ECCN) and tariff codes distributors state for each part,
   flags disputes and gaps, and downloads them as CSV. It is what they say, not a classification.
 - **RoHS exemptions.** A person names the exemptions a part relies on (such as 7(a)); they go into the draft declaration.
@@ -192,8 +213,29 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
 - **MCP.** `POST /api/supply/mcp` is a read-only Model Context Protocol endpoint (parts at risk in a project, part status, best
   alternate). It answers as the caller's role.
 
-Not built: IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
+Not built: JLCPCB and TME suggestions (JLCPCB's alternatives field was empty in every recorded answer and TME's answers carry no similar-parts
+field, so there is no format to read), IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
 observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.
+
+## Ending parts
+
+Library Manager > Ending Parts (for roles that open Supply) lists the catalog components whose part is ending: not recommended for new
+designs, last time buy, obsolete, dropped by every distributor, or an outlook under two years. Each row gives the reasons and where each
+comes from, the last buy date, stock, the tracked projects that use the part and the component's approved alternates. Prism proposes;
+QA and administrators decide. **Not for new designs** marks the component: it stays released and keeps resolving where it is placed, and
+the catalog shows a tag. **Retire** archives it through the catalog's own workflow (which takes it out of the KiCad library) after
+listing the projects that use it, and is allowed while projects still do. The decision is kept outside the component's revision, like
+the approved parts. A marked component reads "Not for new designs" in the KiCad database's Status column (instead of its workflow stage)
+and the KiCad panel warns on its detail screen; the Dashboard has an "Ending in library" tile with the number nobody has decided about.
+Not built: making an approved alternate the primary from the dialog.
+
+## Search
+
+The command palette (Ctrl or Command K) finds a part once, whether it is a library component, a supply part or both: a row reads the
+part number and maker with the component's stage and the stock, Enter opens the library component for people who use the library
+manager and the supply sheet for the others, and Ctrl or Command Enter opens the other place. Two components with one number stay two
+rows; an approved alternate is its own row named for what it stands in for. It also opens Parts on a group named in words (out of
+stock, obsolete, runs out, one distributor, waiting for room) and the BOM file tool.
 
 ## Makers
 

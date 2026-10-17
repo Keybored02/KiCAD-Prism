@@ -88,6 +88,22 @@ describe("the dashboard", () => {
     expect(search()).toContain("partsOnly=one_distributor");
   });
 
+  it("tells library users how many ending components wait for a decision and opens the Ending Parts tab", async () => {
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ ending_components: 3 }));
+    renderView();
+    const tile = (await screen.findByText("Ending in library")).closest("button")!;
+    expect(tile.textContent).toContain("3");
+    fireEvent.click(tile);
+    expect(search()).toContain("section=library-manager");
+    expect(search()).toContain("libraryView=ending");
+  });
+
+  it("shows no such tile when nothing waits", async () => {
+    renderView();
+    await atRiskTile();
+    expect(screen.queryByText("Ending in library")).toBeNull();
+  });
+
   it("swaps a chart for its numbers", async () => {
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Show When stock runs out as a table" }));

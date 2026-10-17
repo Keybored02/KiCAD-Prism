@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.supply import (
     accounts, dashboard, details, fx, ledger, market, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
-    schedule_settings, tracking,
+    schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
@@ -249,10 +249,15 @@ def _read_details(connectors: ConnectorService, connector_id: str) -> str | None
     """Read a few due change notices or substance lists. Best effort: a failure is recorded per listing, never the job."""
 
     try:
-        return details.run(connectors, connector_id).stopped
+        stopped = details.run(connectors, connector_id).stopped
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Distributor details not read", exc_info=True)
         return "error"
+    try:
+        substitutes.run_due(connectors, connector_id)
+    except Exception:  # noqa: BLE001 - substitutes are a favour; the notices and the job do not depend on them
+        logging.getLogger(__name__).info("Substitutes not asked for", exc_info=True)
+    return stopped
 
 
 def _snapshot_market(conn) -> None:

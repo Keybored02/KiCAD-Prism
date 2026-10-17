@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Mapping
 
+from app.services.supply import price_quantity
 from app.services.supply.assessment import settings as rules
 from app.services.supply.assessment.settings import AssessmentSettings
 from app.services.supply.audit import actor_text, write_audit
@@ -35,11 +36,22 @@ def save(conn, payload: Mapping, actor: str) -> AssessmentSettings:
         (KEY, json.dumps(value), actor),
     )
     write_audit(conn, actor, "settings.assessment", KEY, {"before": rules.to_dto(before), "after": value}, subject_kind="settings")
-    return rules.from_dto(value)
+    after = rules.from_dto(value)
+    _forget_if_priced_differently(conn, before, after)
+    return after
+
+
+def _forget_if_priced_differently(conn, before: AssessmentSettings, after: AssessmentSettings) -> None:
+    """Prices kept in lists were worked out at the old quantity and base currency."""
+
+    if (before.price_quantity, before.base_currency) != (after.price_quantity, after.base_currency):
+        price_quantity.forget(conn)
 
 
 def reset(conn, actor: str) -> AssessmentSettings:
     actor = actor_text(actor)
+    before = load(conn)
     conn.execute("DELETE FROM settings WHERE key = %s", (KEY,))
     write_audit(conn, actor, "settings.assessment.reset", KEY, {}, subject_kind="settings")
+    _forget_if_priced_differently(conn, before, rules.DEFAULTS)
     return rules.DEFAULTS

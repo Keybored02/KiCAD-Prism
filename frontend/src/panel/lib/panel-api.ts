@@ -89,6 +89,8 @@ export interface PanelSupply {
   /** Inventory sources. Distributor offers are in `offers`. */
   sources: PanelSupplySource[];
   summary?: PanelSupplySummary;
+  /** The library marked this component: do not use it in new designs. */
+  restriction?: "not_for_new_designs";
   /** Detail only, from here down. */
   offers?: PanelDistributorOffer[];
   alternates?: Array<{ manufacturer: string; mpn: string; status: PanelSupplySummary["status"]; stock: number | null; rank: number }>;

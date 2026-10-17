@@ -72,6 +72,45 @@ class LcscTests(unittest.TestCase):
         self.assertFalse(offer.discontinued)
         self.assertIsNone(offer.rohs)
 
+    def test_a_price_without_dollars_is_taken_only_when_the_answer_names_dollars(self) -> None:
+        euro = product(productPriceList=[{"ladder": 1, "productPrice": "0.8"}], currencyType="EUR")
+        (offer,) = provider(FakeClient({PATH: [answer(euro)]})).get_offers(["C2040"])
+        self.assertEqual((offer.price_breaks, offer.currency), ((), ""), "a price in another currency is never read as dollars")
+        named = product(productPriceList=[{"ladder": 1, "productPrice": "0.8"}], currencyType="USD")
+        (offer,) = provider(FakeClient({PATH: [answer(named)]})).get_offers(["C2040"])
+        self.assertEqual([(b.quantity, b.unit_price) for b in offer.price_breaks], [(1, Decimal("0.8"))])
+
+    def test_the_alternate_parts_lcsc_lists_are_kept_with_their_package(self) -> None:
+        listed = product(alternatePartList=[
+            {"productCode": "c52953348", "productModel": "74AHC1G08GV", "brandNameEn": "MDD", "encapStandard": "SOT-23-5L"},
+            {"productCode": "C1", "productModel": " ", "brandNameEn": "x"},
+            "not an item",
+        ])
+        (offer,) = provider(FakeClient({PATH: [answer(listed)]})).get_offers(["C2040"])
+        self.assertEqual([(a.manufacturer, a.mpn, a.sku, a.note) for a in offer.alternates], [("MDD", "74AHC1G08GV", "C52953348", "SOT-23-5L")])
+        (plain,) = provider(FakeClient({PATH: [answer(product())]})).get_offers(["C2040"])
+        self.assertEqual(plain.alternates, (), "LCSC carries the list, so no alternates is something it said")
+
+    def test_a_connector_in_euros_asks_lcsc_for_euros_and_takes_its_own_euro_price(self) -> None:
+        euro = product(currencyType="EUR", productPriceList=[
+            {"ladder": 1, "productPrice": "0.9", "usdPrice": 0.9, "currencyPrice": 0.83},
+            {"ladder": 10, "productPrice": "0.8", "usdPrice": 0.8, "currencyPrice": 0.74},
+        ])
+        client = FakeClient({PATH: [answer(euro)]})
+        asking = lcsc.LcscProvider(ProviderConfig(connector_id="c1", currency="eur"), client=client, clock=lambda: NOW, monotonic=lambda: 0.0, sleep=lambda _s: None)
+        (offer,) = asking.get_offers(["C2040"])
+        self.assertEqual(client.calls[0]["headers"], {"Cookie": "currencyCode=EUR"})
+        self.assertEqual((offer.currency, [(b.quantity, b.unit_price) for b in offer.price_breaks]), ("EUR", [(1, Decimal("0.83")), (10, Decimal("0.74"))]))
+
+    def test_when_lcsc_answers_in_dollars_anyway_the_dollar_price_is_used(self) -> None:
+        client = FakeClient({PATH: [answer(product(currencyType="USD"))]})
+        asking = lcsc.LcscProvider(ProviderConfig(connector_id="c1", currency="EUR"), client=client, clock=lambda: NOW, monotonic=lambda: 0.0, sleep=lambda _s: None)
+        (offer,) = asking.get_offers(["C2040"])
+        self.assertEqual((offer.currency, offer.price_breaks[0].unit_price), ("USD", Decimal("0.9")))
+        plain = FakeClient({PATH: [answer(product())]})
+        provider(plain).get_offers(["C2040"])
+        self.assertNotIn("headers", plain.calls[0], "no cookie for a dollar connector")
+
     def test_order_rules_and_rohs(self) -> None:
         client = FakeClient({PATH: [answer(product(productCode="C25804", minBuyNumber=100, split=100, stockNumber=0, isRohsCert=True))]})
         (offer,) = provider(client).get_offers(["C25804"])

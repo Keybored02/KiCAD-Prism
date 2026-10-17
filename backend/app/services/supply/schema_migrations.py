@@ -1704,6 +1704,132 @@ def _m073_part_trade_marks(conn) -> None:
     )
 
 
+def _m074_price_quantity(conn) -> None:
+    """A part's own price quantity, and each listing's price breaks as they changed, so the price history can follow any quantity."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_price_quantity (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            quantity INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 1000000),
+            set_by TEXT NOT NULL DEFAULT '',
+            set_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS price_breaks_history (
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            since TIMESTAMPTZ NOT NULL,
+            breaks JSONB NOT NULL,
+            currency TEXT NOT NULL DEFAULT '',
+            moq INTEGER NOT NULL DEFAULT 1,
+            order_multiple INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (listing_id, since)
+        );
+
+        -- The breaks held now, from the day they were last read. Earlier days only have the price at 100.
+        INSERT INTO price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple)
+        SELECT listing_id, fetched_at, price_breaks, currency, moq, order_multiple FROM offers
+        WHERE currency <> '' AND jsonb_array_length(price_breaks) > 0
+        ON CONFLICT DO NOTHING;
+        """,
+        prepare=False,
+    )
+
+
+def _m075_part_alternates(conn) -> None:
+    """Parts distributors suggest in place of a part, kept from the answers Prism reads and from asking for substitutes."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_alternates (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            -- listed: came with an offer read; asked: from a call made for it (DigiKey substitutes).
+            origin TEXT NOT NULL DEFAULT 'listed' CHECK (origin IN ('listed', 'asked')),
+            alt_key TEXT NOT NULL,
+            manufacturer TEXT NOT NULL DEFAULT '',
+            mpn TEXT NOT NULL DEFAULT '',
+            sku TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            seen_at TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (part_id, provider, origin, alt_key)
+        );
+        """,
+        prepare=False,
+    )
+
+
+def _m076_stock_events(conn) -> None:
+    """Stock-outs and restocks of each listing as they happened, with the lead time the distributor quoted at the stock-out."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stock_events (
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            day DATE NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('stock_out', 'restock')),
+            stock_before INTEGER NOT NULL,
+            stock_after INTEGER NOT NULL,
+            quoted_lead_days INTEGER,
+            -- stock_out with a quote: the day the distributor said it would be back.
+            expected DATE,
+            -- stock_out: the day stock came back.
+            resolved_on DATE,
+            PRIMARY KEY (listing_id, day, kind)
+        );
+        CREATE INDEX IF NOT EXISTS idx_stock_events_day ON stock_events (day);
+
+        -- What the recorded readings already show.
+        INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected)
+        SELECT listing_id, day, kind, before, after, lead, CASE WHEN kind = 'stock_out' AND lead IS NOT NULL THEN day + lead END
+        FROM (
+            SELECT s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock AS after, LAG(s.stock) OVER w AS before,
+                   s.lead_time_days AS lead,
+                   CASE WHEN LAG(s.stock) OVER w > 0 AND s.stock = 0 THEN 'stock_out'
+                        WHEN LAG(s.stock) OVER w = 0 AND s.stock > 0 THEN 'restock' END AS kind
+            FROM samples s WHERE NOT s.marketplace
+            WINDOW w AS (PARTITION BY s.listing_id ORDER BY s.sampled_at)
+        ) t WHERE kind IS NOT NULL
+        ON CONFLICT DO NOTHING;
+
+        UPDATE stock_events o SET resolved_on = (
+            SELECT MIN(r.day) FROM stock_events r WHERE r.listing_id = o.listing_id AND r.kind = 'restock' AND r.day >= o.day
+        ) WHERE o.kind = 'stock_out';
+        """,
+        prepare=False,
+    )
+
+
+def _m077_component_restrictions(conn) -> None:
+    """What the library decided about a component whose part is ending: marked for no new designs, or retired. Outside the revision hash."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS component_restrictions (
+            component_id TEXT PRIMARY KEY,
+            level TEXT NOT NULL CHECK (level IN ('not_for_new_designs', 'retired')),
+            reason TEXT NOT NULL DEFAULT '',
+            replacement_component_id TEXT NOT NULL DEFAULT '',
+            set_by TEXT NOT NULL DEFAULT '',
+            set_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
+def _m078_forget_cached_prices(conn) -> None:
+    """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
+
+    conn.execute(
+        """
+        DELETE FROM part_summaries;
+        UPDATE part_insights SET computed_at = '-infinity'::timestamptz;
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1778,6 +1904,11 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (71, "part_preferences", _m071_part_preferences),
     (72, "cost_history_rollup", _m072_cost_history_rollup),
     (73, "part_trade_marks", _m073_part_trade_marks),
+    (74, "price_quantity", _m074_price_quantity),
+    (75, "part_alternates", _m075_part_alternates),
+    (76, "stock_events", _m076_stock_events),
+    (77, "component_restrictions", _m077_component_restrictions),
+    (78, "forget_cached_prices", _m078_forget_cached_prices),
 ]
 
 

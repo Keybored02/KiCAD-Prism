@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
-from typing import Any
+from typing import Any, Callable
 
 from app.services.catalog.normalization import sanitize_name
 from app.services.catalog.placement import CatalogPlacement
@@ -65,10 +65,32 @@ def dbl_symbol_library_name(part_number: str, symbol_asset: dict[str, Any] | Non
     return sanitize_name(raw, "Prism_Symbol")
 
 
+# Another part of the app may mark released components (supply does: "Not for new designs"). It is asked for the marked ids and
+# answers with the text their Status column carries instead of the workflow stage. Registered at start-up; the catalog never
+# imports whoever answers, and a failure leaves every Status as it was.
+StatusMarks = Callable[[list[str]], dict[str, str]]
+_status_marks: StatusMarks | None = None
+
+
+def set_status_marks(provider: StatusMarks | None) -> None:
+    global _status_marks
+    _status_marks = provider
+
+
+def status_marks_for(component_ids: list[str]) -> dict[str, str]:
+    if _status_marks is None or not component_ids:
+        return {}
+    try:
+        return dict(_status_marks(component_ids))
+    except Exception:  # noqa: BLE001 - a mark is a courtesy; the export must not depend on it
+        return {}
+
+
 def dbl_row_for_component(
     component: dict[str, Any],
     part_number: str,
     custom_fields: list[dict[str, Any]],
+    status_override: str = "",
 ) -> dict[str, str]:
     default_representation = next(
         (item for item in component.get("representations", []) if item.get("is_default")),
@@ -90,7 +112,7 @@ def dbl_row_for_component(
         "Manufacturer": component["manufacturer"],
         "Manufacturer Part Number": component["mpn"],
         "PackageDescription": component["package_name"],
-        "Status": component["workflow_stage"],
+        "Status": status_override or component["workflow_stage"],
         "Part Description": component["description"],
         "Datasheet": component["datasheet_url"],
         "LibSymbol": lib_symbol,
@@ -180,6 +202,7 @@ class CatalogDblExport:
         used_part_numbers: set[str] = set()
         grouped_rows: dict[str, list[dict[str, str]]] = {}
 
+        marks = status_marks_for([component["id"] for component in components])
         for component in components:
             base_part = part_number_nocolon(component["mpn"] or component["value"] or component["id"])
             part_number = base_part
@@ -190,7 +213,7 @@ class CatalogDblExport:
             used_part_numbers.add(part_number)
             category = component["category"] or "Uncategorized"
             grouped_rows.setdefault(category, []).append(
-                dbl_row_for_component(component, part_number, custom_fields)
+                dbl_row_for_component(component, part_number, custom_fields, marks.get(component["id"], ""))
             )
             self.collect_dbl_assets(conn, component, part_number, export_root)
 

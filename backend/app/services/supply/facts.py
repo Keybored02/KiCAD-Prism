@@ -150,7 +150,7 @@ def set_one(conn, part_id: str, provider: str, name: str, value: str, now: datet
     )
 
 
-def _source_label(provider: str) -> str:
+def source_label(provider: str) -> str:
     try:
         return registry.get_spec(provider).label
     except registry.UnknownProvider:
@@ -170,7 +170,7 @@ def for_part(conn, part_id: str, *, hide: frozenset[str] = frozenset()) -> list[
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_name.setdefault(row["name"], []).append({
-            "provider": row["provider"], "source": _source_label(row["provider"]), "value": row["value"],
+            "provider": row["provider"], "source": source_label(row["provider"]), "value": row["value"],
             "observed_at": row["observed_at"].isoformat(),
         })
     return [
@@ -208,7 +208,7 @@ def summary(conn, part_ids: Sequence[str]) -> dict[str, dict[str, str]]:
     found: dict[str, dict[str, list[str]]] = {}
     for row in rows:
         key = {"rohs_status": "rohs", "reach_status": "reach", "reach_svhc": "svhc"}[row["name"]]
-        found.setdefault(row["part_id"], {}).setdefault(key, []).append(f"{row['value']} ({_source_label(row['provider'])})")
+        found.setdefault(row["part_id"], {}).setdefault(key, []).append(f"{row['value']} ({source_label(row['provider'])})")
     return {part_id: {key: "; ".join(values) for key, values in kinds.items()} for part_id, kinds in found.items()}
 
 

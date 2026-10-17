@@ -28,6 +28,15 @@ def catalog_components() -> Iterator[dict[str, Any]]:
         page += 1
 
 
+def search(query: str, limit: int) -> list[dict[str, Any]]:
+    """Active catalog components for a search, best match first, without the heavy parts of the payload."""
+
+    from app.services.component_catalog_service import catalog_service
+
+    result = catalog_service.list_components(query=query, page=1, page_size=max(1, min(limit, PAGE_SIZE)), include_inactive=False, lightweight=True)
+    return list(result.get("items") or [])
+
+
 def identities(component_ids: Iterable[str]) -> dict[str, tuple[str, str]]:
     """Catalog component id to (manufacturer, part number), for the ids the catalog knows. Others are left out."""
 

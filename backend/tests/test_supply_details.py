@@ -83,7 +83,7 @@ class DetailsTests(unittest.TestCase):
 
         with self.store.connection() as conn:
             for table in ("pcn_parts", "pcns", "part_facts", "part_substances", "detail_checks", "oauth_states", "connector_grants",
-                          "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events",
+                          "part_alternates", "offers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events",
                           "svhc_substances", "svhc_list"):
                 conn.execute(f"DELETE FROM {table}")
         self.digikey = self.connectors.create(actor=ADMIN, provider="digikey", storefront="IT", currency="EUR", display_name="DigiKey",
@@ -455,6 +455,94 @@ class DetailsTests(unittest.TestCase):
         said = details.check_now(self.connectors, self.part_a, "fourth@example.com", provider=object(), token_for=down)
         self.assertEqual((said["read"], len(said["problems"])), (0, 1))
         self.assertIn("did not answer", said["problems"][0]["reason"])
+
+    # --- DigiKey substitutes ------------------------------------------------
+
+    def substitute_provider(self, calls):
+        from app.services.supply.models import Alternate
+
+        class Provider:
+            def substitutes(self, sku):
+                calls.append(sku)
+                return (Alternate("Acme", "LM358-NEW", "DK-1", "Direct"),)
+
+        return Provider()
+
+    def make_ending(self, listing_id, lifecycle="nrnd"):
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 10, %s)", (listing_id, NOW, lifecycle))
+
+    def test_a_person_can_ask_digikey_for_substitutes_once_an_hour(self) -> None:
+        from app.services.supply import alternates, substitutes
+
+        real = datetime.now(timezone.utc)
+        calls: list[str] = []
+        asked = substitutes.ask_now(self.connectors, self.part_a, ADMIN, now=real, provider=self.substitute_provider(calls))
+        self.assertEqual((asked["asked"], asked["found"], calls), (1, 1, ["296-1395-1-ND"]), "one call, at DigiKey only: Mouser has no such call")
+        with self.store.connection() as conn:
+            kept = alternates.for_part(conn, self.part_a)
+        self.assertEqual([(entry["mpn"], entry["asked"], entry["notes"]) for entry in kept], [("LM358-NEW", True, ["Direct"])])
+        with self.assertRaises(substitutes.TooSoon):
+            substitutes.ask_now(self.connectors, self.part_a, "other@example.com", now=real + timedelta(minutes=10), provider=self.substitute_provider(calls))
+        again = substitutes.ask_now(self.connectors, self.part_a, ADMIN, now=real + timedelta(hours=1, minutes=1), provider=self.substitute_provider(calls))
+        self.assertEqual(again["asked"], 1)
+
+    def test_asking_says_why_digikey_could_not_be_asked(self) -> None:
+        from app.services.supply import substitutes
+        from app.services.supply.providers.base import Unavailable
+
+        real = datetime.now(timezone.utc)
+
+        class Down:
+            def substitutes(self, sku):
+                raise Unavailable("503")
+
+        said = substitutes.ask_now(self.connectors, self.part_a, ADMIN, now=real, provider=Down())
+        self.assertEqual((said["asked"], len(said["problems"])), (0, 1))
+        self.assertIn("did not answer", said["problems"][0]["reason"])
+
+    def test_ending_parts_are_asked_for_automatically_and_only_once_in_thirty_days(self) -> None:
+        from app.services.supply import substitutes
+
+        real = datetime.now(timezone.utc)
+        calls: list[str] = []
+        self.make_ending(self.dk_a)
+        self.make_ending(self.dk_b, "active")
+        self.assertEqual(substitutes.run_due(self.connectors, self.digikey, now=real, provider=self.substitute_provider(calls)), 1)
+        self.assertEqual(calls, ["296-1395-1-ND"], "only the ending part, and not the active one")
+        self.assertEqual(substitutes.run_due(self.connectors, self.digikey, now=real + timedelta(days=29), provider=self.substitute_provider(calls)), 0)
+        self.assertEqual(substitutes.run_due(self.connectors, self.digikey, now=real + timedelta(days=31), provider=self.substitute_provider(calls)), 1)
+        self.assertEqual(substitutes.run_due(self.connectors, self.mouser, now=real, provider=self.substitute_provider(calls)), 0, "Mouser has no such call")
+
+    def test_a_distributor_dropping_the_part_counts_as_ending(self) -> None:
+        from app.services.supply import substitutes
+
+        real = datetime.now(timezone.utc)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle, discontinued) VALUES (%s, %s, 0, 'active', TRUE)", (self.dk_a, NOW))
+            self.assertEqual([row["part_id"] for row in substitutes.due(conn, self.digikey, real)], [self.part_a])
+
+    def test_a_mouser_number_is_resolved_to_a_part_number_and_stays_resolved_when_mouser_is_read_again(self) -> None:
+        from app.services.supply import alternates, substitutes
+        from app.services.supply.models import Alternate, Offer
+
+        real = datetime.now(timezone.utc)
+        reads: list[list[str]] = []
+
+        class Mouser:
+            def get_offers(self, skus):
+                reads.append(list(skus))
+                return [Offer(provider="mouser", sku=skus[0], mpn="LM358ADR", manufacturer="Texas Instruments", stock=5, fetched_at=real)]
+
+        with self.store.connection() as conn:
+            alternates.replace(conn, self.part_a, "mouser", [Alternate(sku="595-LM358ADR", note="Mouser number")], real)
+        said = substitutes.ask_now(self.connectors, self.part_a, ADMIN, now=real, provider=self.substitute_provider([]), mouser_provider=Mouser())
+        self.assertEqual((said["resolved"], reads), (1, [["595-LM358ADR"]]), "one read of that number")
+        with self.store.connection() as conn:
+            alternates.replace(conn, self.part_a, "mouser", [Alternate(sku="595-LM358ADR", note="Mouser number")], real)
+            kept = alternates.for_part(conn, self.part_a)
+            self.assertEqual(alternates.unresolved(conn, self.part_a, "mouser"), [])
+        self.assertEqual([(entry["manufacturer"], entry["mpn"], entry["sku"]) for entry in kept if entry["sku"].startswith("595")], [("Texas Instruments", "LM358ADR", "595-LM358ADR")])
 
     def test_the_routes_are_for_administrators_and_the_callback_returns_to_the_connectors_tab(self) -> None:
         from app.services.supply import oauth

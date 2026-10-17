@@ -1,5 +1,6 @@
 import type { SupplyDistributorBehaviour } from "@/types/supply";
 import { ChartCard, FigureTable } from "./chart-card";
+import { ScorecardTable } from "./scorecard-table";
 import { vendorColor } from "./vendor-colors";
 
 interface Bar {
@@ -37,6 +38,7 @@ export function DistributorsSection({ distributors }: { distributors: SupplyDist
   const arrivals = distributors.arrivals;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
+      {distributors.scorecard ? <ScorecardTable scorecard={distributors.scorecard} /> : null}
       <Bars
         title="Days between price changes"
         info="The median over the parts each distributor prices. Needs several price changes per part, so a new install shows little."

@@ -11,6 +11,7 @@ import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
 import { behaviourLines } from "./market-behaviour-text";
+import { RestockRecordSection } from "./restock-record";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { ListingGroups } from "./listing-groups";
@@ -64,13 +65,14 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         <PartHistoryPanel partId={detail.part.id} threshold={detail.watch?.threshold ?? null} />
       </section>
 
-      <PriceTrend price={detail.price} />
+      <PriceTrend price={detail.price} partId={detail.part.id} listings={detail.listings} canEdit={canEdit} onChanged={onChanged} />
 
       <OutlookSection outlook={detail.outlook} />
 
       <AssessmentSection partId={detail.part.id} role={role} />
 
       <InsightPanel insight={detail.insight} />
+      <RestockRecordSection record={detail.restock_record ?? []} />
       {behaviourLines(detail.market_behaviour).length > 0 ? (
         <section aria-label="Distributors compared" className="space-y-1">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Distributors compared</h3>

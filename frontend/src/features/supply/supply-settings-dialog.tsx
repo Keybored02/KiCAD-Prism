@@ -72,6 +72,7 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
   const { busy, error, run } = useConnectorSubmit();
   const [lowLead, highLead] = view.ranges.lead_time_days;
   const [lowAge, highAge] = view.ranges.stale_hours;
+  const [lowQuantity, highQuantity] = view.ranges.price_quantity;
 
   const save = async () => {
     if (await run(async () => { await saveAssessmentSettings(draft); })) onClose();
@@ -94,6 +95,12 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
           <Input id="setting-currency" className="w-28" maxLength={3} value={draft.base_currency}
             onChange={(event) => setDraft({ ...draft, base_currency: event.target.value.toUpperCase() })} />
           <p className="text-xs text-muted-foreground">Three letters, such as EUR. Rates come from the European Central Bank each day.</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="setting-quantity">Price quantity, in pieces</Label>
+          <Input id="setting-quantity" inputMode="numeric" value={draft.price_quantity}
+            onChange={(event) => setDraft({ ...draft, price_quantity: whole(event.target.value, lowQuantity, highQuantity, draft.price_quantity) })} />
+          <p className="text-xs text-muted-foreground">{lowQuantity.toLocaleString()} to {highQuantity.toLocaleString()}. Lists and price history price at this; a part can have its own.</p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="setting-age">Oldest distributor data you accept, in hours</Label>

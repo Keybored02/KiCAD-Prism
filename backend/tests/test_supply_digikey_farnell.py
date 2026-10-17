@@ -366,5 +366,30 @@ class MouserFamilyTests(unittest.TestCase):
         self.assertEqual(client.calls[0]["json"]["SearchByPartRequest"]["partSearchOptions"], "None")
 
 
+class DigiKeySubstitutesTests(unittest.TestCase):
+    """The substitutions answer is recorded from the live service (tests/fixtures/supply/digikey_live_substitutions.json)."""
+
+    def recorded(self, index: int) -> dict:
+        import json
+
+        path = Path(__file__).resolve().parent / "fixtures" / "supply" / "digikey_live_substitutions.json"
+        return json.loads(path.read_text(encoding="utf-8"))["calls"][index]["answer"]
+
+    def test_the_packagings_of_a_substitute_are_one_part_with_digikeys_word_for_the_match(self) -> None:
+        client = FakeClient({"/products/v4/search/445-5982-1-ND/substitutions": [self.recorded(0)], "/v1/oauth2/token": [TOKEN]})
+        found = dk_provider(client).substitutes("445-5982-1-ND")
+        self.assertEqual([(a.manufacturer, a.mpn, a.note) for a in found], [("TDK", "C2012X5R1V685K125AC", "Upgrade")], "three packagings, one part")
+        self.assertTrue(found[0].sku.startswith("445-"))
+
+    def test_a_direct_substitute_and_a_product_digikey_does_not_know(self) -> None:
+        client = FakeClient({"/products/v4/search/P120HDKR-ND/substitutions": [self.recorded(1)], "/v1/oauth2/token": [TOKEN]})
+        found = dk_provider(client).substitutes("P120HDKR-ND")
+        self.assertTrue(found and all(a.note in ("Direct", "Upgrade") for a in found))
+        self.assertEqual(len({a.mpn for a in found}), len(found), "each part once")
+        missing = FakeClient({"/products/v4/search/GONE/substitutions": [NotFound("no")], "/v1/oauth2/token": [TOKEN]})
+        self.assertEqual(dk_provider(missing).substitutes("GONE"), ())
+
+
+
 if __name__ == "__main__":
     unittest.main()

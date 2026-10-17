@@ -20,7 +20,7 @@ from decimal import Decimal
 from statistics import median
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts_view
+from app.services.supply import parts_view, price_breaks, price_quantity, pricing
 from app.services.supply.vocabulary import Lifecycle
 
 MIN_SAMPLE = 3
@@ -114,7 +114,7 @@ def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, l
         return {}
     rows = conn.execute(
         """
-        SELECT l.part_id,
+        SELECT l.part_id, l.id AS listing_id,
                (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.sampled_at < %s AND s.unit_price IS NOT NULL
                 ORDER BY s.sampled_at DESC LIMIT 1) AS before,
                (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.unit_price IS NOT NULL
@@ -124,11 +124,32 @@ def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, l
         """,
         (since, list(part_ids)),
     ).fetchall()
+    quantities = price_quantity.of_parts(conn, part_ids)
+    kept = price_breaks.load(conn, [row["listing_id"] for row in rows if quantities[row["part_id"]] != pricing.REFERENCE_QUANTITY])
     found: dict[str, list[Decimal]] = {}
     for row in rows:
-        if row["before"] and row["now"] and row["before"] > 0:
-            found.setdefault(row["part_id"], []).append(Decimal(row["now"]) / Decimal(row["before"]))
+        ratio = _ratio_at_quantity(kept.get(row["listing_id"], []), quantities[row["part_id"]], since.date())
+        if ratio is None and row["before"] and row["now"] and row["before"] > 0:
+            ratio = Decimal(row["now"]) / Decimal(row["before"])
+        if ratio is not None:
+            found.setdefault(row["part_id"], []).append(ratio)
     return found
+
+
+def _ratio_at_quantity(history: Sequence[dict], quantity: int, since_day: date) -> Decimal | None:
+    """The price change of one listing at the part's own quantity, from the price breaks kept; None when they do not reach back to ``since_day``
+    (the reading at 100 pieces is used then)."""
+
+    if quantity == pricing.REFERENCE_QUANTITY or not history:
+        return None
+    then, now = price_breaks.in_force(history, since_day), history[-1]
+    if then is None:
+        return None
+    before = pricing.unit_price_at(then["breaks"], moq=then["moq"], order_multiple=then["order_multiple"], wanted=quantity)
+    after = pricing.unit_price_at(now["breaks"], moq=now["moq"], order_multiple=now["order_multiple"], wanted=quantity)
+    if not before or not after or then["currency"] != now["currency"]:
+        return None
+    return after / before
 
 
 def _price_index(conn, kind: str, name: str, ids: Sequence[str], today: date) -> Decimal | None:

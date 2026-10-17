@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
-from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import details, parts, pcn
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
+from app.services.supply import details, parts, pcn, substitutes
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -54,7 +54,7 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=404, detail="Not found") from exc
     except parts.UnknownManufacturer as exc:
         raise HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)}) from exc
-    except details.TooSoon as exc:
+    except (details.TooSoon, substitutes.TooSoon) as exc:
         raise HTTPException(status_code=429, detail={"code": "too_soon", "message": str(exc)}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_notice", "message": str(exc)}) from exc
@@ -75,6 +75,13 @@ async def check_notices(part_id: str, writer: AuthenticatedUser = Depends(requir
     """Read this part's change notices from the distributors that list them, now. Once an hour per person and part."""
 
     return await _run(lambda: details.check_now(supply_connectors.service, part_id, writer.email))
+
+
+@router.post("/parts/{part_id}/ask-substitutes")
+async def ask_substitutes(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Ask the distributors that can (DigiKey) for parts they offer in place of this one, now. Once an hour per part."""
+
+    return await _run(lambda: substitutes.ask_now(supply_connectors.service, part_id, user.email))
 
 
 @router.post("/notices", status_code=201)

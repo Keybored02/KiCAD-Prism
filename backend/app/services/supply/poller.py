@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, facts, insights, ledger, parts_view, pricing, promises, stock, tiers, trouble
+from app.services.supply import alerts, alternates, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -400,6 +400,10 @@ class Poller:
                 offer.marketplace, offer.product_url, offer.reach_affected, offer.reel_size, offer.packaging_inferred,
             ),
         )
+        price_breaks.record(
+            conn, row.id, offer.fetched_at, [(item.quantity, item.unit_price) for item in offer.price_breaks],
+            offer.currency, offer.moq, offer.order_multiple,
+        )
         # A reading is kept when something changed since the last, or the last is a day old; a re-read of an unchanged
         # listing the same day adds nothing.
         if changed or previous["sampled_at"] <= offer.fetched_at - SAMPLE_EVERY:
@@ -414,12 +418,15 @@ class Poller:
                  offer.moq, offer.order_multiple),
             )
         promises.record(conn, row.id, offer.incoming, previous["stock"] if previous is not None else None, offer.stock, now)
+        stock_events.record(conn, row.id, previous["stock"] if previous is not None else None, offer.stock, offer.lead_time_days, offer.marketplace, now)
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
         # Compliance and trade facts come with the answer; keeping them costs no call.
         stocked_before = conn.execute(
             "SELECT value FROM part_facts WHERE part_id = %s AND provider = %s AND name = 'normally_stocking'", (row.part_id, offer.provider)
         ).fetchone()
         facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
+        if offer.alternates is not None:
+            alternates.replace(conn, row.part_id, offer.provider, offer.alternates, now)
         self._note_changes(conn, row, offer, previous, stocked_before["value"] if stocked_before else None)
         if offer.datasheet_url:
             remember_datasheet(conn, row.part_id, offer.datasheet_url)

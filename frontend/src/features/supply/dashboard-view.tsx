@@ -1,9 +1,11 @@
 import { useCallback, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Ban, BellRing, Eye, Hourglass, ListChecks, PackageX } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { canOpenLibraryManager } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { PartsFilter, SupplyDashboard, SupplyOverview, SupplyReviewQueue } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
@@ -36,6 +38,7 @@ export function DashboardView({ user }: { user: User | null }) {
   const reviewFetcher = useCallback((signal: AbortSignal) => getSupplyReviewQueue(signal), []);
   const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue");
   const { go, openPart } = useSupplyNavigation();
+  const navigate = useNavigate();
   const [alertKind, setAlertKind] = useState("");
   const data = dashboard.data;
   const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
@@ -48,6 +51,9 @@ export function DashboardView({ user }: { user: User | null }) {
     { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: () => document.getElementById("dashboard-alerts")?.scrollIntoView?.() },
     { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
     { label: "Needs you", value: reviewCountOf(review.data), icon: ListChecks, onClick: () => go("review") },
+    ...(canOpenLibraryManager(user?.role) && data?.ending_components
+      ? [{ label: "Ending in library", value: data.ending_components, icon: Hourglass, bad: true, onClick: () => navigate("/?section=library-manager&libraryView=ending") }]
+      : []),
   ];
 
   return (

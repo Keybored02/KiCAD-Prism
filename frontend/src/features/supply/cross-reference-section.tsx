@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
-import { addComponentSource, getCrossReference } from "./supply-api";
+import { addComponentSource, askSubstitutes, getCrossReference } from "./supply-api";
+import { SuggestionsList } from "./suggestions-list";
 import { formatStock } from "./supply-format";
 
 const SAME_LABEL: Record<string, string> = {
@@ -36,15 +37,32 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
       setBusy(false);
     }
   };
+  const ask = async () => {
+    setBusy(true);
+    try {
+      const reply = await askSubstitutes(partId);
+      if (reply.problems.length > 0) toast.error(reply.problems.map((problem) => problem.reason).join(" "));
+      else toast.success(`${reply.found === 0 ? "DigiKey names no substitutes." : `DigiKey names ${reply.found} ${reply.found === 1 ? "substitute" : "substitutes"}.`}${reply.resolved ? ` ${reply.resolved} Mouser ${reply.resolved === 1 ? "number" : "numbers"} named.` : ""}`);
+      setFound(await getCrossReference(partId));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not ask for substitutes");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <section aria-label="Alternatives" className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alternatives</h3>
-        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void look()}>Find alternatives</Button>
+        <span className="flex gap-1">
+          {canEdit ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void look()}>Find alternatives</Button>
+        </span>
       </div>
       {found ? (
         <>
-          {found.suggested_by_distributors.length > 0 ? <p className="text-sm">Distributors suggest: {found.suggested_by_distributors.join(", ")}.</p> : null}
+          <SuggestionsList suggestions={found.suggestions ?? []} componentId={found.component_id} canEdit={canEdit} onTracked={() => void look()} />
+          {!found.suggestions?.length && found.suggested_by_distributors.length > 0 ? <p className="text-sm">Distributors suggest: {found.suggested_by_distributors.join(", ")}.</p> : null}
           {found.candidates.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {found.judged_on.length === 0 ? "Not enough is listed for this part to compare it." : "No part Prism knows matches it."}

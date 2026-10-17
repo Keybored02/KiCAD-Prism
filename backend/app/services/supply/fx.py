@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any, Mapping
 from xml.etree import ElementTree
 
+from app.services.supply import price_quantity
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.providers.base import ProviderError
@@ -83,6 +84,9 @@ def store(conn, day: date, rates: Mapping[str, Decimal], source: str) -> int:
             (day, code, rate, source),
         )
         saved += 1
+    if saved:
+        # Prices in lists are shown in the base currency at these rates.
+        price_quantity.forget(conn)
     return saved
 
 

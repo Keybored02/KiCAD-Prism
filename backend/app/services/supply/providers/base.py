@@ -26,10 +26,12 @@ CAP_INCOMING = "incoming"
 CAP_PCN = "pcn"
 # Reads the substances of very high concern a distributor names for a listing (one call per listing).
 CAP_SUBSTANCES = "substances"
+# Names parts the distributor offers in place of a listing (one call per listing, asked for when it matters).
+CAP_SUBSTITUTES = "substitutes"
 
 CAPABILITIES = frozenset({
     CAP_SEARCH, CAP_OFFERS, CAP_PARAMETRICS, CAP_MEDIA,
-    CAP_LIFECYCLE, CAP_BATCH, CAP_INCOMING, CAP_PCN, CAP_SUBSTANCES,
+    CAP_LIFECYCLE, CAP_BATCH, CAP_INCOMING, CAP_PCN, CAP_SUBSTANCES, CAP_SUBSTITUTES,
 })
 
 _KEY = re.compile(r"^[a-z][a-z0-9_]{1,31}$")

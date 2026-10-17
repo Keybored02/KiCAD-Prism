@@ -41,7 +41,7 @@ from typing import Any, Callable, Mapping, Sequence
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
-from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
+from app.services.supply.models import Alternate, Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
 from app.services.supply.providers.base import (
     CAP_BATCH,
     CAP_INCOMING,
@@ -354,6 +354,13 @@ def _facts(part: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     return tuple((name, value) for name, value in pairs if value)
 
 
+def _alternates(part: Mapping[str, Any]) -> tuple[Alternate, ...]:
+    """Mouser's suggested replacement. It is given as a Mouser number, so it stays one (Mouser's own listing resolves it)."""
+
+    suggested = str(part.get("SuggestedReplacement") or "").strip()
+    return (Alternate(sku=suggested, note="Mouser number"),) if suggested else ()
+
+
 def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
     """The offer, or None when the answer does not say how many are on hand (left out, as the contract says)."""
 
@@ -389,6 +396,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
         product_url=str(part.get("ProductDetailUrl") or ""),
         datasheet_url=str(part.get("DataSheetUrl") or ""),
         facts=_facts(part),
+        alternates=_alternates(part),
     )
 
 

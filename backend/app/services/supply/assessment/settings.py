@@ -69,6 +69,8 @@ class AssessmentSettings:
     stale_hours: int = 72
     # Prices in other currencies are converted to this one to be compared and totalled.
     base_currency: str = "EUR"
+    # The quantity lists and price history price at, unless a part has its own.
+    price_quantity: int = 100
     # Price the BOM at the preferred distributor when it holds enough stock for the build, else at the cheapest (Altium's preferred suppliers).
     prefer_distributors: bool = False
     # Connector ids, most preferred first. A part's own preferred distributor comes before them.
@@ -115,6 +117,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
 SEVERITY_CHOICES = (Status.OK, Status.WARNING, Status.ERROR, Status.FATAL)
 LEAD_TIME_RANGE = (1, 730)
 STALE_HOURS_RANGE = (1, 720)
+PRICE_QUANTITY_RANGE = (1, 1_000_000)
 
 
 def to_dto(settings: AssessmentSettings) -> dict:
@@ -122,6 +125,7 @@ def to_dto(settings: AssessmentSettings) -> dict:
         "lead_time_days": settings.lead_time_days,
         "stale_hours": settings.stale_hours,
         "base_currency": settings.base_currency,
+        "price_quantity": settings.price_quantity,
         "prefer_distributors": settings.prefer_distributors,
         "distributor_order": list(settings.distributor_order),
         "weights": {name: settings.weights[name] for name in SUB_SCORES},
@@ -137,6 +141,7 @@ def from_dto(payload: Mapping) -> AssessmentSettings:
         lead_time_days=int(payload.get("lead_time_days", base.lead_time_days)),
         stale_hours=int(payload.get("stale_hours", base.stale_hours)),
         base_currency=str(payload.get("base_currency", base.base_currency)),
+        price_quantity=int(payload.get("price_quantity", base.price_quantity)),
         prefer_distributors=bool(payload.get("prefer_distributors", base.prefer_distributors)),
         distributor_order=tuple(str(item) for item in payload.get("distributor_order", base.distributor_order)),
         weights=MappingProxyType({name: float(payload.get("weights", {}).get(name, base.weights[name])) for name in SUB_SCORES}),
@@ -186,6 +191,7 @@ def validate(payload: Mapping) -> dict:
         "lead_time_days": whole("lead_time_days", "The lead time limit", *LEAD_TIME_RANGE),
         "stale_hours": whole("stale_hours", "The data age limit", *STALE_HOURS_RANGE),
         "base_currency": currency,
+        "price_quantity": whole("price_quantity", "The price quantity", *PRICE_QUANTITY_RANGE),
         "prefer_distributors": prefer,
         "distributor_order": order,
         "weights": merged,

@@ -54,12 +54,13 @@ from urllib.parse import quote
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
-from app.services.supply.models import ChangeNotice, Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import Alternate, ChangeNotice, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
     CAP_OFFERS,
     CAP_PCN,
     CAP_SEARCH,
+    CAP_SUBSTITUTES,
     AuthError,
     CredentialField,
     NotFound,
@@ -219,6 +220,26 @@ class DigiKeyProvider:
             if offer is not None:
                 offers.append(offer)
         return offers
+
+    def substitutes(self, sku: str) -> tuple[Alternate, ...]:
+        """Parts DigiKey offers in place of one of its product numbers. One call. DigiKey lists a substitute once for each
+        of its packagings; here it is one part, with DigiKey's word for how close it is (Direct, Upgrade)."""
+
+        try:
+            answer = self._call("GET", f"/search/{_quote(sku)}/substitutions")
+        except NotFound:
+            return ()
+        found: dict[str, Alternate] = {}
+        for item in answer.get("ProductSubstitutes") or []:
+            if not isinstance(item, dict):
+                continue
+            number = str(item.get("ManufacturerProductNumber") or "").strip()
+            if number and match_key(number) not in found:
+                found[match_key(number)] = Alternate(
+                    manufacturer=str((item.get("Manufacturer") or {}).get("Name") or "").strip(), mpn=number,
+                    sku=str(item.get("DigiKeyProductNumber") or "").strip(), note=str(item.get("SubstituteType") or "").strip(),
+                )
+        return tuple(found.values())
 
     def change_notices(self, sku: str, user_token: str) -> list[ChangeNotice]:
         """The notices DigiKey lists for one of its product numbers. ``user_token`` is a signed-in person's access token."""
@@ -449,7 +470,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
 SPEC = ProviderSpec(
     key=KEY,
     label="DigiKey",
-    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_PCN}),
+    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_PCN, CAP_SUBSTITUTES}),
     max_batch=1,
     stock_pooling="pooled",
     credential_fields=(

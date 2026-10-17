@@ -44,6 +44,22 @@ class Incoming:
 
 
 @dataclass(frozen=True, slots=True)
+class Alternate:
+    """A part a distributor suggests in place of the one asked for. Prism has not compared it with the part."""
+
+    manufacturer: str = ""
+    mpn: str = ""
+    # The distributor's own number, when the part number is not given (Mouser names its suggestion by Mouser number).
+    sku: str = ""
+    # Short words from the distributor: the package, or how it describes the match.
+    note: str = ""
+
+    def __post_init__(self) -> None:
+        if not (self.mpn or self.sku):
+            raise ValueError("an alternate needs a part number or a distributor number")
+
+
+@dataclass(frozen=True, slots=True)
 class Offer:
     """One distributor listing at one moment."""
 
@@ -76,6 +92,9 @@ class Offer:
     # What the distributor states about the part, as (name, text) pairs: compliance and trade facts such as
     # ``rohs_status`` or ``hts_us``. ``facts.py`` names them and reads them.
     facts: tuple[tuple[str, str], ...] = ()
+    # Alternates the distributor lists with the answer. None: this distributor's answer does not carry any (nothing is
+    # changed); an empty tuple: it does, and names none (what it named before is dropped).
+    alternates: tuple[Alternate, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.provider or not self.sku:

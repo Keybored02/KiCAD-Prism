@@ -396,16 +396,340 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": None})
         self.assertEqual(self.part_row("ABC123")["status"], "ok")
 
-    def test_a_price_is_shown_only_when_every_offer_is_in_one_currency(self) -> None:
+    def store_rate(self, currency: str, per_eur: str) -> None:
+        from decimal import Decimal
+
+        from app.services.supply import fx
+
+        with self.store.connection() as conn:
+            fx.store(conn, self.now.date(), {currency: Decimal(per_eur)}, "manual")
+
+    def test_prices_in_other_currencies_are_converted_to_the_base_currency(self) -> None:
         cid = self.fake_connector()
         part_id = self.watch_via_api("MIXED")["part_id"]
         self.insert_listing(part_id, cid, "A", stock=10, currency="EUR", price="0.50")
         self.insert_listing(part_id, cid, "B", stock=10, currency="EUR", price="0.40")
         item = self.part_row("MIXED")
-        self.assertEqual((item["unit_price"], item["currency"]), ("0.4", "EUR"), "the lowest, as a plain number")
+        self.assertEqual((item["unit_price"], item["currency"], item["price_kind"]), ("0.4", "EUR", "orderable"), "the lowest, as a plain number")
         self.insert_listing(part_id, cid, "C", stock=10, currency="USD", price="0.30")
         item = self.part_row("MIXED")
-        self.assertEqual((item["unit_price"], item["currency"]), (None, ""), "no price that compares dollars with euros")
+        self.assertEqual((item["unit_price"], item["price_unrated"]), ("0.4", ["USD"]), "no rate for dollars: it is left out, and the row says so")
+        self.store_rate("USD", "1.25")
+        item = self.part_row("MIXED")
+        self.assertEqual((item["unit_price"], item["currency"], item["price_unrated"]), ("0.24", "EUR", []), "0.30 USD is 0.24 EUR")
+        self.assertEqual(item["price_native"], {"price": "0.3", "currency": "USD"}, "the row says what the converted price was")
+
+    def test_a_part_nobody_has_in_stock_shows_the_backorder_price_with_its_lead_time(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("OUT")["part_id"]
+        self.insert_listing(part_id, cid, "A", stock=0, price="0.50")
+        slow = self.insert_listing(part_id, cid, "B", stock=0, price="0.40")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET lead_time_days = 84 WHERE listing_id = %s", (slow,))
+        item = self.part_row("OUT")
+        self.assertEqual((item["unit_price"], item["price_kind"], item["price_lead_days"]), ("0.4", "backorder", 84))
+        self.insert_listing(part_id, cid, "C", stock=500, price="0.45")
+        item = self.part_row("OUT")
+        self.assertEqual((item["unit_price"], item["price_kind"], item["price_lead_days"]), ("0.45", "orderable", None), "stock beats a cheaper backorder")
+
+    def test_a_part_with_no_lead_time_shows_the_price_it_last_had_in_stock(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("GONE")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=0, price="0.50")
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 40, 0.42, 'EUR')",
+                (listing, self.now - timedelta(days=9)),
+            )
+        item = self.part_row("GONE")
+        self.assertEqual((item["unit_price"], item["price_kind"], item["price_seen_day"]),
+                         ("0.42", "last_seen", (self.now - timedelta(days=9)).date().isoformat()))
+        other = self.watch_via_api("NEVER")["part_id"]
+        self.insert_listing(other, cid, "N", stock=0, price="0.50")
+        self.assertEqual(self.part_row("NEVER")["price_kind"], "listed", "never seen in stock: the list price, said so")
+
+    def test_the_range_is_over_distributors_and_there_is_no_mean(self) -> None:
+        first, second = self.fake_connector(), self.fake_connector(provider="lcsc", display_name="Other", currency="USD")
+        part_id = self.watch_via_api("RANGE")["part_id"]
+        self.insert_listing(part_id, first, "A", stock=10, price="0.50")
+        self.insert_listing(part_id, first, "B", stock=10, price="0.30")
+        self.assertIsNone(self.part_row("RANGE")["price_range"], "one distributor is not a range")
+        self.insert_listing(part_id, second, "C", stock=10, price="0.70")
+        item = self.part_row("RANGE")
+        self.assertEqual(item["price_range"], {"low": "0.3", "high": "0.7", "median": "0.5", "sellers": 2})
+
+    def test_a_part_can_have_its_own_price_quantity(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("QTY2")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=100000, price="0.50")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET price_breaks = %s::jsonb WHERE listing_id = %s", (json.dumps([[1, "0.50"], [100, "0.30"], [1000, "0.20"]]), listing))
+        self.assertEqual(self.part_row("QTY2")["unit_price"], "0.3", "the workspace default is 100")
+        reply = self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 1000})
+        self.assertEqual((reply.status, reply.json), (200, {"quantity": 1000, "default": 100, "own": True}))
+        self.assertEqual(self.part_row("QTY2")["unit_price"], "0.2", "the list follows the part's quantity at once")
+        detail = self.call("GET", f"/api/supply/parts/{part_id}").json["price"]
+        self.assertEqual((detail["quantity"], detail["own"], detail["headline"]["unit_price"]), (1000, True, "0.2"))
+        from app.services.supply.assessment import settings_store
+
+        def put_back() -> None:
+            with self.store.connection() as conn:
+                settings_store.reset(conn, "admin@example.com")
+
+        self.addCleanup(put_back)
+        with self.store.connection() as conn:
+            settings_store.save(conn, {"price_quantity": 1}, "admin@example.com")
+        self.assertEqual(self.part_row("QTY2")["unit_price"], "0.2", "a part's own quantity wins over the default")
+        self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": None})
+        self.assertEqual(self.part_row("QTY2")["unit_price"], "0.5", "back on the default, now 1")
+        self.assertEqual(self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="viewer", body={"quantity": 5}).status, 403)
+        self.assertEqual(self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 0}).status, 422)
+
+    def test_the_price_history_follows_the_quantity_from_the_kept_breaks(self) -> None:
+        from app.services.supply import prices
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("HIST")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=50, price="0.50")
+        today = self.now
+        with self.store.connection() as conn:
+            for days, price in ((6, "0.30"), (3, "0.30"), (0, "0.28")):
+                conn.execute(
+                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 50, %s, 'EUR', 1)",
+                    (listing, today - timedelta(days=days), price),
+                )
+            conn.execute("DELETE FROM price_breaks_history WHERE listing_id = %s", (listing,))
+            conn.execute(
+                "INSERT INTO price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) "
+                "VALUES (%s, %s, %s::jsonb, 'EUR', 1, 1), (%s, %s, %s::jsonb, 'EUR', 1, 1)",
+                (listing, today - timedelta(days=4), json.dumps([[1, "0.50"], [100, "0.30"], [1000, "0.20"]]),
+                 listing, today - timedelta(days=1), json.dumps([[1, "0.50"], [100, "0.28"], [1000, "0.18"]])),
+            )
+            at_100, meta_100 = prices.daily(conn, part_id, today)
+        self.assertEqual([float(p) for _, p, _ in at_100], [0.3, 0.3, 0.28])
+        self.assertIsNone(meta_100["estimated_until"])
+        self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 1000})
+        with self.store.connection() as conn:
+            at_1000, meta = prices.daily(conn, part_id, today)
+        self.assertEqual(sorted(float(p) for _, p, _ in at_1000), [0.18, 0.2, 0.3], "before the breaks were kept the price at 100 is all there is")
+        self.assertEqual(meta["quantity"], 1000)
+        self.assertEqual(meta["estimated_until"], (today - timedelta(days=6)).date().isoformat(), "the chart says which days are drawn at 100")
+
+    def test_supply_search_finds_a_part_by_number_other_number_sku_or_maker(self) -> None:
+        from app.services.supply import part_search
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("LM358DR")["part_id"]
+        self.watch_via_api("NE5532P")
+        self.insert_listing(part_id, cid, "296-1395-1-ND", stock=5)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO part_numbers (part_id, mpn, match_key) VALUES (%s, 'LM358-OLD', 'LM358OLD')", (part_id,))
+            by_number = [hit["mpn"] for hit in part_search.supply_hits(conn, "lm358", 8)]
+            by_other = [hit["mpn"] for hit in part_search.supply_hits(conn, "LM358-OLD", 8)]
+            by_sku = [hit["mpn"] for hit in part_search.supply_hits(conn, "296-1395", 8)]
+            by_maker = {hit["mpn"] for hit in part_search.supply_hits(conn, "Acme", 8)}
+            exact = part_search.supply_hits(conn, "NE5532P", 8)
+            none = part_search.supply_hits(conn, "x", 8)
+        self.assertEqual((by_number, by_other, by_sku), (["LM358DR"], ["LM358DR"], ["LM358DR"]))
+        self.assertEqual(by_maker, {"LM358DR", "NE5532P"})
+        self.assertEqual((exact[0]["mpn"], exact[0]["rank"]), ("NE5532P", 0))
+        self.assertEqual(none, [], "one letter is not a search")
+        self.assertEqual(part_search._like("100%_"), "%100" + chr(92) + "%" + chr(92) + "_%", "wildcards in the query are literal")
+
+    def test_distributor_suggestions_are_kept_per_distributor_and_replaced_whole(self) -> None:
+        from app.services.supply import alternates, cross_reference
+        from app.services.supply.models import Alternate
+
+        part_id = self.watch_via_api("LM358DR")["part_id"]
+        known = self.watch_via_api("LM358ADR")["part_id"]
+        with self.store.connection() as conn:
+            alternates.replace(conn, part_id, "lcsc", [Alternate("Acme", "LM358ADR", "C1", "SOIC-8"), Alternate("Acme", "LM358DR"), Alternate("Foo", "NOPE-1")], self.now)
+            alternates.replace(conn, part_id, "mouser", [Alternate(sku="595-LM358ADR", note="Mouser number"), Alternate("Acme", "LM358ADR")], self.now)
+            found = {entry["mpn"] or entry["sku"]: entry for entry in alternates.for_part(conn, part_id)}
+            suggested = cross_reference.candidates(conn, part_id)["suggestions"]
+            self.assertEqual(sorted(found), ["595-LM358ADR", "LM358ADR", "NOPE-1"], "the part itself is never its own alternate")
+            self.assertEqual(found["LM358ADR"]["part_id"], known, "matched to the part Prism knows")
+            self.assertEqual([source["provider"] for source in found["LM358ADR"]["sources"]], ["lcsc", "mouser"], "one row, every distributor that said it, in name order")
+            self.assertIsNone(found["NOPE-1"]["part_id"])
+            self.assertEqual([entry["tracked"] for entry in suggested if entry["part_id"] == known], [True])
+            alternates.replace(conn, part_id, "lcsc", [], self.now)
+            left = {entry["mpn"] or entry["sku"] for entry in alternates.for_part(conn, part_id)}
+        self.assertEqual(left, {"595-LM358ADR", "LM358ADR"}, "an empty set removes what LCSC said and leaves Mouser's")
+
+    def test_the_poller_keeps_stock_outs_and_restocks_with_the_quote_and_closes_the_open_one(self) -> None:
+        from app.services.supply import stock_events
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("EVT")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=0)
+        day = self.now
+        with self.store.connection() as conn:
+            self.assertIsNone(stock_events.record(conn, listing, None, 0, 84, False, day), "a first reading is no event")
+            self.assertIsNone(stock_events.record(conn, listing, 5, 4, None, False, day), "stock going down is no event")
+            self.assertIsNone(stock_events.record(conn, listing, 5, 0, 84, True, day), "marketplace stock is no event")
+            self.assertEqual(stock_events.record(conn, listing, 5, 0, 84, False, day), "stock_out")
+            open_row = conn.execute("SELECT * FROM stock_events WHERE listing_id = %s", (listing,)).fetchone()
+            self.assertEqual((open_row["quoted_lead_days"], open_row["expected"], open_row["resolved_on"]), (84, (day + timedelta(days=84)).date(), None))
+            self.assertEqual(stock_events.record(conn, listing, 0, 900, None, False, day + timedelta(days=30)), "restock")
+            rows = {row["kind"]: row for row in conn.execute("SELECT * FROM stock_events WHERE listing_id = %s", (listing,)).fetchall()}
+        self.assertEqual(rows["stock_out"]["resolved_on"], (day + timedelta(days=30)).date(), "the restock ends the open stock-out")
+
+    def seed_scorecard(self, shared: int) -> tuple[str, str]:
+        """``shared`` parts each listed by two distributors; the first always restocks first and keeps its word, the second is late."""
+
+        first, second = self.fake_connector(), self.fake_connector(provider="lcsc", display_name="Other", currency="USD")
+        today = self.now.date()
+        with self.store.connection() as conn:
+            for n in range(shared):
+                part_id = self.watch_via_api(f"SC{n}")["part_id"]
+                one = self.insert_listing(part_id, first, f"A{n}", stock=5)
+                two = self.insert_listing(part_id, second, f"B{n}", stock=5)
+                for listing, back, quote in ((one, 10, 10), (two, 25, 14)):
+                    out = today - timedelta(days=60)
+                    conn.execute(
+                        "INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected, resolved_on) "
+                        "VALUES (%s, %s, 'stock_out', 5, 0, %s, %s, %s)", (listing, out, quote, out + timedelta(days=quote), out + timedelta(days=back)))
+                    conn.execute("INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'restock', 0, 5)",
+                                 (listing, out + timedelta(days=back)))
+        return first, second
+
+    def test_the_scorecard_judges_on_shared_parts_and_withholds_under_five_events(self) -> None:
+        from app.services.supply import scorecard
+
+        first, second = self.seed_scorecard(2)
+        with self.store.connection() as conn:
+            few = scorecard.build(conn, self.now.date())
+        self.assertEqual(few["shared_parts"], 2)
+        row = next(item for item in few["distributors"] if item["connector_id"] == first)
+        self.assertEqual((row["stock_outs"]["n"], row["stock_outs"]["median_days_out"], row["promises"]["kept"]), (2, None, None), "two events say nothing yet")
+
+    def test_the_scorecard_says_who_restocks_first_and_who_keeps_its_word(self) -> None:
+        from app.services.supply import scorecard
+
+        first, second = self.seed_scorecard(5)
+        with self.store.connection() as conn:
+            card = scorecard.build(conn, self.now.date())
+        rows = {item["connector_id"]: item for item in card["distributors"]}
+        self.assertEqual(card["shared_parts"], 5)
+        self.assertEqual((rows[first]["restocked_first"], rows[second]["restocked_first"]), ({"rounds": 5, "first": 5}, {"rounds": 5, "first": 0}))
+        self.assertEqual((rows[first]["promises"]["kept"], rows[first]["promises"]["resolved"]), (5, 5), "back on the day it said")
+        self.assertEqual((rows[second]["promises"]["kept"], rows[second]["promises"]["median_days_late"]), (0, 11), "quoted 14 days, took 25")
+        self.assertEqual((rows[second]["wait"]["quoted_days"], rows[second]["wait"]["real_days"]), (14, 25))
+        self.assertEqual(rows[first]["stock_outs"], {"n": 5, "median_days_out": 10})
+
+    def test_a_part_one_distributor_lists_is_not_judged(self) -> None:
+        from app.services.supply import scorecard
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("ALONE")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=5)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'stock_out', 5, 0)", (listing, self.now.date()))
+            card = scorecard.build(conn, self.now.date())
+        self.assertEqual((card["shared_parts"], card["distributors"]), (0, []))
+
+    def test_the_part_sheet_shows_each_distributors_open_promise_and_record(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("OPEN")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=0)
+        today = self.now.date()
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected) VALUES (%s, %s, 'stock_out', 5, 0, 30, %s)",
+                (listing, today - timedelta(days=40), today - timedelta(days=10)))
+        record = self.call("GET", f"/api/supply/parts/{part_id}").json["restock_record"]
+        self.assertEqual(len(record), 1)
+        self.assertEqual((record[0]["open"]["kind"], record[0]["open"]["late"], record[0]["stock_outs"]), ("lead_time", True, 1), "ten days past the day it said")
+
+    def test_ending_reasons_come_with_their_source(self) -> None:
+        from app.services.supply import ending_parts
+
+        item = {"lifecycle": "nrnd", "dropped": True}
+        self.assertEqual([r["kind"] for r in ending_parts.reasons_of(item, "under_2_years")], ["nrnd", "dropped", "outlook"])
+        self.assertEqual(ending_parts.reasons_of({"lifecycle": "active", "dropped": False}, "no_signs"), [])
+        self.assertEqual(ending_parts.reasons_of({"lifecycle": "last_time_buy", "dropped": False}, None)[0]["text"], "Last time buy")
+
+    def test_a_restriction_is_kept_audited_replaced_and_cleared(self) -> None:
+        from app.services.supply import ending_parts
+
+        with self.store.connection() as conn:
+            marked = ending_parts.set_restriction(conn, "c1", "not_for_new_designs", "  NRND   since   2026  ", "c2", "qa@example.com")
+            self.assertEqual((marked["level"], marked["reason"], marked["replacement_component_id"]), ("not_for_new_designs", "NRND since 2026", "c2"))
+            with self.assertRaises(ValueError):
+                ending_parts.set_restriction(conn, "c1", "hidden", "", "", "qa@example.com")
+            with self.assertRaises(ValueError):
+                ending_parts.set_restriction(conn, "c1", "retired", "", "c1", "qa@example.com")
+            ending_parts.set_restriction(conn, "c1", "retired", "archived", "", "qa@example.com")
+            self.assertEqual(ending_parts.restrictions_of(conn, ["c1", "c9"])["c1"]["level"], "retired")
+            ending_parts.clear_restriction(conn, "c1", "qa@example.com")
+            self.assertEqual(ending_parts.restrictions_of(conn, ["c1"]), {})
+            actions = [row["action"] for row in conn.execute("SELECT action FROM audit_events WHERE subject_id = 'c1' ORDER BY id").fetchall()]
+        self.assertEqual(actions, ["component.restriction", "component.restriction", "component.restriction.clear"])
+
+    def test_the_queue_lists_components_of_ending_tracked_parts_with_what_a_person_needs_to_decide(self) -> None:
+        from app.services.supply import catalog_read, ending_parts
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("OLD-1")["part_id"]
+        self.watch_via_api("FINE-1")
+        listing = self.insert_listing(part_id, cid, "A", stock=40)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (listing,))
+            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'fake', 'last_buy_date', '2027-03-31', NOW())", (part_id,))
+
+        def found(query: str, limit: int):
+            return [{"id": "comp-1", "name": "Old part", "mpn": "OLD-1", "manufacturer": "Acme", "workflow_stage": "released"}] if query == "OLD-1" else []
+
+        with mock.patch.object(catalog_read, "search", found), self.store.connection() as conn:
+            queue = ending_parts.queue(conn)
+            self.assertEqual([row["component"]["id"] for row in queue["items"]], ["comp-1"], "the active part is not ending")
+            row = queue["items"][0]
+            self.assertEqual((row["part_id"], row["stock"], [r["kind"] for r in row["reasons"]]), (part_id, 40, ["nrnd"]))
+            self.assertEqual([item["value"] for item in row["last_buy"]], ["2027-03-31"])
+            ending_parts.set_restriction(conn, "comp-1", "not_for_new_designs", "", "", "qa@example.com")
+            marked = ending_parts.queue(conn)["items"][0]["restriction"]
+            self.assertEqual(marked["level"], "not_for_new_designs", "still listed, marked")
+            ending_parts.set_restriction(conn, "comp-1", "retired", "archived", "", "qa@example.com")
+            self.assertEqual(ending_parts.queue(conn)["items"], [], "a retired component leaves the queue")
+
+    def test_the_market_price_change_follows_a_parts_own_quantity_from_the_kept_breaks(self) -> None:
+        from app.services.supply import market
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("MKT")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=10, price="0.50")
+        today = self.now
+        since = today - timedelta(days=10)
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM price_breaks_history WHERE listing_id = %s", (listing,))
+            for days, price, price_1000 in ((20, "0.30", "0.20"), (0, "0.30", "0.10")):
+                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', 1)", (listing, today - timedelta(days=days), price))
+                conn.execute(
+                    "INSERT INTO price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, 'EUR', 1, 1)",
+                    (listing, today - timedelta(days=days), json.dumps([[1, "0.50"], [100, price], [1000, price_1000]])))
+            at_100 = market.price_changes(conn, [part_id], since)[part_id]
+        self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 1000})
+        with self.store.connection() as conn:
+            at_1000 = market.price_changes(conn, [part_id], since)[part_id]
+        self.assertEqual([float(r) for r in at_100], [1.0], "at 100 the price did not move")
+        self.assertEqual([float(r) for r in at_1000], [0.5], "at 1,000 it halved")
+
+    def test_the_poller_keeps_the_price_breaks_only_when_they_change(self) -> None:
+        from decimal import Decimal
+
+        from app.services.supply import price_breaks
+
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("KEEP")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A")
+        breaks = [(1, Decimal("0.50")), (100, Decimal("0.30"))]
+        with self.store.connection() as conn:
+            self.assertTrue(price_breaks.record(conn, listing, self.now, breaks, "EUR", 1, 1))
+            self.assertFalse(price_breaks.record(conn, listing, self.now + timedelta(days=1), breaks, "EUR", 1, 1), "same breaks")
+            self.assertTrue(price_breaks.record(conn, listing, self.now + timedelta(days=2), [(1, Decimal("0.50")), (100, Decimal("0.29"))], "EUR", 1, 1))
+            self.assertFalse(price_breaks.record(conn, listing, self.now, [], "EUR", 1, 1), "nothing to keep")
+            kept = price_breaks.load(conn, [listing])[listing]
+        self.assertEqual([row["breaks"][1][1] for row in kept], [Decimal("0.30"), Decimal("0.29")])
 
     # --- the detail -------------------------------------------------------
 

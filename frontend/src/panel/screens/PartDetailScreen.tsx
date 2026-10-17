@@ -454,6 +454,11 @@ export function PartDetailScreen({
           ) : null
         }
       >
+        {component.supply?.restriction === "not_for_new_designs" ? (
+          <p role="alert" className="rounded border border-amber-500/50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+            Not for new designs. The library marked this component. Placed symbols keep working; pick another for a new design.
+          </p>
+        ) : null}
         {component.supply?.summary ? <SupplyAvailability supply={component.supply} /> : null}
         {sources.length === 0 ? (
           component.supply?.summary ? null : (

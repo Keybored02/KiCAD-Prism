@@ -61,6 +61,15 @@ root first.
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
 | `notice_budget.py` | The change-notice allowance of a provider with a quota of its own (DigiKey, 50 a day): counted in `call_counts`, not in the product budget; five kept for people, scheduled reads spread over the interval that fits, untracked parts last. |
 | `part_history.py` | A part's stock and price per distributor over a number of days, carried to each listing's last read, for the part sheet's lines and its larger dialog. |
+| `headline_price.py` | The price a part shows in lists: every counted listing priced at the part's quantity and converted to the base currency, as orderable, backorder (with its lead time), last seen or list price, with the range and median over distributors and the price before conversion. A currency without a rate is left out and named. |
+| `price_quantity.py` | The quantity prices are read at: the workspace default (a Supply setting, 100) and a part's own (`part_price_quantity`). A change drops the kept summaries and insights of the parts it touches; no distributor is asked. |
+| `price_breaks.py` | A listing's price breaks as they changed (`price_breaks_history`), kept by the poller when they differ from the last, so the price history can be worked out at any quantity. |
+| `part_search.py` | One search over library components and supply parts with a part found once (merged by maker and part number), by role. Behind `GET /api/search/parts` and the command palette. |
+| `alternates.py` | Parts distributors suggest in place of a part (`part_alternates`): `listed` ones come with an offer read (LCSC, Mouser), `asked` ones from DigiKey's substitutions call. Each provider's set is replaced whole. Not compared with the part. |
+| `substitutes.py` | Asking DigiKey for substitutes: on request (once an hour per part, interactive reserve) and automatically once for a tracked part that is ending (committed budget, again after 30 days). |
+| `stock_events.py` | Stock-outs and restocks as the poller sees them, with the lead time quoted at the stock-out; a restock ends the open stock-out. |
+| `scorecard.py` | Per distributor, on parts two or more list: stock-outs, restocked first, promises kept (quoted lead times and Mouser's dated arrivals), wait said against real, days in stock. Withheld under five events. Also each distributor's open promise on one part. |
+| `ending_parts.py` | Library components whose part is ending, with the reasons, last buy date, stock, projects and approved alternates; and the decision kept for each (`component_restrictions`: not for new designs, retired). Proposes only. |
 | `preferences.py` | A person's preferred distributor for a part (`part_preferences`); it orders and marks, and prices the BOM when the setting is on. |
 | `trade_marks.py` | Whether a part is export controlled: what distributors state, and a person's mark that wins. |
 | `risk_views.py` | The Dashboard and Insights risk views: lifecycle against availability, deadlines, distributor coverage, lifecycle and compliance mixes, lead times, price movers, trade. |

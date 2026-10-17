@@ -31,7 +31,7 @@ from typing import Any, Callable, Mapping, Sequence
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
-from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import Alternate, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers import packaging_hints
 from app.services.supply.providers.base import (
     CAP_OFFERS,
@@ -76,6 +76,10 @@ class LcscProvider:
         self._monotonic = monotonic
         self._sleep = sleep
         self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
+        # LCSC shows prices in the currency of a cookie. Asking for the connector's currency gets LCSC's own price in it, the
+        # one an order is charged; without it, or when LCSC answers in another, the dollar price is used and converted by Prism.
+        wanted = (config.currency or "").strip().upper()
+        self._currency = wanted if len(wanted) == 3 and wanted.isalpha() and wanted != CURRENCY else ""
 
     def _pace(self) -> None:
         self._pacer.wait()
@@ -96,7 +100,10 @@ class LcscProvider:
     def _detail(self, sku: str) -> dict[str, Any] | None:
         self._pace()
         try:
-            answer = self._client.request_json("GET", DETAIL_URL, params={"productCode": sku})
+            answer = self._client.request_json(
+                "GET", DETAIL_URL, params={"productCode": sku},
+                **({"headers": {"Cookie": f"currencyCode={self._currency}"}} if self._currency else {}),
+            )
         except AuthError as exc:
             # The service takes no key, so a refusal is its bot filter, not a rejected credential.
             raise Blocked("LCSC refused the request") from exc
@@ -125,7 +132,7 @@ class LcscProvider:
         for sku in skus:
             product = self._detail(sku.strip().upper())
             if product:
-                offers.append(_offer(product, self._clock()))
+                offers.append(_offer(product, self._clock(), self._currency))
         return offers
 
     def get_part_data(self, match: PartMatch) -> PartData:
@@ -172,24 +179,50 @@ def _search_match(item: Mapping[str, Any]) -> PartMatch:
     )
 
 
-def _price_breaks(product: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
+def _price_breaks(product: Mapping[str, Any], asked: str = "") -> tuple[tuple[PriceBreak, ...], str]:
+    """The price bands and their currency. In ``asked`` when LCSC says it answered in that currency (``currencyPrice``), else in
+    dollars: ``usdPrice`` is always dollars, and ``productPrice`` is taken as dollars only when the answer names USD."""
+
+    in_asked = bool(asked) and str(product.get("currencyType") or "").strip().upper() == asked
     tiers: dict[int, Decimal] = {}
     for band in product.get("productPriceList") or []:
         if not isinstance(band, dict):
             continue
         quantity = parse_count(band.get("ladder"))
-        price = parse_decimal(band.get("usdPrice") if band.get("usdPrice") is not None else band.get("productPrice"))
+        if in_asked:
+            price = parse_decimal(band.get("currencyPrice"))
+        elif band.get("usdPrice") is not None:
+            price = parse_decimal(band.get("usdPrice"))
+        else:
+            named = str(band.get("currencyType") or product.get("currencyType") or "").strip().upper()
+            price = parse_decimal(band.get("productPrice")) if named == CURRENCY else None
         if quantity and price is not None and price >= 0:
             tiers.setdefault(quantity, price)
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
+    if in_asked and not tiers:
+        return _price_breaks(product)
+    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), (asked if in_asked else CURRENCY)
 
 
-def _offer(product: Mapping[str, Any], now: datetime) -> Offer:
+def _alternates(product: Mapping[str, Any]) -> tuple[Alternate, ...]:
+    """Parts LCSC lists as alternates of this one. LCSC does not say how close they are; the package is the only note."""
+
+    found = []
+    for item in product.get("alternatePartList") or []:
+        if not isinstance(item, dict) or not str(item.get("productModel") or "").strip():
+            continue
+        found.append(Alternate(
+            manufacturer=str(item.get("brandNameEn") or "").strip(), mpn=str(item["productModel"]).strip(),
+            sku=str(item.get("productCode") or "").strip().upper(), note=str(item.get("encapStandard") or "").strip(),
+        ))
+    return tuple(found)
+
+
+def _offer(product: Mapping[str, Any], now: datetime, asked: str = "") -> Offer:
     sku = str(product["productCode"]).upper()
     cycle = str(product.get("productCycle") or "").strip().lower()
     if cycle and cycle not in _CYCLE_KNOWN and cycle != _CYCLE_DROPPED:
         note(KEY, "product cycle", cycle)
-    breaks = _price_breaks(product)
+    breaks, currency = _price_breaks(product, asked)
     rohs = product.get("isRohsCert")
     packaging = packaging_hints.from_text(product.get("productArrange"))
     return Offer(
@@ -205,12 +238,13 @@ def _offer(product: Mapping[str, Any], now: datetime) -> Offer:
         # minPacketNumber is the pieces in a packet; for a reel it is the reel.
         reel_size=parse_count(product.get("minPacketNumber")) if packaging is Packaging.TAPE_REEL else None,
         price_breaks=breaks,
-        currency=CURRENCY if breaks else "",
+        currency=currency if breaks else "",
         lifecycle=Lifecycle.UNKNOWN,
         discontinued=cycle == _CYCLE_DROPPED,
         rohs=rohs if isinstance(rohs, bool) else None,
         product_url=PAGE_URL.format(sku),
         datasheet_url=str(product.get("pdfUrl") or ""),
+        alternates=_alternates(product),
     )
 
 

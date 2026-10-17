@@ -196,6 +196,30 @@ export interface SupplyComponentStanding {
   status: SupplyStatus;
   stock: number | null;
   watched: boolean;
+  /** What the library decided about the component: marked for no new designs, or retired. */
+  restriction?: RestrictionLevel | null;
+}
+
+export type RestrictionLevel = "not_for_new_designs" | "retired";
+
+/** A library component whose part is ending, with the reason and what a person needs to decide. */
+export interface EndingPart {
+  component: { id: string; name: string; mpn: string; manufacturer: string; stage: string };
+  part_id: string;
+  reasons: Array<{ kind: string; text: string; source: string }>;
+  last_buy: Array<{ source: string; value: string }>;
+  stock: number | null;
+  status: SupplyStatus;
+  projects: Array<{ project_id: string; name: string; quantity: number }>;
+  alternates: Array<{ part_id: string; manufacturer: string; mpn: string; stock: number | null; status: SupplyStatus }>;
+  restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
+}
+
+export interface EndingParts {
+  items: EndingPart[];
+  tracked: number;
+  /** Ending parts beyond the ones listed. */
+  more: number;
 }
 
 export interface SupplyOutlook {
@@ -538,6 +562,21 @@ export interface JlcClass {
   preferred: boolean;
 }
 
+export type PriceKind = "orderable" | "backorder" | "last_seen" | "listed";
+
+/** The price a part shows in lists, as the part sheet gets it too. */
+export interface SupplyHeadlinePrice {
+  unit_price: string | null;
+  currency: string;
+  price_quantity: number;
+  price_kind: PriceKind | null;
+  price_lead_days: number | null;
+  price_range: { low: string; high: string; median: string; sellers: number } | null;
+  price_native: { price: string; currency: string } | null;
+  price_seen_day: string | null;
+  price_unrated: string[];
+}
+
 export interface SupplyPartRow {
   id: string;
   jlc?: JlcClass | null;
@@ -554,10 +593,21 @@ export interface SupplyPartRow {
   lifecycle: SupplyLifecycle;
   /** Every distributor that lists it has stopped selling it. */
   dropped: boolean;
+  /** In the base currency, at the part's price quantity. */
   unit_price: string | null;
   /** The quantity the price is quoted at. */
   price_quantity: number;
   currency: string;
+  /** orderable: bought now; backorder: nothing in stock, with a lead time; last_seen: the price when it was last in stock; listed: list price only. */
+  price_kind?: PriceKind | null;
+  price_lead_days?: number | null;
+  /** Lowest, highest and median over the distributors that price it; null with fewer than two. */
+  price_range?: { low: string; high: string; median: string; sellers: number } | null;
+  /** What the price was before it was converted, when it was. */
+  price_native?: { price: string; currency: string } | null;
+  price_seen_day?: string | null;
+  /** Currencies priced by a distributor that have no exchange rate, so were left out. */
+  price_unrated?: string[];
   fetched_at: string | null;
   tier: SupplyTier | null;
   /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
@@ -682,6 +732,7 @@ export interface SupplyPartDetail {
   numbers?: SupplyPartNumber[];
   sold_as?: SupplySoldAs[];
   market_behaviour?: MarketBehaviour;
+  restock_record?: RestockRecord[];
   jlc?: JlcClass | null;
   /** The catalog components that list this part as an approved alternate, and what their parts hold together. */
   alternate_for?: ComponentCoverage[];
@@ -700,6 +751,13 @@ export interface SupplyPartDetail {
     currency: string;
     history: Array<{ day: string; price: number }>;
     trend: { currency: string; was: string; now: string; change_percent: number; days: number } | null;
+    /** The quantity the part is priced at, the workspace default, and whether the part has its own. */
+    quantity?: number;
+    default?: number;
+    own?: boolean;
+    /** Days up to this one are drawn at 100 pieces, because the price breaks were not kept yet. */
+    estimated_until?: string | null;
+    headline?: SupplyHeadlinePrice;
   };
   /** A rule-based band with every signal behind it. */
   outlook: SupplyOutlook;
@@ -962,6 +1020,8 @@ export interface AssessmentSettings {
   stale_hours: number;
   /** Prices in other currencies are converted to this one. */
   base_currency: string;
+  /** Lists and price history price at this quantity, unless a part has its own. */
+  price_quantity: number;
   /** Price the BOM at a preferred distributor with enough stock, else the cheapest. */
   prefer_distributors?: boolean;
   /** Connector ids, the most preferred first. */
@@ -975,7 +1035,7 @@ export interface AssessmentSettingsView {
   settings: AssessmentSettings;
   defaults: AssessmentSettings;
   checks: Array<{ id: string; label: string }>;
-  ranges: { lead_time_days: [number, number]; stale_hours: [number, number] };
+  ranges: { lead_time_days: [number, number]; stale_hours: [number, number]; price_quantity: [number, number] };
 }
 
 /** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */
@@ -1276,6 +1336,20 @@ export interface CrossReference {
   }>;
   /** Replacements distributors name for the part, as written. */
   suggested_by_distributors: string[];
+  /** What distributors suggest in place of it, one row for each number with every distributor that said it. Not compared with the part. */
+  suggestions?: Array<{
+    manufacturer: string; mpn: string; sku: string;
+    /** Their words: the package, or how close DigiKey says it is. */
+    notes: string[];
+    sources: Array<{ provider: string; name: string }>;
+    /** Asked for from DigiKey, not seen in an offer read. */
+    asked: boolean;
+    /** The part in Prism, when it is one, with its stock and whether Prism follows it. */
+    part_id: string | null;
+    stock: number | null;
+    status: SupplyStatus | null;
+    tracked: boolean;
+  }>;
   /** The parameters the comparison rested on. */
   judged_on: string[];
   /** The catalog component that has this part; an alternate is proposed to it. */
@@ -1328,6 +1402,8 @@ export interface BomSuggestions {
 /** The Dashboard page in one read. */
 export interface SupplyDashboard {
   figures: Record<"watched" | "at_risk" | "out_of_stock" | "lifecycle" | "open_alerts" | "waiting", number>;
+  /** Library components whose part is ending and nobody has decided about. */
+  ending_components?: number;
   /** Each figure's stored values over the last 30 days, oldest first. */
   figure_history: Record<string, number[]>;
   statuses: Array<{ status: SupplyStatus; count: number }>;
@@ -1344,11 +1420,42 @@ export interface SupplyDashboard {
   projects: Array<{ project_id: string; project_name: string; count: number; statuses: Partial<Record<SupplyStatus, number>>; stats: SupplyGroupStats }>;
 }
 
+/** One distributor's record on the parts two or more distributors list. A figure is null until it rests on `min_events`. */
+export interface ScorecardRow {
+  connector_id: string;
+  name: string;
+  provider: string;
+  parts: number;
+  stock_outs: { n: number; median_days_out: number | null };
+  restocked_first: { rounds: number; first: number | null };
+  promises: { resolved: number; kept: number | null; median_days_late: number | null };
+  wait: { n: number; quoted_days: number | null; real_days: number | null };
+  in_stock: { days: number; share: number | null };
+}
+
+export interface SupplyScorecard {
+  distributors: ScorecardRow[];
+  shared_parts: number;
+  min_events: number;
+}
+
 export interface SupplyDistributorBehaviour {
   repricing: Array<{ name: string; days: number; parts: number }>;
   leaders: Array<{ name: string; parts: number }>;
   restock_first: Array<{ name: string; parts: number }>;
   arrivals: { on_time: number; resolved: number } | null;
+  scorecard?: SupplyScorecard;
+}
+
+/** What a distributor promised about a part's return, and how its earlier promises went. */
+export interface RestockRecord {
+  connector_id: string;
+  name: string;
+  provider: string;
+  open: { kind: "lead_time" | "dated"; expected: string; quoted_lead_days?: number | null; quantity?: number; late: boolean } | null;
+  kept: number;
+  resolved: number;
+  stock_outs: number;
 }
 
 /** The Insights page: counts of findings, the runway scatter, distributors, market. */

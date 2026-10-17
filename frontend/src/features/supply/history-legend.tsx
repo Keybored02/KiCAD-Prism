@@ -31,8 +31,8 @@ export function HistoryEvents({ events }: { events: PartHistory["events"] }) {
   if (events.length === 0) return null;
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground" aria-label="Marked days">
-      {events.map((event, index) => (
-        <li key={`${event.day}-${index}`} className="flex items-center gap-1.5">
+      {events.map((event) => (
+        <li key={`${event.kind}-${event.day}-${event.text}`} className="flex items-center gap-1.5">
           <span aria-hidden className={`h-2.5 w-0.5 ${event.kind === "restock" ? "bg-success" : "bg-warning"}`} />
           {event.day}: {event.text}
         </li>

@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, preferences, trade_marks, refresh, review, watches
+from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -198,6 +198,24 @@ async def clear_preferred(part_id: str, user: AuthenticatedUser = Depends(requir
             preferences.clear(conn, part_id, user.email)
 
     await _run(run)
+
+
+class PriceQuantityIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Null takes the part back to the workspace default.
+    quantity: Optional[int] = Field(default=None, ge=1, le=1_000_000)
+
+
+@router.put("/parts/{part_id}/price-quantity")
+async def set_price_quantity(part_id: str, body: PriceQuantityIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """The quantity this part is priced at in lists and its price history; null uses the workspace default."""
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return price_quantity.set_for_part(conn, part_id, body.quantity, user.email)
+
+    return await _run(run)
 
 
 class TradeMarkIn(BaseModel):

@@ -32,7 +32,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import attrition, fx, parts, parts_view, preferences, pricing, usage, watches
+from app.services.supply import attrition, ending_parts, fx, parts, parts_view, preferences, pricing, usage, watches
 from app.services.supply.assessment import component_checks, line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
@@ -483,11 +483,19 @@ def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
     resolved = _resolve(lines, conn)
     part_ids = sorted({part_id for state, part_id, _ in resolved.values() if state == TRACKED and part_id})
     summary = {item["id"]: item for item in parts_view.summaries_for(conn, part_ids)} if part_ids else {}
-    return {
-        key: {"status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["tracking"] is not None}
+    marks = ending_parts.restrictions_of(conn, list(resolved))
+    found = {
+        key: {
+            "status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["tracking"] is not None,
+            "restriction": (marks.get(key) or {}).get("level"),
+        }
         for key, (state, part_id, _how) in resolved.items()
         if state == TRACKED and part_id in summary
     }
+    # A marked component shows its mark even when Prism does not track its part.
+    for key, mark in marks.items():
+        found.setdefault(key, {"status": "unknown", "stock": None, "watched": False, "restriction": mark["level"]})
+    return found
 
 
 def _link_lcsc(conn, connector_id: str, sku: str, part_id: str, mpn: str, manufacturer: str, actor: str) -> bool:

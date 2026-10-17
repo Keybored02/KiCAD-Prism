@@ -11,7 +11,8 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import facts, parts_view, trade
+from app.services.supply import facts, fx, headline_price, parts_view, price_quantity, trade
+from app.services.supply.assessment import settings_store
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
 AVAILABILITY = ("two_plus", "one", "out", "not_read")
@@ -96,6 +97,9 @@ def coverage(conn, items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
     ids = [item["id"] for item in items]
     offers = parts_view.offers_by_part(conn, ids)
+    quantities = price_quantity.of_parts(conn, ids)
+    base = settings_store.load(conn).base_currency
+    rates = fx.latest(conn)
     listed: Counter[str] = Counter()
     held: Counter[str] = Counter()
     cheapest: Counter[str] = Counter()
@@ -105,16 +109,16 @@ def coverage(conn, items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         by_connector: dict[str, dict[str, Any]] = {}
         for offer in here:
             names[offer["connector_id"]] = (offer["connector_name"], offer["provider"])
-            entry = by_connector.setdefault(offer["connector_id"], {"stock": 0, "price": None, "currency": ""})
+            entry = by_connector.setdefault(offer["connector_id"], {"stock": 0, "price": None})
             entry["stock"] += int(offer["stock"] or 0)
-            price, currency, _qty = parts_view._cheapest([offer])  # noqa: SLF001
-            if price is not None and (entry["price"] is None or float(price) < entry["price"]):
-                entry["price"], entry["currency"] = float(price), currency
+            found = headline_price.quote(offer, quantities[part_id], base, rates)
+            if found is not None and (entry["price"] is None or found.price < entry["price"]):
+                entry["price"] = found.price
         for connector_id, entry in by_connector.items():
             listed[connector_id] += 1
             held[connector_id] += 1 if entry["stock"] > 0 else 0
         priced = {cid: entry for cid, entry in by_connector.items() if entry["price"] is not None}
-        if len({entry["currency"] for entry in priced.values()}) == 1 and len(priced) > 1:
+        if len(priced) > 1:
             best = min(entry["price"] for entry in priced.values())
             for connector_id, entry in priced.items():
                 cheapest[connector_id] += 1 if entry["price"] == best else 0

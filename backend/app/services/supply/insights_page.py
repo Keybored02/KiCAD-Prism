@@ -7,10 +7,11 @@ list with ``only`` set to the finding's name.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from statistics import median
 from typing import Any
 
-from app.services.supply import market, part_insights, parts_view, risk_views
+from app.services.supply import market, part_insights, parts_view, risk_views, scorecard
 
 TREND_POINTS = 30
 
@@ -86,7 +87,7 @@ def build(conn) -> dict[str, Any]:
         "counts": counts,
         "scatter": scatter[:SCATTER_MAX],
         "scatter_missing": {"no_rate": no_rate, "no_lead_time": no_lead},
-        "distributors": _distributors(rows),
+        "distributors": _distributors(rows) | {"scorecard": scorecard.build(conn, datetime.now(timezone.utc).date())},
         "market": market.overview(conn),
         "market_trends": _market_trends(conn),
     }

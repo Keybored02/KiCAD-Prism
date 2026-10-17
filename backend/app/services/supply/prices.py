@@ -1,9 +1,8 @@
 """How a part's price has moved, from the prices the poller recorded.
 
-The price of a part on a day is the cheapest unit price any counted, non-marketplace listing showed
-that day, in the currency most days were priced in (prices in two currencies are never compared). A
-rise is a price move only when the readings span a week or more and the latest one is recent, so a
-part nobody has read lately says nothing.
+The price of a part on a day is the cheapest unit price any counted, non-marketplace listing showed that day at the
+part's price quantity, in the base currency (see ``price_quantity`` and ``price_breaks``). A rise is a price move only
+when the readings span a week or more and the latest one is recent, so a part nobody has read lately says nothing.
 """
 
 from __future__ import annotations
@@ -12,6 +11,8 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Sequence
+
+from app.services.supply import pricing
 
 WINDOW_DAYS = 30
 CHART_DAYS = 90
@@ -26,47 +27,101 @@ REFERENCE_QUANTITY = 100
 
 
 def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> list[DayPrice]:
-    """The cheapest counted unit price per day over the last ``days``, oldest first, in one currency.
+    """The cheapest counted unit price per day over the last ``days``, oldest first, in the base currency."""
 
-    A listing a packaging pick leaves out does not count, and neither does one whose smallest order is above the
-    reference quantity (a reel of 1,500), since its price is not what 100 pieces cost. A part sold only in such
-    listings falls back to them.
+    return daily(conn, part_id, now, days)[0]
+
+
+def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[list[DayPrice], dict[str, Any]]:
+    """The daily series and what it was priced at: ``{"quantity", "estimated_until"}``.
+
+    Each listing's price is worked out from the price breaks in force that day at the part's quantity, converted to the
+    base currency. Days before the breaks were kept only have the price at 100 pieces; when the part's quantity is not
+    100 those days are estimated, and ``estimated_until`` is the last of them. A listing a packaging pick leaves out
+    does not count, and neither does one whose smallest order is above the quantity (a reel of 1,500), unless nothing
+    else prices the part.
     """
 
-    points = _daily_rows(conn, part_id, now, days, orderable_only=True)
-    return points or _daily_rows(conn, part_id, now, days, orderable_only=False)
+    from app.services.supply import fx, price_breaks, price_quantity
+    from app.services.supply.assessment import settings_store
+
+    quantity = price_quantity.of_parts(conn, [part_id])[part_id]
+    base = settings_store.load(conn).base_currency
+    rates = fx.latest(conn)
+    raw = _daily_rows(conn, part_id, now, days)
+    kept = price_breaks.load(conn, sorted({row["listing_id"] for row in raw}))
+    points: list[tuple[date, Decimal, bool]] = []
+    estimated: list[date] = []
+    for row in raw:
+        held = price_breaks.in_force(kept.get(row["listing_id"], []), row["day"])
+        if held is not None:
+            price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity)
+            currency, moq = held["currency"], held["moq"]
+        else:
+            price, currency, moq = row["price"], row["currency"], row["moq"]
+            if quantity != REFERENCE_QUANTITY:
+                estimated.append(row["day"])
+        converted = rates.convert(price, currency, base) if price is not None else None
+        if converted is not None and converted > 0:
+            points.append((row["day"], converted, moq <= quantity))
+    chosen = [point for point in points if point[2]] or points
+    cheapest: dict[date, Decimal] = {}
+    for day, price, _orderable in chosen:
+        cheapest[day] = min(price, cheapest.get(day, price))
+    result = [(day, cheapest[day], base) for day in sorted(cheapest)]
+    return result, {"quantity": quantity, "estimated_until": max(estimated).isoformat() if estimated and cheapest else None}
 
 
-def _daily_rows(conn, part_id: str, now: datetime, days: int, *, orderable_only: bool) -> list[DayPrice]:
+def _daily_rows(conn, part_id: str, now: datetime, days: int) -> list[dict[str, Any]]:
+    """One reading per listing and day (raw samples, then the daily rollups): its price at 100, currency and smallest order."""
+
     since = now - timedelta(days=days)
-    rows = conn.execute(
+    return conn.execute(
         """
-        SELECT day, currency, MIN(price) AS price FROM (
-            SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-                   (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price
-            FROM samples s JOIN listings l ON l.id = s.listing_id
-            WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND s.sampled_at >= %(since)s
-              AND NOT s.marketplace AND s.unit_price IS NOT NULL AND s.currency <> ''
-              AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
-              AND (NOT %(orderable)s OR s.moq <= %(reference)s)
-            ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        ) latest GROUP BY day, currency
-        UNION ALL
-        SELECT d.day, d.currency, MIN(d.last_unit_price) AS price
+        SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
+               s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price, s.moq
+        FROM samples s JOIN listings l ON l.id = s.listing_id
+        WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND s.sampled_at >= %(since)s
+          AND NOT s.marketplace AND s.unit_price IS NOT NULL AND s.currency <> ''
+          AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
+        ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
+        """,
+        {"part": part_id, "states": list(_COUNTED), "since": since},
+    ).fetchall() + conn.execute(
+        """
+        SELECT d.listing_id, d.day, d.currency, d.last_unit_price AS price,
+               COALESCE((SELECT o.moq FROM offers o WHERE o.listing_id = d.listing_id), 1) AS moq
         FROM samples_daily d JOIN listings l ON l.id = d.listing_id
         WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND d.day >= %(since_day)s
           AND NOT d.marketplace AND d.last_unit_price IS NOT NULL AND d.currency <> ''
           AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
-          AND (NOT %(orderable)s OR COALESCE((SELECT o.moq FROM offers o WHERE o.listing_id = d.listing_id), 1) <= %(reference)s)
           AND NOT EXISTS (
               SELECT 1 FROM samples s WHERE s.listing_id = d.listing_id
                 AND (s.sampled_at AT TIME ZONE 'UTC')::date = d.day)
-        GROUP BY d.day, d.currency
         """,
-        {"part": part_id, "states": list(_COUNTED), "since": since, "since_day": since.date(),
-         "orderable": orderable_only, "reference": REFERENCE_QUANTITY},
+        {"part": part_id, "states": list(_COUNTED), "since_day": since.date()},
     ).fetchall()
-    return series([(row["day"], Decimal(row["price"]), row["currency"]) for row in rows])
+
+
+def last_in_stock(conn, part_id: str, base: str, rates) -> tuple[Decimal, date] | None:
+    """The cheapest price at 100 on the most recent day any counted listing had stock, in the base currency, and that day."""
+
+    rows = conn.execute(
+        """
+        SELECT (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price
+        FROM samples s JOIN listings l ON l.id = s.listing_id
+        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.stock > 0 AND NOT s.marketplace
+          AND s.unit_price IS NOT NULL AND s.currency <> ''
+        ORDER BY s.sampled_at DESC LIMIT 20
+        """,
+        (part_id, list(_COUNTED)),
+    ).fetchall()
+    if not rows:
+        return None
+    day = rows[0]["day"]
+    converted = [rates.convert(Decimal(row["price"]), row["currency"], base) for row in rows if row["day"] == day]
+    known = [price for price in converted if price is not None and price > 0]
+    return (min(known), day) if known else None
 
 
 def series(points: Sequence[DayPrice]) -> list[DayPrice]:

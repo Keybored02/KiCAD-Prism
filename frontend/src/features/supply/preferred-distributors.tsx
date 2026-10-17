@@ -13,10 +13,11 @@ import { VendorName } from "./vendor-name";
 export function PreferredDistributors({ draft, onChange }: { draft: AssessmentSettings; onChange: (next: AssessmentSettings) => void }) {
   const fetcher = useCallback((signal: AbortSignal) => listSupplyConnectors(signal), []);
   const { data } = useLoaded("preferred-distributors", fetcher, "Could not load the distributors");
-  const order = draft.distributor_order ?? [];
+  const order = draft.distributor_order;
   const connectors = useMemo(() => {
+    const kept = order ?? [];
     const usable = (data ?? []).filter((item) => item.enabled && item.metered && !item.assembly_only);
-    const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
+    const rank = (id: string) => (kept.includes(id) ? kept.indexOf(id) : kept.length);
     return [...usable].sort((a, b) => rank(a.id) - rank(b.id) || a.display_name.localeCompare(b.display_name));
   }, [data, order]);
   const move = (id: string, step: -1 | 1) => {
