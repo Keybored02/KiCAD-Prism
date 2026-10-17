@@ -36,6 +36,10 @@ interface CollapsibleSectionProps {
   note?: string;
   /** Small marks after the count (status chips). */
   chips?: ReactNode;
+  /** Lines under the title, read as part of the closed row. */
+  summary?: ReactNode;
+  /** Buttons at the right of the row, outside what opens and closes it. */
+  actions?: ReactNode;
   /** Opens at first whatever the count, until the viewer chooses. */
   startOpen?: boolean;
   /** False: the viewer's earlier choice is neither used nor kept (an open group while searching). */
@@ -44,18 +48,26 @@ interface CollapsibleSectionProps {
 }
 
 /** A titled section that opens and closes, with its count in a chip. Closed at first when it is long; the choice is remembered. */
-export function CollapsibleSection({ id, title, count, note, chips, startOpen, remembers = true, children }: CollapsibleSectionProps) {
+export function CollapsibleSection({ id, title, count, note, chips, summary, actions, startOpen, remembers = true, children }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(() => (remembers ? remembered(id) : undefined) ?? startOpen ?? count <= LONG);
   const change = (next: boolean) => { setOpen(next); if (remembers) remember(id, next); };
   return (
     <Collapsible open={open} onOpenChange={change} className="border" aria-label={title} data-slot="section">
-      <CollapsibleTrigger className="flex w-full items-center gap-2 bg-muted/30 px-3 py-2 text-left hover:bg-muted/50">
-        <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
-        <span className="text-sm font-medium">{title}</span>
-        {count >= 0 ? <span className="bg-secondary px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span> : null}
-        {chips}
-        {note ? <span className="ml-auto text-xs text-muted-foreground">{note}</span> : null}
-      </CollapsibleTrigger>
+      <div className="flex items-start bg-muted/30 hover:bg-muted/50">
+        <CollapsibleTrigger className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left">
+          <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">{title}</span>
+              {count >= 0 ? <span className="bg-secondary px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span> : null}
+              {chips}
+              {note ? <span className="ml-auto text-xs text-muted-foreground">{note}</span> : null}
+            </span>
+            {summary}
+          </span>
+        </CollapsibleTrigger>
+        {actions ? <div className="flex shrink-0 items-center px-2 py-1.5">{actions}</div> : null}
+      </div>
       <CollapsibleContent className="border-t">{children}</CollapsibleContent>
     </Collapsible>
   );

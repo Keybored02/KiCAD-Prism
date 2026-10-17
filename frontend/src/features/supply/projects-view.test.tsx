@@ -28,7 +28,13 @@ describe("the projects tab", () => {
   it("lists the projects closed, tracked first, and loads a project's parts when it is opened", async () => {
     mocked.listSupplyPartGroups.mockResolvedValue({
       groups: [
-        { project_id: "prj_1", project_name: "Power board", tracked: true, count: 3, statuses: { error: 1, ok: 2 } },
+        {
+          project_id: "prj_1", project_name: "Power board", tracked: true, count: 3, statuses: { error: 1, ok: 2 },
+          stats: {
+            at_risk: 1, out: 0, end_of_life: 0, one_distributor: 2, runs_out_soon: 1, bom_read_at: new Date(Date.now() - 2 * 86400_000).toISOString(),
+            variants: ["", "Lite", "Pro"], packaging: "cut_tape", cost_per_board: "18.40", currency: "EUR", cost_change_percent: 3, boards: 120, alerts: 2,
+          },
+        },
         { project_id: "none", project_name: "Not in a project", tracked: false, count: 1, statuses: { ok: 1 } },
       ],
       total: 4,
@@ -36,7 +42,10 @@ describe("the projects tab", () => {
     mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM324" })], total: 3, limit: 50 });
     render(<MemoryRouter><ProjectsView user={designer} /></MemoryRouter>);
     const power = await screen.findByRole("button", { name: /Power board/ });
-    expect(within(power).getByText("Tracked")).toBeTruthy();
+    expect(within(power).getByText("Tracked · base + 2 variants · cut tape")).toBeTruthy();
+    expect(within(power).getByText("3 parts · 1 at risk · 2 one distributor · 1 run out < 2 w")).toBeTruthy();
+    expect(within(power).getByText(/a board ▲ 3% in 30 d · can build 120 · BOM read .* · 2 open alerts/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Power board's supply" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
     expect(screen.queryByRole("button", { name: /Not in a project/ }), "parts in no project belong to the Parts tab").toBeNull();
     expect(mocked.listSupplyParts).not.toHaveBeenCalled();
     fireEvent.click(power);

@@ -361,6 +361,8 @@ def part_groups(
             group["statuses"][item["status"]] = group["statuses"].get(item["status"], 0) + 1
     named = {}
     tracked: set[str] = set()
+    for key, group in groups.items():
+        group["members"] = [item for item in items if key in (of.get(item["id"]) or {NO_PROJECT})]
     real = [key for key in groups if key != NO_PROJECT]
     if real:
         named = {row["project_id"]: row["project_name"] for row in conn.execute(
@@ -375,9 +377,56 @@ def part_groups(
         groups.values(),
         key=lambda group: (group["project_id"] == NO_PROJECT, not group["tracked"], group["worst"], group["project_name"].lower()),
     )
+    kept = part_insights.of_parts(conn, [item["id"] for item in items])
     for group in ordered:
         del group["worst"]
+        group["stats"] = _group_stats(conn, group, kept)
+        del group["members"]
     return {"groups": ordered, "total": len(items)}
+
+
+def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
+
+    members = group["members"]
+    facts = [kept.get(item["id"]) or {} for item in members]
+    stats: dict[str, Any] = {
+        "at_risk": sum(1 for item in members if item["status"] in ("error", "fatal")),
+        "out": sum(1 for item in members if item["stock"] == 0),
+        "end_of_life": sum(1 for item in members if item["lifecycle"] not in ("active", "unknown")),
+        "one_distributor": sum(1 for data in facts if data.get("holders") == 1),
+        "runs_out_soon": sum(1 for data in facts if data.get("days_to_zero") is not None and data["days_to_zero"] <= 14),
+    }
+    project_id = group["project_id"]
+    if project_id == NO_PROJECT:
+        return stats
+    read = conn.execute("SELECT updated_at FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
+    stats["bom_read_at"] = read["updated_at"].isoformat() if read and read["updated_at"] else None
+    if not group["tracked"]:
+        return stats
+    tracked = conn.execute("SELECT variants, all_variants, packaging FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    stats["variants"] = list(tracked["variants"]) if tracked else []
+    stats["all_variants"] = bool(tracked and tracked["all_variants"])
+    stats["packaging"] = tracked["packaging"] if tracked else None
+    latest = conn.execute(
+        "SELECT day, cost_per_board, currency, rollup FROM bom_cost_history WHERE project_id = %s AND variant = %s ORDER BY day DESC LIMIT 1",
+        (project_id, (tracked["variants"] or [""])[0] if tracked else ""),
+    ).fetchone()
+    if latest:
+        before = conn.execute(
+            "SELECT cost_per_board FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day <= %s ORDER BY day DESC LIMIT 1",
+            (project_id, (tracked["variants"] or [""])[0], latest["day"] - timedelta(days=30)),
+        ).fetchone()
+        stats["cost_per_board"] = format(latest["cost_per_board"], "f")
+        stats["currency"] = latest["currency"]
+        stats["cost_change_percent"] = (
+            round((float(latest["cost_per_board"]) - float(before["cost_per_board"])) / float(before["cost_per_board"]) * 100, 1)
+            if before and before["cost_per_board"] else None
+        )
+        stats["boards"] = (latest["rollup"] or {}).get("can_build")
+    stats["alerts"] = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])
+    return stats
 
 
 def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
@@ -408,12 +457,53 @@ def list_parts(
     offset = max(0, offset)
     page = items[offset:offset + limit]
     kept = part_insights.of_parts(conn, [item["id"] for item in page])
+    extras = _row_extras(conn, page, kept, role)
     page = [
-        item | ({"spark": kept[item["id"]]["spark"], "runs_out_days": kept[item["id"]]["days_to_zero"]} if item["id"] in kept else {})
+        item | ({"spark": kept[item["id"]]["spark"], "runs_out_days": kept[item["id"]]["days_to_zero"]} if item["id"] in kept else {}) | extras[item["id"]]
         for item in page
     ]
     more = offset + limit < total
     return {"items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None}
+
+
+def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> dict[str, dict[str, Any]]:
+    """What a row shows beyond the summary: the first projects, the distributors that list the part, the price move, the lead time, flags."""
+
+    ids = [item["id"] for item in page]
+    projects = _projects_of(conn, ids, role)
+    names = {}
+    wanted = {project for found in projects.values() for project in found}
+    if wanted:
+        names = {row["project_id"]: row["project_name"] for row in conn.execute(
+            "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
+    offers = offers_by_part(conn, ids)
+    waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
+    preferred = preferences.of_parts(conn, ids)
+    extras = {}
+    for item in page:
+        here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
+        by_connector: dict[str, dict[str, Any]] = {}
+        for offer in here:
+            entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0})
+            entry["stock"] += int(offer["stock"] or 0)
+        flags = []
+        if item["id"] in waiting:
+            flags.append("waiting")
+        if any(offer["rohs"] is False for offer in here):
+            flags.append("rohs")
+        if any(offer["reach_affected"] for offer in here):
+            flags.append("reach")
+        facts_here = kept.get(item["id"]) or {}
+        projects_here = sorted(names.get(project) or project for project in projects.get(item["id"], set()))
+        extras[item["id"]] = {
+            "project_names": projects_here[:2],
+            "distributors": sorted(by_connector.values(), key=lambda entry: entry["name"].lower()),
+            "preferred_connector_id": preferred.get(item["id"]),
+            "price_change_percent": facts_here.get("price_change_percent"),
+            "lead_days": facts_here.get("lead_days"),
+            "flags": flags,
+        }
+    return extras
 
 
 def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:

@@ -296,6 +296,21 @@ class UsageDatabaseTests(unittest.TestCase):
         searched = self.call("GET", "/api/supply/part-groups", query="scope=all&q=A-ONLY").json
         self.assertEqual([g["project_id"] for g in searched["groups"]], ["p1"], "a group with no match is left out")
 
+    def test_a_row_names_its_first_projects_and_a_group_counts_what_needs_a_look(self) -> None:
+        self.part("Acme", "BOTH-1")
+        self.part("Acme", "A-ONLY")
+        self.store_project("p1", "Board A", [component("R1", "Acme", "BOTH-1"), component("R2", "Acme", "A-ONLY")])
+        self.store_project("p2", "Board B", [component("R1", "Acme", "BOTH-1")])
+        rows = {item["mpn"]: item for item in self.call("GET", "/api/supply/parts", query="scope=all").json["items"]}
+        self.assertEqual(rows["BOTH-1"]["project_names"], ["Board A", "Board B"])
+        self.assertEqual(rows["A-ONLY"]["project_names"], ["Board A"])
+        self.assertEqual((rows["A-ONLY"]["distributors"], rows["A-ONLY"]["flags"]), ([], []))
+        groups = {g["project_id"]: g for g in self.call("GET", "/api/supply/part-groups", query="scope=all").json["groups"]}
+        stats = groups["p1"]["stats"]
+        self.assertEqual((stats["at_risk"], stats["out"], stats["one_distributor"]), (0, 0, 0))
+        self.assertTrue(stats["bom_read_at"])
+        self.assertNotIn("cost_per_board", stats, "only a tracked project has a cost")
+
     def test_the_followed_scope_is_what_is_tracked_or_in_a_project(self) -> None:
         self.part("Acme", "IN-PROJECT")
         self.part("Acme", "TRACKED-ONLY", watch=True)

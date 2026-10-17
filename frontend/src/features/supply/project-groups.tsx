@@ -1,9 +1,9 @@
-import { Link } from "react-router-dom";
-
 import type { SupplyPartGroup, SupplyStatus, PartsFilter, PartsScope } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
 import { LoadMore } from "./load-more";
 import { PartsTable } from "./parts-table";
+import { OpenProjectButton, ProjectRowSummary } from "./project-row-summary";
+import { trackedLine } from "./project-row-text";
 import { StatusDot } from "./status-dot";
 import { useSupplyPartsFeed } from "./use-supply-parts";
 
@@ -31,7 +31,7 @@ function GroupParts({ projectId, scope, query, only, selectedId, onOpen }: Shown
 function StatusChips({ group }: { group: SupplyPartGroup }) {
   return (
     <span className="flex items-center gap-2">
-      {group.tracked ? <span className="bg-secondary px-2 py-0.5 text-xs">Tracked</span> : null}
+      {group.tracked ? <span className="bg-secondary px-2 py-0.5 text-xs">{trackedLine(group)}</span> : null}
       {WORST_FIRST.filter((status) => (group.statuses[status] ?? 0) > 0).map((status) => (
         <span key={status} className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
           <StatusDot status={status} className="h-2 w-2" />{group.statuses[status]}
@@ -60,16 +60,11 @@ export function PartGroups({ groups, ...shown }: ShownProps & { groups: readonly
           title={group.project_name}
           count={group.count}
           chips={<StatusChips group={group} />}
+          summary={<ProjectRowSummary group={group} />}
+          actions={group.project_id !== "none" ? <OpenProjectButton group={group} /> : null}
           startOpen={searching}
           remembers={!searching}
         >
-          {group.project_id !== "none" ? (
-            <div className="flex justify-end border-b px-3 py-1.5">
-              <Link to={`/project/${encodeURIComponent(group.project_id)}?section=supply`} className="text-xs text-primary hover:underline">
-                Open in the project
-              </Link>
-            </div>
-          ) : null}
           <GroupParts projectId={group.project_id} {...shown} />
         </CollapsibleSection>
       ))}

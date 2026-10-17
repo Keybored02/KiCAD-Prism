@@ -6,6 +6,8 @@ distributor. A release is judged again against today's data so the page can say 
 
 from __future__ import annotations
 
+import json
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -74,6 +76,10 @@ def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[
     return releases
 
 
+# What of the day's rollup is kept with its cost: the boards the stock covers, the money out and what is left over.
+KEPT_ROLLUP = ("can_build", "cost_build", "waste_cost", "at_risk", "short", "tracked", "lines")
+
+
 def snapshot_costs(conn, now: datetime) -> int:
     """Write today's cost per board of every tracked project and variant that has a cost. Once a day; returns rows written."""
 
@@ -93,9 +99,10 @@ def snapshot_costs(conn, now: datetime) -> int:
             if rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
-                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-                (project["project_id"], variant, today, rollup["cost_per_board"], rollup["currency"], rollup["lines"], rollup["lines_priced"]),
+                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb) ON CONFLICT DO NOTHING",
+                (project["project_id"], variant, today, rollup["cost_per_board"], rollup["currency"], rollup["lines"], rollup["lines_priced"],
+                 json.dumps({key: rollup.get(key) for key in KEPT_ROLLUP})),
             )
             written += 1
     return written

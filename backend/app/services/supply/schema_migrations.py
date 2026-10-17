@@ -1681,6 +1681,12 @@ def _m071_part_preferences(conn) -> None:
     )
 
 
+def _m072_cost_history_rollup(conn) -> None:
+    """The day's BOM rollup is kept with the cost (boards the stock covers, money out, parts at risk) for the Projects rows."""
+
+    conn.execute("ALTER TABLE bom_cost_history ADD COLUMN IF NOT EXISTS rollup JSONB NOT NULL DEFAULT '{}'::jsonb", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1753,6 +1759,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (69, "offer_reel", _m069_offer_reel),
     (70, "project_packaging", _m070_project_packaging),
     (71, "part_preferences", _m071_part_preferences),
+    (72, "cost_history_rollup", _m072_cost_history_rollup),
 ]
 
 

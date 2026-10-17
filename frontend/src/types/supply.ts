@@ -560,6 +560,19 @@ export interface SupplyPartRow {
   /** The last 30 days of counted stock, and the days until it is projected to run out. */
   spark?: number[];
   runs_out_days?: number | null;
+  /** Why and how often Prism follows it. */
+  tracking?: { tier: number; rate: string } | null;
+  /** The first two projects using it, by name. */
+  project_names?: string[];
+  /** The distributors that list it: stock above zero is filled. */
+  distributors?: Array<{ connector_id: string; provider: string; name: string; stock: number }>;
+  preferred_connector_id?: string | null;
+  /** Cheapest price over 30 days, in percent. */
+  price_change_percent?: number | null;
+  /** The shortest lead time quoted, in days. */
+  lead_days?: number | null;
+  /** Problems the row shows as icons: waiting, rohs, reach. */
+  flags?: string[];
 }
 
 /** The parts that match a view, in one project's group (`none`: used by no project). */
@@ -570,6 +583,25 @@ export interface SupplyPartGroup {
   count: number;
   /** How many parts have each status. */
   statuses: Partial<Record<SupplyStatus, number>>;
+  stats?: SupplyGroupStats;
+}
+
+/** What a project row shows when closed. The cost, boards and alerts are for a tracked project. */
+export interface SupplyGroupStats {
+  at_risk: number;
+  out: number;
+  end_of_life: number;
+  one_distributor: number;
+  runs_out_soon: number;
+  bom_read_at?: string | null;
+  variants?: string[];
+  all_variants?: boolean;
+  packaging?: string | null;
+  cost_per_board?: string;
+  currency?: string;
+  cost_change_percent?: number | null;
+  boards?: number | null;
+  alerts?: number;
 }
 
 export interface SupplyPartGroups {

@@ -3,6 +3,7 @@ import type { SupplyPartRow } from "@/types/supply";
 import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, PROBLEM_LABEL } from "./supply-format";
+import { DistributorSquares, PriceMove, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
 import { DataAgeIcon, JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
 
 interface PartsTableProps {
@@ -45,7 +46,8 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 <span className="ml-1.5"><JlcIcon jlc={part.jlc} /></span>
                 <div className="text-xs text-muted-foreground">{part.manufacturer}{part.manufacturer_provisional ? " (not confirmed)" : ""}</div>
                 {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
-                {part.used_in > 0 ? <div className="text-xs text-muted-foreground">Used in {part.used_in} {part.used_in === 1 ? "project" : "projects"}</div> : null}
+                <ProjectNames part={part} />
+                <RateAndLead part={part} />
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
@@ -54,13 +56,14 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
-                {formatPrice(part.unit_price, part.currency)}
+                {formatPrice(part.unit_price, part.currency)} <PriceMove percent={part.price_change_percent} />
                 {part.unit_price ? <div className="text-xs text-muted-foreground">at {part.price_quantity.toLocaleString()}</div> : null}
+                <div className="flex justify-end pt-0.5"><DistributorSquares part={part} /></div>
               </td>
               <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
               <td className="px-3 py-2"><DataAgeIcon fetchedAt={part.fetched_at} /></td>
               <td className="px-3 py-2">
-                {part.watch ? <TrackedIcon /> : null}
+                <span className="flex items-center gap-1">{part.watch ? <TrackedIcon /> : null}<RowFlags flags={part.flags} /></span>
               </td>
             </tr>
           ))}
