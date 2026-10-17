@@ -386,6 +386,33 @@ class BomLookupTests(unittest.TestCase):
             history = prices.daily_cheapest(conn, part_id, NOW)
         self.assertEqual([float(price) for _, price, _ in history], [5.0], "the picked cut tape, not the reel or the other pack")
 
+    def test_the_history_has_a_line_per_distributor_carried_to_its_last_read(self) -> None:
+        from app.services.supply import part_history
+
+        part_id = self.part("Acme", "LINES")
+        self.offer(part_id, "A", stock=40, price="0.50")
+        other = self.connectors.create(actor=SEED, provider="lcsc", display_name="Other", daily_budget=1000)["id"]
+        listing = uuid.uuid4().hex
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'B', %s, 'x', 'x', 'exact')",
+                         (listing, other, part_id))
+            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, 10, 'EUR', '[[1, \"0.70\"]]'::jsonb)", (listing, NOW))
+            for moment, stock_a, stock_b in ((datetime(2026, 2, 27, 8, tzinfo=timezone.utc), 50, 12), (NOW, 40, 10)):
+                for sku_listing, amount, price in ((self.listing_of(conn, "A"), stock_a, "0.50"), (listing, stock_b, "0.70")):
+                    conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')",
+                                 (sku_listing, moment, amount, price))
+            data = part_history.build(conn, part_id, NOW, 30)
+        self.assertEqual(data["currency"], "EUR")
+        names = [line["name"] for line in data["connectors"]]
+        self.assertEqual(names, ["Other", "Sim"])
+        sim = next(line for line in data["connectors"] if line["name"] == "Sim")
+        self.assertEqual([point[1] for point in sim["stock"]], [50, 50, 40], "stepped from reading to reading, one point a day")
+        self.assertEqual(sim["price"][-1][1], 0.5)
+        self.assertEqual(data["total"][-1][1], 50, "what counts across both")
+
+    def listing_of(self, conn, sku: str) -> str:
+        return conn.execute("SELECT id FROM listings WHERE sku = %s", (sku,)).fetchone()["id"]
+
     def test_attrition_adds_spares_to_the_need_and_takes_them_off_what_can_be_built(self) -> None:
         part_id = self.part("Acme", "R1")
         self.offer(part_id, "A", stock=105)

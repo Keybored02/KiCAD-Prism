@@ -17,7 +17,6 @@ describe("the price section", () => {
     render(<PriceTrend price={{ currency: "EUR", history, trend: { currency: "EUR", was: "1", now: "1.3", change_percent: 30, days: 28 } }} />);
     expect(screen.getByRole("region", { name: "Price" })).toBeTruthy();
     expect(screen.getByText(/Up 30% over 28 days, from/)).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Cheapest price per day" })).toBeTruthy();
   });
 
   it("says why there is no move yet", () => {

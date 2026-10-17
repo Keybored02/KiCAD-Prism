@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import catalog_read, cross_reference, parts, parts_view, refresh, review, watches
+from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -158,6 +158,19 @@ async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_suppl
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return parts_view.part_detail(conn, part_id, role=user.role)
+
+    return await _run(read)
+
+
+@router.get("/parts/{part_id}/history")
+async def get_part_history(
+    part_id: str, days: int = Query(part_history.DEFAULT_DAYS, ge=1, le=part_history.MAX_DAYS), user: AuthenticatedUser = Depends(require_supply_reader)
+) -> dict[str, Any]:
+    """Stock and price per distributor over the last ``days`` days."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return part_history.build(conn, part_id, days=days)
 
     return await _run(read)
 

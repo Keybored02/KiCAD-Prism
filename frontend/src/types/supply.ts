@@ -982,6 +982,23 @@ export interface BudgetCall {
 }
 
 /** Where one connector's call budget goes (GET /api/supply/budget). */
+/** A part's stock and price over time, a line per distributor (GET /api/supply/parts/{id}/history). */
+export interface PartHistory {
+  days: number;
+  currency: string;
+  connectors: Array<{
+    connector_id: string;
+    name: string;
+    provider: string;
+    last_read: string | null;
+    /** Not read for longer than the part's rate allows. */
+    stale: boolean;
+    stock: Array<[string, number]>;
+    price: Array<[string, number]>;
+  }>;
+  total: Array<[string, number]>;
+}
+
 export interface BudgetNotices {
   limit: number;
   used: number;

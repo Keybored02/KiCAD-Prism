@@ -1,10 +1,6 @@
 import type { SupplyPartDetail } from "@/types/supply";
-import { lazy, Suspense } from "react";
 
-import { Sparkline } from "./sparkline";
 import { formatPrice } from "./supply-format";
-
-const PriceChart = lazy(() => import("./price-chart"));
 
 /** The cheapest price over the recorded days, and how far it moved in the last 30. Nothing until the part has priced readings. */
 export function PriceTrend({ price }: { price: SupplyPartDetail["price"] }) {
@@ -18,9 +14,6 @@ export function PriceTrend({ price }: { price: SupplyPartDetail["price"] }) {
       <div className="flex items-center gap-3">
         <p className="text-lg font-semibold tabular-nums">{formatPrice(String(latest), currency)}</p>
       </div>
-      <Suspense fallback={history.length > 1 ? <Sparkline values={history.map((point) => point.price)} label="Cheapest price per day" /> : null}>
-        <PriceChart history={history} currency={currency} />
-      </Suspense>
       <p className="text-xs text-muted-foreground">
         {change === null
           ? "Cheapest unit price any distributor showed. A move needs a week of readings."

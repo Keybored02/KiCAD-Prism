@@ -29,6 +29,7 @@ import type {
   SupplyInsightsPage,
   SupplyOverview,
   SupplyPartGroups,
+  PartHistory,
   SupplyPartDetail,
   SupplyPartsPage,
   SupplyProvider,
@@ -385,6 +386,11 @@ export function listSupplyManufacturers(signal?: AbortSignal): Promise<{ items: 
 
 export function getSupplyPart(partId: string, signal?: AbortSignal): Promise<SupplyPartDetail> {
   return fetchJson<SupplyPartDetail>(`${BASE}/parts/${encodeURIComponent(partId)}`, { signal }, "Could not load the part");
+}
+
+/** A part's stock and price per distributor over the last `days` days. */
+export function getPartHistory(partId: string, days: number, signal?: AbortSignal): Promise<PartHistory> {
+  return fetchJson<PartHistory>(`${BASE}/parts/${encodeURIComponent(partId)}/history?days=${days}`, { signal }, "Could not load the history");
 }
 
 /** The part Prism tracks for a manufacturer and number, or null. Creates nothing. */

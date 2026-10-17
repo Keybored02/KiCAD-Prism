@@ -8,10 +8,10 @@ import { partDetailFixture, partRowFixture } from "./supply-test-fixtures";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-// Recharts is slow to load cold and is not what these tests are about; stock-chart.test.tsx covers the chart.
-vi.mock("./stock-chart", () => ({
-  default: ({ threshold }: { threshold: number | null }) => (
-    <div role="img" aria-label="Stock over the last 90 days" data-threshold={threshold ?? "none"} />
+// Recharts is slow to load cold and is not what these tests are about; part-history.test.tsx covers the chart.
+vi.mock("./part-history-chart", () => ({
+  default: ({ threshold, kind }: { threshold: number | null; kind: string }) => (
+    <div role="img" aria-label={`${kind} chart`} data-threshold={threshold ?? "none"} />
   ),
 }));
 
@@ -19,6 +19,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listSupplyParts: vi.fn(),
   getSupplyPart: vi.fn(),
+  getPartHistory: vi.fn(),
   addSupplyWatch: vi.fn(),
   updateSupplyWatch: vi.fn(),
   removeSupplyWatch: vi.fn(),
@@ -62,6 +63,10 @@ beforeEach(() => {
   mocked.getPartDatasheet.mockResolvedValue({ url: "" });
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
+  mocked.getPartHistory.mockResolvedValue({
+    days: 90, currency: "EUR", total: [["2026-03-01", 12500]],
+    connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [] }],
+  });
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
@@ -178,8 +183,7 @@ describe("a part", () => {
     expect(within(stock).getByText("In stock")).toBeTruthy();
     expect(within(stock).getByText((12500).toLocaleString())).toBeTruthy();
     expect(within(sheet).getByRole("img", { name: "OK" })).toBeTruthy();
-    expect(within(sheet).getByRole("img", { name: "Stock over the last 90 days" })).toBeTruthy();
-    expect(within(sheet).getByText(`3 days. Low ${(9000).toLocaleString()}, high ${(12500).toLocaleString()}.`)).toBeTruthy();
+    expect(await within(sheet).findByRole("img", { name: "stock chart" })).toBeTruthy();
     expect(within(sheet).getByRole("article", { name: "Listing 595-LM358D" })).toBeTruthy();
     expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything());
   });
@@ -190,7 +194,7 @@ describe("a part", () => {
     expect(within(near).getByText("Near match, not counted")).toBeTruthy();
     expect(within(near).getByText("Not read yet.")).toBeTruthy();
     const main = screen.getByRole("article", { name: "Listing 595-LM358D" });
-    expect(within(main).getByText("cut tape")).toBeTruthy();
+    expect(within(main).getByText("Cut tape")).toBeTruthy();
     expect(within(main).getByText("On order")).toBeTruthy();
     expect(within(main).getByText("5,000 due 2026-04-01")).toBeTruthy();
     expect(within(main).getByLabelText("Open Mouser EU product page").getAttribute("href")).toBe("https://example.invalid/p");
@@ -214,18 +218,14 @@ describe("a part", () => {
 
   it("draws the stock chart with the watch threshold", async () => {
     renderView("designer", "/?part=p1");
-    const chart = await screen.findByRole("img", { name: "Stock over the last 90 days" });
+    const chart = await screen.findByRole("img", { name: "stock chart" });
     expect(chart.getAttribute("data-threshold")).toBe("500");
   });
 
-  it("asks for history rather than drawing a line through nothing, and draws one reading", async () => {
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ history: [] }));
+  it("asks for history rather than drawing a line through nothing", async () => {
+    mocked.getPartHistory.mockResolvedValue({ days: 90, currency: "EUR", connectors: [], total: [] });
     renderView("designer", "/?part=p1");
     expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
-    cleanup();
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ history: [{ day: "2026-03-01", stock: 5, listings: 1 }] }));
-    renderView("designer", "/?part=p1");
-    expect(await screen.findByText("1 day. Low 5, high 5.")).toBeTruthy();
   });
 });
 

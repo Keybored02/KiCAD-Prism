@@ -1,6 +1,4 @@
 import { canReviewSupply } from "@/lib/roles";
-import { lazy, Suspense } from "react";
-
 import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,19 +14,17 @@ import { behaviourLines } from "./market-behaviour-text";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { ListingTable } from "./listing-table";
+import { PartHistoryPanel } from "./part-history";
 import { PartNumbers } from "./part-numbers";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
 import { ParametersSection } from "./parameters-section";
 import { PriceTrend } from "./price-trend";
-import { Sparkline } from "./sparkline";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
 import { TrackingControl } from "./tracking-control";
 import { WatchSettings } from "./watch-settings";
 import { VendorName } from "./vendor-name";
 
-// Recharts is large and only a part that is open needs it, so it loads on demand.
-const StockChart = lazy(() => import("./stock-chart"));
 
 /** What is known about one part: stock and history, its watch, where it is used and every listing. */
 interface PartDetailSectionsProps {
@@ -39,10 +35,6 @@ interface PartDetailSectionsProps {
 }
 
 export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDetailSectionsProps) {
-  const values = detail.history.map((point) => point.stock);
-  const low = values.length ? Math.min(...values) : null;
-  const high = values.length ? Math.max(...values) : null;
-
   return (
     <div className="space-y-6">
 
@@ -67,18 +59,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             ))}
           </p>
         ) : null}
-        {values.length > 0 ? (
-          <div className="space-y-1">
-            <Suspense fallback={<Sparkline values={values} label="Stock over the last 90 days" />}>
-              <StockChart history={detail.history} threshold={detail.watch?.threshold ?? null} />
-            </Suspense>
-            <p className="text-xs text-muted-foreground">
-              {values.length} {values.length === 1 ? "day" : "days"}. Low {low?.toLocaleString()}, high {high?.toLocaleString()}.
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">History builds up as the part is read.</p>
-        )}
+        <PartHistoryPanel partId={detail.part.id} threshold={detail.watch?.threshold ?? null} />
       </section>
 
       <PriceTrend price={detail.price} />
