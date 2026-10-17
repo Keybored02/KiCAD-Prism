@@ -28,6 +28,7 @@ from app.api.supply_connectors import (
 from app.api.supply_review import router as supply_review_router
 from app.api.search_parts import router as search_parts_router
 from app.api.supply_ending import router as supply_ending_router
+from app.api.supply_forecast import router as supply_forecast_router
 from app.services.catalog import dbl_export
 from app.services.supply import ending_parts
 from app.api.supply_parts import router as supply_parts_router
@@ -326,6 +327,7 @@ app.include_router(supply_review_router)
 app.include_router(supply_parts_router)
 app.include_router(search_parts_router)
 app.include_router(supply_ending_router)
+app.include_router(supply_forecast_router)
 # The KiCad database shows "Not for new designs" in Status for components the library marked.
 dbl_export.set_status_marks(ending_parts.status_marks)
 app.include_router(supply_alerts_router)

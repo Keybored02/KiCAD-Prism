@@ -36,10 +36,13 @@ PRICE_UP = "price_up"
 PCN = "pcn"
 TARGET_PRICE_MISSED = "target_price_missed"
 ASSESSMENT_WORSE = "assessment_worse"
+LIKELY_OUT = "likely_out"
 KINDS = (
     OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, PCN,
-    TARGET_PRICE_MISSED, ASSESSMENT_WORSE,
+    TARGET_PRICE_MISSED, ASSESSMENT_WORSE, LIKELY_OUT,
 )
+# The chance of being out everywhere within four weeks that raises the alert, on two runs in a row (a shown model only).
+LIKELY_OUT_CHANCE = 0.7
 
 # Assessment statuses from best to worst; "unknown" is not a state to compare.
 _STATUS_ORDER = ("ok", "warning", "error", "fatal")
@@ -76,6 +79,7 @@ def conditions_for(
     rules: alert_rules.Rules = alert_rules.NONE,
     assessed: str | None = None,
     mark: str | None = None,
+    likely: Mapping[str, Any] | None = None,
 ) -> dict[str, Condition]:
     """The lines a tracked part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
@@ -97,6 +101,11 @@ def conditions_for(
             found[RUPTURE_SOON] = Condition(Status.WARNING.value, {
                 "days_to_zero": days, "decrease_per_day": insight["decrease_per_day"], "confidence": insight["confidence"],
             })
+    if likely is not None:
+        # Once the forecast model has earned its place it replaces the straight-line warning.
+        found.pop(RUPTURE_SOON, None)
+        if likely["chance"] is not None:
+            found[LIKELY_OUT] = Condition(Status.WARNING.value, {"chance": likely["chance"], "weeks": 4})
     if price is not None and price["change_percent"] >= (rules.price_rise_percent or PRICE_RISE_PERCENT):
         found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
     if notice is not None:
@@ -138,6 +147,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
     current = {}
     rules = alert_rules.for_parts(conn, ids)
     assessed, marks = _assessment_states(conn, ids, now)
+    likely = _likely_out(conn, ids)
     for item in parts_view.summaries_for(conn, ids):
         tracked = item["tracking"] is not None
         # A projection needs history, which costs queries: only for tracked parts with stock to lose.
@@ -150,6 +160,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if tracked else None
         current[item["id"]] = conditions_for(
             item, insight, price, notice, rules.get(item["id"], alert_rules.NONE), assessed.get(item["id"]), marks.get(item["id"]),
+            likely.get(item["id"]) if tracked else None,
         )
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
@@ -169,6 +180,29 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
                 _begin(conn, part_id, kind, condition, now)
             else:
                 _update(conn, row, kind, condition, now)
+
+
+def _likely_out(conn, ids: list[str]) -> dict[str, dict[str, Any]]:
+    """For tracked daily parts, once the four-week model is shown: the chance they are out everywhere within four weeks, if the last two
+    runs both said at least ``LIKELY_OUT_CHANCE`` (else None, which clears the alert). Empty while the model is learning."""
+
+    from app.services.supply import forecasting
+
+    state = conn.execute("SELECT state FROM forecast_models WHERE target = 'out_4w'").fetchone()
+    if not state or state["state"] != forecasting.SHOWN:
+        return {}
+    found: dict[str, dict[str, Any]] = {}
+    for row in conn.execute(
+        """
+        SELECT f.subject_id, (array_agg(f.probability ORDER BY f.made_on DESC))[1:2] AS lately
+        FROM forecasts f JOIN part_tiers pt ON pt.part_id = f.subject_id AND pt.rate = 'daily'
+        WHERE f.subject_kind = 'part' AND f.target = 'out_4w' AND f.subject_id = ANY(%s) GROUP BY f.subject_id
+        """,
+        (ids,),
+    ).fetchall():
+        lately = [float(value) for value in row["lately"]]
+        found[row["subject_id"]] = {"chance": min(lately) if len(lately) == 2 and min(lately) >= LIKELY_OUT_CHANCE else None}
+    return found
 
 
 def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, str], dict[str, str]]:

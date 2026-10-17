@@ -6,6 +6,7 @@ export const ALERT_KIND_LABEL: Record<SupplyAlertKind, string> = {
   lifecycle: "End of life",
   part_lost: "Part lost",
   rupture_soon: "Running out",
+  likely_out: "Likely out",
   price_up: "Price up",
   pcn: "Change notice",
   target_price_missed: "Target price missed",

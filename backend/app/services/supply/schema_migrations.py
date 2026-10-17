@@ -1830,6 +1830,55 @@ def _m078_forget_cached_prices(conn) -> None:
     )
 
 
+def _m079_forecasts(conn) -> None:
+    """Forecasts as they were made, the check of each once its day came, and the track record that decides whether a model is shown."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forecasts (
+            id BIGSERIAL PRIMARY KEY,
+            subject_kind TEXT NOT NULL CHECK (subject_kind IN ('part', 'project', 'family')),
+            subject_id TEXT NOT NULL,
+            scope TEXT NOT NULL DEFAULT '',
+            target TEXT NOT NULL,
+            made_on DATE NOT NULL,
+            horizon_days INTEGER NOT NULL,
+            quantity INTEGER,
+            median DOUBLE PRECISION,
+            low DOUBLE PRECISION,
+            high DOUBLE PRECISION,
+            probability DOUBLE PRECISION,
+            model TEXT NOT NULL,
+            model_version INTEGER NOT NULL DEFAULT 1,
+            inputs JSONB NOT NULL DEFAULT '{}'::jsonb,
+            UNIQUE (subject_kind, subject_id, scope, target, made_on)
+        );
+        CREATE INDEX IF NOT EXISTS idx_forecasts_due ON forecasts (made_on);
+        CREATE INDEX IF NOT EXISTS idx_forecasts_subject ON forecasts (subject_kind, subject_id, made_on);
+
+        CREATE TABLE IF NOT EXISTS forecast_checks (
+            forecast_id BIGINT PRIMARY KEY REFERENCES forecasts(id) ON DELETE CASCADE,
+            checked_on DATE NOT NULL,
+            observed DOUBLE PRECISION,
+            inside BOOLEAN,
+            void BOOLEAN NOT NULL DEFAULT FALSE
+        );
+
+        CREATE TABLE IF NOT EXISTS forecast_models (
+            target TEXT PRIMARY KEY,
+            version INTEGER NOT NULL DEFAULT 1,
+            state TEXT NOT NULL DEFAULT 'learning' CHECK (state IN ('learning', 'shown', 'paused')),
+            checks INTEGER NOT NULL DEFAULT 0,
+            coverage DOUBLE PRECISION,
+            since TIMESTAMPTZ,
+            reason TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1909,6 +1958,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (76, "stock_events", _m076_stock_events),
     (77, "component_restrictions", _m077_component_restrictions),
     (78, "forget_cached_prices", _m078_forget_cached_prices),
+    (79, "forecasts", _m079_forecasts),
 ]
 
 

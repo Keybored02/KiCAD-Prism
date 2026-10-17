@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, dashboard, details, fx, ledger, market, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
+    accounts, dashboard, details, forecast_run, fx, ledger, market, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
@@ -350,6 +350,11 @@ def _renew_insights(conn) -> None:
             part_insights.renew(conn)
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Insights not renewed", exc_info=True)
+    try:
+        with conn.transaction():
+            forecast_run.run_checks(conn)
+    except Exception:  # noqa: BLE001 - checking forecasts is a favour; nothing else depends on it
+        logging.getLogger(__name__).info("Forecasts not checked", exc_info=True)
 
 
 def _sync_tracking(conn) -> None:

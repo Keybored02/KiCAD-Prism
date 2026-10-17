@@ -217,6 +217,34 @@ Not built: JLCPCB and TME suggestions (JLCPCB's alternatives field was empty in 
 field, so there is no format to read), IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
 observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.
 
+## Forecasts
+
+Prism says what it expects, as ranges and chances, and checks itself. A forecast is a range (10% to 90%, with a most likely value) or a
+chance, always with the number beside the word: Almost certain (90% and up), Likely, Uncertain, Unlikely, Very unlikely. It never says
+"will".
+
+- **What is forecast.** When a part runs out (per distributor and everywhere), when a distributor that is out is back (from how long
+  earlier stock-outs lasted, or from its quote times how its real waits compare), the chance the part can be bought at a quantity in each of
+  the next twelve weeks, its price in 30 and 90 days, a board's cost in 90 days, the chance a project can be built in each of twelve weeks for
+  a number of boards, lead times three months ahead by maker and category, early warnings that a family is going short, and the chance of an
+  end-of-life change in 12 and 24 months. Demand is not forecast: a fall in stock is not consumption, and Prism plans no builds. A quantity or
+  a board count is a question typed on the screen and saved nowhere.
+- **How sure Prism is.** Every forecast is kept and compared with what happened once its day comes. A model is **Learning** until it has
+  enough checks (60 for the chance of buying, 40 for runouts and prices, 30 for end of life), **Shown** while its 80% ranges hold the truth
+  72% to 88% of the time (a chance: off by no more than 10 points), and **Paused** if its last 30 checks fall outside that. A learning
+  forecast is greyed with a dashed "Learning" chip, a paused one says why. Insights > Forecasts has the track record of every model, with
+  "said 70%, happened 68%" for the chances. `python -m app.services.supply.forecast_backtest --since YYYY-MM-DD` replays past days so a model
+  has a record before it shows anything.
+- **Where it shows.** Part sheet: a Forecast section (the chance it can be bought, a twelve-week strip, runout and return ranges, the price
+  range, the end-of-life chance, a Why on each line) and a dashed band continuing the stock and price charts. Parts list: "out ~14 Dec" under
+  the stock once the runout model is shown, and the filters Likely out within 4 or 8 weeks. Project tab: one **Boards** count for the forecast,
+  the costing and the CSV; the chance the project is buildable week by week, what holds it back, and a cost range. Dashboard: a "Likely out in
+  4 weeks" tile (greyed, with how far along the model is, while learning) and, once shown, a Coming up card. An alert "Likely out" replaces
+  the straight-line running-out alert once the four-week model is shown (a tier 1 part, 70% or more on two runs in a row). The KiCad panel and
+  the BOM line drawer carry one line each, from a shown model only.
+- **Limits.** A part read weekly gives week-wide dates, so its ranges are at least a week wide. The currency's own movement is not in the price
+  range. The stock-out model is Kaplan-Meier on the stock-outs seen, not a fitted curve. It needs months of readings to say much.
+
 ## Ending parts
 
 Library Manager > Ending Parts (for roles that open Supply) lists the catalog components whose part is ending: not recommended for new

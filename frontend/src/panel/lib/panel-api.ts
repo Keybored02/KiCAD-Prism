@@ -98,6 +98,8 @@ export interface PanelSupply {
   /** One phrase, rule-based: "No signs of an end of life", "2 to 5 years"... */
   outlook?: string;
   risks?: string[];
+  /** One line on the chance it stays in stock, once Prism's forecasts have earned a place. */
+  forecast?: { tone: "ok" | "warning"; text: string } | null;
   links?: { component: string; sourcing: string; supply: string };
 }
 

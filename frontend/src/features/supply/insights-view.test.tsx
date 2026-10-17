@@ -10,6 +10,7 @@ vi.mock("./market-chart", () => ({ default: () => <div>Market chart drawn</div> 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getSupplyInsights: vi.fn(),
+  getForecastInsights: vi.fn(() => new Promise(() => undefined)),
   getSupplyMarketHistory: vi.fn(),
   listSupplyParts: vi.fn(),
 }));
@@ -83,7 +84,7 @@ describe("the insights page", () => {
   it("has a section for each question, with a way to jump to it", async () => {
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });
-    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Runway", "Sourcing", "Lifecycle and compliance", "Lead times and prices", "Market", "Trade"]);
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Runway", "Forecasts", "Sourcing", "Lifecycle and compliance", "Lead times and prices", "Market", "Trade"]);
     expect(screen.getByText("TI: 50% of the parts you follow are out of stock, up from 10%.")).toBeTruthy();
   });
 

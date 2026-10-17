@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, trade_marks, prices, pricing, promises, scorecard, settle, stock, usage
+from app.services.supply import facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, settle, stock, usage
 from app.services.supply.assessment import settings_store
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
@@ -26,7 +26,7 @@ from app.services.supply.vocabulary import Lifecycle
 Scope = Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"]
 Filter = Literal[
     "", "at_risk", "out_of_stock", "lifecycle", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings", "draining",
-    "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving",
+    "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving", "likely_out_4w", "likely_out_8w",
 ]
 _NEEDS_A_LOOK = ("fatal", "error", "warning")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
@@ -441,7 +441,11 @@ def list_parts(
         for item in page
     ]
     more = offset + limit < total
-    return {"items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None}
+    states = forecasting.model_states(conn)
+    return {
+        "items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None,
+        "forecast_state": {name: states[name]["state"] for name in ("runout", "out_4w", "can_buy_4w", "can_buy_8w")},
+    }
 
 
 def _parts_with_alternate(conn) -> set[str]:
@@ -510,6 +514,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
             "distributors": sorted(by_connector.values(), key=lambda entry: entry["name"].lower()),
             "preferred_connector_id": preferred.get(item["id"]),
             "price_change_percent": facts_here.get("price_change_percent"),
+            "forecast": (facts_here.get("forecast") or None) if (facts_here.get("forecast") or {}).get("available") else None,
             "lead_days": facts_here.get("lead_days"),
             "flags": flags,
         }

@@ -530,7 +530,7 @@ export type PartsScope = "followed" | "watched" | "tier1" | "tier2" | "in_use" |
 export type PartsFilter =
   | "" | "at_risk" | "out_of_stock" | "lifecycle"
   | "runs_out_2w" | "runs_out_8w" | "runs_out_later" | "steady" | "few_readings" | "draining" | "restock_late" | "often_out"
-  | "one_distributor" | "lead_up" | "unusual_drop" | "price_moving";
+  | "one_distributor" | "lead_up" | "unusual_drop" | "price_moving" | "likely_out_4w" | "likely_out_8w";
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 
@@ -628,6 +628,8 @@ export interface SupplyPartRow {
   lead_days?: number | null;
   /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked, no_alternate. */
   flags?: string[];
+  /** The kept forecast: when it likely runs out and the chance of being out within four and eight weeks. */
+  forecast?: RowForecast | null;
 }
 
 /** The parts that match a view, in one project's group (`none`: used by no project). */
@@ -671,6 +673,119 @@ export interface SupplyPartsPage {
   offset?: number;
   /** Where the next page starts; null at the end. */
   next_offset?: number | null;
+  /** The state of the forecast models the rows' forecasts come from. */
+  forecast_state?: Partial<Record<"runout" | "out_4w" | "can_buy_4w" | "can_buy_8w", ForecastState>>;
+}
+
+export type ForecastState = "learning" | "shown" | "paused";
+
+/** Where a forecast model stands: learning (not enough checks, or missing too often), shown, or paused. */
+export interface ForecastModelState {
+  state: ForecastState;
+  checks: number;
+  needs: number;
+  reason: string;
+}
+
+export interface ForecastChance {
+  probability: number;
+  percent: number;
+  word: string;
+}
+
+/** A range of dates (10% to 90%) with the most likely in the middle. */
+export interface ForecastDates {
+  low: string;
+  median: string;
+  high: string;
+}
+
+/** The forecast kept for a part, as a list row carries it. */
+export interface RowForecast {
+  made_on: string;
+  runout?: { median_date: string; low_date: string; high_date: string; p: number };
+  p_out_4w?: number;
+  p_out_8w?: number;
+  can_buy_4w?: number;
+  can_buy_8w?: number;
+  out_now?: boolean;
+}
+
+/** Everything the part sheet's Forecast section and chart bands need. Nothing is saved by asking at a quantity. */
+export interface PartForecast {
+  available: boolean;
+  reason?: "no_readings" | "too_few_readings" | null;
+  today: string;
+  models: Record<string, ForecastModelState & Record<string, unknown>>;
+  quantity?: number;
+  out_now?: boolean;
+  weeks?: Array<{ week: number; date: string } & ForecastChance>;
+  buy_state?: { "4w": ForecastModelState; "8w": ForecastModelState };
+  out_everywhere?: { "4w": ForecastChance; "8w": ForecastChance };
+  runout?: (ForecastDates & ForecastChance & { state: ForecastModelState }) | null;
+  back?: Array<ForecastDates & { connector_id: string; name: string; provider: string; quote_days: number | null; ratio: number | null; beyond_share: number; state: ForecastModelState }>;
+  path?: Array<{ day: string; low: number; median: number; high: number }>;
+  inputs?: { span_days: number; holders: number; drain_known: number; outages_modelled: number; weekly: boolean };
+  price?: {
+    now: number;
+    inputs: { readings: number; span_days: number; own_moves: number; pooled_moves: number };
+    h30: { low: number; median: number; high: number; flat: boolean; date: string; state: ForecastModelState };
+    h90: { low: number; median: number; high: number; flat: boolean; date: string; state: ForecastModelState };
+  };
+  end_of_life?: { p12: ForecastChance; p24: ForecastChance; changes: number; needs: number; state: ForecastModelState };
+}
+
+/** Whether every part of a project can be bought for a number of boards, week by week, and what a board may cost. */
+export interface ProjectForecast {
+  available: boolean;
+  reason?: "no_bom" | null;
+  boards: number;
+  lines: number;
+  unknown_lines: number;
+  /** The chance every forecast line can be bought, now (0) and at the end of each of 12 weeks. */
+  weeks: number[];
+  holding_back: Array<{ key: string; part_id: string; mpn: string; manufacturer: string; per_board: number; need: number; short_share: number; short_ever: number; reason: string }>;
+  cost?: { now: number; lines_priced: number; h30: { low: number; median: number; high: number }; h90: { low: number; median: number; high: number } };
+  models: Record<string, { state: ForecastState; checks: number; needs: number }>;
+}
+
+export interface ForecastEvent {
+  kind: "runout" | "price";
+  date: string;
+  part_id: string;
+  mpn: string;
+  manufacturer: string;
+  text: string;
+  probability: number | null;
+}
+
+export interface TrackRecordModel {
+  target: string;
+  label: string;
+  kind: "range" | "chance";
+  state: ForecastState;
+  checks: number;
+  needs: number;
+  score: number | null;
+  since: string | null;
+  reason: string;
+}
+
+export interface TrackRecord {
+  models: TrackRecordModel[];
+  reliability: Record<string, Array<{ said: number; happened: number; cases: number }>>;
+}
+
+/** The Insights Forecasts section. */
+export interface ForecastInsights {
+  currency: string;
+  coming_up: ForecastEvent[];
+  likely_out_4w: number;
+  lead_times: Array<{ kind: string; scope: string; now: number; low: number; median: number; high: number; direction: "stretching" | "easing" | "flat"; points: number }>;
+  warnings: Array<{ kind: string; scope: string; metric: string; before: number; after: number; direction: "up" | "down"; since: string }>;
+  prices: { parts: number; flat: number; likeliest_up: Array<{ part_id: string; mpn: string; manufacturer: string; now: number; low: number; median: number; high: number; change: number; flat: boolean }> };
+  lifecycle: { last_buy_lag: { available: boolean; cases: number; needs?: number; low?: number; median?: number; high?: number }; changes: number; needs: number };
+  track_record: TrackRecord;
 }
 
 export interface SupplyOffer {
@@ -821,7 +936,7 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "pcn" | "target_price_missed" | "assessment_worse";
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "pcn" | "target_price_missed" | "assessment_worse" | "likely_out";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {
@@ -835,7 +950,7 @@ export interface SupplyAlert {
   /** Facts behind the alert: stock, threshold, lifecycle or problem. */
   detail: {
     stock?: number; threshold?: number; lifecycle?: string; problem?: string; dropped?: boolean;
-    days_to_zero?: number; decrease_per_day?: number; confidence?: string;
+    days_to_zero?: number; chance?: number; weeks?: number; decrease_per_day?: number; confidence?: string;
     change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
     version?: number; change_summary?: string;
     price?: string; target?: string; was_status?: string; to?: string;
@@ -1404,6 +1519,8 @@ export interface SupplyDashboard {
   figures: Record<"watched" | "at_risk" | "out_of_stock" | "lifecycle" | "open_alerts" | "waiting", number>;
   /** Library components whose part is ending and nobody has decided about. */
   ending_components?: number;
+  /** Parts likely out within four weeks, the model's state and the next expected events. */
+  forecast?: { likely_out_4w: number; state: ForecastModelState; coming_up: ForecastEvent[]; part_ids_likely_out_4w: string[] };
   /** Each figure's stored values over the last 30 days, oldest first. */
   figure_history: Record<string, number[]>;
   statuses: Array<{ status: SupplyStatus; count: number }>;

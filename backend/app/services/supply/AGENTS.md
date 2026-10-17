@@ -70,6 +70,12 @@ root first.
 | `stock_events.py` | Stock-outs and restocks as the poller sees them, with the lead time quoted at the stock-out; a restock ends the open stock-out. |
 | `scorecard.py` | Per distributor, on parts two or more list: stock-outs, restocked first, promises kept (quoted lead times and Mouser's dated arrivals), wait said against real, days in stock. Withheld under five events. Also each distributor's open promise on one part. |
 | `ending_parts.py` | Library components whose part is ending, with the reasons, last buy date, stock, projects and approved alternates; and the decision kept for each (`component_restrictions`: not for new designs, retired). Proposes only. |
+| `forecasting.py` | Forecasts as kept: stored when made, checked when their day comes, each model's state (learning, shown, paused) from its checks, the words for a chance, the track record. |
+| `forecast_stock.py` | Runout, return from a stock-out and the chance of buying by week, from a simulation of 2,000 futures per distributor (drain from the slopes since the last restock, time out from Kaplan-Meier, restock sizes seen). Pure. |
+| `forecast_price.py` | A part's price in 30 and 90 days from repricing events (Poisson rate shrunk to the pooled rate, sizes seen). Pure. |
+| `forecast_project.py` | Whether a project can be built for a board count, week by week, in shared draws across its lines; what holds it back; the board cost range. Nothing is saved. |
+| `forecast_market.py`, `forecast_lifecycle.py` | Lead times by family three months ahead and early warnings from the market series; the pooled monthly rate of changes into an ending lifecycle and the lag from a first sign to a last time buy. |
+| `forecast_load.py`, `forecast_run.py`, `forecast_view.py`, `forecast_overview.py`, `forecast_backtest.py` | Reading the inputs, the daily make-and-check run (called from housekeeping and `part_insights`), the part forecast as the screens get it, the Dashboard and Insights roll-ups and the panel line, and the replay of past days. |
 | `preferences.py` | A person's preferred distributor for a part (`part_preferences`); it orders and marks, and prices the BOM when the setting is on. |
 | `trade_marks.py` | Whether a part is export controlled: what distributors state, and a person's mark that wins. |
 | `risk_views.py` | The Dashboard and Insights risk views: lifecycle against availability, deadlines, distributor coverage, lifecycle and compliance mixes, lead times, price movers, trade. |

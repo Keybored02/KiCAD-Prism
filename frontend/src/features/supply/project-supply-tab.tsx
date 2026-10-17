@@ -1,9 +1,9 @@
 import { useCallback, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Ban, Banknote, Boxes, Clock, HeartPulse, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
@@ -13,6 +13,8 @@ import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
+import { BoardCount, ProjectForecastSection } from "./project-forecast";
+import { supplyPartPath } from "@/components/command-palette-supply";
 import { getProjectSupply } from "./supply-api";
 import { formatAgo, formatPrice } from "./supply-format";
 import { SettleBadge } from "./settle-badge";
@@ -31,19 +33,12 @@ function Stat({ icon: Icon, label, value, bad }: { icon: LucideIcon; label: stri
   );
 }
 
-/** The BOM costed at a build size, as a file. It names no distributor or link: a costing, not an order. */
-function CostExport({ projectId, variant }: { projectId: string; variant: string }) {
-  const [boards, setBoards] = useState(100);
+/** The BOM costed at the tab's board count, as a file. It names no distributor or link: a costing, not an order. */
+function CostExport({ projectId, variant, boards }: { projectId: string; variant: string; boards: number }) {
   const href = `/api/supply/projects/${encodeURIComponent(projectId)}/cost-export?build_quantity=${boards}${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`;
   return (
     <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <label className="flex items-center gap-1.5">
-        Costing for
-        <Input type="number" min={1} max={1_000_000} value={boards} aria-label="Boards to cost" className="h-7 w-24"
-          onChange={(event) => { const next = Math.floor(Number(event.target.value)); if (Number.isFinite(next) && next >= 1 && next <= 1_000_000) setBoards(next); }} />
-        boards
-      </label>
-      <a href={href} className="text-primary hover:underline">Download the costing as CSV</a>
+      <a href={href} className="text-primary hover:underline">Download the costing for {boards.toLocaleString()} boards as CSV</a>
     </p>
   );
 }
@@ -90,6 +85,8 @@ function Stats({ supply }: { supply: ProjectSupply }) {
 export function ProjectSupplyTab({ projectId, role }: { projectId: string; role: UserRole | null | undefined }) {
   const allowed = canOpenSupply(role);
   const [variant, setVariant] = useState("");
+  const [boards, setBoards] = useState(100);
+  const navigate = useNavigate();
   const fetcher = useCallback((signal: AbortSignal) => getProjectSupply(projectId, variant, signal), [projectId, variant]);
   const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}` : null, fetcher, "Could not load the project's supply");
   if (!allowed) return <p className="text-sm text-muted-foreground">Supply data is not available to your role.</p>;
@@ -114,6 +111,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
             {supply.variants.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         ) : null}
+        {supply.available ? <BoardCount key={boards} boards={boards} onChange={setBoards} /> : null}
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <SettleBadge projectId={projectId} onChanged={loaded.retry} />
           <TrackProjectButton projectId={projectId} onChanged={loaded.retry} />
@@ -123,6 +121,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
         <>
           <Stats supply={supply} />
           <CostHistory points={supply.cost_history ?? []} />
+          <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={(partId) => navigate(supplyPartPath(partId))} />
           <section aria-label="Parts" className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
             <ProjectSupplyParts parts={supply.parts ?? []} />
@@ -137,7 +136,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? <ProjectSuggestions projectId={projectId} variant={variant} /> : null}
       {supply.available ? <ProjectTrade projectId={projectId} variant={variant} /> : null}
-      {supply.available ? <CostExport projectId={projectId} variant={variant} /> : null}
+      {supply.available ? <CostExport projectId={projectId} variant={variant} boards={boards} /> : null}
       {supply.available ? (
         <p className="text-xs text-muted-foreground">
           <a href={`/api/supply/projects/${encodeURIComponent(projectId)}/compliance-draft?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`} className="text-primary hover:underline">

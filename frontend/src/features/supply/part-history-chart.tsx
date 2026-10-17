@@ -1,10 +1,10 @@
 // react-doctor-disable-next-line prefer-dynamic-import - the whole module is loaded with React.lazy (see part-history)
-import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
-import type { PartHistory } from "@/types/supply";
+import type { PartForecast, PartHistory } from "@/types/supply";
 import { formatDay } from "./chart-format";
-import { historyRows, type HistoryKind } from "./part-history-model";
+import { BAND_KEY, FORECAST_KEY, historyRows, withForecast, type HistoryKind } from "./part-history-model";
 import { formatPrice } from "./supply-format";
 
 interface Props {
@@ -14,6 +14,8 @@ interface Props {
   /** Drawn as a dashed line on the stock chart when the part has a threshold. */
   threshold?: number | null;
   height?: string;
+  /** Continues the chart into the future with a band; greyed and dashed while its model is still learning. */
+  forecast?: PartForecast | null;
 }
 
 interface TipProps {
@@ -26,7 +28,7 @@ interface TipProps {
 function makeTip(format: (value: number) => string) {
   return function Tip({ active, label, payload }: TipProps) {
     if (!active || !payload?.length) return null;
-    const rows = payload.filter((item) => item.value !== null && item.value !== undefined && !String(item.dataKey).endsWith("~"));
+    const rows = payload.filter((item) => item.value !== null && item.value !== undefined && !Array.isArray(item.value) && !String(item.dataKey).endsWith("~"));
     if (rows.length === 0) return null;
     return (
       <div className="border bg-background px-2.5 py-1.5 text-xs shadow-md">
@@ -46,16 +48,19 @@ function makeTip(format: (value: number) => string) {
  * Stock or price over time, one line per distributor in its colour. A line steps from reading to reading and goes on,
  * dashed, when the distributor has not been read for longer than the part's rate allows. No dots: a part read once is a flat line.
  */
-export default function PartHistoryChart({ history, kind, hidden, threshold = null, height = "h-44" }: Props) {
-  const { rows, keys } = historyRows(history, kind, hidden);
+export default function PartHistoryChart({ history, kind, hidden, threshold = null, height = "h-44", forecast = null }: Props) {
+  const base = historyRows(history, kind, hidden);
+  const { keys } = base;
+  const { rows, overlay } = withForecast(history, kind, base, forecast, hidden);
   const config: ChartConfig = Object.fromEntries(keys.map((item) => [item.key, { label: item.name, color: item.color }]));
   const format = kind === "stock" ? (value: number) => value.toLocaleString() : (value: number) => formatPrice(String(value), history.currency);
   const Tip = makeTip(format);
-  const label = kind === "stock" ? "Stock per distributor" : "Price per distributor";
+  const label = `${kind === "stock" ? "Stock per distributor" : "Price per distributor"}${overlay ? (overlay.grey ? ", with a forecast that is still learning" : ", with a forecast") : ""}`;
+  const tone = overlay?.grey ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))";
   return (
     <div role="img" aria-label={label} className="w-full">
       <ChartContainer config={config} className={`aspect-auto ${height} w-full`}>
-        <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+        <ComposedChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickMargin={6} tickFormatter={formatDay} />
           <YAxis
@@ -70,6 +75,18 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
           {history.events.flatMap((event) => (rows.some((row) => row.day === event.day)
             ? [<ReferenceLine key={`${event.kind}-${event.day}-${event.text}`} x={event.day} stroke={event.kind === "restock" ? "hsl(var(--success))" : "hsl(var(--warning))"} strokeDasharray="2 3" ifOverflow="hidden" />]
             : []))}
+          {overlay ? (
+            <ReferenceLine x={overlay.from} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 2" label={{ value: "Today", position: "insideTopRight", fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
+          ) : null}
+          {overlay ? (
+            <Area
+              dataKey={BAND_KEY} name="Forecast range" type="monotone" stroke={tone} strokeDasharray={overlay.grey ? "3 3" : undefined} strokeOpacity={overlay.grey ? 0.6 : 0.3}
+              fill={overlay.grey ? "none" : tone} fillOpacity={overlay.grey ? 0 : 0.12} isAnimationActive={false} connectNulls
+            />
+          ) : null}
+          {overlay ? (
+            <Line dataKey={FORECAST_KEY} name={overlay.grey ? "Forecast (learning)" : "Forecast"} type="monotone" stroke={tone} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />
+          ) : null}
           {keys.map((item) => (
             <Line
               key={item.key} dataKey={item.key} name={item.name} type="stepAfter" stroke={item.color} strokeWidth={item.total ? 1 : 2}
@@ -79,7 +96,7 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
           {keys.flatMap((item) => (item.dashed
             ? [<Line key={item.dashed} dataKey={item.dashed} name={item.name} type="stepAfter" stroke={item.color} strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls isAnimationActive={false} />]
             : []))}
-        </LineChart>
+        </ComposedChart>
       </ChartContainer>
     </div>
   );

@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode
 
-from app.services.supply import bom_lookup, insights, parts_view, pricing, sources
+from app.services.supply import bom_lookup, forecast_overview, insights, parts_view, pricing, sources
 from app.services.supply.assessment import service as assessment
 from app.services.supply.bom_lookup import BomLine
 
@@ -147,5 +147,6 @@ def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, no
         "outlook": detail_view["outlook"]["label"],
         "health": {"score": assessed["health"], "status": assessed["status"]},
         "risks": _risks(assessed, insight),
+        "forecast": forecast_overview.panel_line(conn, part_id),
         "links": _links(origin, component_id, part_id),
     }

@@ -2,6 +2,9 @@
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
+  ForecastInsights,
+  PartForecast,
+  ProjectForecast,
   BomSuggestions,
   AddWatchInput,
   BomLineInput,
@@ -347,6 +350,22 @@ export function listSupplyParts(scope: PartsScope, query: string, signal?: Abort
 
 export function getSupplyDashboard(signal?: AbortSignal): Promise<SupplyDashboard> {
   return fetchJson<SupplyDashboard>(`${BASE}/dashboard`, { signal }, "Could not load the dashboard");
+}
+
+/** A part's forecast at a quantity (its own price quantity by default). Nothing is saved. */
+export function getPartForecast(partId: string, quantity: number | null, signal?: AbortSignal): Promise<PartForecast> {
+  const query = quantity ? `?quantity=${quantity}` : "";
+  return fetchJson<PartForecast>(`${BASE}/parts/${encodeURIComponent(partId)}/forecast${query}`, { signal }, "Could not load the forecast");
+}
+
+/** Whether a project can be built for this many boards. The count is a question; nothing is saved. */
+export function getProjectForecast(projectId: string, boards: number, variant: string, signal?: AbortSignal): Promise<ProjectForecast> {
+  const query = new URLSearchParams({ boards: String(boards), ...(variant ? { variant } : {}) });
+  return fetchJson<ProjectForecast>(`${BASE}/projects/${encodeURIComponent(projectId)}/forecast?${query}`, { signal }, "Could not load the forecast");
+}
+
+export function getForecastInsights(signal?: AbortSignal): Promise<ForecastInsights> {
+  return fetchJson<ForecastInsights>(`${BASE}/forecasts/insights`, { signal }, "Could not load the forecasts");
 }
 
 export function getSupplyInsights(signal?: AbortSignal): Promise<SupplyInsightsPage> {

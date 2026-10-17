@@ -1,19 +1,22 @@
 import { cn } from "@/lib/utils";
-import type { SupplyPartRow } from "@/types/supply";
+import type { ForecastState, SupplyPartRow } from "@/types/supply";
 import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatStock, PROBLEM_LABEL } from "./supply-format";
 import { DistributorSquares, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
 import { PriceCell } from "./price-cell";
+import { RowRunout } from "./part-row-forecast";
 import { JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
 
 interface PartsTableProps {
   items: SupplyPartRow[];
   selectedId: string | null;
   onOpen: (partId: string) => void;
+  /** The state of the forecast models, from the list. */
+  forecastState?: Partial<Record<"runout" | "out_4w" | "can_buy_4w" | "can_buy_8w", ForecastState>>;
 }
 
-export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
+export function PartsTable({ items, selectedId, onOpen, forecastState }: PartsTableProps) {
   return (
     <div className="overflow-x-auto border">
       <table className="w-full text-sm">
@@ -52,7 +55,9 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
               <td className="px-3 py-2 text-right tabular-nums">
                 {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
                 {part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
-                {part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
+                {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
+                  ? <RowRunout part={part} state={forecastState.runout} />
+                  : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">

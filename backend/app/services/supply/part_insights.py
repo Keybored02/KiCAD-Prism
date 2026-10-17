@@ -29,8 +29,18 @@ KINDS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "one_distributor": lambda d: d["holders"] == 1,
     "lead_up": lambda d: bool(d["lead_time_trend"]) and d["lead_time_trend"]["after"] > d["lead_time_trend"]["before"],
     "unusual_drop": lambda d: (d["anomalies"] or 0) > 0,
+    "likely_out_4w": lambda d: _likely_out(d, "p_out_4w"),
+    "likely_out_8w": lambda d: _likely_out(d, "p_out_8w"),
     "price_moving": lambda d: d["price_change_percent"] is not None and abs(d["price_change_percent"]) >= PRICE_MOVE_PERCENT,
 }
+LIKELY = 0.5
+
+
+def _likely_out(facts: dict[str, Any], key: str) -> bool:
+    forecast = facts.get("forecast") or {}
+    return bool(forecast.get("available")) and not forecast.get("out_now") and (forecast.get(key) or 0) >= LIKELY
+
+
 RENEW_AFTER = timedelta(hours=20)
 RENEW_PER_RUN = 40
 
@@ -50,6 +60,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     last = days[-1] if days else None
     band = _outlook_band(conn, part_id, offers, days, (price["trend"] or {}).get("change_percent"))
     behaviour = price_behaviour.load(conn, part_id, now)
+    forecast = _forecast(conn, part_id, now)
     arrivals = promises.reliability(conn, part_id, now.date())
     return {
         "confidence": insight["confidence"],
@@ -69,6 +80,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
         "lead_gap_days": insights.lead_gap_days(insight, lead),
         "lead_time_trend": parts_view.lead_time_trend(conn, part_id, now),
         "price_change_percent": (price["trend"] or {}).get("change_percent"),
+        "forecast": forecast,
         "stock": last["stock"] if last else None,
         "holders": last["sources"] if last else None,
         "spark": [day["stock"] for day in days[-SPARK_DAYS:]],
@@ -79,6 +91,21 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
             "arrivals": {"on_time": arrivals["on_time"], "resolved": arrivals["arrived"] + arrivals["slipped"]} if arrivals and arrivals["on_time"] is not None else None,
         },
     }
+
+
+def _forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
+    """Make and keep the part's forecasts and return the little a list shows. A failure leaves the rest of the insights as they are."""
+
+    from app.services.supply import forecast_run
+
+    try:
+        with conn.transaction():
+            return forecast_run.run_part(conn, part_id, now)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).info("Forecasts not made for %s", part_id, exc_info=True)
+        return {"available": False}
 
 
 def _outlook_band(conn, part_id: str, offers: list[dict[str, Any]], days: list[dict[str, Any]], price_change: float | None) -> str:

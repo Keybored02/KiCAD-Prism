@@ -2,7 +2,7 @@ import { Maximize2 } from "lucide-react";
 import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { PartHistory } from "@/types/supply";
+import type { PartForecast, PartHistory } from "@/types/supply";
 import { HistoryLegend } from "./history-legend";
 import { PartHistoryDialog } from "./part-history-dialog";
 import type { HistoryKind } from "./part-history-model";
@@ -29,7 +29,7 @@ function ChartButton({ kind, label, onOpen, children }: { kind: HistoryKind; lab
 }
 
 /** Stock and price of the part over the last 90 days, a line per distributor. A chart opens larger with a choice of timeframe. */
-export function PartHistoryPanel({ partId, threshold }: { partId: string; threshold: number | null }) {
+export function PartHistoryPanel({ partId, threshold, forecast = null }: { partId: string; threshold: number | null; forecast?: PartForecast | null }) {
   const fetcher = useCallback((signal: AbortSignal) => getPartHistory(partId, SHEET_DAYS, signal), [partId]);
   const { data } = useLoaded<PartHistory>(`part-history:${partId}`, fetcher, "Could not load the history");
   const { hidden, toggle } = useHidden();
@@ -43,17 +43,17 @@ export function PartHistoryPanel({ partId, threshold }: { partId: string; thresh
       <HistoryLegend history={data} hidden={hidden} onToggle={toggle} withTotal />
       <ChartButton kind="stock" label="Open the stock history larger" onOpen={setOpened}>
         <Suspense fallback={<div className="h-44" />}>
-          <PartHistoryChart history={data} kind="stock" hidden={hidden} threshold={threshold} />
+          <PartHistoryChart history={data} kind="stock" hidden={hidden} threshold={threshold} forecast={forecast} />
         </Suspense>
       </ChartButton>
       {priced ? (
         <ChartButton kind="price" label="Open the price history larger" onOpen={setOpened}>
           <Suspense fallback={<div className="h-36" />}>
-            <PartHistoryChart history={data} kind="price" hidden={hidden} height="h-36" />
+            <PartHistoryChart history={data} kind="price" hidden={hidden} height="h-36" forecast={forecast} />
           </Suspense>
         </ChartButton>
       ) : null}
-      {opened ? <PartHistoryDialog partId={partId} threshold={threshold} onClose={() => setOpened(null)} /> : null}
+      {opened ? <PartHistoryDialog partId={partId} threshold={threshold} forecast={forecast} onClose={() => setOpened(null)} /> : null}
     </div>
   );
 }

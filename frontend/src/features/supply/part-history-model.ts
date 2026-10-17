@@ -1,4 +1,4 @@
-import type { PartHistory } from "@/types/supply";
+import type { PartForecast, PartHistory } from "@/types/supply";
 import { vendorColor } from "./vendor-colors";
 
 export type HistoryKind = "stock" | "price";
@@ -72,4 +72,52 @@ export function historyRows(history: PartHistory, kind: HistoryKind, hidden: Rea
     }
   }
   return { rows, keys };
+}
+
+/** The forecast keys of a chart row: the most likely value and its band (low, high). */
+export const FORECAST_KEY = "forecast";
+export const BAND_KEY = "band";
+
+export interface ForecastOverlay {
+  /** The day the real lines end and the forecast begins. */
+  from: string;
+  /** The model has not earned a place: drawn as a grey dashed outline and labelled. */
+  grey: boolean;
+}
+
+function put(rows: HistoryRows["rows"], day: string, median: number, low: number, high: number): void {
+  const found = rows.find((row) => row.day === day);
+  if (found) {
+    found[FORECAST_KEY] = median;
+    found[BAND_KEY] = [low, high] as unknown as number;
+    return;
+  }
+  rows.push({ day, [FORECAST_KEY]: median, [BAND_KEY]: [low, high] as unknown as number });
+}
+
+/**
+ * Rows continued into the future with a forecast: stock from its simulated path (the total line), price from the ranges at 30 and 90 days.
+ * Returns the overlay to draw, or null when there is nothing to add (no forecast, the total switched off, no readings).
+ */
+export function withForecast(
+  history: PartHistory, kind: HistoryKind, base: HistoryRows, forecast: PartForecast | null | undefined, hidden: ReadonlySet<string>,
+): { rows: HistoryRows["rows"]; overlay: ForecastOverlay | null } {
+  const rows = base.rows.map((row) => ({ ...row }));
+  if (!forecast?.available) return { rows, overlay: null };
+  if (kind === "stock") {
+    if (hidden.has(TOTAL_KEY) || history.total.length === 0 || !forecast.path?.length) return { rows, overlay: null };
+    const [from, value] = history.total[history.total.length - 1];
+    put(rows, from, value, value, value);
+    for (const point of forecast.path) if (point.day > from) put(rows, point.day, point.median, point.low, point.high);
+    rows.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+    return { rows, overlay: { from, grey: forecast.buy_state?.["4w"]?.state !== "shown" } };
+  }
+  const price = forecast.price;
+  const last = history.connectors.flatMap((line) => line.price.map(([day]) => day)).sort().pop();
+  if (!price || !last) return { rows, overlay: null };
+  put(rows, last, price.now, price.now, price.now);
+  put(rows, price.h30.date, price.h30.median, price.h30.low, price.h30.high);
+  put(rows, price.h90.date, price.h90.median, price.h90.low, price.h90.high);
+  rows.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  return { rows, overlay: { from: last, grey: price.h90.state.state !== "shown" } };
 }

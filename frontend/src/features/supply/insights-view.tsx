@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PartsFilter, SupplyInsightsPage } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
+import { ForecastInsightsSection } from "./forecast-insights";
 import { LeadAndPricesSection, LifecycleSection, SourcingSection, TradeSection } from "./insights-sections";
 import { MarketSection } from "./market-section";
 import { getSupplyInsights } from "./supply-api";
@@ -17,6 +18,7 @@ const RunwaySection = lazy(() => import("./runway-section").then((module) => ({ 
 const SECTIONS = [
   { id: "signals", label: "Signals" },
   { id: "runway", label: "Runway" },
+  { id: "forecasts", label: "Forecasts" },
   { id: "sourcing", label: "Sourcing" },
   { id: "lifecycle", label: "Lifecycle and compliance" },
   { id: "lead-times", label: "Lead times and prices" },
@@ -77,6 +79,11 @@ export function InsightsView() {
         <div id="insights-runway" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-runway" title="Runway" count={page.tracked} startOpen>
             <div className="p-3"><Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwaySection page={page} onOpen={openPart} /></Suspense></div>
+          </CollapsibleSection>
+        </div>
+        <div id="insights-forecasts" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen>
+            <div className="p-3"><ForecastInsightsSection onOpenPart={openPart} /></div>
           </CollapsibleSection>
         </div>
         <div id="insights-sourcing" className="scroll-mt-14">

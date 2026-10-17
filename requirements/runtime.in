@@ -14,6 +14,8 @@ websockets
 gitpython
 pydantic
 pydantic-settings
+# Forecasts (supply) simulate futures with arrays.
+numpy
 python-dotenv
 requests
 PyJWT[crypto]

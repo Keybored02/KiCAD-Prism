@@ -14,6 +14,7 @@ const KIND_LABEL: Record<string, string> = {
   out_of_stock: "Out of stock",
   below_threshold: "At or below the threshold",
   rupture_soon: "Could run out soon",
+  likely_out: "Likely to run out everywhere",
   price_up: "Price rises",
   target_price_missed: "Price over the target",
   assessment_worse: "Assessment gets worse",

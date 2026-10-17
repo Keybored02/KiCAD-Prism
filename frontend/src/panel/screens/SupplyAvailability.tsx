@@ -33,6 +33,9 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
           {supply.outlook && supply.outlook !== "Not enough to say" ? (
             <p className="mt-0.5 text-[11px] text-muted-foreground">Outlook: {supply.outlook} (rule-based)</p>
           ) : null}
+          {supply.forecast ? (
+            <p className={`mt-0.5 text-[11px] leading-snug ${supply.forecast.tone === "warning" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>{supply.forecast.text}</p>
+          ) : null}
           {(supply.risks ?? []).map((risk) => (
             <p key={risk} className="mt-0.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">{risk}</p>
           ))}

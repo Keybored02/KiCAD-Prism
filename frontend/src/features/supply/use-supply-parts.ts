@@ -50,7 +50,7 @@ export function useSupplyPartsFeed(scope: PartsScope, query: string, only: Parts
     }
   }, [base, extra.items, extra.next, loadingMore, scope, query, only, projectId]);
   const items = base ? [...base.items, ...extra.items] : [];
-  return { ...first, items, total: base?.total ?? 0, hasMore: extra.next !== null, loadingMore, loadMore };
+  return { ...first, items, forecastState: base?.forecast_state, total: base?.total ?? 0, hasMore: extra.next !== null, loadingMore, loadMore };
 }
 
 /** The manufacturers Prism knows, for suggestions. A failure just means no suggestions. */

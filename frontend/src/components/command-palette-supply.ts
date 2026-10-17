@@ -19,6 +19,7 @@ const FINDINGS = [
   { label: "parts at risk", params: "partsOnly=at_risk", keywords: "problem warning error" },
   { label: "obsolete and ending parts", params: "partsOnly=lifecycle", keywords: "obsolete nrnd last time buy end of life eol" },
   { label: "parts that run out soon", params: "partsOnly=runs_out_2w", keywords: "runs out running out depleting" },
+  { label: "parts likely out within 4 weeks", params: "partsOnly=likely_out_4w", keywords: "likely forecast expected running out soon" },
   { label: "parts only one distributor has", params: "partsOnly=one_distributor", keywords: "single source sole" },
   { label: "parts waiting for room", params: "partsScope=waiting", keywords: "queue budget waiting" },
 ] as const;

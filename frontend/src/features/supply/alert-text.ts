@@ -18,6 +18,8 @@ export function alertTitle(alert: SupplyAlert): string {
       return PROBLEM_LABEL[(detail.problem ?? "gone") as SupplyProblem];
     case "rupture_soon":
       return `Could run out in about ${detail.days_to_zero ?? 0} days at the recent rate (${confidenceWord(detail.confidence)} confidence)`;
+    case "likely_out":
+      return `Likely out of stock everywhere within ${detail.weeks ?? 4} weeks (${Math.round((Number(detail.chance) || 0) * 100)}%)`;
     case "pcn":
       if (detail.new) {
         const more = detail.new > 1 ? ` (${detail.new} new notices)` : "";

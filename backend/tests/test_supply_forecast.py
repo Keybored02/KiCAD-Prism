@@ -1,0 +1,196 @@
+"""The forecast models and the words. No database."""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from datetime import date, timedelta
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.services.supply import forecast_lifecycle, forecast_market, forecast_price, forecast_stock, forecasting  # noqa: E402
+from app.services.supply.forecast_stock import Holder  # noqa: E402
+
+START = date(2026, 9, 1)
+
+
+def series(values, start=START):
+    return [(start + timedelta(days=i), int(v)) for i, v in enumerate(values)]
+
+
+def holder(values, name="Mouser", quote=None, weekly=False, cid="m"):
+    return Holder(cid, name, "mouser", series(values), quote, weekly)
+
+
+class WordsTests(unittest.TestCase):
+    def test_one_scale_of_words(self) -> None:
+        words = [forecasting.chance_word(p) for p in (0.95, 0.9, 0.78, 0.5, 0.2, 0.05)]
+        self.assertEqual(words, ["Almost certain", "Almost certain", "Likely", "Uncertain", "Unlikely", "Very unlikely"])
+        self.assertEqual(forecasting.chance_percent(0.784), 78)
+
+
+class DrainTests(unittest.TestCase):
+    def test_a_falling_series_gives_a_runout_range_around_the_straight_line(self) -> None:
+        values = [3000 - 100 * i for i in range(20)]  # 100 a day, 1,100 left: out in about 11 days
+        result = forecast_stock.forecast([holder(values)], {}, {}, quantity=100)
+        run = result["runout"]
+        self.assertTrue(result["available"])
+        self.assertAlmostEqual(run["median"], 11, delta=1.5)
+        self.assertLessEqual(run["low"], run["median"])
+        self.assertLessEqual(run["median"], run["high"])
+        self.assertGreater(run["probability"], 0.9)
+        self.assertEqual(result["weeks"][0] > 0.9, True, "100 can still be bought next week")
+        self.assertLess(result["weeks"][3], 0.1, "but not in a month, with no restock known")
+
+    def test_a_noisy_drain_widens_the_range(self) -> None:
+        rng = np.random.default_rng(1)
+        steady = [3000 - 100 * i for i in range(20)]
+        noisy = [int(3000 - 100 * i + rng.normal(0, 60)) for i in range(20)]
+        tight = forecast_stock.forecast([holder(steady)], {}, {}, 100)["runout"]
+        wide = forecast_stock.forecast([holder(noisy)], {}, {}, 100)["runout"]
+        self.assertGreater(wide["high"] - wide["low"], tight["high"] - tight["low"])
+
+    def test_a_steady_part_is_not_going_to_run_out(self) -> None:
+        result = forecast_stock.forecast([holder([5000] * 20)], {}, {}, 100)
+        self.assertIsNone(result["runout"])
+        self.assertTrue(all(week == 1.0 for week in result["weeks"]))
+        self.assertEqual(result["p_out_total"], 0.0)
+
+    def test_too_few_readings_say_nothing(self) -> None:
+        self.assertEqual(forecast_stock.forecast([holder([100, 90, 80])], {}, {}, 10), {"available": False, "reason": "too_few_readings"})
+        self.assertEqual(forecast_stock.forecast([], {}, {}, 10), {"available": False, "reason": "no_readings"})
+
+    def test_a_short_run_since_a_restock_has_no_drain_to_speak_of(self) -> None:
+        values = [100, 90, 80, 70, 60, 50, 40, 30, 5000, 4990]  # restocked two readings ago
+        self.assertIsNone(forecast_stock.drain_samples(series(values)))
+
+    def test_a_week_read_part_has_a_range_at_least_a_week_wide(self) -> None:
+        values = [3000 - 100 * i for i in range(20)]
+        run = forecast_stock.forecast([holder(values, weekly=True)], {}, {}, 100, weekly=True)["runout"]
+        self.assertGreaterEqual(run["high"] - run["low"], 7)
+
+
+class OutageTests(unittest.TestCase):
+    def test_kaplan_meier_needs_five_ended_stock_outs(self) -> None:
+        self.assertIsNone(forecast_stock.kaplan_meier([10, 20, 30, 40], [True] * 4))
+        model = forecast_stock.kaplan_meier([10, 20, 30, 40, 50, 60], [True] * 5 + [False])
+        self.assertEqual(model.events, 5)
+        self.assertTrue(np.all(np.diff(model.survival) <= 0))
+
+    def test_a_distributor_that_is_out_comes_back_in_the_time_stock_outs_have_lasted(self) -> None:
+        model = forecast_stock.kaplan_meier([20, 22, 25, 28, 30, 33, 35, 40], [True] * 8)
+        out = [90, 80, 60, 40, 20, 5, 0, 0, 0, 0, 0, 0, 0]
+        result = forecast_stock.forecast([holder(out)], {"m": model}, {}, 50)
+        back = result["back"][0]
+        self.assertTrue(result["out_now"])
+        self.assertGreater(back["median"], 10)
+        self.assertLess(back["high"], 60)
+        self.assertEqual(result["weeks"][0], 0.0, "out now, back in a few weeks")
+        self.assertGreater(max(result["weeks"][3:7]), 0.2, "back within a few weeks, as often as stock-outs have lasted")
+
+    def test_a_quote_stands_in_when_there_are_too_few_stock_outs(self) -> None:
+        out = [50, 30, 10, 0, 0, 0, 0, 0, 0, 0]
+        result = forecast_stock.forecast([holder(out, quote=42)], {}, {"m": 1.5}, 10)
+        back = result["back"][0]
+        self.assertAlmostEqual(back["median"], 42 * 1.5 - 6, delta=12)
+        self.assertEqual(back["quote_days"], 42)
+
+    def test_without_a_model_or_a_quote_the_return_is_unknown(self) -> None:
+        out = [50, 30, 10, 0, 0, 0, 0, 0, 0, 0]
+        result = forecast_stock.forecast([holder(out)], {}, {}, 10)
+        self.assertEqual(result["back"], [])
+        self.assertEqual(result["weeks"][11], 0.0)
+
+    def test_the_ratio_is_pulled_towards_the_pooled_one(self) -> None:
+        pooled = [1.0] * 6
+        self.assertEqual(forecast_stock.shrunk_ratio([], pooled), (1.0, 0))
+        ratio, n = forecast_stock.shrunk_ratio([2.0], pooled)
+        self.assertEqual(n, 1)
+        self.assertTrue(1.0 < ratio < 2.0)
+        far, _ = forecast_stock.shrunk_ratio([2.0] * 20, pooled)
+        self.assertGreater(far, ratio)
+
+    def test_two_distributors_make_the_part_likelier_to_be_buyable(self) -> None:
+        falling = [3000 - 100 * i for i in range(20)]
+        one = forecast_stock.forecast([holder(falling)], {}, {}, 100)["weeks"][3]
+        two = forecast_stock.forecast([holder(falling), holder([5000] * 20, "DigiKey", cid="d")], {}, {}, 100)["weeks"][3]
+        self.assertLess(one, two)
+        self.assertEqual(two, 1.0)
+
+
+class PriceTests(unittest.TestCase):
+    def test_a_flat_price_stays_flat_and_says_so(self) -> None:
+        flat = [(START + timedelta(days=i), 0.5) for i in range(30)]
+        result = forecast_price.forecast(flat, forecast_price.Moves(0, 0.0, []))
+        self.assertTrue(result["available"])
+        self.assertTrue(result["h90"]["flat"])
+        self.assertAlmostEqual(result["h90"]["median"], 0.5)
+
+    def test_a_price_that_moves_gets_a_range(self) -> None:
+        moving = [(START + timedelta(days=i), 0.5 + 0.02 * (i // 5)) for i in range(40)]
+        result = forecast_price.forecast(moving, forecast_price.Moves(0, 0.0, []))
+        self.assertGreater(result["h90"]["high"], result["h90"]["low"])
+        self.assertFalse(result["h90"]["flat"])
+        self.assertEqual(result["inputs"]["own_moves"], 7)
+
+    def test_a_short_series_is_not_forecast(self) -> None:
+        self.assertFalse(forecast_price.forecast([(START, 0.5), (START + timedelta(days=2), 0.5)], forecast_price.Moves(0, 0.0, []))["available"])
+
+    def test_the_same_series_gives_the_same_forecast(self) -> None:
+        moving = [(START + timedelta(days=i), 0.5 + 0.02 * (i // 5)) for i in range(40)]
+        pool = forecast_price.Moves(2, 100.0, [0.05, -0.03])
+        self.assertEqual(forecast_price.forecast(moving, pool), forecast_price.forecast(moving, pool))
+
+
+class VerdictTests(unittest.TestCase):
+    def test_a_range_model_holds_when_80_percent_ranges_hold_about_80_percent(self) -> None:
+        rows = [{"inside": i % 5 != 0, "probability": None, "observed": None} for i in range(50)]
+        self.assertEqual(forecasting.verdict("range", rows), (True, 0.8))
+        wide = [{"inside": True} for _ in range(50)]
+        self.assertFalse(forecasting.verdict("range", wide)[0], "ranges that always hold are too wide")
+        narrow = [{"inside": i % 2 == 0} for i in range(50)]
+        self.assertFalse(forecasting.verdict("range", narrow)[0])
+
+    def test_a_chance_model_holds_when_what_it_said_matches_what_happened(self) -> None:
+        good = [{"probability": 0.7, "observed": 1.0 if i % 10 < 7 else 0.0, "inside": None} for i in range(100)]
+        self.assertTrue(forecasting.verdict("chance", good)[0])
+        bad = [{"probability": 0.9, "observed": 0.0, "inside": None} for _ in range(100)]
+        self.assertFalse(forecasting.verdict("chance", bad)[0])
+        self.assertEqual(forecasting.verdict("range", []), (False, None))
+
+
+def points(values, start=START):
+    return [(start + timedelta(days=i), float(v)) for i, v in enumerate(values)]
+
+
+class FamilyTests(unittest.TestCase):
+    def test_lead_times_stretching_easing_or_flat(self) -> None:
+        up = forecast_market.lead_trend(points([40 + i for i in range(40)]))
+        down = forecast_market.lead_trend(points([80 - i for i in range(40)]))
+        flat = forecast_market.lead_trend(points([40] * 40))
+        self.assertEqual((up["direction"], down["direction"], flat["direction"]), ("stretching", "easing", "flat"))
+        self.assertGreater(up["median"], up["now"])
+        self.assertIsNone(forecast_market.lead_trend(points([40] * 5)))
+
+    def test_a_shift_has_to_hold_for_two_weeks_and_beat_the_familys_own_wobble(self) -> None:
+        held = forecast_market.shift("out_of_stock", points([0.04] * 14 + [0.15] * 14))
+        self.assertEqual((held["direction"], round(held["before"], 2), round(held["after"], 2)), ("up", 0.04, 0.15))
+        self.assertIsNone(forecast_market.shift("out_of_stock", points([0.04] * 14 + [0.15] * 7 + [0.04] * 7)), "it came back")
+        wobble = [0.04, 0.2] * 7 + [0.2, 0.04] * 7
+        self.assertIsNone(forecast_market.shift("out_of_stock", points(wobble)), "a family that swings this much has not shifted")
+        self.assertIsNone(forecast_market.shift("out_of_stock", points([0.04] * 14 + [0.06] * 14)), "below the floor")
+        self.assertIsNone(forecast_market.shift("out_of_stock", points([0.04] * 10)))
+
+
+class LifecycleTests(unittest.TestCase):
+    def test_a_rate_becomes_a_chance_over_the_months(self) -> None:
+        self.assertAlmostEqual(forecast_lifecycle.chance(0.01, 12), 1 - 2.718281828 ** -0.12, places=4)
+        self.assertEqual(forecast_lifecycle.chance(0.0, 24), 0.0)
+        self.assertGreater(forecast_lifecycle.chance(0.01, 24), forecast_lifecycle.chance(0.01, 12))
+
+
+if __name__ == "__main__":
+    unittest.main()

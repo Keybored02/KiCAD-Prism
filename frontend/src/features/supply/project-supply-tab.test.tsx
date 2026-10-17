@@ -7,6 +7,7 @@ import type { ProjectSupply, SupplyBomRollup } from "@/types/supply";
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getProjectSupply: vi.fn(),
+  getProjectForecast: vi.fn(() => new Promise(() => undefined)),
 }));
 vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button type="button">Track this project</button> }));
 
@@ -83,8 +84,10 @@ describe("the project Supply tab", () => {
 
   it("offers the costing as a file for a build size", async () => {
     renderTab();
-    fireEvent.change(await screen.findByLabelText("Boards to cost"), { target: { value: "250" } });
-    expect(screen.getByRole("link", { name: "Download the costing as CSV" }).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
+    const boards = await screen.findByLabelText("Boards to forecast and cost");
+    fireEvent.change(boards, { target: { value: "250" } });
+    fireEvent.blur(boards);
+    expect(screen.getByRole("link", { name: "Download the costing for 250 boards as CSV" }).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
   });
 
   it("says when the BOM has not been read, and still offers tracking", async () => {

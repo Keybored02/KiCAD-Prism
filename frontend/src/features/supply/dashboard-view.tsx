@@ -11,6 +11,7 @@ import type { PartsFilter, SupplyDashboard, SupplyOverview, SupplyReviewQueue } 
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
 import { RunwayCard } from "./dashboard-charts";
+import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
 import { TileButton, type Tile } from "./dashboard-tiles";
 import { RecentChanges } from "./recent-changes";
@@ -43,6 +44,7 @@ export function DashboardView({ user }: { user: User | null }) {
   const data = dashboard.data;
   const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
   const history = (name: string) => data?.figure_history[name];
+  const likely = likelyOutTile(data?.forecast);
   const tiles: Tile[] = [
     { label: "Tracked", value: data?.figures.watched, icon: Eye, history: history("watched"), onClick: parts("") },
     { label: "At risk", value: data?.figures.at_risk, icon: AlertTriangle, bad: true, history: history("at_risk"), onClick: parts("at_risk") },
@@ -51,6 +53,7 @@ export function DashboardView({ user }: { user: User | null }) {
     { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: () => document.getElementById("dashboard-alerts")?.scrollIntoView?.() },
     { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
     { label: "Needs you", value: reviewCountOf(review.data), icon: ListChecks, onClick: () => go("review") },
+    ...(likely ? [{ ...likely, icon: Hourglass, bad: true, onClick: parts("likely_out_4w") }] : []),
     ...(canOpenLibraryManager(user?.role) && data?.ending_components
       ? [{ label: "Ending in library", value: data.ending_components, icon: Hourglass, bad: true, onClick: () => navigate("/?section=library-manager&libraryView=ending") }]
       : []),
@@ -80,6 +83,9 @@ export function DashboardView({ user }: { user: User | null }) {
               <DeadlinesCard deadlines={data.deadlines} onOpenPart={openPart} />
               <RunwayCard runway={data.runway} onOpen={(key) => parts(RUNWAY_FILTER[key])()} />
               <ProjectsTableCard projects={data.projects} />
+              {data.forecast && data.forecast.state.state === "shown" ? (
+                <ComingUpCard events={data.forecast.coming_up} today={new Date().toISOString().slice(0, 10)} onOpenPart={openPart} />
+              ) : null}
             </div>
           </>
         ) : null}

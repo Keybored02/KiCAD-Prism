@@ -1,5 +1,7 @@
-import { canReviewSupply } from "@/lib/roles";
+import { useState } from "react";
 import { Link } from "react-router-dom";
+
+import { canReviewSupply } from "@/lib/roles";
 
 import { Badge } from "@/components/ui/badge";
 import type { UserRole } from "@/types/auth";
@@ -12,6 +14,8 @@ import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
 import { behaviourLines } from "./market-behaviour-text";
 import { RestockRecordSection } from "./restock-record";
+import { ForecastSection } from "./forecast-section";
+import { usePartForecast } from "./use-part-forecast";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { ListingGroups } from "./listing-groups";
@@ -37,6 +41,9 @@ interface PartDetailSectionsProps {
 }
 
 export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDetailSectionsProps) {
+  // Asking the forecast at another quantity is a question; nothing is saved.
+  const [forecastQuantity, setForecastQuantity] = useState<number | null>(null);
+  const forecast = usePartForecast(detail.part.id, forecastQuantity, detail.price.quantity);
   return (
     <div className="space-y-6">
 
@@ -62,8 +69,10 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             ))}
           </p>
         ) : null}
-        <PartHistoryPanel partId={detail.part.id} threshold={detail.watch?.threshold ?? null} />
+        <PartHistoryPanel partId={detail.part.id} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
       </section>
+
+      <ForecastSection forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} />
 
       <PriceTrend price={detail.price} partId={detail.part.id} listings={detail.listings} canEdit={canEdit} onChanged={onChanged} />
 

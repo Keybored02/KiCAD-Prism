@@ -40,6 +40,8 @@ const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
   lead_up: "Lead time growing",
   unusual_drop: "Unusual drop",
   price_moving: "Price moving",
+  likely_out_4w: "Likely out within 4 weeks",
+  likely_out_8w: "Likely out within 8 weeks",
 };
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
@@ -65,7 +67,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const openPart = active ? searchParams.get("part") : null;
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh } = useSupplyPartsFeed(scope, query, only);
+  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -144,7 +146,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
-                <PartsTable items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} />
+                <PartsTable items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} />
                 <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
                 <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>
