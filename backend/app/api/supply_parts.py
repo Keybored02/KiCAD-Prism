@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, preferences, refresh, review, watches
+from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, preferences, trade_marks, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -196,6 +196,34 @@ async def clear_preferred(part_id: str, user: AuthenticatedUser = Depends(requir
         with _store().connection() as conn:
             parts.get_part(conn, part_id)
             preferences.clear(conn, part_id, user.email)
+
+    await _run(run)
+
+
+class TradeMarkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    control: Literal["controlled", "none"]
+    eccn: str = Field(default="", max_length=trade_marks.MAX_ECCN)
+
+
+@router.put("/parts/{part_id}/trade-mark", status_code=204)
+async def set_trade_mark(part_id: str, body: TradeMarkIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
+    """A person's word on whether the part is export controlled; it wins over what distributors state."""
+
+    def run() -> None:
+        with _store().connection() as conn:
+            trade_marks.set_mark(conn, part_id, body.control, body.eccn, user.email)
+
+    await _run(run)
+
+
+@router.delete("/parts/{part_id}/trade-mark", status_code=204)
+async def clear_trade_mark(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
+    def run() -> None:
+        with _store().connection() as conn:
+            parts.get_part(conn, part_id)
+            trade_marks.clear_mark(conn, part_id, user.email)
 
     await _run(run)
 

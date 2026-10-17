@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, prices, pricing, promises, settle, stock, usage
+from app.services.supply import facts, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, trade_marks, prices, pricing, promises, settle, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -786,6 +786,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "tracking": _tracking_dto(watch_row),
         "packaging": _packaging_state(conn, part_id),
         "preferred_connector_id": preferences.get(conn, part_id),
+        "trade": trade_marks.state(conn, part_id),
         "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),

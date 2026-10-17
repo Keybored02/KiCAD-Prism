@@ -114,5 +114,46 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(page["distributors"]["repricing"], [])
 
 
+    def test_the_risk_grid_puts_unknown_in_its_own_cells_and_deadlines_come_soonest_first(self) -> None:
+        falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
+        both = self.follow("BOTH-1", [500] * 9, holders=("c1", "c2"))
+        gone = self.follow("GONE-1", [0, 0, 0])
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (f"l-FALL-1-c1",))
+            conn.execute("INSERT INTO pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", ((NOW + timedelta(days=40)).date(),))
+            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (falling,))
+            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'last_buy_date', %s, %s)",
+                         (both, (NOW + timedelta(days=10)).date().isoformat(), NOW))
+            self.part_insights.renew(conn, NOW)
+            result = self.dashboard.build(conn, NOW)
+            page = self.insights_page.build(conn)
+        grid = {row["lifecycle"]: row for row in result["risk_grid"]}
+        self.assertEqual((grid["nrnd"]["one"], grid["unknown"]["two_plus"], grid["unknown"]["out"]), (1, 1, 1))
+        self.assertEqual([(item["mpn"], item["kind"]) for item in result["deadlines"]], [("BOTH-1", "last_buy_date"), ("FALL-1", "last_time_buy")])
+        self.assertEqual(page["lifecycle"]["mix"]["nrnd"], 1)
+        self.assertEqual(page["sourcing"]["resilience"]["two"], 1)
+        coverage = {row["connector_id"]: row for row in page["sourcing"]["coverage"]}
+        self.assertEqual((coverage["c1"]["listed"], coverage["c1"]["in_stock"], coverage["c2"]["listed"]), (3, 2, 1))
+        self.assertEqual(sum(item["parts"] for item in page["lead_times"]), 3)
+        self.assertIn("up", page["price_movers"])
+        self.assertEqual(page["trade"]["control"]["unknown"], 3)
+        self.assertTrue(gone)
+
+    def test_a_persons_export_control_mark_wins_over_what_distributors_state(self) -> None:
+        from app.services.supply import trade_marks
+
+        part = self.follow("CTRL-1", [500] * 3)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'eccn', '3A991', %s)", (part, NOW))
+            self.assertEqual(trade_marks.state(conn, part)["control"], "controlled")
+            trade_marks.set_mark(conn, part, "none", "", "ana@example.com")
+            self.assertEqual(trade_marks.state(conn, part)["control"], "none")
+            self.assertEqual(self.insights_page.build(conn)["trade"]["control"]["none"], 1)
+            with self.assertRaises(trade_marks.TradeMarkError):
+                trade_marks.set_mark(conn, part, "controlled", "", "ana@example.com")
+            self.assertTrue(trade_marks.clear_mark(conn, part, "ana@example.com"))
+            self.assertEqual(trade_marks.state(conn, part)["control"], "controlled")
+
+
 if __name__ == "__main__":
     unittest.main()

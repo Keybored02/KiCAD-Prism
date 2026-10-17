@@ -1687,6 +1687,23 @@ def _m072_cost_history_rollup(conn) -> None:
     conn.execute("ALTER TABLE bom_cost_history ADD COLUMN IF NOT EXISTS rollup JSONB NOT NULL DEFAULT '{}'::jsonb", prepare=False)
 
 
+def _m073_part_trade_marks(conn) -> None:
+    """A person's word on whether a part is export controlled, which wins over what distributors state."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_trade_marks (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            control TEXT NOT NULL CHECK (control IN ('controlled', 'none')),
+            eccn TEXT NOT NULL DEFAULT '',
+            set_by TEXT NOT NULL DEFAULT '',
+            set_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1760,6 +1777,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (70, "project_packaging", _m070_project_packaging),
     (71, "part_preferences", _m071_part_preferences),
     (72, "cost_history_rollup", _m072_cost_history_rollup),
+    (73, "part_trade_marks", _m073_part_trade_marks),
 ]
 
 

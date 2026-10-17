@@ -48,6 +48,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     lead = min(leads) if leads else None
     price = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
     last = days[-1] if days else None
+    band = _outlook_band(conn, part_id, offers, days, (price["trend"] or {}).get("change_percent"))
     behaviour = price_behaviour.load(conn, part_id, now)
     arrivals = promises.reliability(conn, part_id, now.date())
     return {
@@ -64,6 +65,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
         "concentration": insight["concentration"],
         "anomalies": len(insight["anomalies"]),
         "lead_days": lead,
+        "outlook_band": band,
         "lead_gap_days": insights.lead_gap_days(insight, lead),
         "lead_time_trend": parts_view.lead_time_trend(conn, part_id, now),
         "price_change_percent": (price["trend"] or {}).get("change_percent"),
@@ -77,6 +79,25 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
             "arrivals": {"on_time": arrivals["on_time"], "resolved": arrivals["arrived"] + arrivals["slipped"]} if arrivals and arrivals["on_time"] is not None else None,
         },
     }
+
+
+def _outlook_band(conn, part_id: str, offers: list[dict[str, Any]], days: list[dict[str, Any]], price_change: float | None) -> str:
+    """Where the part stands on the way to its end of life (see ``outlook``), kept so Insights can count the bands."""
+
+    from app.services.supply import facts, outlook, pcn
+    from app.services.supply.part_status import worst_lifecycle
+    from app.services.supply.vocabulary import Lifecycle
+
+    lifecycle = worst_lifecycle(Lifecycle(offer["lifecycle"]) for offer in offers)
+    found = outlook.outlook(
+        lifecycle, offers, zero_stock_days=outlook.trailing_zero_days(days), price_change_percent=price_change,
+        notices=pcn.for_part(conn, part_id),
+        last_buy_dates=[
+            (source["source"], source["value"])
+            for item in facts.for_part(conn, part_id) if item["name"] == "last_buy_date" for source in item["sources"]
+        ],
+    )
+    return found["band"]
 
 
 def refresh(conn, part_id: str, now: datetime) -> None:

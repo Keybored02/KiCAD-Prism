@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from statistics import median
 from typing import Any
 
-from app.services.supply import market, part_insights
+from app.services.supply import market, part_insights, parts_view, risk_views
 
 TREND_POINTS = 30
 
@@ -68,7 +68,20 @@ def build(conn) -> dict[str, Any]:
                 "days_to_zero": row["days_to_zero"], "lead_days": row["lead_days"],
             })
     scatter.sort(key=lambda item: item["days_to_zero"] - item["lead_days"])
+    items, _total = parts_view.ranked_parts(conn, scope="watched")
+    tracked_ids = [item["id"] for item in items]
+    kept = {row["part_id"]: row for row in rows}
+    held = Counter("none" if item["stock"] == 0 else "not_read" if item["stock"] is None else "one" if (kept.get(item["id"]) or {}).get("holders") == 1
+                   else "two" if (kept.get(item["id"]) or {}).get("holders") == 2 else "three_plus" if (kept.get(item["id"]) or {}).get("holders") else "unknown" for item in items)
     return {
+        "sourcing": {
+            "coverage": risk_views.coverage(conn, items),
+            "resilience": {name: held.get(name, 0) for name in ("none", "one", "two", "three_plus", "unknown", "not_read")},
+        },
+        "lifecycle": {"mix": risk_views.lifecycle_mix(items), "outlook": risk_views.outlook_bands(rows), "compliance": risk_views.compliance(conn, tracked_ids)},
+        "lead_times": risk_views.lead_histogram(rows),
+        "price_movers": risk_views.price_movers(rows),
+        "trade": risk_views.trade_overview(conn, tracked_ids),
         "tracked": len(rows),
         "counts": counts,
         "scatter": scatter[:SCATTER_MAX],

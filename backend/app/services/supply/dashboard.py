@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import overview, part_insights, parts_view
+from app.services.supply import overview, part_insights, parts_view, risk_views
 from app.services.supply.vocabulary import Status
 
 FIGURE_DAYS = 30
@@ -110,7 +110,15 @@ def build(conn, now: datetime | None = None, role: str | None = None) -> dict[st
         if item["stock"] is not None:
             count = (facts or {}).get("holders") if facts else None
             holders["none" if item["stock"] == 0 else "one" if count == 1 else "two" if count == 2 else "three_plus" if count else "unknown"] += 1
+    tracked_ids = [item["id"] for item in items]
+    groups = parts_view.part_groups(conn, scope="watched", role=role)["groups"]
     return {
+        "risk_grid": risk_views.risk_grid(items, kept),
+        "deadlines": risk_views.deadlines(conn, tracked_ids, now.date()),
+        "projects": [
+            {"project_id": group["project_id"], "project_name": group["project_name"], "count": group["count"], "statuses": group["statuses"], "stats": group["stats"]}
+            for group in groups if group["tracked"]
+        ],
         "figures": figures,
         "figure_history": series,
         "statuses": [{"status": status, "count": statuses.get(status, 0)} for status in STATUS_ORDER],
