@@ -23,7 +23,6 @@ import type {
   SupplyBomLookup,
   SupplyBomWatchResult,
   SupplyCapacity,
-  SupplyWorker,
   SupplyConnectorCheck,
   SupplyManufacturer,
   SupplyDashboard,
@@ -145,11 +144,6 @@ export function watchSupplyBomLines(lines: BomLineInput[]): Promise<SupplyBomWat
 
 export function testSupplyConnector(id: string): Promise<SupplyConnectorCheck> {
   return post(connectorPath(id, "test"), undefined, "Could not test the connector");
-}
-
-/** The background worker's last report. Administrators only. */
-export async function getSupplyWorker(signal?: AbortSignal): Promise<SupplyWorker> {
-  return (await fetchJson<{ worker: SupplyWorker }>(`${BASE}/health`, { signal }, "Could not load the worker report")).worker;
 }
 
 export function listSupplyCapacity(signal?: AbortSignal): Promise<SupplyCapacity[]> {

@@ -86,6 +86,18 @@ def _measured(conn, connector_ids: tuple[str, ...], now: datetime, reset_time: s
     return int(row["n"]) / CALIBRATION_DAYS
 
 
+def _spent_yesterday(conn, connector_ids: tuple[str, ...], now: datetime, reset_time: str, reset_tz: str) -> int | None:
+    """Tracking calls made on the provider's previous day, or None when nothing was counted then."""
+
+    day = quota.provider_day(now, reset_time, reset_tz) - timedelta(days=1)
+    row = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) AS n, COUNT(*) AS rows FROM call_counts WHERE connector_id = ANY(%s) AND day = %s "
+        "AND purpose = ANY(%s) AND kind NOT IN ('refused', 'test')",
+        (list(connector_ids), day, list(TRACKING_PURPOSES)),
+    ).fetchone()
+    return int(row["n"]) if row["rows"] else None
+
+
 def view(conn, now: datetime) -> dict[str, Any]:
     groups, connectors = admission._accounts(conn)  # noqa: SLF001 - the same accounts admission counts
     data = admission._inputs(conn)  # noqa: SLF001
@@ -129,6 +141,8 @@ def view(conn, now: datetime) -> dict[str, Any]:
             "estimated_per_day": round(estimated, 1),
             "measured_per_day": round(measured, 1) if measured is not None else None,
             "factor": round(factor, 2),
+            "by_tier": status["by_tier"],
+            "yesterday": {"expected": round(estimated), "spent": _spent_yesterday(conn, members, now, owner.reset_time, owner.reset_tz)},
             "room": room,
         })
     rows.sort(key=lambda item: item["name"].lower())

@@ -61,22 +61,34 @@ function RoomRow({ item }: { item: TrackingRoomAccount }) {
   );
 }
 
-/** One bar: committed calls of the day against what tracking may commit, with how many more parts of this rate fit. */
-function FillBar({ label, account, room }: { label: string; account: TrackingRoomAccount; room: number }) {
-  const used = Math.max(account.capacity - account.free, 0);
-  const percent = account.capacity > 0 ? Math.min(100, Math.round((used / account.capacity) * 100)) : 0;
+/** Yesterday's spend against the estimate. A gap of more than a quarter either way means the room estimate is off. */
+function spendSentence(account: TrackingRoomAccount): { text: string; off: boolean } | null {
+  const { expected, spent } = account.yesterday;
+  if (spent === null || expected <= 0) return null;
+  return { text: `Yesterday: expected ${expected.toLocaleString()}, spent ${spent.toLocaleString()}`, off: Math.abs(spent - expected) / expected > 0.25 };
+}
+
+/** One stacked bar of the day's calls: tier 1, tier 2 and what is free, with what each is spent on and how many more parts fit. */
+function TierBar({ account, daily, weekly }: { account: TrackingRoomAccount; daily: number; weekly: number }) {
+  const { capacity } = account;
+  const one = account.by_tier["1"];
+  const two = account.by_tier["2"];
+  const share = (calls: number) => (capacity > 0 ? Math.min(100, (calls / capacity) * 100) : 0);
+  const spend = spendSentence(account);
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between text-xs">
-        <span className="font-medium">{label}</span>
-        <span className="tabular-nums text-muted-foreground">about {roughly(room)} more fit</span>
+        <span className="font-medium">{account.name}</span>
+        <span className="tabular-nums text-muted-foreground">{capacity.toLocaleString()} calls a day for tracking</span>
       </div>
-      <div
-        role="progressbar" aria-label={`${label} committed calls`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
-        className="h-2 overflow-hidden bg-muted"
-      >
-        <div className="h-full bg-primary" style={{ width: `${percent}%` }} />
+      <div role="img" aria-label={`Tier 1 ${one.calls} calls, tier 2 ${two.calls} calls, ${account.free} free`} className="flex h-2 overflow-hidden bg-muted">
+        <div className="h-full bg-primary" style={{ width: `${share(one.calls)}%` }} />
+        <div className="h-full bg-primary/50" style={{ width: `${share(two.calls)}%` }} />
       </div>
+      <p className="text-xs text-muted-foreground">
+        Tier 1: {one.calls.toLocaleString()} calls for {one.parts.toLocaleString()} parts · Tier 2: {two.calls.toLocaleString()} calls for {two.parts.toLocaleString()} parts · room for about {roughly(daily)} more tier-1 parts or {roughly(weekly)} tier-2
+      </p>
+      {spend ? <p className={`text-xs ${spend.off ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>{spend.text}</p> : null}
     </div>
   );
 }
@@ -93,10 +105,7 @@ export function TrackingRoomSection() {
     <section aria-label="Call budget" className="space-y-2">
       <h3 className="text-sm font-semibold">Call budget</h3>
       {first && daily && weekly ? (
-        <div className="space-y-2">
-          <FillBar label="Daily parts" account={first} room={daily.room} />
-          <FillBar label="Weekly parts" account={weekly.limited_by === first.name ? first : (data.accounts.find((item) => item.name === weekly.limited_by) ?? first)} room={weekly.room} />
-        </div>
+        <TierBar account={first} daily={daily.room} weekly={weekly.room} />
       ) : <p className="text-xs text-muted-foreground">Not enough parts searched yet to tell.</p>}
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">

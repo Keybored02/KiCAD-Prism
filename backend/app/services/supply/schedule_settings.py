@@ -7,6 +7,7 @@ These settings say when those are, and which kinds of spare work are on. Absent 
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -16,8 +17,30 @@ from app.services.supply.audit import actor_text, write_audit
 KEY = "schedule"
 # In the order spare budget is spent: parts waiting for room, then tier-2 parts ahead of their time, then notices of untracked parts.
 SPARE_KINDS = ("waiting", "tier2_early", "notices")
+
+
+def _server_zone() -> str:
+    """The server's own time zone when it names one Prism can read, else UTC: 08:00 should mean 08:00 where the team is."""
+
+    candidates = [os.environ.get("TZ", "")]
+    try:
+        import tzlocal
+
+        candidates.append(tzlocal.get_localzone_name())
+    except Exception:  # noqa: BLE001 - tzlocal is optional and may not find a zone
+        pass
+    for name in candidates:
+        try:
+            if name:
+                ZoneInfo(name)
+                return name
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+    return "UTC"
+
+
 DEFAULTS: dict[str, Any] = {
-    "tz": "UTC",
+    "tz": _server_zone(),
     "days": [0, 1, 2, 3, 4],
     "start": "08:00",
     "end": "19:00",

@@ -13,7 +13,8 @@ const mocked = vi.mocked(api);
 function account(overrides: Partial<TrackingRoomAccount> = {}): TrackingRoomAccount {
   return {
     connector_ids: ["c1"], name: "DigiKey", assembly_only: false, capacity: 900, free: 893, waiting: 0, searched: 22,
-    carried_percent: 95, estimated_per_day: 6.2, measured_per_day: null, factor: 1, room: { daily: 794, weekly: 3146 }, ...overrides,
+    carried_percent: 95, estimated_per_day: 6.2, measured_per_day: null, factor: 1, by_tier: { "1": { calls: 6, parts: 5 }, "2": { calls: 1, parts: 9 } }, yesterday: { expected: 7, spent: 7 },
+    room: { daily: 794, weekly: 3146 }, ...overrides,
   };
 }
 
@@ -54,7 +55,8 @@ describe("room to track", () => {
     ));
     render(<TrackingRoomSection />);
     const section = await screen.findByRole("region", { name: "Call budget" });
-    expect(within(section).getByRole("progressbar", { name: "Daily parts committed calls" }).getAttribute("aria-valuenow")).toBe("1");
+    expect(within(section).getByText(/Tier 1: 6 calls for 5 parts · Tier 2: 1 calls for 9 parts · room for about 790 more tier-1 parts or 3,100 tier-2/)).toBeTruthy();
+    expect(within(section).getByText("Yesterday: expected 7, spent 7")).toBeTruthy();
     expect(within(section).queryByRole("row", { name: /TME/ })).toBeNull();
     fireEvent.click(within(section).getByRole("button", { name: /Per distributor/ }));
     const tme = within(section).getByRole("row", { name: /TME/ });

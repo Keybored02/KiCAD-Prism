@@ -77,22 +77,6 @@ class SupplyHealthTests(unittest.TestCase):
         self.assertEqual((row["listings"], row["late"], row["failing"], row["late_by_hours"]), (2, 1, 1, 5.0))
         self.assertTrue(row["oldest_read"].startswith("2026-02-28T06:00"))
 
-    def test_health_says_when_the_worker_runs_older_code_or_lacks_a_provider(self) -> None:
-        from app.services.supply import worker_seen
-
-        with self.store.connection() as conn:
-            conn.execute("DELETE FROM worker_seen")
-            self.assertEqual(worker_seen.status(conn, NOW), {"seen_at": None, "older_than_server": False, "missing_providers": []})
-            worker_seen.record(conn, NOW)
-            self.assertEqual(worker_seen.status(conn, NOW)["missing_providers"], [])
-            conn.execute("UPDATE worker_seen SET providers = ARRAY['tme'], code_stamp = code_stamp - 3600")
-            report = worker_seen.status(conn, NOW)
-        self.assertTrue(report["older_than_server"])
-        self.assertIn("lcsc", report["missing_providers"])
-        self.assertNotIn("tme", report["missing_providers"])
-        reply = _request(self.app, "GET", "/api/supply/health", user=self.users["admin"])
-        self.assertIn("worker", reply.json)
-
     def test_only_administrators_may_look(self) -> None:
         for role in ("viewer", "qa", "designer"):
             self.assertEqual(_request(self.app, "GET", "/api/supply/health", user=self.users[role]).status, 403, role)

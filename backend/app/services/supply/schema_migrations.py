@@ -1633,6 +1633,12 @@ def _m067_cost_history_outliers(conn) -> None:
     )
 
 
+def _m068_drop_worker_seen(conn) -> None:
+    """The worker no longer reports itself; the table that held its report goes."""
+
+    conn.execute("DROP TABLE IF EXISTS worker_seen", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1701,6 +1707,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (65, "family_done", _m065_family_done),
     (66, "drop_demands", _m066_drop_demands),
     (67, "cost_history_outliers", _m067_cost_history_outliers),
+    (68, "drop_worker_seen", _m068_drop_worker_seen),
 ]
 
 

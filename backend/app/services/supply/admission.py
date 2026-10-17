@@ -202,10 +202,13 @@ def status(conn) -> list[dict[str, Any]]:
     result = []
     for account in accounts:
         members = set(account.connector_ids)
-        used = sum(
-            part_cost(connectors[row["connector_id"]][1], row["part_id"], row["connector_id"], data)
-            for row in rows if row["connector_id"] in members and row["state"] == ADMITTED and row["part_id"] in data["tiers"]
-        )
+        by_tier: dict[str, dict[str, float | int]] = {"1": {"calls": 0.0, "parts": 0}, "2": {"calls": 0.0, "parts": 0}}
+        for row in rows:
+            if row["connector_id"] in members and row["state"] == ADMITTED and row["part_id"] in data["tiers"]:
+                share = by_tier[str(data["tiers"][row["part_id"]][0])]
+                share["calls"] += part_cost(connectors[row["connector_id"]][1], row["part_id"], row["connector_id"], data)
+                share["parts"] += 1
+        used = by_tier["1"]["calls"] + by_tier["2"]["calls"]
         for connector_id in account.connector_ids:
             mine = [row for row in rows if row["connector_id"] == connector_id]
             result.append({
@@ -215,6 +218,8 @@ def status(conn) -> list[dict[str, Any]]:
                 "capacity": account.capacity,
                 "committed": budget.total([used]),
                 "free": max(0, account.capacity - budget.total([used])),
+                # Committed calls a day and parts admitted, for tier 1 and tier 2 (account-wide calls, this connector's parts).
+                "by_tier": {tier: {"calls": budget.total([share["calls"]]), "parts": share["parts"]} for tier, share in by_tier.items()},
                 "admitted": sum(1 for row in mine if row["state"] == ADMITTED),
                 "waiting": sum(1 for row in mine if row["state"] == WAITING),
             })

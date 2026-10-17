@@ -38,6 +38,7 @@ function Form({ initial }: { initial: Schedule }) {
         <div className="space-y-1"><Label htmlFor="schedule-start" className="text-xs">From</Label><Input id="schedule-start" className="w-24" value={draft.start} onChange={(event) => setDraft({ ...draft, start: event.target.value })} /></div>
         <div className="space-y-1"><Label htmlFor="schedule-end" className="text-xs">To</Label><Input id="schedule-end" className="w-24" value={draft.end} onChange={(event) => setDraft({ ...draft, end: event.target.value })} /></div>
       </div>
+      <p className="text-xs font-medium">Working days</p>
       <div className="flex flex-wrap gap-3">
         {DAYS.map((name, index) => (
           <span key={name} className="flex items-center gap-1.5">
@@ -46,6 +47,7 @@ function Form({ initial }: { initial: Schedule }) {
           </span>
         ))}
       </div>
+      <p className="text-xs text-muted-foreground">Spare work runs outside these hours and all day on the other days.</p>
       <div className="space-y-1">
         {SPARE.map((item) => (
           <span key={item.id} className="flex items-center gap-1.5">

@@ -59,7 +59,6 @@ root first.
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
-| `worker_seen.py` | The worker's report of its providers and code age, written each scan; health compares it with the server so an out-of-date worker is visible. |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings of admitted pairs (the picked listing when one is picked), tier 1 first, in batches within the call budget, and records offers; a sample only when something changed or the last is a day old. `spare=` reads waiting pairs or tier-2 parts early from spare budget. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |

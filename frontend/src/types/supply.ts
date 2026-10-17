@@ -115,13 +115,6 @@ export interface SupplyConnectorCheck {
   checked_at: string;
 }
 
-/** What the background worker said about itself on its last scan. */
-export interface SupplyWorker {
-  seen_at: string | null;
-  older_than_server: boolean;
-  missing_providers: string[];
-}
-
 /** Whether a connector's budget keeps up with what is watched. Metered connectors only. */
 export interface SupplyCapacity {
   connector_id: string;
@@ -1180,6 +1173,10 @@ export interface TrackingRoomAccount {
   estimated_per_day: number;
   measured_per_day: number | null;
   factor: number;
+  /** Calls a day committed to each tier, and the parts admitted. */
+  by_tier: Record<"1" | "2", { calls: number; parts: number }>;
+  /** What tracking was expected to spend on the provider's previous day, and what it spent (null when nothing was counted). */
+  yesterday: { expected: number; spent: number | null };
   room: { daily: number | null; weekly: number | null };
 }
 

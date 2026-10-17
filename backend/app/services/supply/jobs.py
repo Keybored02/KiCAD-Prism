@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.supply import (
     accounts, dashboard, details, fx, ledger, market, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
-    schedule_settings, tracking, worker_seen,
+    schedule_settings, tracking,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
@@ -223,7 +223,6 @@ def schedule_due_supply_jobs(
     store.initialize()
     moment = now or datetime.now(timezone.utc)
     with store.connection() as conn:
-        worker_seen.record(conn, moment)
         connector_ids = connectors_with_work(conn, moment)
     _housekeeping_if_due(store)
     # One job per account: connectors on the same credentials are one caller to the provider, so they take turns.

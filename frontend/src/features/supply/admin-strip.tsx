@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import type { SupplyConnector, SupplySignin, SupplySvhcList } from "@/types/supply";
 import { getSupplySignin, getSvhcList, listSupplyConnectors } from "./supply-api";
 import { useLoaded } from "./use-loaded";
-import { WorkerStatus } from "./worker-status";
 
 const DAY_MS = 24 * 3600 * 1000;
 /** ECHA updates the Candidate List twice a year. */
@@ -70,7 +69,6 @@ export function AdminStrip({ waiting }: { waiting: number }) {
   const notices = data ? adminNotices(data.connectors, data.signins, data.list, waiting, Date.now()) : [];
   return (
     <div className="space-y-2" aria-label="For administrators">
-      <WorkerStatus />
       {notices.length > 0 ? (
         <ul className="divide-y border">
           {notices.map((notice) => (
