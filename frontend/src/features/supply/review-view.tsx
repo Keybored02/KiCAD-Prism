@@ -12,6 +12,7 @@ import { ToApprove } from "./to-approve";
 import { MatchedByPrism } from "./matched-by-prism";
 import { OtherNumberPins } from "./other-number-pins";
 import { ListingRow } from "./listing-row";
+import { SeveralListings } from "./several-listings";
 import { useSupplyReview } from "./use-supply-review";
 
 /** Matches that need a person: manufacturer spellings and listings that are not proven. */
@@ -77,6 +78,8 @@ export function ReviewView({ user }: { user: User | null }) {
                 </div>
               </CollapsibleSection>
             ) : null}
+
+            <SeveralListings canDecide={canDecide} />
 
             <MatchedByPrism matched={queue.matched} canDecide={canDecide} onDecided={refresh} />
           </>

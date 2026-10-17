@@ -89,6 +89,39 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual([item["part_id"] for item in listed["items"]], [a])
         self.assertAlmostEqual(listed["items"][0]["saves_calls_a_day"], 1.0, places=2, msg="LCSC reads each listing: one fewer call a day")
 
+    def test_review_lists_every_part_with_several_listings_picked_or_not(self) -> None:
+        waiting = self.part("A", ("cut_tape", "tape_reel"))
+        picked = self.part("B", ("cut_tape", "tape_reel"))
+        self.part("ONE", ("cut_tape",))
+        with self.store.connection() as conn:
+            self.picks.pick(conn, picked, self.cid, "B-0", ACTOR)
+        items = self.call("GET", "/several").json["items"]
+        by_part = {item["part_id"]: item for item in items}
+        self.assertEqual(set(by_part), {waiting, picked})
+        self.assertEqual((by_part[waiting]["picked_by"], by_part[picked]["picked_by"], by_part[picked]["picked_sku"]), ("", ACTOR, "SKU-B-0"))
+
+    def test_one_per_distributor_shows_what_it_would_pick_then_picks_by_the_parts_packaging(self) -> None:
+        a = self.part("A", ("tape_reel", "cut_tape"))
+        proposed = self.call("GET", f"/auto/{a}").json
+        self.assertEqual([(item["sku"], item["packaging"]) for item in proposed["items"]], [("SKU-A-1", "cut_tape")])
+        self.assertIsNone(self.picked(a), "asking changes nothing")
+        self.assertEqual(self.call("POST", f"/auto/{a}").json, {"picked": 1})
+        self.assertEqual(self.picked(a), "A-1")
+        self.assertEqual(self.call("POST", f"/auto/{a}").json, {"picked": 0}, "nothing waits any more")
+
+    def test_a_person_prefers_one_distributor_and_it_is_the_part_sheets_to_show(self) -> None:
+        from app.services.supply import preferences
+
+        a = self.part("A", ("cut_tape",))
+        with self.store.connection() as conn:
+            self.assertIsNone(preferences.get(conn, a))
+            preferences.set_preferred(conn, a, self.cid, ACTOR)
+            self.assertEqual(self.parts_view.part_detail(conn, a)["preferred_connector_id"], self.cid)
+            with self.assertRaises(preferences.PreferenceError):
+                preferences.set_preferred(conn, a, "no-such-connector", ACTOR)
+            self.assertTrue(preferences.clear(conn, a, ACTOR))
+            self.assertIsNone(preferences.get(conn, a))
+
     def test_the_options_set_listings_side_by_side(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         options = self.call("GET", f"/{a}/{self.cid}").json

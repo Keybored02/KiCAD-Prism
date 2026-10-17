@@ -112,3 +112,33 @@ def repick(conn, project_id: str) -> int:
     if removed:
         admission.sync(conn)
     return done
+
+
+def propose(conn, part_id: str) -> list[dict[str, Any]]:
+    """The picks Prism would make for a part's distributors that list several packagings and have no pick yet."""
+
+    proposals = []
+    policy = policy_of(conn, part_id)
+    for item in packaging_picks.waiting(conn, packaging_picks.MAX_WAITING):
+        if item["part_id"] != part_id:
+            continue
+        listings = packaging_picks._listings(conn, part_id, item["connector_id"])  # noqa: SLF001
+        if len(listings) < 2:
+            continue
+        chosen, note = choose_with_note(listings, policy)
+        proposals.append({
+            "connector_id": item["connector_id"], "connector": item["connector"], "listing_id": chosen["id"], "sku": chosen["sku"],
+            "packaging": packaging_picks._packaging(chosen),  # noqa: SLF001
+            "note": note, "saves_calls_a_day": item["saves_calls_a_day"],
+        })
+    return proposals
+
+
+def apply_proposals(conn, part_id: str, actor: str) -> int:
+    """Pick the proposed listing at every distributor of this part that waits for a pick. Returns how many were picked."""
+
+    done = 0
+    for item in propose(conn, part_id):
+        packaging_picks.pick(conn, part_id, item["connector_id"], item["listing_id"], actor, note=item["note"])
+        done += 1
+    return done

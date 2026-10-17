@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { PackagingOptions, PackagingSimilar, PackagingWaiting } from "@/types/supply";
+import type { PackagingOptions, PackagingProposal, PackagingSeveral, PackagingSimilar, PackagingWaiting } from "@/types/supply";
 
 const BASE = "/api/supply/packaging";
 const path = (partId: string, connectorId: string) => `${BASE}/${encodeURIComponent(partId)}/${encodeURIComponent(connectorId)}`;
@@ -26,4 +26,16 @@ export function applySimilarPicks(connectorId: string, packaging: string, partId
     { method: "POST", body: JSON.stringify({ connector_id: connectorId, packaging, part_ids: partIds }) },
     "Could not apply the picks",
   );
+}
+
+export function listPackagingSeveral(signal?: AbortSignal): Promise<{ items: PackagingSeveral[] }> {
+  return fetchJson(`${BASE}/several`, { signal }, "Could not load the listings");
+}
+
+export function getAutoProposals(partId: string, signal?: AbortSignal): Promise<{ items: PackagingProposal[]; saves_calls_a_day: number }> {
+  return fetchJson(`${BASE}/auto/${encodeURIComponent(partId)}`, { signal }, "Could not work out the picks");
+}
+
+export function applyAutoProposals(partId: string): Promise<{ picked: number }> {
+  return fetchJson(`${BASE}/auto/${encodeURIComponent(partId)}`, { method: "POST" }, "Could not pick the listings");
 }

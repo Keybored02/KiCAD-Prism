@@ -14,8 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
-from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, refresh, review, watches
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
+from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, preferences, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -173,6 +173,31 @@ async def get_part_history(
             return part_history.build(conn, part_id, days=days)
 
     return await _run(read)
+
+
+class PreferredIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connector_id: str = Field(min_length=1, max_length=64)
+
+
+@router.put("/parts/{part_id}/preferred", status_code=204)
+async def set_preferred(part_id: str, body: PreferredIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
+    def run() -> None:
+        with _store().connection() as conn:
+            preferences.set_preferred(conn, part_id, body.connector_id, user.email)
+
+    await _run(run)
+
+
+@router.delete("/parts/{part_id}/preferred", status_code=204)
+async def clear_preferred(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
+    def run() -> None:
+        with _store().connection() as conn:
+            parts.get_part(conn, part_id)
+            preferences.clear(conn, part_id, user.email)
+
+    await _run(run)
 
 
 @router.get("/parts/{part_id}/cross-reference")

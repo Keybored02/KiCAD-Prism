@@ -670,7 +670,14 @@ export interface SupplyPartDetail {
   insight: SupplyInsight;
   used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string; only_in_variants?: string[] }>;
   /** Picks made on this part, and the distributors where it still waits for one. */
-  packaging?: { picks: Record<string, string>; needs_pick: Array<{ connector_id: string; connector: string; listings: number }> };
+  packaging?: {
+    picks: Record<string, string>;
+    /** Who picked at each distributor (a person, or "auto" for Prism) and Prism's note when it fell back. */
+    picked_by?: Record<string, { by: string; note: string }>;
+    needs_pick: Array<{ connector_id: string; connector: string; listings: number }>;
+  };
+  /** The distributor a person prefers for this part: shown first. */
+  preferred_connector_id?: string | null;
 }
 
 export interface SupplyManufacturer {
@@ -1076,6 +1083,33 @@ export interface PackagingOptions {
   /** The viewer may take a listing off the part. */
   can_unpin?: boolean;
   listings: PackagingListing[];
+}
+
+/** A tracked part with several listings at a distributor, and the pick there (GET /api/supply/packaging/several). */
+export interface PackagingSeveral {
+  part_id: string;
+  connector_id: string;
+  connector: string;
+  provider: string;
+  mpn: string;
+  manufacturer: string;
+  listings: number;
+  picked_listing: string | null;
+  picked_sku: string;
+  picked_by: string;
+  note: string;
+  saves_calls_a_day: number;
+}
+
+/** What Prism would pick for a part's distributors that wait for a pick. */
+export interface PackagingProposal {
+  connector_id: string;
+  connector: string;
+  listing_id: string;
+  sku: string;
+  packaging: string;
+  note: string;
+  saves_calls_a_day: number;
 }
 
 export interface PackagingSimilar extends PackagingWaiting {

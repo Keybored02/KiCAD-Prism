@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, insights, outlook, params, part_insights, parts, pcn, price_behaviour, prices, pricing, promises, settle, stock, usage
+from app.services.supply import facts, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, prices, pricing, promises, settle, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -590,8 +590,8 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
 def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     """The picks on a part (listing per distributor), and the distributors where it still waits for one."""
 
-    picks = {row["connector_id"]: row["listing_id"] for row in conn.execute(
-        "SELECT connector_id, listing_id FROM packaging_picks WHERE part_id = %s", (part_id,)).fetchall()}
+    pick_rows = conn.execute("SELECT connector_id, listing_id, picked_by, note FROM packaging_picks WHERE part_id = %s", (part_id,)).fetchall()
+    picks = {row["connector_id"]: row["listing_id"] for row in pick_rows}
     counts = conn.execute(
         "SELECT l.connector_id, c.display_name, COUNT(*) AS n FROM listings l JOIN connectors c ON c.id = l.connector_id "
         "WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id, c.display_name HAVING COUNT(*) > 1",
@@ -600,6 +600,8 @@ def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     tracked = conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone() is not None
     return {
         "picks": picks,
+        # Who picked each (a person, or "auto" for Prism) and what Prism noted when it fell back.
+        "picked_by": {row["connector_id"]: {"by": row["picked_by"], "note": row["note"]} for row in pick_rows},
         "needs_pick": [
             {"connector_id": r["connector_id"], "connector": r["display_name"], "listings": int(r["n"])}
             for r in counts if tracked and r["connector_id"] not in picks
@@ -693,6 +695,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "watch": _watch_dto(watch_row),
         "tracking": _tracking_dto(watch_row),
         "packaging": _packaging_state(conn, part_id),
+        "preferred_connector_id": preferences.get(conn, part_id),
         "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),

@@ -13,7 +13,7 @@ import { InsightPanel } from "./insight-panel";
 import { behaviourLines } from "./market-behaviour-text";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
-import { ListingTable } from "./listing-table";
+import { ListingGroups } from "./listing-groups";
 import { PartHistoryPanel } from "./part-history";
 import { PartNumbers } from "./part-numbers";
 import { NoticesSection } from "./notices-section";
@@ -122,7 +122,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <section aria-label="Listings" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
-        <ListingTable listings={detail.listings} canDecide={canReviewSupply(role)} onChanged={onChanged} />
+        <ListingGroups detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
       </section>
     </div>
   );

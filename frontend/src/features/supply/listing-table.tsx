@@ -10,7 +10,17 @@ import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./su
 import { VendorName } from "./vendor-name";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
-export function ListingTable({ listings, canDecide = false, onChanged }: { listings: SupplyListing[]; canDecide?: boolean; onChanged?: () => void }) {
+export interface FollowChoice {
+  /** The listing followed at this distributor, when several are listed and one is picked. */
+  followed: string | null;
+  /** The viewer may follow another listing. */
+  canFollow: boolean;
+  onFollow: (listing: SupplyListing) => void;
+}
+
+export function ListingTable({
+  listings, canDecide = false, onChanged, follow,
+}: { listings: SupplyListing[]; canDecide?: boolean; onChanged?: () => void; follow?: FollowChoice }) {
   const { busy, error, run } = useConnectorSubmit();
   if (listings.length === 0) {
     return (
@@ -32,6 +42,11 @@ export function ListingTable({ listings, canDecide = false, onChanged }: { listi
                 <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />
                 <span className="text-xs text-muted-foreground">{listing.sku}</span>
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
+                {follow?.followed === listing.id ? <Badge variant="secondary">Followed</Badge> : null}
+                {follow?.followed && follow.followed !== listing.id && listing.counted ? <Badge variant="outline">Not counted</Badge> : null}
+                {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => follow.onFollow(listing)}>Follow this instead</Button>
+                ) : null}
                 {!listing.counted ? (
                   <Badge variant="warning">
                     {listing.match_state === "near" && listing.raw_manufacturer ? `Other maker: ${listing.raw_manufacturer}` : `${matchLabel(listing.match_state)}, not counted`}

@@ -388,6 +388,15 @@ export function getSupplyPart(partId: string, signal?: AbortSignal): Promise<Sup
   return fetchJson<SupplyPartDetail>(`${BASE}/parts/${encodeURIComponent(partId)}`, { signal }, "Could not load the part");
 }
 
+/** Make one distributor the part's preferred one: shown first. */
+export async function setPreferredDistributor(partId: string, connectorId: string): Promise<void> {
+  await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preferred`, { method: "PUT", body: JSON.stringify({ connector_id: connectorId }) }, "Could not set the preferred distributor");
+}
+
+export async function clearPreferredDistributor(partId: string): Promise<void> {
+  await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preferred`, { method: "DELETE" }, "Could not clear the preferred distributor");
+}
+
 /** A part's stock and price per distributor over the last `days` days. */
 export function getPartHistory(partId: string, days: number, signal?: AbortSignal): Promise<PartHistory> {
   return fetchJson<PartHistory>(`${BASE}/parts/${encodeURIComponent(partId)}/history?days=${days}`, { signal }, "Could not load the history");

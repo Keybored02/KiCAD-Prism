@@ -222,3 +222,39 @@ def apply_similar(conn, connector_id: str, packaging: str, part_ids: Sequence[st
     if done:
         admission.sync(conn)
     return done
+
+
+def several(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
+    """Tracked parts with more than one counted listing at a distributor, picked or not, for Review.
+
+    ``picked_by`` is the person, ``auto`` for Prism's own pick, or empty without a pick; ``saves_calls_a_day`` is what following
+    one listing there saves (nothing at a distributor that reads a part's packagings together).
+    """
+
+    rows = conn.execute(
+        """
+        SELECT l.part_id, l.connector_id, COUNT(*) AS listings, p.mpn, m.name AS manufacturer, c.display_name AS connector, c.provider,
+               pk.listing_id AS picked_id, pl.sku AS picked_sku, pk.picked_by, pk.note
+        FROM listings l
+        JOIN part_tiers pt ON pt.part_id = l.part_id
+        JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        JOIN connectors c ON c.id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        LEFT JOIN listings pl ON pl.id = pk.listing_id
+        WHERE l.match_state = ANY(%s)
+        GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name, c.provider, pk.listing_id, pl.sku, pk.picked_by, pk.note
+        HAVING COUNT(*) > 1
+        """,
+        (list(COUNTED),),
+    ).fetchall()
+    items = [
+        {
+            "part_id": row["part_id"], "connector_id": row["connector_id"], "connector": row["connector"], "provider": row["provider"],
+            "mpn": row["mpn"], "manufacturer": row["manufacturer"], "listings": int(row["listings"]),
+            "picked_listing": row["picked_id"], "picked_sku": row["picked_sku"] or "", "picked_by": row["picked_by"] or "", "note": row["note"] or "",
+            "saves_calls_a_day": _saving(conn, row["part_id"], row["connector_id"], int(row["listings"])),
+        }
+        for row in rows
+    ]
+    items.sort(key=lambda item: (bool(item["picked_by"]), -item["saves_calls_a_day"], item["mpn"].lower()))
+    return items[:limit]

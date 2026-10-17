@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
-from app.services.supply import packaging_picks, parts
+from app.services.supply import packaging_auto, packaging_picks, parts
 
 router = APIRouter(prefix="/api/supply/packaging", tags=["supply"])
 
@@ -56,6 +56,40 @@ async def waiting(_user: AuthenticatedUser = Depends(require_supply_reader)) -> 
             return {"items": items, "saves_calls_a_day": round(sum(item["saves_calls_a_day"] for item in items), 3)}
 
     return await _run(read)
+
+
+@router.get("/several")
+async def several(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Every tracked part with several listings at a distributor, with the pick and what it saves, for Review."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"items": packaging_picks.several(conn)}
+
+    return await _run(read)
+
+
+@router.get("/auto/{part_id}")
+async def proposed(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """The picks Prism would make for the part's distributors that wait for one, and the calls they save. Nothing changes."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            parts.get_part(conn, part_id)
+            items = packaging_auto.propose(conn, part_id)
+            return {"items": items, "saves_calls_a_day": round(sum(item["saves_calls_a_day"] for item in items), 3)}
+
+    return await _run(read)
+
+
+@router.post("/auto/{part_id}")
+async def apply_proposed(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            parts.get_part(conn, part_id)
+            return {"picked": packaging_auto.apply_proposals(conn, part_id, user.email)}
+
+    return await _run(run)
 
 
 @router.get("/{part_id}/{connector_id}")

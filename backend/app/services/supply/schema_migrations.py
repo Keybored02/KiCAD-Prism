@@ -1665,6 +1665,22 @@ def _m070_project_packaging(conn) -> None:
     )
 
 
+def _m071_part_preferences(conn) -> None:
+    """A person's preferred distributor for a part: shown first, and marked in lists."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_preferences (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            set_by TEXT NOT NULL DEFAULT '',
+            set_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1736,6 +1752,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (68, "drop_worker_seen", _m068_drop_worker_seen),
     (69, "offer_reel", _m069_offer_reel),
     (70, "project_packaging", _m070_project_packaging),
+    (71, "part_preferences", _m071_part_preferences),
 ]
 
 
