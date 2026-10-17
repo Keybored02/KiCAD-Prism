@@ -251,20 +251,6 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual((item["mpn"], item["status"], item["stock"], item["listings"], item["tier"]), ("LM358-D", "unknown", None, 0, None))
         self.assertEqual(item["watch"], {"id": watch["id"], "threshold": 100, "pinned": False, "owner": "admin@example.com", "packaging": "any"})
 
-    def test_the_list_says_what_open_demand_asks_of_a_part_and_by_when(self) -> None:
-        from datetime import date
-
-        from app.services.supply import demand
-
-        self.watch_via_api("DM-1")
-        part = self.part_row("DM-1")["id"]
-        self.assertEqual((self.part_row("DM-1")["needed"], self.part_row("DM-1")["need_by"]), (0, None))
-        with self.store.connection() as conn:
-            demand.add_manual(conn, part, 500, "a@example.com", need_by=date(2026, 6, 1))
-            demand.add_manual(conn, part, 200, "a@example.com", need_by=date(2026, 5, 1))
-        row = self.part_row("DM-1")
-        self.assertEqual((row["needed"], row["need_by"]), (700, "2026-05-01"))
-
     def test_a_watch_can_count_only_one_packaging(self) -> None:
         cid = self.fake_connector()
         watch = self.watch_via_api("PK-1")

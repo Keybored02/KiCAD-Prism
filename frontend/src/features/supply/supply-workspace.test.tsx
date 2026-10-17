@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { User, UserRole } from "@/types/auth";
 
 vi.mock("./dashboard-view", () => ({ DashboardView: () => <div>Dashboard content</div> }));
-vi.mock("./insights-view", () => ({ InsightsView: ({ view }: { view: string }) => <div>Insights content {view}</div> }));
+vi.mock("./insights-view", () => ({ InsightsView: () => <div>Insights content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
@@ -47,10 +47,10 @@ describe("the Supply section", () => {
     expect(await screen.findByText("Dashboard content")).toBeTruthy();
     cleanup();
     renderAt("qa", "/?section=supply&supplyView=planning");
-    expect(await screen.findByText("Insights content planning")).toBeTruthy();
+    expect(await screen.findByText("Insights content")).toBeTruthy();
     cleanup();
     renderAt("qa", "/?section=supply&supplyView=market");
-    expect(await screen.findByText("Insights content market")).toBeTruthy();
+    expect(await screen.findByText("Insights content")).toBeTruthy();
     cleanup();
     renderAt("qa", "/?section=supply&supplyView=bom-file");
     expect(await screen.findByText("Parts content")).toBeTruthy();

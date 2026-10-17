@@ -29,7 +29,7 @@ class Facts:
     now: datetime
     # Set when nothing counted exists although it should: the part cannot be found.
     problem: str | None = None
-    # Units needed, for the parts that sit on a BOM. None when there is no demand to compare with.
+    # Units a build needs, for the parts that sit on a BOM. None when no build quantity is asked for.
     need: int | None = None
     # Distributors Prism reads. A part held by one of several is a single source; with only one there is no choice.
     distributors: int | None = None

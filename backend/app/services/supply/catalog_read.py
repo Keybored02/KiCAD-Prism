@@ -59,28 +59,6 @@ def in_library(pairs: Iterable[tuple[str, str]]) -> set[tuple[str, str]]:
     return have  # type: ignore[return-value]
 
 
-def own_stock(pairs: Iterable[tuple[str, str]]) -> dict[tuple[str, str], int | None]:
-    """Our own on-hand quantity per (manufacturer, part number), keyed in lower case.
-
-    A pair no component has is left out. A component whose stock rows mix units has no usable
-    quantity, so it maps to None rather than a wrong sum.
-    """
-
-    from app.services.component_catalog_service import catalog_service
-
-    wanted = [{"manufacturer": maker, "mpn": mpn} for maker, mpn in pairs]
-    if not wanted:
-        return {}
-    matches = catalog_service.match_component_identities(wanted)
-    inventory = catalog_service.component_inventory([match["component_id"] for match in matches.values()])
-    found: dict[tuple[str, str], int | None] = {}
-    for key, match in matches.items():
-        maker, mpn = key.split(chr(0), 1)
-        local = inventory.get(match["component_id"])
-        found[(maker, mpn)] = None if local is None or local["mixed_units"] else int(local["quantity"])
-    return found
-
-
 class ComponentsByPart(dict):
     """(manufacturer key, part number key) to catalog component id.
 

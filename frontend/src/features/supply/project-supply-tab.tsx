@@ -5,14 +5,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply, canOpenSupply } from "@/lib/roles";
+import { canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
 import { Sparkline } from "./sparkline";
 import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
-import { ProjectPlanButton } from "./project-plan-button";
-import { ProjectSupplyBuilds, ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
+import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
 import { getProjectSupply } from "./supply-api";
 import { formatAgo, formatPrice } from "./supply-format";
@@ -116,7 +115,6 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
           </select>
         ) : null}
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          {supply.available && canEditSupply(role) ? <ProjectPlanButton projectId={projectId} parts={supply.parts ?? []} onDone={loaded.retry} /> : null}
           <SettleBadge projectId={projectId} onChanged={loaded.retry} />
           <TrackProjectButton projectId={projectId} onChanged={loaded.retry} />
         </span>
@@ -135,7 +133,6 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
           This project's BOM has not been read yet. Open it in the Visualizer, or track the project, and its parts appear here.
         </p>
       )}
-      <ProjectSupplyBuilds builds={supply.builds} />
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? <ProjectSuggestions projectId={projectId} variant={variant} /> : null}

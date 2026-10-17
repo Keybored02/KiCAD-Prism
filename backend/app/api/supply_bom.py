@@ -9,8 +9,8 @@ reported, not created.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timezone
-from typing import Any, Callable, Optional, TypeVar
+from datetime import datetime, timezone
+from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import admission, bom_lookup, catalog_read, demand, usage
+from app.services.supply import admission, bom_lookup, catalog_read, usage
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -142,38 +142,6 @@ async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)
             project_service.start_semantic_index_job(project_id, requested_by=writer.email)
             queued += 1
         return {"projects": len(rows), "missing": len(missing), "queued": queued}
-
-    return await _run(run)
-
-
-class PlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # The plan's name. Sending the same name again replaces what it asked for before.
-    name: str = Field(min_length=1, max_length=demand.MAX_REF)
-    # The project the BOM is from. Plans are told apart by project and name, so two projects can both plan "25 boards".
-    project_id: str = Field(default="", max_length=64)
-    build_quantity: int = Field(default=1, ge=1, le=1_000_000)
-    attrition_percent: float | None = Field(default=0, ge=0, le=100)
-    need_by: Optional[date] = None
-    lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
-
-
-@router.post("/plan")
-async def plan_build(body: PlanRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
-    """Ask for the parts of a build as demand, in place of what the same name asked for before. Reads no distributor."""
-
-    def run() -> dict[str, Any]:
-        with _store().connection() as conn:
-            quantities = bom_lookup.build_needs(
-                conn, _lines(body.lines), body.build_quantity, body.attrition_percent, identities=catalog_read.identities
-            )
-            # "<project>/<name>" must stay within the reference limit, so the name is cut to fit after the project.
-            ref = f"{body.project_id}/{body.name}"[: demand.MAX_REF] if body.project_id else body.name
-            return demand.replace_from_source(
-                conn, "bom_watch", ref, quantities, writer.email, need_by=body.need_by,
-                note=f"{body.build_quantity} boards",
-            )
 
     return await _run(run)
 

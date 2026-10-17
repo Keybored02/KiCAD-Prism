@@ -32,7 +32,7 @@ function isSupplyView(value: string): value is SupplyTab {
 export function SupplyWorkspace({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   // Old addresses (overview, inbox, market, planning, bom-file) lead to the tab that took them over.
-  const place = resolvePlace(searchParams.get("supplyView"), searchParams.get("insightsView"), searchParams.get("tool"));
+  const place = resolvePlace(searchParams.get("supplyView"), searchParams.get("tool"));
   const view = place.tab;
   const current = VIEWS.find((item) => item.id === view) ?? VIEWS[0];
   // The Connectors tab puts its buttons here, on the right of the page title.
@@ -99,7 +99,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
               {id === "parts" && <PartsView user={user} active={view === "parts"} headerSlot={view === "parts" ? headerSlot : null} />}
               {id === "projects" && <ProjectsView user={user} active={view === "projects"} />}
               {id === "review" && <ReviewView user={user} />}
-              {id === "insights" && <InsightsView view={place.insight} />}
+              {id === "insights" && <InsightsView />}
               {id === "connectors" && <SupplyConnectorsView user={user} headerSlot={view === "connectors" ? headerSlot : null} />}
             </div>
           ))}

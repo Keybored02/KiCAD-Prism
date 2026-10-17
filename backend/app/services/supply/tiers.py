@@ -43,9 +43,6 @@ _AT_RISK_LIFECYCLES = frozenset({Lifecycle.NRND, Lifecycle.LAST_TIME_BUY, Lifecy
 RECENT_CHANGE = timedelta(hours=24)
 # How close to the threshold counts as "approaching it", as a multiple.
 APPROACH_FACTOR = 3
-# Distributor stock under this many times the open demand: hot. Under the second: warm.
-DEMAND_HOT_COVERAGE = 1.5
-DEMAND_WARM_COVERAGE = 3
 # Days until stock is projected to hit zero (see ``insights.rupture_expected_within``): under the first, hot; inside the horizon, warm.
 RUPTURE_HOT_DAYS = 14
 JITTER_SHARE = 0.10
@@ -61,8 +58,6 @@ class UrgencyInputs:
     total_stock: int | None = None
     threshold: int | None = None
     last_change_at: datetime | None = None
-    # Open demand in units, own incoming stock netted off. None or 0 means nothing is asked of the part.
-    demand: int | None = None
     # Days to a believable projected rupture, or None when none is expected.
     rupture_days: int | None = None
 
@@ -81,12 +76,6 @@ def urgency(inputs: UrgencyInputs) -> Urgency:
                 asked.append(Urgency.HOT)
             elif inputs.total_stock < inputs.threshold * APPROACH_FACTOR:
                 asked.append(Urgency.WARM)
-    if inputs.demand and inputs.demand > 0 and inputs.total_stock is not None:
-        cover = inputs.total_stock / inputs.demand
-        if cover < DEMAND_HOT_COVERAGE:
-            asked.append(Urgency.HOT)
-        elif cover < DEMAND_WARM_COVERAGE:
-            asked.append(Urgency.WARM)
     if inputs.rupture_days is not None:
         asked.append(Urgency.HOT if inputs.rupture_days <= RUPTURE_HOT_DAYS else Urgency.WARM)
     if inputs.lifecycle in _AT_RISK_LIFECYCLES:

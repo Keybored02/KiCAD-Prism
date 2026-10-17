@@ -44,12 +44,9 @@ import type {
   SupplyMarket,
   SupplyMarketHistory,
   SupplyNotice,
-  SupplyPlan,
   SupplyNoticeKind,
   SupplySignin,
   SupplySvhcList,
-  SupplyDemand,
-  SupplyDemandSummary,
   SupplySource,
   SupplyWatch,
   UpdateSupplyConnectorInput,
@@ -124,22 +121,6 @@ export interface SupplyIndexBuild {
 /** Queue the BOM reading of projects that have none yet. The worker does them in the background. */
 export function buildSupplyUsageIndexes(): Promise<SupplyIndexBuild> {
   return post(`${BASE}/bom/usage/build`, undefined, "Could not queue the project BOMs");
-}
-
-/** Ask for a build's parts as demand under a name; the same name replaces what it asked for before. */
-export function planSupplyBuild(plan: {
-  name: string;
-  projectId?: string;
-  lines: BomLineInput[];
-  buildQuantity: number;
-  attritionPercent: number;
-  needBy: string | null;
-}): Promise<{ parts: number; replaced: number }> {
-  return post(
-    `${BASE}/bom/plan`,
-    { name: plan.name, project_id: plan.projectId ?? "", lines: plan.lines, build_quantity: plan.buildQuantity, attrition_percent: plan.attritionPercent, need_by: plan.needBy },
-    "Could not add the build to the plan",
-  );
 }
 
 export function lookupSupplyBom(
@@ -565,24 +546,6 @@ export function resetAssessmentSettings(): Promise<AssessmentSettingsView> {
   return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { method: "DELETE" }, "Could not reset the settings");
 }
 
-export function listPartDemands(partId: string, signal?: AbortSignal): Promise<{ items: SupplyDemand[]; summary: SupplyDemandSummary }> {
-  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/demands`, { signal }, "Could not load the demand");
-}
-
-export function addPartDemand(
-  partId: string,
-  demand: { quantity: number; need_by: string | null; committed: boolean; note: string },
-): Promise<SupplyDemand> {
-  return post(`${BASE}/parts/${encodeURIComponent(partId)}/demands`, demand, "Could not add the demand");
-}
-
-export async function closePartDemand(demandId: string): Promise<void> {
-  const response = await fetchApi(`${BASE}/demands/${encodeURIComponent(demandId)}/close`, { method: "POST" });
-  if (!response.ok) {
-    throw new ApiHttpError(response.status, await readApiError(response, "Could not close the demand"));
-  }
-}
-
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
 export function getProjectSupply(projectId: string, variant = "", signal?: AbortSignal): Promise<ProjectSupply> {
   const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
@@ -682,10 +645,6 @@ export function addNotice(notice: {
 
 export function closeNotice(noticeId: string): Promise<void> {
   return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
-}
-
-export function getSupplyPlan(signal?: AbortSignal): Promise<SupplyPlan> {
-  return fetchJson(`${BASE}/planning`, { signal }, "Could not load the plan");
 }
 
 export interface SupplyReadNow {

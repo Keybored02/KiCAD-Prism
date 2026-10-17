@@ -31,7 +31,6 @@ from app.api.supply_alerts import router as supply_alerts_router
 from app.api.supply_bom import router as supply_bom_router
 from app.api.supply_fill import router as supply_fill_router
 from app.api.supply_sources import router as supply_sources_router
-from app.api.supply_demands import router as supply_demands_router
 from app.api.supply_health import router as supply_health_router
 from app.api.supply_fx import router as supply_fx_router
 from app.api.supply_datasheets import router as supply_datasheets_router
@@ -39,7 +38,6 @@ from app.api.supply_compliance import router as supply_compliance_router
 from app.api.supply_market import router as supply_market_router
 from app.api.supply_oauth import router as supply_oauth_router
 from app.api.supply_pcn import router as supply_pcn_router
-from app.api.supply_planning import router as supply_planning_router
 from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_bom_comments import router as supply_bom_comments_router
@@ -326,7 +324,6 @@ app.include_router(supply_alerts_router)
 app.include_router(supply_bom_router)
 app.include_router(supply_fill_router)
 app.include_router(supply_sources_router)
-app.include_router(supply_demands_router)
 app.include_router(supply_health_router)
 app.include_router(supply_fx_router)
 app.include_router(supply_datasheets_router)
@@ -334,7 +331,6 @@ app.include_router(supply_compliance_router)
 app.include_router(supply_market_router)
 app.include_router(supply_oauth_router)
 app.include_router(supply_pcn_router)
-app.include_router(supply_planning_router)
 app.include_router(supply_seed_router)
 app.include_router(supply_assessment_router)
 app.include_router(supply_release_router)

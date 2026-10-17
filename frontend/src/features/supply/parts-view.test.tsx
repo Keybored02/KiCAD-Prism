@@ -25,7 +25,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listSupplyManufacturers: vi.fn(),
   refreshSupplyUsage: vi.fn(),
   getSupplyAssessment: vi.fn(),
-  listPartDemands: vi.fn(),
   getPartDatasheet: vi.fn(),
   getPartCompliance: vi.fn(),
   listPartNotices: vi.fn(),
@@ -61,21 +60,12 @@ beforeEach(() => {
   mocked.listPartNotices.mockResolvedValue([]);
   mocked.getPartCompliance.mockResolvedValue({ rohs: { state: "unknown", reason: "" }, reach: { state: "unknown", reason: "" }, substances: [], list: { loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" } });
   mocked.getPartDatasheet.mockResolvedValue({ url: "" });
-  mocked.listPartDemands.mockResolvedValue({ items: [], summary: { open: 0, own_stock: null, net: 0, next_need_by: null } });
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
 afterEach(cleanup);
-
-describe("the parts list, demand", () => {
-  it("says how much open demand asks of a part and by when", async () => {
-    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ needed: 700, need_by: "2026-05-01" })], total: 1, limit: 100 });
-    renderView();
-    expect(await screen.findByText("needed 700 by 2026-05-01")).toBeTruthy();
-  });
-});
 
 describe("the parts list", () => {
   it("narrows to a group from the URL and lets it go", async () => {

@@ -35,7 +35,6 @@ export interface BomSupply {
   watchLines: (subset: readonly BomLineDetail[]) => Promise<SupplyBomWatchResult>;
   /** Reload the figures without the loading state. */
   refresh: () => Promise<void>;
-  /** Ask for this build's parts as demand under a name, replacing what the name asked for before. */
 }
 
 const EMPTY_KEYS: ReadonlySet<string> = new Set();

@@ -25,15 +25,6 @@ class UrgencyTests(unittest.TestCase):
         self.assertEqual(pick(total_stock=5000), Urgency.NORMAL)
         self.assertEqual(pick(), Urgency.NORMAL, "no stock known yet")
 
-    def test_open_demand_makes_a_part_urgent_as_stock_stops_covering_it(self) -> None:
-        self.assertEqual(pick(total_stock=1000, demand=1000), Urgency.HOT, "stock only just covers the need")
-        self.assertEqual(pick(total_stock=1400, demand=1000), Urgency.HOT, "under one and a half times")
-        self.assertEqual(pick(total_stock=2500, demand=1000), Urgency.WARM, "under three times")
-        self.assertEqual(pick(total_stock=3000, demand=1000), Urgency.NORMAL, "comfortably covered")
-        self.assertEqual(pick(total_stock=10, demand=0), Urgency.NORMAL, "no demand asks nothing")
-        self.assertEqual(pick(total_stock=10, demand=-50), Urgency.NORMAL, "incoming stock alone asks nothing")
-        self.assertEqual(pick(demand=1000), Urgency.NORMAL, "no stock figure yet")
-
     def test_a_pin_goes_first(self) -> None:
         self.assertEqual(pick(pinned=True, total_stock=100000), Urgency.HOT)
 

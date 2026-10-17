@@ -27,7 +27,6 @@ const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
     { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", lead_time_days: 14, short: false, unit_price: "0.1", tier: 2, waiting: false, notes: 0 },
     { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", lead_time_days: null, short: true, unit_price: "1.2", tier: 1, waiting: true, notes: 2 },
   ],
-  builds: [{ name: "Pilot", parts: 2, need_by: "2026-12-01", note: "10 boards", created_at: "2026-10-01T00:00:00Z" }],
   releases: [{
     build_id: "b1", tag: "v1.0", created_at: "2026-09-01T00:00:00Z", health: 9, status: "ok", parts: 2, needing_a_look: 0,
     changed_since: [{ part_id: "p1", manufacturer: "Acme", mpn: "FLAKY-1", was: "ok", now: "error" }],
@@ -57,11 +56,9 @@ describe("the project Supply tab", () => {
     expect(screen.getByText("7.4 of 10")).toBeTruthy();
   });
 
-  it("shows the builds, the releases with what changed since, and the line notes", async () => {
+  it("shows the releases with what changed since, and the line notes", async () => {
     renderTab();
-    const builds = await screen.findByRole("region", { name: "Builds" });
-    expect(within(builds).getByText("Pilot")).toBeTruthy();
-    const releases = screen.getByRole("region", { name: "Releases" });
+    const releases = await screen.findByRole("region", { name: "Releases" });
     expect(within(releases).getByText("v1.0")).toBeTruthy();
     expect(within(releases).getByText(/is now/)).toBeTruthy();
     expect(within(releases).getByRole("link", { name: "Compliance CSV" }).getAttribute("href")).toContain("/releases/b1/compliance");

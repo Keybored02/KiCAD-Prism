@@ -1611,6 +1611,12 @@ def _m065_family_done(conn) -> None:
     conn.execute("ALTER TABLE discovery_runs ADD COLUMN IF NOT EXISTS family_done BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
 
 
+def _m066_drop_demands(conn) -> None:
+    """Demand and planned builds are left to the manufacturing feature: the table that held them goes."""
+
+    conn.execute("DROP TABLE IF EXISTS demands", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1677,6 +1683,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (63, "figure_history", _m063_figure_history),
     (64, "maker_seeds_added", _m064_maker_seeds_added),
     (65, "family_done", _m065_family_done),
+    (66, "drop_demands", _m066_drop_demands),
 ]
 
 

@@ -52,7 +52,6 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 {part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
                 {part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
-                {part.needed ? <div className="text-xs text-muted-foreground">needed {part.needed.toLocaleString()}{part.need_by ? ` by ${part.need_by}` : ""}</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {formatPrice(part.unit_price, part.currency)}

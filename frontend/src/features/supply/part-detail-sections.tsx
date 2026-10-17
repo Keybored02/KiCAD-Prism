@@ -15,7 +15,6 @@ import { InsightPanel } from "./insight-panel";
 import { behaviourLines } from "./market-behaviour-text";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
-import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
 import { PartNumbers } from "./part-numbers";
 import { NoticesSection } from "./notices-section";
@@ -96,7 +95,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         </section>
       ) : null}
 
-      <DemandSection partId={detail.part.id} canEdit={canEdit} />
 
       <PartNumbers partId={detail.part.id} mpn={detail.part.mpn} numbers={detail.numbers ?? []} soldAs={detail.sold_as ?? []} canEdit={canEdit} onChanged={onChanged} />
 

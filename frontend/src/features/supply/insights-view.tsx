@@ -13,20 +13,18 @@ import { useLoaded } from "./use-loaded";
 import { useSupplyNavigation } from "./use-supply-navigation";
 
 const RunwaySection = lazy(() => import("./runway-section").then((module) => ({ default: module.RunwaySection })));
-const PlanningView = lazy(() => import("./planning-view").then((module) => ({ default: module.PlanningView })));
 
 const SECTIONS = [
   { id: "signals", label: "Signals" },
   { id: "runway", label: "Runway" },
   { id: "market", label: "Market" },
   { id: "distributors", label: "Distributors" },
-  { id: "planning", label: "Planning" },
 ] as const;
 
 const jump = (id: string) => document.getElementById(`insights-${id}`)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
 
-/** What the readings add up to across every tracked part, in five sections you can jump between. */
-export function InsightsView({ view }: { view: "market" | "planning" }) {
+/** What the readings add up to across every tracked part, in sections you can jump between. */
+export function InsightsView() {
   const [searchParams] = useSearchParams();
   const fetcher = useCallback((signal: AbortSignal) => getSupplyInsights(signal), []);
   const loaded = useLoaded<SupplyInsightsPage>("insights", fetcher, "Could not load the insights");
@@ -35,7 +33,7 @@ export function InsightsView({ view }: { view: "market" | "planning" }) {
   const ready = loaded.status === "ready";
   useEffect(() => {
     if (asked && ready) jump(asked);
-  }, [asked, ready, view]);
+  }, [asked, ready]);
 
   if (loaded.status === "loading") return <Skeleton className="m-4 h-48" aria-label="Loading the insights" />;
   if (loaded.status === "error" || !loaded.data) {
@@ -85,11 +83,6 @@ export function InsightsView({ view }: { view: "market" | "planning" }) {
         <div id="insights-distributors" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-distributors" title="Distributors" count={page.distributors.repricing.length} startOpen>
             <div className="p-3"><DistributorsSection distributors={page.distributors} /></div>
-          </CollapsibleSection>
-        </div>
-        <div id="insights-planning" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-planning" title="Planning" count={-1} startOpen>
-            <Suspense fallback={<Skeleton className="m-3 h-32" />}><PlanningView /></Suspense>
           </CollapsibleSection>
         </div>
       </div>

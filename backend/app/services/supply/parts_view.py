@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import demand, facts, insights, outlook, params, part_insights, parts, pcn, price_behaviour, prices, pricing, promises, settle, stock, usage
+from app.services.supply import facts, insights, outlook, params, part_insights, parts, pcn, price_behaviour, prices, pricing, promises, settle, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -241,7 +241,6 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
 
     ids = [r["id"] for r in rows]
     sums = _computed(conn, rows, offers) if offers is not None else _cached(conn, rows)
-    needed, needed_by = demand.open_totals(conn, ids), demand.next_needs(conn, ids)
     jlc = facts.jlc_classes(conn, ids)
 
     items = []
@@ -260,9 +259,6 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             **mine,
             "used_in": int(row["used_in"]),
             "jlc": jlc.get(row["id"]),
-            # What open demand asks of the part, and the soonest date it is wanted by.
-            "needed": max(0, needed.get(row["id"], 0)),
-            "need_by": needed_by.get(row["id"]),
         })
     return items
 

@@ -1,4 +1,4 @@
-"""How one product stands in supply: its parts, planned builds, releases and line notes.
+"""How one product stands in supply: its parts, releases and line notes.
 
 Reads the lines stored when the project's BOM was read (``usage``), never a checked-out commit, and calls no
 distributor. A release is judged again against today's data so the page can say what changed since.
@@ -48,23 +48,6 @@ def _parts(conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[st
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
     return parts, result["rollup"]
-
-
-def _builds(conn, project_id: str) -> list[dict[str, Any]]:
-    """The planned builds this project put on the plan: one per name, with its parts and the date it is wanted by."""
-
-    prefix = f"{project_id}/"
-    rows = conn.execute(
-        "SELECT source_ref, COUNT(*) AS parts, MIN(need_by) AS need_by, MAX(note) AS note, MAX(created_at) AS created_at "
-        "FROM demands WHERE source = 'bom_watch' AND state <> 'closed' AND left(source_ref, %s) = %s "
-        "GROUP BY source_ref ORDER BY MIN(need_by) NULLS LAST, source_ref",
-        (len(prefix), prefix),
-    ).fetchall()
-    return [
-        {"name": row["source_ref"][len(prefix):], "parts": row["parts"], "need_by": row["need_by"].isoformat() if row["need_by"] else None,
-         "note": row["note"], "created_at": row["created_at"].isoformat()}
-        for row in rows
-    ]
 
 
 def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[dict[str, Any]]:
@@ -136,14 +119,13 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1) 
     notes = bom_comments.for_project(conn, project_id)
     for note in notes:
         notes_by_line[note["line_key"]] = notes_by_line.get(note["line_key"], 0) + 1
-    builds = _builds(conn, project_id)
     if not rows:
-        return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "builds": builds, "releases": [], "notes": notes}
+        return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "releases": [], "notes": notes}
     parts, rollup = _parts(conn, rows, build_quantity, notes_by_line)
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     return {
         "available": True, "variant": variant, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
-        "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "builds": builds, "releases": _releases(conn, project_id, status_now), "notes": notes,
+        "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "releases": _releases(conn, project_id, status_now), "notes": notes,
     }
 
 

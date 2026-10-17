@@ -7,7 +7,6 @@ import { partRowFixture } from "./supply-test-fixtures";
 
 vi.mock("./runway-scatter", () => ({ default: () => <div>Scatter drawn</div> }));
 vi.mock("./market-chart", () => ({ default: () => <div>Market chart drawn</div> }));
-vi.mock("./planning-view", () => ({ PlanningView: () => <div>Planning content</div> }));
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getSupplyInsights: vi.fn(),
@@ -49,7 +48,7 @@ function page(overrides: Partial<SupplyInsightsPage> = {}): SupplyInsightsPage {
 }
 
 function renderView(initial = "/") {
-  render(<MemoryRouter initialEntries={[initial]}><InsightsView view="market" /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={[initial]}><InsightsView /></MemoryRouter>);
 }
 
 beforeEach(() => {
@@ -65,7 +64,7 @@ describe("the insights page", () => {
   it("has a section for each question, with a way to jump to it", async () => {
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });
-    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Runway", "Market", "Distributors", "Planning"]);
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Runway", "Market", "Distributors"]);
     expect(screen.getByText("TI: 50% of the parts you follow are out of stock, up from 10%.")).toBeTruthy();
   });
 

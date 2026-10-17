@@ -205,32 +205,6 @@ export interface SupplyComponentStanding {
   watched: boolean;
 }
 
-/** One part with open demand, set against what is held. */
-export interface SupplyPlanRow {
-  part_id: string;
-  manufacturer: string;
-  mpn: string;
-  status: SupplyStatus;
-  needed: number;
-  incoming: number;
-  committed: number;
-  own_stock: number | null;
-  distributor_stock: number | null;
-  stock_known: boolean;
-  next_need_by: string | null;
-  short: boolean;
-  first_short_on: string | null;
-  short_by: number;
-  total_short_by: number;
-  /** Week by week from the first dated demand: demand, stock arriving, and what is left after both. */
-  weeks?: Array<{ week: string; demand: number; incoming: number; balance: number }>;
-}
-
-export interface SupplyPlan {
-  parts: SupplyPlanRow[];
-  short: number;
-}
-
 export interface SupplyOutlook {
   band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
   label: string;
@@ -282,26 +256,6 @@ export interface SupplySignin {
   expires_at: string | null;
   /** The address the DigiKey app must list as its callback. */
   redirect_uri: string;
-}
-
-/** How many of a part are needed. A negative quantity is stock already on its way in. */
-export interface SupplyDemand {
-  id: string;
-  part_id: string;
-  source: "manual" | "bom_watch" | "manufacturing_run";
-  quantity: number;
-  need_by: string | null;
-  state: "planned" | "committed" | "closed";
-  note: string;
-  created_by: string;
-}
-
-/** Open demand, our own stock, and what distributors must still cover. */
-export interface SupplyDemandSummary {
-  open: number;
-  own_stock: number | null;
-  net: number;
-  next_need_by: string | null;
 }
 
 /** A finding about a component as a whole, such as no approved part being in stock. */
@@ -610,9 +564,6 @@ export interface SupplyPartRow {
   tier: SupplyTier | null;
   /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
   used_in: number;
-  /** Units open demand asks of the part, and the soonest date it is wanted by. */
-  needed?: number;
-  need_by?: string | null;
   /** The last 30 days of counted stock, and the days until it is projected to run out. */
   spark?: number[];
   runs_out_days?: number | null;
@@ -1175,7 +1126,6 @@ export interface ProjectSupply {
   parts?: ProjectSupplyPart[];
   /** The cost of one board a day, oldest first. */
   cost_history?: Array<{ day: string; cost_per_board: string; currency: string; complete: boolean }>;
-  builds: Array<{ name: string; parts: number; need_by: string | null; note: string; created_at: string }>;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];
 }

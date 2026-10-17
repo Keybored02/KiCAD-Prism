@@ -12,23 +12,6 @@ const section = (title: string, children: React.ReactNode) => (
   </section>
 );
 
-/** The builds this project put on the plan. Adding one is done from the BOM; where each runs short is under Insights. */
-export function ProjectSupplyBuilds({ builds }: { builds: ProjectSupply["builds"] }) {
-  return section("Builds", builds.length === 0 ? (
-    <p className="text-sm text-muted-foreground">No build is planned. Add one from the BOM bar with Add to plan.</p>
-  ) : (
-    <ul className="divide-y border text-sm">
-      {builds.map((build) => (
-        <li key={build.name} className="flex flex-wrap items-center gap-x-3 p-2">
-          <span className="font-medium">{build.name}</span>
-          <span className="text-xs text-muted-foreground">{build.parts} parts{build.note ? `, ${build.note}` : ""}{build.need_by ? `, needed by ${build.need_by}` : ""}</span>
-          <Link to="/?section=supply&supplyView=insights&insightsView=planning" className="ml-auto text-xs text-primary hover:underline">Where it runs short</Link>
-        </li>
-      ))}
-    </ul>
-  ));
-}
-
 /** Each release's supply when it was published, and the parts that were fine then and are not now. */
 export function ProjectSupplyReleases({ projectId, releases }: { projectId: string; releases: ProjectSupply["releases"] }) {
   return section("Releases", releases.length === 0 ? (

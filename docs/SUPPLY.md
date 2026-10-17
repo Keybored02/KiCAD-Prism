@@ -12,9 +12,9 @@ and no purchase support.
 | **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
 | **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). |
 | **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
-| **Supply > Insights** | One page, five sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Market, Distributors (how often each changes price, who moves first, who restocks first, arrivals on time, across all tracked parts) and Planning (a row a part, a column a week). |
+| **Supply > Insights** | One page, four sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Market, Distributors (how often each changes price, who moves first, who restocks first, arrivals on time, across all tracked parts). |
 | **Supply > Connectors** | Distributor accounts and the call budget. |
-| **Project > Supply** | How one product stands: tracking, its parts, planned builds, releases, line notes. Reads the stored BOM of the default branch, never a checked-out commit. |
+| **Project > Supply** | How one product stands: tracking, its parts, releases, line notes. Reads the stored BOM of the default branch, never a checked-out commit. |
 | **Project > Visualizers > BOM** | This BOM line, now. Supply shows only at the latest revision, not at a commit checked out from History. |
 | **Release Studio** | Whether what ships is sourceable, recorded with the release. |
 
@@ -22,8 +22,8 @@ Old addresses still work: `overview` and `inbox` open the Dashboard, `market` an
 Parts with the tool. Lists, tables and bars use icons with tooltips; detail views keep their words. Comparing two
 revisions shows no supply.
 
-Who sees what: administrators, designers and QA read supply data. Administrators and designers watch parts, add
-demand and read a part now. QA and administrators approve alternates, aliases and waivers. Only administrators
+Who sees what: administrators, designers and QA read supply data. Administrators and designers watch parts and
+read a part now. QA and administrators approve alternates, aliases and waivers. Only administrators
 manage connectors and settings. Viewers see none of it.
 
 ## Set up a distributor
@@ -123,7 +123,7 @@ In the Component Catalog a coloured dot beside a component's name shows where it
 A part is a manufacturer and a part number. Watched parts are read regularly; unwatched ones only when someone asks.
 
 - **Supply > Parts**: *Watched*, *In use* (parts on project BOMs) or *All known*. Open a part for its stock history,
-  price, listings, demand and watch settings.
+  price, listings and watch settings.
 - **Watch**: optionally set a stock threshold, or pin the part to the fastest reading.
 - **Read now**: asks the distributors for fresh figures. Once every 15 minutes per person and part; it uses a small
   reserve of the daily budget, never the polling budget.
@@ -289,19 +289,6 @@ distributors report, distributors that stopped selling it, lifecycle phrases in 
 stock anywhere, a price rise of 20% or more, open notices, and a distributor's last date to buy. One soft signal is a note; two together, or any watch signal such as
 *not recommended for new designs*, move the band. Nothing found is not a promise of a long life, and the KiCad panel
 shows the same phrase.
-
-## Planning
-
-Supply > Insights > Planning (a section of the page) lists every part with open demand against our own stock and what the distributors hold now, shortages
-first. A part is short on the first date the demand so far is more than the supply so far; stock already on its way in
-counts from its own date, and demand with no date is counted last. Demand comes from a part sheet's Demand section or from
-the BOM: **Add to plan** on a project BOM asks for the build's parts (spares included) under a name and a needed-by date,
-and adding the same name again replaces what it asked for before. It plans; it never buys.
-
-## Demand
-
-A part sheet's Demand section holds what is needed and by when. A negative quantity is stock already on its way in.
-Our own stock (from the catalog inventory) is subtracted; the part is judged against what is left.
 
 ## Project BOMs
 
