@@ -89,7 +89,7 @@ describe("the parts list", () => {
     expect(within(row).getByText((12500).toLocaleString())).toBeTruthy();
     expect(within(row).getByText(/0\.52/)).toBeTruthy();
     expect(within(row).queryByRole("img", { name: "Active" })).toBeNull();
-    expect(within(row).getByRole("img", { name: "Read 2 h ago" })).toBeTruthy();
+    expect(within(row).queryByRole("img", { name: "Read 2 h ago" })).toBeNull();
     expect(within(row).getByRole("img", { name: "Tracked" })).toBeTruthy();
     expect(screen.getByText("1 part")).toBeTruthy();
     expect(mocked.listSupplyParts).toHaveBeenCalledWith("followed", "", expect.anything(), "", 0, 50, "");

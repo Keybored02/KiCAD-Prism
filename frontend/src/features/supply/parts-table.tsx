@@ -4,12 +4,18 @@ import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, PROBLEM_LABEL } from "./supply-format";
 import { DistributorSquares, PriceMove, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
-import { DataAgeIcon, JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
+import { JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
 
 interface PartsTableProps {
   items: SupplyPartRow[];
   selectedId: string | null;
   onOpen: (partId: string) => void;
+}
+
+/** Why a row has no price: nothing read yet, or what was read gives none a person can compare. */
+function noPriceReason(part: SupplyPartRow): string {
+  if (part.stock === null) return "Not read yet";
+  return "No distributor lists a price for it, or they quote in different currencies that cannot be compared";
 }
 
 export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
@@ -22,9 +28,8 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
             <th className="px-3 py-2">Part</th>
             <th className="px-3 py-2 text-right">In stock</th>
             <th className="px-3 py-2 text-right">Price</th>
-            <th className="w-8 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
-            <th className="w-8 px-3 py-2"><span className="sr-only">Read</span></th>
-            <th className="w-8 px-3 py-2"><span className="sr-only">Tracked</span></th>
+            <th className="w-10 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
+            <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>
           </tr>
         </thead>
         <tbody>
@@ -56,14 +61,15 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
-                {formatPrice(part.unit_price, part.currency)} <PriceMove percent={part.price_change_percent} />
+                {part.unit_price
+                  ? <>{formatPrice(part.unit_price, part.currency)} <PriceMove percent={part.price_change_percent} /></>
+                  : <span className="text-muted-foreground" title={noPriceReason(part)}>No price</span>}
                 {part.unit_price ? <div className="text-xs text-muted-foreground">at {part.price_quantity.toLocaleString()}</div> : null}
                 <div className="flex justify-end pt-0.5"><DistributorSquares part={part} /></div>
               </td>
               <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
-              <td className="px-3 py-2"><DataAgeIcon fetchedAt={part.fetched_at} /></td>
               <td className="px-3 py-2">
-                <span className="flex items-center gap-1">{part.watch ? <TrackedIcon /> : null}<RowFlags flags={part.flags} /></span>
+                <span className="flex items-center gap-2">{part.watch ? <TrackedIcon /> : null}<RowFlags flags={part.flags} /></span>
               </td>
             </tr>
           ))}
