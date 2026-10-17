@@ -22,9 +22,22 @@ _COUNTED = ("exact", "manual")
 DayPrice = tuple[date, Decimal, str]  # day, cheapest unit price, currency
 
 
-def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> list[DayPrice]:
-    """The cheapest counted unit price per day over the last ``days``, oldest first, in one currency."""
+REFERENCE_QUANTITY = 100
 
+
+def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> list[DayPrice]:
+    """The cheapest counted unit price per day over the last ``days``, oldest first, in one currency.
+
+    A listing a packaging pick leaves out does not count, and neither does one whose smallest order is above the
+    reference quantity (a reel of 1,500), since its price is not what 100 pieces cost. A part sold only in such
+    listings falls back to them.
+    """
+
+    points = _daily_rows(conn, part_id, now, days, orderable_only=True)
+    return points or _daily_rows(conn, part_id, now, days, orderable_only=False)
+
+
+def _daily_rows(conn, part_id: str, now: datetime, days: int, *, orderable_only: bool) -> list[DayPrice]:
     since = now - timedelta(days=days)
     rows = conn.execute(
         """
@@ -34,6 +47,8 @@ def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -
             FROM samples s JOIN listings l ON l.id = s.listing_id
             WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND s.sampled_at >= %(since)s
               AND NOT s.marketplace AND s.unit_price IS NOT NULL AND s.currency <> ''
+              AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
+              AND (NOT %(orderable)s OR s.moq <= %(reference)s)
             ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
         ) latest GROUP BY day, currency
         UNION ALL
@@ -41,12 +56,15 @@ def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -
         FROM samples_daily d JOIN listings l ON l.id = d.listing_id
         WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND d.day >= %(since_day)s
           AND NOT d.marketplace AND d.last_unit_price IS NOT NULL AND d.currency <> ''
+          AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
+          AND (NOT %(orderable)s OR COALESCE((SELECT o.moq FROM offers o WHERE o.listing_id = d.listing_id), 1) <= %(reference)s)
           AND NOT EXISTS (
               SELECT 1 FROM samples s WHERE s.listing_id = d.listing_id
                 AND (s.sampled_at AT TIME ZONE 'UTC')::date = d.day)
         GROUP BY d.day, d.currency
         """,
-        {"part": part_id, "states": list(_COUNTED), "since": since, "since_day": since.date()},
+        {"part": part_id, "states": list(_COUNTED), "since": since, "since_day": since.date(),
+         "orderable": orderable_only, "reference": REFERENCE_QUANTITY},
     ).fetchall()
     return series([(row["day"], Decimal(row["price"]), row["currency"]) for row in rows])
 

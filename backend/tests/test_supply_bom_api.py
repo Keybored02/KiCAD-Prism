@@ -368,6 +368,24 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual(rollup["cost_per_board"], "1.4760", "what one board uses")
         self.assertEqual(rollup["waste_cost"], "1474.52", "left over")
 
+    def test_price_history_follows_the_pick_and_leaves_out_reels_above_the_reference_quantity(self) -> None:
+        from app.services.supply import prices
+
+        part_id = self.part("Acme", "CHART")
+        self.offer(part_id, "CT", stock=500, price="5.00")
+        self.offer(part_id, "PICKED-OUT", stock=500, price="4.00")
+        self.offer(part_id, "REEL", stock=5000, price="3.00", moq=1500)
+        with self.store.connection() as conn:
+            rows = conn.execute("SELECT id, sku FROM listings WHERE part_id = %s", (part_id,)).fetchall()
+            ids = {row["sku"]: row["id"] for row in rows}
+            for sku, price, moq in (("CT", "5.00", 1), ("PICKED-OUT", "4.00", 1), ("REEL", "3.00", 1500)):
+                conn.execute(
+                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', %s)",
+                    (ids[sku], NOW, price, moq))
+            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part_id, self.cid, ids["CT"]))
+            history = prices.daily_cheapest(conn, part_id, NOW)
+        self.assertEqual([float(price) for _, price, _ in history], [5.0], "the picked cut tape, not the reel or the other pack")
+
     def test_attrition_adds_spares_to_the_need_and_takes_them_off_what_can_be_built(self) -> None:
         part_id = self.part("Acme", "R1")
         self.offer(part_id, "A", stock=105)
