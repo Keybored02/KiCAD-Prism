@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TrackingRoom, TrackingRoomAccount } from "@/types/supply";
@@ -44,7 +44,7 @@ describe("room to track", () => {
     expect(await screen.findByText(/Room for about 790 more daily parts/)).toBeTruthy();
   });
 
-  it("draws a bar for each distributor with what its figure rests on, and withholds the room where too little was searched", async () => {
+  it("shows a bar each for tier 1 and tier 2 without a distributor's name, and a table per distributor behind a toggle", async () => {
     mocked.getTrackingRoom.mockResolvedValue(room(
       [
         account(),
@@ -55,11 +55,16 @@ describe("room to track", () => {
     ));
     render(<TrackingRoomSection />);
     const section = await screen.findByRole("region", { name: "Call budget" });
-    expect(within(section).getAllByRole("img")).toHaveLength(3);
-    const digikey = within(section).getByRole("listitem", { name: "DigiKey" });
-    expect(within(digikey).getByText(/Tier 1: 6 calls for 5 parts · Tier 2: 1 calls for 9 parts · room for about 790 more tier-1 parts or 3,100 tier-2/)).toBeTruthy();
-    expect(within(digikey).getByText("Yesterday: expected 7, spent 7")).toBeTruthy();
-    expect(within(within(section).getByRole("listitem", { name: "TME" })).getByText(/spent 1.5 calls a day last week, against 1.2 estimated/)).toBeTruthy();
-    expect(within(within(section).getByRole("listitem", { name: "JLCPCB" })).getByText(/too few parts searched here/)).toBeTruthy();
+    expect(within(section).getByRole("progressbar", { name: "Tier 1 committed calls" })).toBeTruthy();
+    expect(within(section).getByRole("progressbar", { name: "Tier 2 committed calls" })).toBeTruthy();
+    expect(within(section).getByText("6 calls for 5 parts · about 790 more fit")).toBeTruthy();
+    expect(within(section).getByText("1 calls for 9 parts · about 3,100 more fit")).toBeTruthy();
+    expect(within(section).getByText("Yesterday: expected 7, spent 7")).toBeTruthy();
+    expect(within(section).queryByRole("row", { name: /TME/ })).toBeNull();
+    fireEvent.click(within(section).getByRole("button", { name: /Per distributor/ }));
+    const tme = within(section).getByRole("row", { name: /TME/ });
+    expect(within(tme).getByText("32,000")).toBeTruthy();
+    expect(within(tme).getByText(/spent 1.5 calls a day last week, against 1.2 estimated/)).toBeTruthy();
+    expect(within(within(section).getByRole("row", { name: /JLCPCB/ })).getByText("Too few parts searched there to tell")).toBeTruthy();
   });
 });
