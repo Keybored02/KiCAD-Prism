@@ -39,7 +39,7 @@ class PickError(ValueError):
 def _listings(conn, part_id: str, connector_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT l.id, l.sku, l.raw_mpn, l.packaging AS listing_packaging, o.packaging, o.moq, o.order_multiple, o.stock, o.lead_time_days,
+        SELECT l.id, l.sku, l.raw_mpn, l.packaging AS listing_packaging, o.packaging, o.reel_size, o.packaging_inferred, o.moq, o.order_multiple, o.stock, o.lead_time_days,
                o.marketplace, o.currency, o.price_breaks, o.fetched_at
         FROM listings l LEFT JOIN offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state = ANY(%s) ORDER BY l.sku
@@ -60,6 +60,16 @@ def _prices(row: dict[str, Any]) -> dict[str, str | None]:
         price = pricing.unit_price_at(breaks, moq=row["moq"] or 1, order_multiple=row["order_multiple"] or 1, wanted=quantity) if breaks else None
         result[str(quantity)] = format(price.normalize(), "f") if price is not None else None
     return result
+
+
+def picked_by(conn, part_id: str, connector_id: str) -> str:
+    row = conn.execute("SELECT picked_by FROM packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
+    return row["picked_by"] if row else ""
+
+
+def pick_note(conn, part_id: str, connector_id: str) -> str:
+    row = conn.execute("SELECT note FROM packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
+    return row["note"] if row else ""
 
 
 def picked(conn, part_id: str, connector_id: str) -> str | None:
@@ -90,13 +100,16 @@ def options(conn, part_id: str, connector_id: str) -> dict[str, Any]:
         "part_id": part_id,
         "connector_id": connector_id,
         "picked": chosen,
+        # Who picked (a person, or "auto" for Prism) and the note when Prism fell back to a packaging next to the one asked for.
+        "picked_by": picked_by(conn, part_id, connector_id) if chosen else "",
+        "note": pick_note(conn, part_id, connector_id) if chosen else "",
         "saves_calls_a_day": 0.0 if chosen else _saving(conn, part_id, connector_id, len(rows)),
         "listings": [
             {
                 "id": row["id"], "sku": row["sku"], "raw_mpn": row["raw_mpn"] or "",
                 # A listing pinned under another number than the part's (LCSC's loose search returns many) is not this part.
                 "other_number": bool(match_key(row["raw_mpn"] or "")) and match_key(row["raw_mpn"] or "") != part.match_key,
-                "packaging": _packaging(row), "moq": row["moq"], "order_multiple": row["order_multiple"],
+                "packaging": _packaging(row), "reel_size": row["reel_size"], "packaging_inferred": bool(row["packaging_inferred"]), "moq": row["moq"], "order_multiple": row["order_multiple"],
                 "stock": row["stock"], "lead_time_days": row["lead_time_days"], "marketplace": bool(row["marketplace"]),
                 "currency": row["currency"] or "", "prices": _prices(row),
                 "fetched_at": row["fetched_at"].isoformat() if row["fetched_at"] else None,
@@ -144,16 +157,17 @@ def _check_listing(conn, part_id: str, connector_id: str, listing_id: str) -> di
     return dict(row)
 
 
-def pick(conn, part_id: str, connector_id: str, listing_id: str, actor: str) -> None:
+def pick(conn, part_id: str, connector_id: str, listing_id: str, actor: str, *, note: str = "") -> None:
     actor = actor_text(actor)
     parts.get_part(conn, part_id)
     _check_listing(conn, part_id, connector_id, listing_id)
     conn.execute(
         """
-        INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id, connector_id) DO UPDATE SET listing_id = EXCLUDED.listing_id, picked_by = EXCLUDED.picked_by, picked_at = NOW()
+        INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by, note) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id, connector_id) DO UPDATE SET listing_id = EXCLUDED.listing_id, picked_by = EXCLUDED.picked_by,
+            note = EXCLUDED.note, picked_at = NOW()
         """,
-        (part_id, connector_id, listing_id, actor),
+        (part_id, connector_id, listing_id, actor, note),
     )
     write_audit(conn, actor, "packaging.pick", part_id, {"connector_id": connector_id, "listing_id": listing_id}, subject_kind="part")
     admission.sync(conn)

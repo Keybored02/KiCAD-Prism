@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { PackagingListing, PackagingOptions, PackagingSimilar } from "@/types/supply";
 import { rejectSupplyListings } from "./supply-api";
+import { PackagingChip } from "./packaging-chip";
 import { applySimilarPicks, clearPackagingPick, getPackagingOptions, pickPackaging } from "./packaging-api";
 
 const money = (item: PackagingListing, quantity: string) => (item.prices[quantity] ? `${item.prices[quantity]} ${item.currency}` : "");
@@ -81,6 +82,7 @@ export function PackagingPickDialog({
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         {!similar && options ? (
           <div className="space-y-2">
+            {options.picked && options.picked_by === "auto" ? <p className="text-xs text-muted-foreground">Picked by Prism{options.note ? `: ${options.note}` : ""}.</p> : null}
             {options.saves_calls_a_day > 0 ? <p className="text-xs text-muted-foreground">Picking saves {options.saves_calls_a_day.toFixed(2)} calls a day here.</p> : null}
             <ul className="max-h-[60vh] divide-y overflow-y-auto border" aria-label="Listings">
               {options.listings.map((item) => (
@@ -91,7 +93,7 @@ export function PackagingPickDialog({
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
                     {item.other_number ? <Chip tone="warning">Different number</Chip> : null}
-                    <Chip>{item.packaging.replace("_", " ")}</Chip>
+                    <Chip><PackagingChip packaging={item.packaging} reelSize={item.reel_size} inferred={item.packaging_inferred} />{item.packaging === "unknown" ? "Packaging unknown" : null}</Chip>
                     {item.stock !== null ? <Chip>{item.stock.toLocaleString()} in stock</Chip> : null}
                     {money(item, "100") ? <Chip>{money(item, "100")} at 100</Chip> : null}
                     {item.moq !== null ? <Chip>min {item.moq}{(item.order_multiple ?? 1) > 1 ? ` in ${item.order_multiple}s` : ""}</Chip> : null}

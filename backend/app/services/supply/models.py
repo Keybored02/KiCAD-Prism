@@ -57,6 +57,10 @@ class Offer:
     moq: int = 1
     order_multiple: int = 1
     packaging: Packaging = Packaging.UNKNOWN
+    # Pieces on a full reel, when the distributor says.
+    reel_size: int | None = None
+    # True when the packaging was guessed from the SKU or the order terms, not stated.
+    packaging_inferred: bool = False
     price_breaks: tuple[PriceBreak, ...] = ()
     currency: str = ""
     lead_time_days: int | None = None

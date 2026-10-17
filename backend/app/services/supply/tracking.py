@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
-from app.services.supply import admission, parts, usage
+from app.services.supply import admission, packaging_auto, parts, usage
 from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
@@ -49,7 +49,7 @@ def check_tier(tier: Any, rate: Any) -> tuple[int, str]:
 # --- projects ---------------------------------------------------------------
 
 
-_PROJECT_COLUMNS = "project_id, variants, all_variants, buying_for, excluded_ids, assembly_ids, tracked_by, tracked_at"
+_PROJECT_COLUMNS = "project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, tracked_at"
 
 
 def _kinds(conn) -> tuple[set[str], set[str]]:
@@ -131,7 +131,7 @@ def track_project(
     connector_ids: Sequence[str] | None = None,
     may_create_manufacturer: bool = True,
     all_variants: bool = False,
-    buying_for: str = "prototypes",
+    packaging: str = "cut_tape",
 ) -> dict[str, Any]:
     """Track a project: its chosen variants' parts join tier 1. Returns what was tracked and what was skipped.
 
@@ -142,8 +142,8 @@ def track_project(
     """
 
     actor = actor_text(actor)
-    if buying_for not in ("prototypes", "production"):
-        raise TrackingError("A project buys for prototypes or for production.")
+    if packaging not in packaging_auto.PACKAGINGS:
+        raise TrackingError("The packaging is cut tape, custom reel, full reel, tube or tray, or the smallest order.")
     chosen = list(dict.fromkeys(variants)) or [BASE_VARIANT]
     if not conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone():
         raise TrackingError("Prism has not read this project's BOM yet. Open its Visualizers once so the BOM is built.")
@@ -181,18 +181,20 @@ def track_project(
         excluded, built_at = sorted(regular - named), sorted(named & assembly)
     conn.execute(
         """
-        INSERT INTO tracked_projects (project_id, variants, all_variants, buying_for, excluded_ids, assembly_ids, tracked_by) VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, all_variants = EXCLUDED.all_variants, buying_for = EXCLUDED.buying_for, excluded_ids = EXCLUDED.excluded_ids,
+        INSERT INTO tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, all_variants = EXCLUDED.all_variants, packaging = EXCLUDED.packaging, excluded_ids = EXCLUDED.excluded_ids,
             assembly_ids = EXCLUDED.assembly_ids
         """,
-        (project_id, chosen, all_variants, buying_for, excluded, built_at, actor),
+        (project_id, chosen, all_variants, packaging, excluded, built_at, actor),
     )
     write_audit(conn, actor, "tracking.project", project_id,
-                {"variants": chosen, "all_variants": all_variants, "connector_ids": list(connector_ids) if connector_ids is not None else None},
+                {"variants": chosen, "all_variants": all_variants, "packaging": packaging, "connector_ids": list(connector_ids) if connector_ids is not None else None},
                 subject_kind="project")
     recompute(conn)
     # The distributors may have changed without any tier changing.
     admission.sync(conn)
+    # Picks Prism made follow the packaging asked for now; a person's picks stay.
+    packaging_auto.repick(conn, project_id)
     return {"project_id": project_id, "variants": chosen, "parts_created": created, "skipped": skipped}
 
 

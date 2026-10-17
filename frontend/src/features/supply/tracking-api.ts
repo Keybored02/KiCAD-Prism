@@ -13,7 +13,7 @@ export interface ProjectChoice {
   /** Follow every design the project has, also those it gets later. */
   all_variants?: boolean;
   /** What the project buys for: sets the packaging that is followed. */
-  buying_for?: "prototypes" | "production";
+  packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest";
   /** The distributors the project is bought from; null is all but the assembly-only ones. */
   connector_ids: string[] | null;
 }

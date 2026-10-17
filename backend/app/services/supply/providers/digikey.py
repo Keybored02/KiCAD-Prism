@@ -101,8 +101,8 @@ _HARMLESS_STATUS = frozenset({"preliminary", "new product"})
 
 _PACKAGING = {
     "cut tape (ct)": Packaging.CUT_TAPE,
-    "digi-reel": Packaging.TAPE_REEL,
-    "digi-reel®": Packaging.TAPE_REEL,
+    "digi-reel": Packaging.CUSTOM_REEL,
+    "digi-reel®": Packaging.CUSTOM_REEL,
     "tape & reel (tr)": Packaging.TAPE_REEL,
     "tray": Packaging.TRAY,
     "tube": Packaging.TUBE,
@@ -419,6 +419,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
     moq = max(parse_count(variation.get("MinimumOrderQuantity")) or 1, 1)
     lifecycle, dropped = _lifecycle(product)
     weeks = parse_count(product.get("ManufacturerLeadWeeks"))
+    packaging = _PACKAGING.get(str((variation.get("PackageType") or {}).get("Name") or "").strip().lower(), Packaging.UNKNOWN)
     return Offer(
         provider=KEY,
         sku=sku,
@@ -427,7 +428,9 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         stock=stock,
         fetched_at=now,
         moq=moq,
-        packaging=_PACKAGING.get(str((variation.get("PackageType") or {}).get("Name") or "").strip().lower(), Packaging.UNKNOWN),
+        packaging=packaging,
+        # StandardPackage is the pieces in the packaging; for a full reel it is the reel.
+        reel_size=parse_count(variation.get("StandardPackage")) if packaging is Packaging.TAPE_REEL else None,
         price_breaks=breaks,
         currency=currency,
         # The factory lead time only matters when stock does not cover the smallest order.

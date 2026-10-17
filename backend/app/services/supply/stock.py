@@ -17,7 +17,7 @@ from app.services.supply.providers import registry
 
 
 # A watch can count only one packaging: cut tape for prototypes, reel for production. "any" counts all.
-POLICIES = ("any", "cut_tape", "tape_reel", "tray", "tube", "bulk")
+POLICIES = ("any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk")
 
 
 def counts(packaging: str | None, policy: str) -> bool:

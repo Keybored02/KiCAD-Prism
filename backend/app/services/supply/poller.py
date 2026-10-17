@@ -16,7 +16,7 @@ Reactions to trouble:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
@@ -25,10 +25,10 @@ from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
 from app.services.supply.models import Offer
-from app.services.supply.providers import registry
+from app.services.supply.providers import packaging_hints, registry
 from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import Lifecycle, Packaging
 
 MAX_BATCHES_PER_RUN = 20
 # A tier-2 listing read early from spare budget is not read early again for this long.
@@ -355,6 +355,10 @@ class Poller:
     def _record_offer(self, conn, row: DueListing, offer: Offer, now: datetime) -> None:
         if self._bom_link_is_wrong(conn, row, offer):
             return
+        if offer.packaging is Packaging.UNKNOWN:
+            guess = packaging_hints.infer(offer.sku, offer.moq, offer.order_multiple)
+            if guess is not Packaging.UNKNOWN:
+                offer = replace(offer, packaging=guess, packaging_inferred=True)
         price = pricing.unit_price_at(
             [(item.quantity, item.unit_price) for item in offer.price_breaks],
             moq=offer.moq, order_multiple=offer.order_multiple,
@@ -375,15 +379,17 @@ class Poller:
         conn.execute(
             """
             INSERT INTO offers (listing_id, fetched_at, stock, incoming, moq, order_multiple, packaging, price_breaks,
-                                currency, lead_time_days, lifecycle, discontinued, rohs, marketplace, product_url, reach_affected)
-            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
+                                currency, lead_time_days, lifecycle, discontinued, rohs, marketplace, product_url, reach_affected,
+                                reel_size, packaging_inferred)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (listing_id) DO UPDATE SET
                 fetched_at = EXCLUDED.fetched_at, stock = EXCLUDED.stock, incoming = EXCLUDED.incoming,
                 moq = EXCLUDED.moq, order_multiple = EXCLUDED.order_multiple, packaging = EXCLUDED.packaging,
                 price_breaks = EXCLUDED.price_breaks, currency = EXCLUDED.currency,
                 lead_time_days = EXCLUDED.lead_time_days, lifecycle = EXCLUDED.lifecycle,
                 discontinued = EXCLUDED.discontinued, rohs = EXCLUDED.rohs, marketplace = EXCLUDED.marketplace,
-                product_url = EXCLUDED.product_url, reach_affected = EXCLUDED.reach_affected
+                product_url = EXCLUDED.product_url, reach_affected = EXCLUDED.reach_affected,
+                reel_size = EXCLUDED.reel_size, packaging_inferred = EXCLUDED.packaging_inferred
             """,
             (
                 row.id, offer.fetched_at, offer.stock,
@@ -391,7 +397,7 @@ class Poller:
                 offer.moq, offer.order_multiple, offer.packaging.value,
                 json.dumps([[item.quantity, str(item.unit_price)] for item in offer.price_breaks]),
                 offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.rohs,
-                offer.marketplace, offer.product_url, offer.reach_affected,
+                offer.marketplace, offer.product_url, offer.reach_affected, offer.reel_size, offer.packaging_inferred,
             ),
         )
         # A reading is kept when something changed since the last, or the last is a day old; a re-read of an unchanged

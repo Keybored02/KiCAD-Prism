@@ -32,6 +32,7 @@ from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.providers import packaging_hints
 from app.services.supply.providers.base import (
     CAP_OFFERS,
     CAP_SEARCH,
@@ -43,7 +44,7 @@ from app.services.supply.providers.base import (
 )
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import Lifecycle, Packaging
 
 KEY = "lcsc"
 DETAIL_URL = "https://wmsc.lcsc.com/ftps/wm/product/detail"
@@ -190,6 +191,7 @@ def _offer(product: Mapping[str, Any], now: datetime) -> Offer:
         note(KEY, "product cycle", cycle)
     breaks = _price_breaks(product)
     rohs = product.get("isRohsCert")
+    packaging = packaging_hints.from_text(product.get("productArrange"))
     return Offer(
         provider=KEY,
         sku=sku,
@@ -199,6 +201,9 @@ def _offer(product: Mapping[str, Any], now: datetime) -> Offer:
         fetched_at=now,
         moq=max(parse_count(product.get("minBuyNumber")) or 1, 1),
         order_multiple=max(parse_count(product.get("split")) or 1, 1),
+        packaging=packaging,
+        # minPacketNumber is the pieces in a packet; for a reel it is the reel.
+        reel_size=parse_count(product.get("minPacketNumber")) if packaging is Packaging.TAPE_REEL else None,
         price_breaks=breaks,
         currency=CURRENCY if breaks else "",
         lifecycle=Lifecycle.UNKNOWN,

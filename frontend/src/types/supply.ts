@@ -506,7 +506,7 @@ export type PartsFilter =
 export type SupplyProblem = "not_found" | "gone";
 
 /** Which listings a watch counts: all, or only one packaging. */
-export type WatchPackaging = "any" | "cut_tape" | "tape_reel" | "tray" | "tube" | "bulk";
+export type WatchPackaging = "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
 
 export interface SupplyWatchSummary {
   id: string;
@@ -610,6 +610,10 @@ export interface SupplyListing {
   provider?: string;
   sku: string;
   packaging: string;
+  /** Pieces on a full reel, when the distributor says. */
+  reel_size?: number | null;
+  /** The packaging was guessed, not stated. */
+  packaging_inferred?: boolean;
   match_state: string;
   /** What the distributor calls the part and its maker. */
   raw_mpn?: string;
@@ -964,7 +968,7 @@ export interface TrackProgress {
 }
 
 export interface ProjectTrackingState {
-  tracked: { project_id: string; variants: string[]; all_variants: boolean; buying_for?: string; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
+  tracked: { project_id: string; variants: string[]; all_variants: boolean; packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest"; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
   has_usage: boolean;
   variants: string[];
 }
@@ -1030,6 +1034,8 @@ export interface PackagingListing {
   /** It is listed under another number than the part's. */
   other_number?: boolean;
   packaging: string;
+  reel_size?: number | null;
+  packaging_inferred?: boolean;
   moq: number | null;
   order_multiple: number | null;
   stock: number | null;
@@ -1045,6 +1051,10 @@ export interface PackagingOptions {
   part_id: string;
   connector_id: string;
   picked: string | null;
+  /** Who picked: a person, or "auto" when Prism did. */
+  picked_by?: string;
+  /** Said by Prism's pick when it fell back to a packaging next to the one asked for. */
+  note?: string;
   saves_calls_a_day: number;
   /** The viewer may take a listing off the part. */
   can_unpin?: boolean;

@@ -33,11 +33,15 @@ class Lifecycle(StrEnum):
 
 class Packaging(StrEnum):
     CUT_TAPE = "cut_tape"
+    # A reel cut to the quantity asked, with a reeling fee (DigiKey Digi-Reel, Mouser MouseReel).
+    CUSTOM_REEL = "custom_reel"
     TAPE_REEL = "tape_reel"
     TRAY = "tray"
     TUBE = "tube"
     BULK = "bulk"
     OTHER = "other"
+    # One listing sold as several packagings together (Mouser's usual case).
+    SEVERAL = "several"
     UNKNOWN = "unknown"
 
 

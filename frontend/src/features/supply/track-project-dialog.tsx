@@ -101,8 +101,8 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
             assembly={track.assembly}
             bought={new Set(track.ids)}
             onConnector={track.toggleConnector}
-            buyingFor={track.buyingFor}
-            onBuyingFor={track.setBuyingFor}
+            packaging={track.packaging}
+            onPackaging={track.setPackaging}
             preview={preview}
             onRaise={(id) => setRaising(id)}
           />

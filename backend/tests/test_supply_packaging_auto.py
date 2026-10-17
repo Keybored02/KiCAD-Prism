@@ -21,13 +21,27 @@ def listing(sku: str, packaging: str, moq: int) -> dict:
 
 
 class ChooseTests(unittest.TestCase):
-    def test_prototypes_follow_the_smallest_order_and_production_follows_a_reel(self) -> None:
+    def test_each_packaging_looks_for_its_own_and_falls_back_to_the_next(self) -> None:
         from app.services.supply import packaging_auto
 
-        listings = [listing("A-REEL", "tape_reel", 3000), listing("A-CUT", "cut_tape", 1), listing("A-DKR", "tape_reel", 2500)]
-        self.assertEqual(packaging_auto.choose(listings, "prototypes")["id"], "A-CUT")
-        self.assertEqual(packaging_auto.choose(listings, "production")["id"], "A-DKR", "the smallest reel")
-        self.assertEqual(packaging_auto.choose([listing("T", "tray", 10), listing("B", "bulk", 100)], "production")["id"], "T", "no reel: the smallest order")
+        listings = [listing("A-REEL", "tape_reel", 3000), listing("A-CUT", "cut_tape", 1), listing("A-DKR", "custom_reel", 1), listing("A-REEL2", "tape_reel", 2500)]
+        self.assertEqual(packaging_auto.choose(listings, "cut_tape")["id"], "A-CUT")
+        self.assertEqual(packaging_auto.choose(listings, "custom_reel")["id"], "A-DKR")
+        self.assertEqual(packaging_auto.choose(listings, "tape_reel")["id"], "A-REEL2", "the smallest full reel")
+        self.assertEqual(packaging_auto.choose(listings, "smallest")["id"], "A-CUT")
+        no_reel = [listing("B-CUT", "cut_tape", 1), listing("B-DKR", "custom_reel", 1)]
+        chosen, note = packaging_auto.choose_with_note(no_reel, "tape_reel")
+        self.assertEqual((chosen["id"], note), ("B-DKR", "Full reel, not offered here"), "a full reel falls back to a custom reel")
+        self.assertEqual(packaging_auto.choose_with_note([listing("T", "tray", 10), listing("B", "bulk", 100)], "cut_tape")[0]["id"], "T")
+        self.assertEqual(packaging_auto.choose([listing("T", "tray", 10), listing("U", "tube", 5)], "tube_tray")["id"], "U")
+
+    def test_a_guessed_packaging_loses_to_a_stated_one(self) -> None:
+        from app.services.supply import packaging_auto
+
+        guessed = {**listing("G-CUT", "cut_tape", 1), "packaging_inferred": True}
+        stated = listing("S-CUT", "cut_tape", 5)
+        self.assertEqual(packaging_auto.choose([guessed, stated], "cut_tape")["id"], "S-CUT")
+        self.assertEqual(packaging_auto.choose([guessed, listing("X", "tray", 1)], "cut_tape")["id"], "G-CUT", "a guess still beats nothing")
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")
@@ -86,14 +100,14 @@ class AutoPickTests(unittest.TestCase):
             for project_id in ("p1", "p2"):
                 conn.execute("INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES (%s, %s, 'r', 1, NOW())", (project_id, project_id))
                 conn.execute("INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES (%s, 'k', 'Acme', 'R2', 'acme', 'R2', 1)", (project_id,))
-                conn.execute("INSERT INTO tracked_projects (project_id, variants, buying_for, tracked_by) VALUES (%s, ARRAY['']::text[], 'production', 'x')", (project_id,))
+                conn.execute("INSERT INTO tracked_projects (project_id, variants, packaging, tracked_by) VALUES (%s, ARRAY['']::text[], 'tape_reel', 'x')", (project_id,))
             from app.services.supply import packaging_picks
 
             packaging_picks.pick(conn, other, self.cid, "R3-REEL", ACTOR)
-            self.assertEqual(self.auto.policy_of(conn, part), "production")
+            self.assertEqual(self.auto.policy_of(conn, part), "tape_reel")
             self.assertEqual(self.auto.auto_pick(conn), 1)
-            conn.execute("UPDATE tracked_projects SET buying_for = 'prototypes' WHERE project_id = 'p2'")
-            self.assertEqual(self.auto.policy_of(conn, part), "prototypes", "one prototype project is enough")
+            conn.execute("UPDATE tracked_projects SET packaging = 'cut_tape' WHERE project_id = 'p2'")
+            self.assertEqual(self.auto.policy_of(conn, part), "cut_tape", "the smaller packaging wins")
         self.assertEqual(self.picked(part), "R2-REEL")
         self.assertEqual(self.picked(other), "R3-REEL", "a person's pick stays")
 

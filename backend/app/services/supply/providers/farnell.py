@@ -30,6 +30,7 @@ number, since several in one ``manuPartNum`` term find nothing.
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -39,6 +40,7 @@ from typing import Any, Callable, Mapping, Sequence
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.providers import packaging_hints
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
     CAP_OFFERS,
@@ -52,7 +54,7 @@ from app.services.supply.providers.base import (
 from app.services.supply.identity import keep_family, match_key
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import Lifecycle, Packaging
 
 KEY = "farnell"
 BASE_URL = "https://api.element14.com/catalog/products"
@@ -234,6 +236,16 @@ def _price_breaks(product: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
     return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
 
 
+_SUPPLIED_ON = re.compile(r"SUPPLIED ON ([A-Z &]+)")
+
+
+def _packaging(product: Mapping[str, Any]) -> Packaging:
+    """Farnell words it in the unit: "EACH (SUPPLIED ON CUT TAPE)", "EACH (SUPPLIED ON FULL REEL)". Other units say nothing."""
+
+    found = _SUPPLIED_ON.search(str(product.get("unitOfMeasure") or "").upper())
+    return packaging_hints.from_text(found.group(1)) if found else Packaging.UNKNOWN
+
+
 def _rohs(code: object) -> bool | None:
     value = str(code or "").strip().upper()
     # "Y-EX" was seen live: compliant by an exemption.
@@ -258,6 +270,7 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, s
     ended = status == _STATUS_ENDED or stock_info.get("status") == _STOCK_STATUS_ENDED
     breaks = _price_breaks(product) if currency else ()
     moq = max(parse_count(product.get("translatedMinimumOrderQuality")) or 1, 1) * pack
+    packaging = _packaging(product)
     lead = parse_count(stock_info.get("leastLeadTime"))
     return Offer(
         provider=KEY,
@@ -269,6 +282,8 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, s
         moq=moq,
         # A pack is the smallest thing sold: the price is the pack's, so everything above is in pieces.
         order_multiple=pack,
+        packaging=packaging,
+        reel_size=pack if packaging is Packaging.TAPE_REEL and pack > 1 else None,
         price_breaks=breaks,
         currency=currency if breaks else "",
         lead_time_days=lead if lead is not None and stock < moq else None,

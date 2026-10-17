@@ -46,6 +46,7 @@ from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.providers import packaging_hints
 from app.services.supply.providers.base import (
     CAP_BATCH,
     CAP_OFFERS,
@@ -57,6 +58,7 @@ from app.services.supply.providers.base import (
     ProviderSpec,
 )
 from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.vocabulary import Packaging
 from app.services.supply.providers.unrecognised import note
 
 KEY = "tme"
@@ -295,6 +297,18 @@ def _page_url(sku: str, country: str) -> str:
     return f"https://www.tme.eu/{quote(site)}/details/{quote(sku.lower(), safe='')}/"
 
 
+def _packing(product: Mapping[str, Any]) -> tuple[Packaging, int | None]:
+    """The packaging TME names for a product ("Reel", amount 2500), and the reel size when it is a reel."""
+
+    packing = product.get("packing")
+    elements = [item for item in (packing.get("elements") if isinstance(packing, dict) else None) or [] if isinstance(item, dict)]
+    if not elements:
+        return Packaging.UNKNOWN, None
+    first = elements[0]
+    packaging = packaging_hints.from_text(first.get("translation"))
+    return packaging, parse_count(first.get("amount")) if packaging is Packaging.TAPE_REEL else None
+
+
 def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now: datetime, country: str = "") -> Offer:
     statuses = {str(item).upper() for item in product.get("product_status") or []}
     for status in sorted(statuses - _STOPPING - _NOT_ORDERABLE - _THIRD_PARTY - _HARMLESS):
@@ -304,6 +318,7 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
         stock = 0
     breaks, currency = _net_prices(figures.get("prices") or {})
     numbers = [str(item) for item in product.get("manufacturer_symbols") or [] if item]
+    packaging, reel = _packing(product)
     return Offer(
         provider=KEY,
         sku=sku,
@@ -314,6 +329,8 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
         incoming=_incoming(figures),
         moq=max(parse_count(product.get("minimal_amount")) or 1, 1),
         order_multiple=max(parse_count(product.get("multiples")) or 1, 1),
+        packaging=packaging,
+        reel_size=reel,
         price_breaks=breaks,
         currency=currency,
         discontinued=bool(statuses & _STOPPING),

@@ -29,7 +29,7 @@ class AddWatchRequest(BaseModel):
     mpn: str = Field(min_length=1, max_length=100)
     threshold: Optional[int] = Field(default=None, ge=0)
     pinned: bool = False
-    packaging: Literal["any", "cut_tape", "tape_reel", "tray", "tube", "bulk"] = "any"
+    packaging: Literal["any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk"] = "any"
 
 
 class UpdateWatchRequest(BaseModel):
@@ -38,7 +38,7 @@ class UpdateWatchRequest(BaseModel):
     # Absent leaves it alone; null clears the threshold.
     threshold: Optional[int] = Field(default=None, ge=0)
     pinned: Optional[bool] = None
-    packaging: Optional[Literal["any", "cut_tape", "tape_reel", "tray", "tube", "bulk"]] = None
+    packaging: Optional[Literal["any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk"]] = None
 
 
 def _store():

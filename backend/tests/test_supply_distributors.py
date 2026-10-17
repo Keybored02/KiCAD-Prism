@@ -320,7 +320,7 @@ class MouserTests(unittest.TestCase):
                          [(1, Decimal("0.52")), (10, Decimal("0.331")), (100, Decimal("0.213")), (2500, Decimal("0.113"))])
         self.assertEqual(lm.incoming[0].quantity, 5000)
         self.assertEqual(lm.incoming[0].expected, date(2026, 11, 20))
-        self.assertEqual((lm.lifecycle, lm.discontinued, lm.rohs, lm.packaging), (Lifecycle.UNKNOWN, False, True, Packaging.UNKNOWN))
+        self.assertEqual((lm.lifecycle, lm.discontinued, lm.rohs, lm.packaging), (Lifecycle.UNKNOWN, False, True, Packaging.SEVERAL))
         self.assertEqual(lm.product_url, "https://www.mouser.com/ProductDetail/Texas-Instruments/LM358DR")
         tps = offers["595-TPS62840DLCR"]
         self.assertEqual((tps.stock, tps.moq, tps.order_multiple, tps.lead_time_days), (0, 3000, 3000, 84))
@@ -438,7 +438,7 @@ class RecordedAnswerTests(unittest.TestCase):
         self.assertEqual((sold.stock, sold.lead_time_days, sold.moq, sold.currency, sold.rohs), (69338, None, 1, "EUR", True))
         self.assertEqual(sold.price_breaks[0].unit_price, Decimal("0.224"))
         self.assertEqual(len(sold.price_breaks), 9)
-        self.assertEqual(sold.packaging, Packaging.UNKNOWN, "reel, cut tape and MouseReel share one number")
+        self.assertEqual(sold.packaging, Packaging.SEVERAL, "reel, cut tape and MouseReel share one number")
 
         restricted = offers["755-LM358DR"]
         self.assertEqual((restricted.stock, restricted.moq, restricted.lifecycle), (0, 2500, Lifecycle.NRND))

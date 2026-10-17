@@ -65,14 +65,14 @@ describe("tracking a project", () => {
     expect(await screen.findByRole("progressbar", { name: "DigiKey committed calls" })).toBeTruthy();
     expect(screen.getByText("+120 calls a day")).toBeTruthy();
     expect(tracking.previewTrackProject).toHaveBeenLastCalledWith(
-      "prj_1", { variants: [""], all_variants: false, buying_for: "prototypes", connector_ids: null }, expect.anything(),
+      "prj_1", { variants: [""], all_variants: false, packaging: "cut_tape", connector_ids: null }, expect.anything(),
     );
     expect(screen.getByLabelText("Built at JLCPCB")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Lite"));
-    fireEvent.click(screen.getByRole("button", { name: "Production" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Packaging" }), { target: { value: "tape_reel" } });
     fireEvent.click(await screen.findByRole("button", { name: "Track (104)" }));
     await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith(
-      "prj_1", { variants: ["", "Lite"], all_variants: false, buying_for: "production", connector_ids: null },
+      "prj_1", { variants: ["", "Lite"], all_variants: false, packaging: "tape_reel", connector_ids: null },
     ));
     expect(await screen.findByRole("progressbar", { name: "DigiKey searched" })).toBeTruthy();
     expect(screen.getByText("40 of 100")).toBeTruthy();
@@ -99,7 +99,7 @@ describe("tracking a project", () => {
     fireEvent.click(await screen.findByLabelText("Also designs added later"));
     fireEvent.click(await screen.findByRole("button", { name: "Track (104)" }));
     await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith(
-      "prj_1", { variants: [""], all_variants: true, buying_for: "prototypes", connector_ids: null },
+      "prj_1", { variants: [""], all_variants: true, packaging: "cut_tape", connector_ids: null },
     ));
   });
 

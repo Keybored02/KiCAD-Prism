@@ -127,7 +127,7 @@ class ComponentWatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     include_alternates: bool = False
-    packaging: Literal["any", "cut_tape", "tape_reel", "tray", "tube", "bulk"] = "any"
+    packaging: Literal["any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk"] = "any"
 
 
 @router.get("/components/{component_id}/watch")

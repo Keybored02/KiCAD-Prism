@@ -1639,6 +1639,32 @@ def _m068_drop_worker_seen(conn) -> None:
     conn.execute("DROP TABLE IF EXISTS worker_seen", prepare=False)
 
 
+def _m069_offer_reel(conn) -> None:
+    """A listing keeps the pieces on its full reel and whether its packaging was guessed."""
+
+    conn.execute(
+        """
+        ALTER TABLE offers ADD COLUMN IF NOT EXISTS reel_size INTEGER;
+        ALTER TABLE offers ADD COLUMN IF NOT EXISTS packaging_inferred BOOLEAN NOT NULL DEFAULT FALSE;
+        """,
+        prepare=False,
+    )
+
+
+def _m070_project_packaging(conn) -> None:
+    """A project says which packaging it prefers instead of what it buys for; Prism's own picks note when they fell back."""
+
+    conn.execute(
+        """
+        ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS packaging TEXT NOT NULL DEFAULT 'cut_tape';
+        UPDATE tracked_projects SET packaging = 'tape_reel' WHERE buying_for = 'production';
+        ALTER TABLE tracked_projects DROP COLUMN IF EXISTS buying_for;
+        ALTER TABLE packaging_picks ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1708,6 +1734,8 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (66, "drop_demands", _m066_drop_demands),
     (67, "cost_history_outliers", _m067_cost_history_outliers),
     (68, "drop_worker_seen", _m068_drop_worker_seen),
+    (69, "offer_reel", _m069_offer_reel),
+    (70, "project_packaging", _m070_project_packaging),
 ]
 
 

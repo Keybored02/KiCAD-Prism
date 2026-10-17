@@ -39,8 +39,22 @@ export function matchLabel(state: string): string {
   return MATCH_LABEL[state] ?? state;
 }
 
-export function packagingLabel(value: string): string {
-  return value === "unknown" ? "" : value.replace(/_/g, " ");
+const PACKAGING_NAME: Record<string, string> = {
+  cut_tape: "Cut tape",
+  custom_reel: "Custom reel",
+  tape_reel: "Reel",
+  tray: "Tray",
+  tube: "Tube",
+  bulk: "Bulk",
+  several: "Several packagings",
+  other: "Other",
+};
+
+/** The words for a packaging ("Reel of 3,000" when the size is known). Empty when it is not known. */
+export function packagingName(value: string, reelSize: number | null = null): string {
+  const name = PACKAGING_NAME[value];
+  if (!name) return "";
+  return value === "tape_reel" && reelSize ? `Reel of ${reelSize.toLocaleString()}` : name;
 }
 
 /** A stock figure, or a dash when nothing has been read. */

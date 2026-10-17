@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ProjectTrackingState, SupplyConnector, TrackingPreview } from "@/types/supply";
-import type { BuyingFor } from "./track-choose-step";
+import type { ProjectPackaging } from "./track-choose-step";
 import { listSupplyConnectors } from "./supply-api";
 import { getProjectTracking, previewTrackProject, readProjectBom } from "./tracking-api";
 
@@ -14,7 +14,7 @@ export function useTrackProject(projectId: string) {
   const [connectors, setConnectors] = useState<SupplyConnector[]>([]);
   const [variants, setVariants] = useState<string[]>([""]);
   const [allVariants, setAllVariants] = useState(false);
-  const [buyingFor, setBuyingFor] = useState<BuyingFor>("prototypes");
+  const [packaging, setPackaging] = useState<ProjectPackaging>("cut_tape");
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [preview, setPreview] = useState<TrackingPreview | null>(null);
   const [error, setError] = useState("");
@@ -31,7 +31,7 @@ export function useTrackProject(projectId: string) {
           setVariants(tracking.tracked.variants);
           setAllVariants(tracking.tracked.all_variants);
           setChosen(tracking.tracked.connector_ids);
-          setBuyingFor(tracking.tracked.buying_for === "production" ? "production" : "prototypes");
+          setPackaging(tracking.tracked.packaging ?? "cut_tape");
         }
       })
       .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
@@ -73,8 +73,8 @@ export function useTrackProject(projectId: string) {
   const regular = useMemo(() => connectors.filter((item) => !item.assembly_only), [connectors]);
   const ids = chosen ?? defaults;
   const choice = useMemo(
-    () => ({ variants, all_variants: allVariants, buying_for: buyingFor, connector_ids: chosen }),
-    [variants, allVariants, buyingFor, chosen],
+    () => ({ variants, all_variants: allVariants, packaging, connector_ids: chosen }),
+    [variants, allVariants, packaging, chosen],
   );
 
   useEffect(() => {
@@ -88,7 +88,7 @@ export function useTrackProject(projectId: string) {
 
   return {
     state, connectors, setError, error, needsRead, preview, choice, assembly, regular, ids,
-    variants, allVariants, buyingFor, setAllVariants, setBuyingFor,
+    variants, allVariants, packaging, setAllVariants, setPackaging,
     recheck: () => setAgain((count) => count + 1),
     reload: () => { setReloads((count) => count + 1); setAgain((count) => count + 1); },
     toggleVariant: (name: string, on: boolean) => setVariants((current) => (on ? [...current, name] : current.filter((item) => item !== name))),

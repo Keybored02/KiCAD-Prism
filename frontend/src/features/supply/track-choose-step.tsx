@@ -1,10 +1,9 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 import type { SupplyConnector, TrackingPreview } from "@/types/supply";
 import { TrackCostBars } from "./track-cost-bars";
 
-export type BuyingFor = "prototypes" | "production";
+export type ProjectPackaging = "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest";
 
 interface ChooseProps {
   designs: readonly string[];
@@ -16,8 +15,8 @@ interface ChooseProps {
   assembly: readonly SupplyConnector[];
   bought: ReadonlySet<string>;
   onConnector: (id: string, on: boolean) => void;
-  buyingFor: BuyingFor;
-  onBuyingFor: (next: BuyingFor) => void;
+  packaging: ProjectPackaging;
+  onPackaging: (next: ProjectPackaging) => void;
   preview: TrackingPreview | null;
   onRaise?: (connectorId: string) => void;
 }
@@ -32,14 +31,17 @@ function Row({ id, label, checked, disabled, onChange, note }: { id: string; lab
   );
 }
 
-const BUYING: ReadonlyArray<{ id: BuyingFor; label: string; hint: string }> = [
-  { id: "prototypes", label: "Prototypes", hint: "Follows the packaging with the smallest order, usually cut tape" },
-  { id: "production", label: "Production", hint: "Follows reels where there are any" },
+const PACKAGING: ReadonlyArray<{ id: ProjectPackaging; label: string; hint: string }> = [
+  { id: "cut_tape", label: "Cut tape", hint: "Any quantity, the usual for prototypes" },
+  { id: "custom_reel", label: "Custom reel (Digi-Reel, MouseReel)", hint: "A reel cut to your quantity, with a reeling fee" },
+  { id: "tape_reel", label: "Full reel", hint: "The whole reel, the usual for production" },
+  { id: "tube_tray", label: "Tube or tray", hint: "As the maker packs it" },
+  { id: "smallest", label: "Smallest order (any)", hint: "Whatever has the smallest minimum order" },
 ];
 
 /** The choices that start tracking a project, each preselected to the usual answer, and what they cost. */
 export function TrackChooseStep(props: ChooseProps) {
-  const { designs, followed, allDesigns, regular, assembly, bought, buyingFor, preview } = props;
+  const { designs, followed, allDesigns, regular, assembly, bought, packaging, preview } = props;
   return (
     <div className="space-y-4">
       {designs.length > 1 ? (
@@ -62,18 +64,15 @@ export function TrackChooseStep(props: ChooseProps) {
         </div>
       </section>
 
-      <section aria-label="Buying for" className="space-y-1">
-        <h3 className="text-xs font-medium text-muted-foreground">Buying for</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {BUYING.map((option) => (
-            <button
-              key={option.id} type="button" aria-pressed={buyingFor === option.id} title={option.hint} onClick={() => props.onBuyingFor(option.id)}
-              className={cn("border px-3 py-2 text-left text-sm font-medium hover:bg-muted/30", buyingFor === option.id && "border-primary bg-primary/5")}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+      <section aria-label="Packaging" className="space-y-1">
+        <Label htmlFor="track-packaging" className="text-xs font-medium text-muted-foreground">Packaging</Label>
+        <select
+          id="track-packaging" value={packaging} onChange={(event) => props.onPackaging(event.target.value as ProjectPackaging)}
+          className="h-9 w-full border bg-background px-3 text-sm"
+        >
+          {PACKAGING.map((option) => <option key={option.id} value={option.id} title={option.hint}>{option.label}</option>)}
+        </select>
+        <p className="text-xs text-muted-foreground">{PACKAGING.find((option) => option.id === packaging)?.hint}. Where a distributor does not offer it, the nearest is followed.</p>
       </section>
 
       {preview ? (

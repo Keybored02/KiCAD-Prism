@@ -3,9 +3,10 @@ import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
+import { PackagingChip } from "./packaging-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { formatAgo, formatPrice, formatStock, matchLabel, packagingLabel, tierLabel } from "./supply-format";
+import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
 import { VendorName } from "./vendor-name";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
@@ -30,7 +31,7 @@ export function ListingTable({ listings, canDecide = false, onChanged }: { listi
               <div className="flex flex-wrap items-center gap-2">
                 <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />
                 <span className="text-xs text-muted-foreground">{listing.sku}</span>
-                {packagingLabel(listing.packaging) ? <Badge variant="outline">{packagingLabel(listing.packaging)}</Badge> : null}
+                {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
                 {!listing.counted ? (
                   <Badge variant="warning">
                     {listing.match_state === "near" && listing.raw_manufacturer ? `Other maker: ${listing.raw_manufacturer}` : `${matchLabel(listing.match_state)}, not counted`}

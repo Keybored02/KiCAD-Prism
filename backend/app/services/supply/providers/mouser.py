@@ -84,7 +84,7 @@ _PACKAGING = {
     "cut tape": Packaging.CUT_TAPE,
     "reel": Packaging.TAPE_REEL,
     "full reel": Packaging.TAPE_REEL,
-    "mousereel": Packaging.TAPE_REEL,
+    "mousereel": Packaging.CUSTOM_REEL,
     "tray": Packaging.TRAY,
     "tube": Packaging.TUBE,
     "bulk": Packaging.BULK,
@@ -292,8 +292,10 @@ def _packaging(part: Mapping[str, Any]) -> Packaging:
         for value in [str(item.get("AttributeValue") or "").strip().lower()]
         if value in _PACKAGING
     }
-    # One Mouser number often covers cut tape and reel together; then there is no single packaging.
-    return values.pop() if len(values) == 1 else Packaging.UNKNOWN
+    # One Mouser number often covers cut tape and reel together: it is sold as several packagings.
+    if len(values) > 1:
+        return Packaging.SEVERAL
+    return values.pop() if values else Packaging.UNKNOWN
 
 
 def _rohs(text: object) -> bool | None:
