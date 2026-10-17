@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useState } from "react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { PartHistory } from "@/types/supply";
-import { HistoryLegend } from "./history-legend";
+import { HistoryEvents, HistoryLegend } from "./history-legend";
 import { TIMEFRAMES } from "./part-history-model";
 import { getPartHistory } from "./supply-api";
 import { useHidden } from "./use-hidden";
@@ -44,6 +44,7 @@ export function PartHistoryDialog({ partId, threshold, onClose }: { partId: stri
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Price per piece{data.currency ? `, ${data.currency}` : ""}</p>
               <PartHistoryChart history={data} kind="price" hidden={hidden} height="h-56" />
             </Suspense>
+            <HistoryEvents events={data.events} />
           </div>
         ) : status === "ready" ? <p className="text-sm text-muted-foreground">No readings in this timeframe.</p> : null}
       </DialogContent>

@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from app.services.supply import fx, prices, stock
+from app.services.supply import fx, insights, prices, stock
 from app.services.supply.assessment import settings_store
 
 _COUNTED = ("exact", "manual")
@@ -71,11 +71,31 @@ def _day_figures(conn, listing_ids: list[str], since: datetime) -> dict[str, dic
     return figures
 
 
+def _events(conn, part_id: str, total: list[list[Any]], first: date) -> list[dict[str, Any]]:
+    """Days worth marking on the axis: a restock (the total rose as ``insights`` counts one) and a product change notice published."""
+
+    found = [
+        {"day": after[0], "kind": "restock", "text": f"Restock: {before[1]:,} to {after[1]:,}"}
+        for before, after in zip(total, total[1:])
+        if insights.is_restock(int(before[1]), int(after[1]))
+    ]
+    for row in conn.execute(
+        """
+        SELECT COALESCE(n.published_on, (n.created_at AT TIME ZONE 'UTC')::date) AS day, n.title, n.kind
+        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id WHERE pp.part_id = %s
+        """,
+        (part_id,),
+    ).fetchall():
+        if row["day"] >= first:
+            found.append({"day": row["day"].isoformat(), "kind": "notice", "text": f"Notice: {row['title']}"})
+    return sorted(found, key=lambda item: item["day"])
+
+
 def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_DAYS) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     days = max(1, min(int(days), MAX_DAYS))
     listings = _listings(conn, part_id)
-    empty = {"days": days, "currency": "", "connectors": [], "total": []}
+    empty = {"days": days, "currency": "", "connectors": [], "total": [], "events": []}
     if not listings:
         return empty
     figures = _day_figures(conn, [item["id"] for item in listings], now - timedelta(days=days))
@@ -140,10 +160,11 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
         total.append([day.isoformat(), stock.aggregate(rows_for_total, "any").total])
         day += timedelta(days=1)
 
+    events = _events(conn, part_id, total, first)
     ordered = sorted(lines.values(), key=lambda line: line["name"].lower())
     for line in ordered:
         read = line["last_read"]
         # Not read for longer than the part's rate allows: the chart draws the rest of the line dashed.
         line["stale"] = read is not None and (today - read.astimezone(timezone.utc).date()).days > allowed_gap
         line["last_read"] = read.isoformat() if read else None
-    return {"days": days, "currency": base, "connectors": ordered, "total": total}
+    return {"days": days, "currency": base, "connectors": ordered, "total": total, "events": events}

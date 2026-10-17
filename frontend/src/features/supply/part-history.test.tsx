@@ -26,6 +26,7 @@ const HISTORY: PartHistory = {
     { connector_id: "c2", name: "Mouser", provider: "mouser", last_read: "2026-02-28T08:00:00Z", stale: true, stock: [["2026-02-28", 10]], price: [] },
   ],
   total: [["2026-02-28", 60], ["2026-03-01", 40]],
+  events: [{ day: "2026-03-01", kind: "notice", text: "Notice: End of life" }],
 };
 
 describe("the history rows", () => {
@@ -56,10 +57,11 @@ describe("the history on the part sheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open the stock history larger" }));
     await waitFor(() => expect(api.getPartHistory).toHaveBeenCalledWith("p1", 90, expect.anything()));
     expect(await screen.findByRole("radio", { name: "6 months" })).toBeTruthy();
+    expect(await screen.findByText("2026-03-01: Notice: End of life")).toBeTruthy();
   }, 30_000);
 
   it("says history builds up when there is none", async () => {
-    vi.mocked(api.getPartHistory).mockResolvedValue({ ...HISTORY, connectors: [], total: [] });
+    vi.mocked(api.getPartHistory).mockResolvedValue({ ...HISTORY, connectors: [], total: [], events: [] });
     render(<PartHistoryPanel partId="p2" threshold={null} />);
     expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
   });

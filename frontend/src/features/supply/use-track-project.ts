@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { ProjectTrackingState, SupplyConnector, TrackingPreview } from "@/types/supply";
 import type { ProjectPackaging } from "./track-choose-step";
-import { listSupplyConnectors } from "./supply-api";
+import { getAssessmentSettings, listSupplyConnectors } from "./supply-api";
 import { getProjectTracking, previewTrackProject, readProjectBom } from "./tracking-api";
 
 const READ_POLL_MS = 5000;
@@ -20,6 +20,7 @@ export function useTrackProject(projectId: string) {
   const [error, setError] = useState("");
   const [again, setAgain] = useState(0);
   const [reloads, setReloads] = useState(0);
+  const [order, setOrder] = useState<string[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,6 +38,15 @@ export function useTrackProject(projectId: string) {
       .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
     return () => controller.abort();
   }, [projectId]);
+
+  // The workspace's preferred order of distributors puts them first in the choice.
+  useEffect(() => {
+    const controller = new AbortController();
+    getAssessmentSettings(controller.signal)
+      .then((view) => setOrder(view.settings.prefer_distributors ? (view.settings.distributor_order ?? []) : []))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   // After a budget is raised the distributors are read again; the choices stay as they are.
   useEffect(() => {
@@ -70,7 +80,10 @@ export function useTrackProject(projectId: string) {
   // Distributors for the choice: the ones every project uses by default, plus any assembly-only one a person adds.
   const defaults = useMemo(() => connectors.flatMap((item) => (item.assembly_only ? [] : [item.id])), [connectors]);
   const assembly = useMemo(() => connectors.filter((item) => item.assembly_only), [connectors]);
-  const regular = useMemo(() => connectors.filter((item) => !item.assembly_only), [connectors]);
+  const regular = useMemo(() => {
+    const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
+    return connectors.filter((item) => !item.assembly_only).sort((a, b) => rank(a.id) - rank(b.id));
+  }, [connectors, order]);
   const ids = chosen ?? defaults;
   const choice = useMemo(
     () => ({ variants, all_variants: allVariants, packaging, connector_ids: chosen }),

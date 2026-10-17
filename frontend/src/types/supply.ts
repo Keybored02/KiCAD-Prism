@@ -341,6 +341,8 @@ export interface SupplyBomLineResult {
   buy?: SupplyBomBuy | null;
   /** Set on the later lines of a part: the key of the line that carries the purchase. */
   bought_with?: string | null;
+  /** The distributor a person prefers for the part, and what it holds. */
+  preferred?: { connector_id: string; connector_name: string; provider: string; stock: number } | null;
   /** How the part stands: its health, status and how many findings still count. */
   assessment?: { health: number; status: SupplyStatus; open: number; checks?: string[] };
 }
@@ -574,7 +576,7 @@ export interface SupplyPartRow {
   price_change_percent?: number | null;
   /** The shortest lead time quoted, in days. */
   lead_days?: number | null;
-  /** Problems the row shows as icons: waiting, rohs, reach. */
+  /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked, no_alternate. */
   flags?: string[];
 }
 
@@ -1051,6 +1053,8 @@ export interface PartHistory {
     price: Array<[string, number]>;
   }>;
   total: Array<[string, number]>;
+  /** Days worth marking on the axis: a restock, or a product change notice. */
+  events: Array<{ day: string; kind: "restock" | "notice"; text: string }>;
 }
 
 export interface BudgetNotices {

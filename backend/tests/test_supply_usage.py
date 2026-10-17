@@ -311,6 +311,14 @@ class UsageDatabaseTests(unittest.TestCase):
         self.assertTrue(stats["bom_read_at"])
         self.assertNotIn("cost_per_board", stats, "only a tracked project has a cost")
 
+    def test_a_row_flags_ncnr_and_parts_not_normally_stocked(self) -> None:
+        part_id = self.part("Acme", "FLAGGED")
+        with self.store.connection() as conn:
+            for name, value in (("ncnr", "Yes"), ("normally_stocking", "No")):
+                conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', %s, %s, NOW())", (part_id, name, value))
+        rows = {item["mpn"]: item for item in self.call("GET", "/api/supply/parts", query="scope=all").json["items"]}
+        self.assertEqual(sorted(rows["FLAGGED"]["flags"]), ["ncnr", "not_stocked"])
+
     def test_the_followed_scope_is_what_is_tracked_or_in_a_project(self) -> None:
         self.part("Acme", "IN-PROJECT")
         self.part("Acme", "TRACKED-ONLY", watch=True)

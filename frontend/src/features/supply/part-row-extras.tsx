@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Clock, Hourglass, ShieldAlert, Timer } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, Clock, GitFork, Hourglass, PackageX, ShieldAlert, Timer } from "lucide-react";
 
 import type { SupplyPartRow } from "@/types/supply";
 import { vendorColor } from "./vendor-colors";
@@ -7,6 +7,9 @@ const FLAG: Record<string, { icon: typeof Hourglass; text: string }> = {
   waiting: { icon: Hourglass, text: "Waiting for room to be read" },
   rohs: { icon: ShieldAlert, text: "A distributor says it is not RoHS compliant" },
   reach: { icon: ShieldAlert, text: "A distributor says REACH affects it" },
+  ncnr: { icon: Ban, text: "Non-cancellable, non-returnable" },
+  not_stocked: { icon: PackageX, text: "A distributor does not normally stock it" },
+  no_alternate: { icon: GitFork, text: "At risk and no approved alternate" },
 };
 
 /** The projects using the part: the first two by name, then how many more. */

@@ -67,6 +67,9 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
             <ReferenceLine y={threshold} stroke="hsl(var(--destructive))" strokeDasharray="4 4"
               label={{ value: "Threshold", position: "insideBottomRight", fill: "hsl(var(--destructive))", fontSize: 11 }} />
           ) : null}
+          {history.events.filter((event) => rows.some((row) => row.day === event.day)).map((event, index) => (
+            <ReferenceLine key={`${event.kind}-${event.day}-${index}`} x={event.day} stroke={event.kind === "restock" ? "hsl(var(--success))" : "hsl(var(--warning))"} strokeDasharray="2 3" ifOverflow="hidden" />
+          ))}
           {keys.map((item) => (
             <Line
               key={item.key} dataKey={item.key} name={item.name} type="stepAfter" stroke={item.color} strokeWidth={item.total ? 1 : 2}

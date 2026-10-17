@@ -155,6 +155,13 @@ def _preferred_for(part_id: str, own: Mapping[str, str], settings) -> list[str]:
     return list(dict.fromkeys([*([own[part_id]] if part_id in own else []), *settings.distributor_order]))
 
 
+def _preferred_standing(offers: Sequence[Mapping[str, Any]], connector_id: str | None) -> dict[str, Any] | None:
+    mine = [offer for offer in offers if offer.get("connector_id") == connector_id and not offer["marketplace"]] if connector_id else []
+    if not mine:
+        return None
+    return {"connector_id": connector_id, "connector_name": mine[0]["connector_name"], "provider": mine[0]["provider"], "stock": sum(int(o["stock"] or 0) for o in mine)}
+
+
 def _best_purchase(
     offers: Sequence[Mapping[str, Any]], need: int, rates: fx.Rates | None = None, base: str = "EUR", preferred: Sequence[str] = ()
 ) -> dict[str, Any] | None:
@@ -308,7 +315,7 @@ def lookup(
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 
     rates = fx.latest(conn)
-    preferred_of = preferences.of_parts(conn, list(per_board)) if settings.prefer_distributors else {}
+    preferred_of = preferences.of_parts(conn, list(per_board))
     results: dict[str, dict[str, Any]] = {}
     for line in lines:
         state, part_id, how = resolved[line.key]
@@ -333,6 +340,8 @@ def lookup(
                 # Only the first line of a part carries the purchase; the others say where it is.
                 "buy": _best_purchase(offers_here, part_need, rates, settings.base_currency, _preferred_for(part_id, preferred_of, settings)) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
+                # The distributor a person prefers for this part, with what it holds, shown first in the drawer.
+                "preferred": _preferred_standing(offers_here, preferred_of.get(part_id)),
                 "assessment": _assessment_line(assessed[part_id]),
             }
         results[line.key] = entry

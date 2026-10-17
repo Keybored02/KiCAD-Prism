@@ -409,6 +409,22 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual([point[1] for point in sim["stock"]], [50, 50, 40], "stepped from reading to reading, one point a day")
         self.assertEqual(sim["price"][-1][1], 0.5)
         self.assertEqual(data["total"][-1][1], 50, "what counts across both")
+        self.assertEqual(data["events"], [], "no restock and no notice in this history")
+
+    def test_the_history_marks_a_restock_and_a_notice(self) -> None:
+        from app.services.supply import part_history
+
+        part_id = self.part("Acme", "MARKS")
+        self.offer(part_id, "M", stock=900, price="0.5")
+        with self.store.connection() as conn:
+            listing = self.listing_of(conn, "M")
+            for day, amount in ((27, 100), (28, 100), (1, 900)):
+                moment = datetime(2026, 2 if day > 1 else 3, day, 8, tzinfo=timezone.utc)
+                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, moment, amount))
+            conn.execute("INSERT INTO pcns (id, title, kind, published_on, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", (datetime(2026, 2, 28).date(),))
+            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (part_id,))
+            events = part_history.build(conn, part_id, NOW, 30)["events"]
+        self.assertEqual([(item["day"], item["kind"]) for item in events], [("2026-02-28", "notice"), ("2026-03-01", "restock")])
 
     def listing_of(self, conn, sku: str) -> str:
         return conn.execute("SELECT id FROM listings WHERE sku = %s", (sku,)).fetchone()["id"]

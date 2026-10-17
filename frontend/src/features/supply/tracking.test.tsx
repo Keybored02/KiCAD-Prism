@@ -10,7 +10,7 @@ vi.mock("./tracking-api", () => ({
   getPartTracking: vi.fn(), previewPartTier: vi.fn(), setPartTier: vi.fn(), stopTrackingPart: vi.fn(),
   chooseTrackLine: vi.fn(), getTrackProgress: vi.fn(),
 }));
-vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn(), updateSupplyConnector: vi.fn() }));
+vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn(), updateSupplyConnector: vi.fn(), getAssessmentSettings: vi.fn() }));
 
 import * as api from "./tracking-api";
 import * as supply from "./supply-api";
@@ -31,8 +31,23 @@ const preview = (extra: Partial<TrackingPreview> = {}): TrackingPreview => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(supply.listSupplyConnectors).mockResolvedValue([connector("c1", "DigiKey"), connector("j1", "JLCPCB", { assembly_only: true })]);
+  vi.mocked(supply.getAssessmentSettings).mockRejectedValue(new Error("not needed"));
 });
 afterEach(cleanup);
+
+describe("the distributors in the track dialog", () => {
+  it("lists them in the workspace's preferred order when that is on", async () => {
+    vi.mocked(supply.listSupplyConnectors).mockResolvedValue([connector("c1", "DigiKey"), connector("c2", "Mouser")]);
+    vi.mocked(supply.getAssessmentSettings).mockResolvedValue({ settings: { prefer_distributors: true, distributor_order: ["c2", "c1"] } } as never);
+    tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
+    tracking.previewTrackProject.mockResolvedValue(preview());
+    render(<MemoryRouter><TrackProjectButton projectId="prj_1" /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: /Track this project/ }));
+    await screen.findByLabelText("Mouser");
+    const labels = screen.getAllByRole("checkbox").map((box) => box.id);
+    expect(labels.indexOf("con-c2")).toBeLessThan(labels.indexOf("con-c1"));
+  });
+});
 
 describe("the track button of a tracked project", () => {
   it("shows a Tracked chip and a settings button instead of asking to track again", async () => {

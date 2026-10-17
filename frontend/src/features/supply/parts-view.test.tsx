@@ -64,7 +64,7 @@ beforeEach(() => {
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
   mocked.getPartHistory.mockResolvedValue({
-    days: 90, currency: "EUR", total: [["2026-03-01", 12500]],
+    days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
     connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [] }],
   });
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
@@ -223,7 +223,7 @@ describe("a part", () => {
   });
 
   it("asks for history rather than drawing a line through nothing", async () => {
-    mocked.getPartHistory.mockResolvedValue({ days: 90, currency: "EUR", connectors: [], total: [] });
+    mocked.getPartHistory.mockResolvedValue({ days: 90, currency: "EUR", connectors: [], total: [], events: [] });
     renderView("designer", "/?part=p1");
     expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
   });

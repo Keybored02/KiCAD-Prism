@@ -55,6 +55,10 @@ def _segments(points: Sequence[Point]) -> list[list[Point]]:
     return segments
 
 
+def is_restock(before: int, after: int) -> bool:
+    return _is_restock(before, after)
+
+
 def _is_restock(before: int, after: int) -> bool:
     rise = after - before
     return rise > 0 and (before == 0 or rise >= RESTOCK_SHARE * before)

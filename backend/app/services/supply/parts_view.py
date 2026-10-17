@@ -466,6 +466,22 @@ def list_parts(
     return {"items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None}
 
 
+def _parts_with_alternate(conn) -> set[str]:
+    """The parts that are the primary of a catalog component with at least one approved alternate."""
+
+    from app.services.supply import catalog_read
+
+    components = [row["component_id"] for row in conn.execute("SELECT DISTINCT component_id FROM component_sources WHERE approval = 'approved'").fetchall()]
+    if not components:
+        return set()
+    found = set()
+    for maker, mpn in catalog_read.identities(components).values():
+        primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
+        if primary:
+            found.add(primary.id)
+    return found
+
+
 def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> dict[str, dict[str, Any]]:
     """What a row shows beyond the summary: the first projects, the distributors that list the part, the price move, the lead time, flags."""
 
@@ -479,6 +495,12 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
     offers = offers_by_part(conn, ids)
     waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
+    stated: dict[str, dict[str, set[str]]] = {}
+    for row in conn.execute(
+        "SELECT part_id, name, value FROM part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
+    ).fetchall():
+        stated.setdefault(row["part_id"], {}).setdefault(row["name"], set()).add(row["value"].strip().lower())
+    with_alternate = _parts_with_alternate(conn)
     extras = {}
     for item in page:
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
@@ -493,6 +515,12 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
             flags.append("rohs")
         if any(offer["reach_affected"] for offer in here):
             flags.append("reach")
+        if "yes" in stated.get(item["id"], {}).get("ncnr", set()):
+            flags.append("ncnr")
+        if "no" in stated.get(item["id"], {}).get("normally_stocking", set()):
+            flags.append("not_stocked")
+        if item["status"] in ("error", "fatal") and item["id"] not in with_alternate:
+            flags.append("no_alternate")
         facts_here = kept.get(item["id"]) or {}
         projects_here = sorted(names.get(project) or project for project in projects.get(item["id"], set()))
         extras[item["id"]] = {

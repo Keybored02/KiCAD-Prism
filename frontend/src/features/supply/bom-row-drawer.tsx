@@ -1,4 +1,4 @@
-import { ExternalLink, Eye } from "lucide-react";
+import { ExternalLink, Eye, Star } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -128,6 +128,14 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
       ) : null}
       {result.lead_time_days !== null && result.lead_time_days !== undefined ? <p className="text-xs text-muted-foreground">Lead time {result.lead_time_days} days.</p> : null}
       {result.bought_with ? <p className="text-xs text-muted-foreground">Bought together with another line of this part.</p> : null}
+      {result.preferred ? (
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <Star className="h-3 w-3 fill-current text-primary" aria-hidden />Preferred:{" "}
+          <VendorName provider={result.preferred.provider} name={result.preferred.connector_name} />
+          {` holds ${result.preferred.stock.toLocaleString()}`}
+          {buy && buy.connector_name !== result.preferred.connector_name ? `, not used for this build${result.preferred.stock < (result.part_need ?? result.need) ? ": not enough stock" : ""}` : ""}.
+        </p>
+      ) : null}
       {buy ? (
         <p>
           Buy {buy.quantity.toLocaleString()} from <VendorName provider={buy.provider} name={buy.connector_name} />{" "}
