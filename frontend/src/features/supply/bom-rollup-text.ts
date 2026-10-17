@@ -39,13 +39,13 @@ export function rollupSentences(rollup: SupplyBomRollup, build: number, lines: r
   }
 
   if (rollup.cost_build !== null && rollup.currency) {
-    const each = rollup.cost_per_board ? ` (${formatPrice(rollup.cost_per_board, rollup.currency)} each)` : "";
+    const each = rollup.cost_per_board ? ` (${formatPrice(rollup.cost_per_board, rollup.currency)} a board in use)` : "";
     // A cost that leaves lines out is not the cost of the BOM, so it says how much it covers.
     const covers = rollup.lines_priced < rollup.lines ? `, covers ${rollup.lines_priced.toLocaleString()} of ${plural(rollup.lines, "line", "lines")}` : "";
     sentences.push({
       kind: "cost",
       short: `${formatPrice(rollup.cost_build, rollup.currency)}${rollup.lines_priced < rollup.lines ? "+" : ""}`,
-      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${covers}${rollup.converted && rollup.rates_day ? `, converted at the rates of ${rollup.rates_day}${originals(rollup)}` : ""}, list prices without VAT or shipping`,
+      text: `${formatPrice(rollup.cost_build, rollup.currency)} to buy for ${plural(build, "board", "boards")}${each}${covers}${rollup.converted && rollup.rates_day ? `, converted at the rates of ${rollup.rates_day}${originals(rollup)}` : ""}, list prices without VAT or shipping`,
       tone: rollup.lines_priced < rollup.lines ? "warn" : "plain",
     });
   } else if (rollup.priced > 0) {

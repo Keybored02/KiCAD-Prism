@@ -136,7 +136,7 @@ describe("the rollup in words", () => {
     const sentences = rollupSentences(rollup, 10, lines);
     expect(text(sentences)).toEqual([
       "Stock covers 10 boards",
-      expect.stringMatching(/24\.00.* for 10 boards \(.*2\.40.* each\), covers 7 of 10 lines/),
+      expect.stringMatching(/24\.00.* to buy for 10 boards \(.*2\.40.* a board in use\), covers 7 of 10 lines/),
       "1 at risk",
       "Health 7.5 of 10",
       "2 short for this build",

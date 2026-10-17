@@ -443,7 +443,8 @@ def _rollup(
             if converted else {}
         ),
         "waste_cost": format(waste.quantize(Decimal("0.01")), "f") if waste is not None else None,
-        "cost_per_board": format((total / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
+        # What a board uses: the money out ("cost_build") less the pieces bought beyond the need, per board.
+        "cost_per_board": format(((total - (waste or Decimal(0))) / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
         "can_build": can_build,
         "limited_by": limiting,
         "without_stock_data": sum(1 for entry in leaders if entry["stock"] is None),

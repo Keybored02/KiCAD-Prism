@@ -1617,6 +1617,22 @@ def _m066_drop_demands(conn) -> None:
     conn.execute("DROP TABLE IF EXISTS demands", prepare=False)
 
 
+def _m067_cost_history_outliers(conn) -> None:
+    """A Farnell pack priced as one piece (a coin cell at EUR 1,476) made some projects' cost per board absurd; those days go."""
+
+    conn.execute(
+        """
+        DELETE FROM bom_cost_history h
+        USING (
+            SELECT project_id, variant, percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_board) AS median
+            FROM bom_cost_history GROUP BY project_id, variant
+        ) m
+        WHERE h.project_id = m.project_id AND h.variant = m.variant AND m.median > 0 AND h.cost_per_board > m.median * 100
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1684,6 +1700,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (64, "maker_seeds_added", _m064_maker_seeds_added),
     (65, "family_done", _m065_family_done),
     (66, "drop_demands", _m066_drop_demands),
+    (67, "cost_history_outliers", _m067_cost_history_outliers),
 ]
 
 

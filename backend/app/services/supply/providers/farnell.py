@@ -217,14 +217,20 @@ def _match(product: Mapping[str, Any], sku: str, number: str, store: str = "") -
     )
 
 
+def _pack(product: Mapping[str, Any]) -> int:
+    """Pieces in the unit Farnell sells: 1000 for "CONFEZIONE DA 1000". Prices, breaks, stock and minimum are in these units."""
+    return max(parse_count(product.get("packSize")) or 1, 1)
+
+
 def _price_breaks(product: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
+    pack = _pack(product)
     tiers: dict[int, Decimal] = {}
     for band in product.get("prices") or []:
         if not isinstance(band, dict):
             continue
         quantity, cost = parse_count(band.get("from")), parse_decimal(band.get("cost"))
         if quantity and cost is not None and cost >= 0:
-            tiers.setdefault(quantity, cost)
+            tiers.setdefault(quantity * pack, cost / pack)
     return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
 
 
@@ -235,21 +241,23 @@ def _rohs(code: object) -> bool | None:
         return True
     if value in ("NO", "N"):
         return False
-    if value:
+    # "NA" was seen live on a coin cell: the rule does not apply.
+    if value and value != "NA":
         note(KEY, "RoHS code", value)
     return None
 
 
 def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, store: str = "") -> Offer:
     stock_info = product.get("stock") if isinstance(product.get("stock"), dict) else {}
-    stock = parse_count(stock_info.get("level")) or 0
+    pack = _pack(product)
+    stock = (parse_count(stock_info.get("level")) or 0) * pack
     status = str(product.get("productStatus") or "").strip().upper()
     if status and status not in _STATUS_KNOWN:
         note(KEY, "product status", status)
     release = parse_count(product.get("releaseStatusCode"))
     ended = status == _STATUS_ENDED or stock_info.get("status") == _STOCK_STATUS_ENDED
     breaks = _price_breaks(product) if currency else ()
-    moq = max(parse_count(product.get("translatedMinimumOrderQuality")) or 1, 1)
+    moq = max(parse_count(product.get("translatedMinimumOrderQuality")) or 1, 1) * pack
     lead = parse_count(stock_info.get("leastLeadTime"))
     return Offer(
         provider=KEY,
@@ -259,8 +267,8 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, s
         stock=stock,
         fetched_at=now,
         moq=moq,
-        # packSize is read as the multiple an order must come in: a pack is the smallest thing sold.
-        order_multiple=max(parse_count(product.get("packSize")) or 1, 1),
+        # A pack is the smallest thing sold: the price is the pack's, so everything above is in pieces.
+        order_multiple=pack,
         price_breaks=breaks,
         currency=currency if breaks else "",
         lead_time_days=lead if lead is not None and stock < moq else None,

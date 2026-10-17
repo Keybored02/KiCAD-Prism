@@ -80,7 +80,7 @@ function Stats({ supply }: { supply: ProjectSupply }) {
       <Stat icon={Banknote} label="Per board" value={rollup.cost_per_board && rollup.currency ? formatPrice(rollup.cost_per_board, rollup.currency) : "No total"} />
       <Stat icon={Hourglass} label="Waiting for room" value={String(waiting)} bad={waiting > 0} />
       <Stat icon={Clock} label="Oldest read" value={oldest ? formatAgo(oldest) : "None yet"} />
-      {rollup.waste_cost && Number(rollup.waste_cost) > 0 && rollup.currency ? <Stat icon={PackageMinus} label="Rounding waste" value={formatPrice(rollup.waste_cost, rollup.currency)} /> : null}
+      {rollup.waste_cost && Number(rollup.waste_cost) > 0 && rollup.currency ? <Stat icon={PackageMinus} label="Left over" value={formatPrice(rollup.waste_cost, rollup.currency)} /> : null}
       <Stat icon={Ban} label="End of life" value={String(parts.filter((part) => part.lifecycle && part.lifecycle !== "active" && part.lifecycle !== "unknown").length)} />
     </div>
   );

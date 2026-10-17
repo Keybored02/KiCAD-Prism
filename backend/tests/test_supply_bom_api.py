@@ -360,6 +360,14 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((rollup["currency"], rollup["cost_build"], rollup["cost_per_board"]), ("EUR", "24.00", "2.4000"))
         self.assertEqual((rollup["can_build"], rollup["limited_by"]), (15, "b"), "30 pieces at 2 a board: 15 boards")
 
+    def test_cost_per_board_leaves_out_what_a_minimum_order_buys_beyond_the_need(self) -> None:
+        part_id = self.part("Acme", "CELL")
+        self.offer(part_id, "PACK", stock=50000, price="1.476", moq=1000, multiple=1000)
+        rollup = self.lookup([{"key": "c", "manufacturer": "Acme", "mpn": "CELL", "quantity": 1}], build=1)["rollup"]
+        self.assertEqual(rollup["cost_build"], "1476.00", "to buy for one board: the whole pack")
+        self.assertEqual(rollup["cost_per_board"], "1.4760", "what one board uses")
+        self.assertEqual(rollup["waste_cost"], "1474.52", "left over")
+
     def test_attrition_adds_spares_to_the_need_and_takes_them_off_what_can_be_built(self) -> None:
         part_id = self.part("Acme", "R1")
         self.offer(part_id, "A", stock=105)
