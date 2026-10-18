@@ -52,8 +52,8 @@ def from_text(text: object) -> Packaging:
     return Packaging.OTHER
 
 
-def infer(sku: str, moq: int, order_multiple: int) -> Packaging:
-    """A guess from the SKU and the order terms, or UNKNOWN."""
+def infer(sku: str, moq: int, order_multiple: int, first_break: int | None = None) -> Packaging:
+    """A guess from the SKU and the order terms, or UNKNOWN. ``first_break`` is the quantity of the first price break."""
 
     code = sku.strip().upper()
     match = re.search(r"-(\d)-ND$", code)
@@ -63,5 +63,8 @@ def infer(sku: str, moq: int, order_multiple: int) -> Packaging:
         if pattern.search(code):
             return packaging
     if moq >= REEL_MOQ and order_multiple == moq:
+        return Packaging.TAPE_REEL
+    # Priced only from a whole reel up: nothing smaller is sold.
+    if moq >= REEL_MOQ and first_break == moq:
         return Packaging.TAPE_REEL
     return Packaging.UNKNOWN

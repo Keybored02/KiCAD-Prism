@@ -586,6 +586,12 @@ export interface SupplyRowOffer {
   stock: number;
   moq: number;
   packaging: string;
+  /** Pieces on a full reel, when known. */
+  reel_size?: number | null;
+  /** The packaging was guessed, not stated. */
+  packaging_inferred?: boolean;
+  /** The distributor's page for this number. */
+  product_url?: string;
   currency: string;
   price_breaks: Array<[number, string]>;
 }

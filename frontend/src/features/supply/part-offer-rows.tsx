@@ -1,7 +1,9 @@
+import { ExternalLink } from "lucide-react";
+
 import type { SupplyPartRow } from "@/types/supply";
 import { PackagingChip } from "./packaging-chip";
 import { priceAt, PRICE_QUANTITIES } from "./parts-layout";
-import { formatPrice } from "./supply-format";
+import { formatPrice, packagingName } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
 
 const HEAD = "px-2 py-1 font-normal";
@@ -27,12 +29,20 @@ export function PartOfferRows({ part }: { part: SupplyPartRow }) {
             <td className="px-2 py-1">
               <span className="inline-flex items-center gap-1.5 font-medium">
                 <span aria-hidden className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: vendorColor(offer.provider) ?? "#6b7280" }} />
-                {offer.name}
+                {offer.product_url ? (
+                  <a
+                    href={offer.product_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"
+                    aria-label={`Open ${part.mpn} at ${offer.name}`} title={`Open ${offer.sku} at ${offer.name}`}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {offer.name}<ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : offer.name}
               </span>
             </td>
             <td className={`px-2 py-1 text-right tabular-nums ${offer.stock > 0 ? "" : "text-muted-foreground"}`}>{offer.stock.toLocaleString()}</td>
             <td className="px-2 py-1 text-right tabular-nums">{offer.moq > 0 ? offer.moq.toLocaleString() : "–"}</td>
-            <td className="px-2 py-1"><PackagingChip packaging={offer.packaging} />{offer.packaging === "unknown" ? "–" : null}</td>
+            <td className="px-2 py-1"><PackagingChip packaging={offer.packaging} reelSize={offer.reel_size} inferred={offer.packaging_inferred} />{packagingName(offer.packaging) ? null : <span className="text-muted-foreground">–</span>}</td>
             {PRICE_QUANTITIES.map((quantity) => {
               const price = priceAt(offer.price_breaks, quantity);
               return <td key={quantity} className="px-2 py-1 text-right tabular-nums">{price === null ? <span className="text-muted-foreground">–</span> : formatPrice(price, offer.currency)}</td>;

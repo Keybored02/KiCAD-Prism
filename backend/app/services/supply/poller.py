@@ -356,7 +356,8 @@ class Poller:
         if self._bom_link_is_wrong(conn, row, offer):
             return
         if offer.packaging is Packaging.UNKNOWN:
-            guess = packaging_hints.infer(offer.sku, offer.moq, offer.order_multiple)
+            guess = packaging_hints.infer(
+                offer.sku, offer.moq, offer.order_multiple, offer.price_breaks[0].quantity if offer.price_breaks else None)
             if guess is not Packaging.UNKNOWN:
                 offer = replace(offer, packaging=guess, packaging_inferred=True)
         price = pricing.unit_price_at(

@@ -55,6 +55,15 @@ class PackagingReadingTests(unittest.TestCase):
         self.assertEqual(packaging_hints.infer("ABC123-CT", 1, 1), Packaging.CUT_TAPE)
         self.assertEqual(packaging_hints.infer("XYZ", 3000, 3000), Packaging.TAPE_REEL, "a whole reel ordered by the reel")
         self.assertEqual(packaging_hints.infer("XYZ", 3000, 1), Packaging.UNKNOWN)
+        self.assertEqual(packaging_hints.infer("XYZ", 3000, 1, 3000), Packaging.TAPE_REEL, "priced only from a whole reel up")
+        self.assertEqual(packaging_hints.infer("XYZ", 3000, 1, 1), Packaging.UNKNOWN)
+
+    def test_farnell_reads_a_re_reeled_length_when_the_unit_says_nothing(self) -> None:
+        from app.services.supply.providers import farnell
+
+        self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH", "reeling": True}), Packaging.CUSTOM_REEL)  # noqa: SLF001
+        self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH", "reeling": False}), Packaging.UNKNOWN)  # noqa: SLF001
+        self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH (SUPPLIED ON CUT TAPE)", "reeling": True}), Packaging.CUT_TAPE)  # noqa: SLF001
 
 
 if __name__ == "__main__":

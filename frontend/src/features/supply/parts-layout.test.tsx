@@ -27,7 +27,7 @@ describe("the layouts", () => {
   const part = partRowFixture({
     mpn: "LM358",
     offers: [
-      { connector_id: "c1", provider: "mouser", name: "Mouser", sku: "M-1", stock: 1200, moq: 10, packaging: "cut_tape", currency: "EUR", price_breaks: BREAKS },
+      { connector_id: "c1", provider: "mouser", name: "Mouser", sku: "M-1", stock: 1200, moq: 10, packaging: "cut_tape", currency: "EUR", price_breaks: BREAKS, product_url: "https://www.mouser.com/ProductDetail/M-1" },
       { connector_id: "c2", provider: "lcsc", name: "LCSC", sku: "C1", stock: 0, moq: 1, packaging: "tape_reel", currency: "USD", price_breaks: [[1, "0.60"]] },
     ],
   });
@@ -56,6 +56,24 @@ describe("the layouts", () => {
     expect(within(mouser).getByText("Cut tape")).toBeTruthy();
     expect(within(mouser).getAllByText("–")).toHaveLength(1);
     expect(within(vendors).getByText("LCSC").closest("tr")!.textContent).toContain("Reel");
+  });
+
+  it("links each vendor to its page and drops the stock graph", () => {
+    const onOpen = vi.fn();
+    render(<PartsTable layout="detailed" items={[{ ...part, spark: [1, 2, 3] }]} selectedId={null} onOpen={onOpen} />);
+    const link = screen.getByRole("link", { name: "Open LM358 at Mouser" });
+    expect(link.getAttribute("href")).toBe("https://www.mouser.com/ProductDetail/M-1");
+    expect(link.getAttribute("target")).toBe("_blank");
+    fireEvent.click(link);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Stock over the last 30 days")).toBeNull();
+    expect(within(screen.getByRole("table", { name: "Vendors of LM358" })).getAllByText("–").length).toBeGreaterThan(0);
+  });
+
+  it("puts the manufacturer beside the part number", () => {
+    render(<PartsTable items={[{ ...part, manufacturer: "Texas Instruments" }]} selectedId={null} onOpen={vi.fn()} />);
+    const name = screen.getByRole("button", { name: "LM358" });
+    expect(name.parentElement?.textContent).toContain("Texas Instruments");
   });
 
   it("switches by two icons", () => {

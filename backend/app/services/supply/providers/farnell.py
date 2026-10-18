@@ -240,10 +240,13 @@ _SUPPLIED_ON = re.compile(r"SUPPLIED ON ([A-Z &]+)")
 
 
 def _packaging(product: Mapping[str, Any]) -> Packaging:
-    """Farnell words it in the unit: "EACH (SUPPLIED ON CUT TAPE)", "EACH (SUPPLIED ON FULL REEL)". Other units say nothing."""
+    """Farnell words it in the unit: "EACH (SUPPLIED ON CUT TAPE)", "EACH (SUPPLIED ON FULL REEL)". Other units say nothing, but ``reeling`` marks a re-reeled length."""
 
     found = _SUPPLIED_ON.search(str(product.get("unitOfMeasure") or "").upper())
-    return packaging_hints.from_text(found.group(1)) if found else Packaging.UNKNOWN
+    if found:
+        return packaging_hints.from_text(found.group(1))
+    # A unit with no words on it, but sold re-reeled: a length of tape wound on a reel.
+    return Packaging.CUSTOM_REEL if product.get("reeling") is True else Packaging.UNKNOWN
 
 
 def _rohs(code: object) -> bool | None:

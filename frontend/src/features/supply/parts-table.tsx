@@ -48,22 +48,24 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             >
               <td className="px-3 py-2"><StatusDot status={part.status} /></td>
               <td className="px-3 py-2">
-                <button
-                  type="button"
-                  className="text-left font-medium hover:underline"
-                  onClick={(event) => { event.stopPropagation(); onOpen(part.id); }}
-                >
-                  {part.mpn}
-                </button>
-                <span className="ml-1.5"><JlcIcon jlc={part.jlc} /></span>
-                <div className="text-xs text-muted-foreground">{part.manufacturer}{part.manufacturer_provisional ? " (not confirmed)" : ""}</div>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <button
+                    type="button"
+                    className="text-left font-medium hover:underline"
+                    onClick={(event) => { event.stopPropagation(); onOpen(part.id); }}
+                  >
+                    {part.mpn}
+                  </button>
+                  <span className="text-xs text-muted-foreground">{part.manufacturer}{part.manufacturer_provisional ? " (not confirmed)" : ""}</span>
+                  <JlcIcon jlc={part.jlc} />
+                </div>
                 {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
                 <ProjectNames part={part} />
                 <RateAndLead part={part} />
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
-                {part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
+                {!detailed && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
                 {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
                   ? <RowRunout part={part} state={forecastState.runout} />
                   : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}

@@ -19,7 +19,8 @@ from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
 from app.services.supply.tiers import SCHEDULES
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.providers import packaging_hints
+from app.services.supply.vocabulary import Lifecycle, Packaging
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
@@ -126,7 +127,7 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
     for row in conn.execute(
         """
         SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
-               o.stock, o.marketplace, o.packaging, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
+               o.stock, o.marketplace, o.packaging, o.reel_size, o.packaging_inferred, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
                o.order_multiple, o.lead_time_days, o.product_url, ps.tier
         FROM listings l
         JOIN offers o ON o.listing_id = l.id
@@ -466,6 +467,17 @@ def _parts_with_alternate(conn) -> set[str]:
     return found
 
 
+def _packaging_of(offer: dict[str, Any]) -> dict[str, Any]:
+    """The packaging as stated, or a guess from the number and the order terms (marked as one) where the distributor says nothing."""
+
+    stated = offer["packaging"] or Packaging.UNKNOWN.value
+    if stated != Packaging.UNKNOWN.value:
+        return {"packaging": stated, "reel_size": offer["reel_size"], "packaging_inferred": bool(offer["packaging_inferred"])}
+    first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
+    guess = packaging_hints.infer(str(offer["sku"]), int(offer["moq"] or 0), int(offer["order_multiple"] or 0), first)
+    return {"packaging": guess.value, "reel_size": None, "packaging_inferred": guess is not Packaging.UNKNOWN}
+
+
 def _offer_lines(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Each distributor's offer as the detailed list shows it: stock, smallest order, packaging and price breaks, in its own currency."""
 
@@ -473,7 +485,8 @@ def _offer_lines(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         (
             {
                 "connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "sku": offer["sku"],
-                "stock": int(offer["stock"] or 0), "moq": int(offer["moq"] or 0), "packaging": offer["packaging"] or "unknown",
+                "stock": int(offer["stock"] or 0), "moq": int(offer["moq"] or 0), **_packaging_of(offer),
+                "product_url": offer["product_url"] or "",
                 "currency": offer["currency"] or "", "price_breaks": [[int(quantity), str(price)] for quantity, price in offer["price_breaks"] or []],
             }
             for offer in offers
