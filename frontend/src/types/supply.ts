@@ -578,6 +578,18 @@ export interface SupplyHeadlinePrice {
   price_unrated: string[];
 }
 
+export interface SupplyRowOffer {
+  connector_id: string;
+  provider: string;
+  name: string;
+  sku: string;
+  stock: number;
+  moq: number;
+  packaging: string;
+  currency: string;
+  price_breaks: Array<[number, string]>;
+}
+
 export interface SupplyPartRow {
   id: string;
   jlc?: JlcClass | null;
@@ -622,6 +634,8 @@ export interface SupplyPartRow {
   project_names?: string[];
   /** The distributors that list it: stock above zero is filled. */
   distributors?: Array<{ connector_id: string; provider: string; name: string; stock: number; price?: string | null; currency?: string }>;
+  /** Each distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price]. */
+  offers?: SupplyRowOffer[];
   preferred_connector_id?: string | null;
   /** Cheapest price over 30 days, in percent. */
   price_change_percent?: number | null;

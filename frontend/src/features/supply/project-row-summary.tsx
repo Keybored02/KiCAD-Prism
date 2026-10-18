@@ -9,7 +9,7 @@ const ORDER: readonly SupplyStatus[] = ["fatal", "error", "warning", "ok", "unkn
 /** The parts of a project by status, as one thin bar. */
 export function StatusBar({ group }: { group: SupplyPartGroup }) {
   return (
-    <span role="img" aria-label="Parts by status" className="flex h-1.5 w-40 overflow-hidden bg-muted">
+    <span role="img" aria-label="Parts by status" className="flex h-1.5 w-56 overflow-hidden bg-muted">
       {ORDER.map((status) => {
         const count = group.statuses[status] ?? 0;
         return count > 0 ? <span key={status} className={STATUS_FILL[status]} style={{ width: `${(count / group.count) * 100}%` }} /> : null;

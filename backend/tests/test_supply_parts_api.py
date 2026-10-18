@@ -360,6 +360,9 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertIn(item["status"], ("ok", "warning"))
         self.assertEqual(item["tier"], "weekly", "read on the schedule of its tracking rate")
         self.assertEqual(item["fetched_at"], self.now.isoformat())
+        (line,) = item["offers"]
+        self.assertEqual((line["connector_id"], line["stock"], line["moq"]), (cid, expected.stock, expected.moq))
+        self.assertEqual(line["price_breaks"], [[b.quantity, str(b.unit_price)] for b in expected.price_breaks])
 
     def test_status_follows_what_the_market_says(self) -> None:
         cid = self.fake_connector()

@@ -466,6 +466,22 @@ def _parts_with_alternate(conn) -> set[str]:
     return found
 
 
+def _offer_lines(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each distributor's offer as the detailed list shows it: stock, smallest order, packaging and price breaks, in its own currency."""
+
+    return sorted(
+        (
+            {
+                "connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "sku": offer["sku"],
+                "stock": int(offer["stock"] or 0), "moq": int(offer["moq"] or 0), "packaging": offer["packaging"] or "unknown",
+                "currency": offer["currency"] or "", "price_breaks": [[int(quantity), str(price)] for quantity, price in offer["price_breaks"] or []],
+            }
+            for offer in offers
+        ),
+        key=lambda line: (line["name"].lower(), line["sku"]),
+    )
+
+
 def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> dict[str, dict[str, Any]]:
     """What a row shows beyond the summary: the first projects, the distributors that list the part, the price move, the lead time, flags."""
 
@@ -514,6 +530,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         extras[item["id"]] = {
             "project_names": projects_here[:2],
             "distributors": sorted(by_connector.values(), key=lambda entry: entry["name"].lower()),
+            "offers": _offer_lines(here),
             "preferred_connector_id": preferred.get(item["id"]),
             "price_change_percent": facts_here.get("price_change_percent"),
             "forecast": (facts_here.get("forecast") or None) if (facts_here.get("forecast") or {}).get("available") else None,

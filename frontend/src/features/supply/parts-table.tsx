@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { ForecastState, SupplyPartRow } from "@/types/supply";
+import { PartOfferRows } from "./part-offer-rows";
+import type { PartsLayout } from "./parts-layout";
 import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatStock, PROBLEM_LABEL } from "./supply-format";
@@ -18,9 +20,11 @@ interface PartsTableProps {
   forecastState?: Partial<Record<"runout" | "out_4w" | "can_buy_4w" | "can_buy_8w", ForecastState>>;
   /** The column names stay at the top of the scrolling parent. The parent must be the one that scrolls, both ways. */
   stickyHead?: boolean;
+  /** Compact is one row a part; detailed adds a row for each vendor under it. */
+  layout?: PartsLayout;
 }
 
-export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false }: PartsTableProps) {
+export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact" }: PartsTableProps) {
   return (
     <div className={cn("border", !stickyHead && "overflow-x-auto")}>
       <table className="w-full text-sm">
@@ -34,11 +38,10 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>
           </tr>
         </thead>
-        <tbody>
-          {items.map((part) => (
+        {items.map((part) => (
+          <tbody key={part.id} className="border-b last:border-0">
             <tr
-              key={part.id}
-              className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/30", selectedId === part.id && "bg-muted/60")}
+              className={cn("cursor-pointer hover:bg-muted/30", selectedId === part.id && "bg-muted/60")}
               onClick={() => onOpen(part.id)}
             >
               <td className="px-3 py-2"><StatusDot status={part.status} /></td>
@@ -73,8 +76,14 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 <span className="flex items-center gap-2">{part.watch || part.tier ? <TrackedIcon tier={part.tier ? TIER_NUMBER[part.tier] : null} /> : null}<RowFlags flags={part.flags} /></span>
               </td>
             </tr>
-          ))}
-        </tbody>
+            {layout === "detailed" ? (
+              <tr className={cn("cursor-pointer hover:bg-muted/30", selectedId === part.id && "bg-muted/60")} onClick={() => onOpen(part.id)}>
+                <td />
+                <td colSpan={5} className="px-3 pb-3"><PartOfferRows part={part} /></td>
+              </tr>
+            ) : null}
+          </tbody>
+        ))}
       </table>
     </div>
   );

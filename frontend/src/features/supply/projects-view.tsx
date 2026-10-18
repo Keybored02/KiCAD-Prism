@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { LayoutToggle } from "./layout-toggle";
+import { layoutFromParam } from "./parts-layout";
 import { ActiveFilterChip, LifecycleSelect } from "./lifecycle-filter";
 import { filterFromParam } from "./parts-filters";
 import { PartSheet } from "./part-sheet";
@@ -20,6 +22,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
   const query = searchParams.get("projQ") ?? "";
   const openPart = active ? searchParams.get("part") : null;
   const only = filterFromParam(searchParams.get("projOnly"));
+  const layout = layoutFromParam(searchParams.get("projLayout"));
   const loaded = useSupplyPartGroups("in_use", query, only);
   const groups = (loaded.data?.groups ?? []).filter((group) => group.project_id !== "none");
   const setParams = (changes: Record<string, string | null>) => {
@@ -40,6 +43,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
           <LifecycleSelect only={only} onChange={(next) => setParams({ projOnly: next })} />
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ projQ: text })} label="Search projects" placeholder="Part number or manufacturer" />
           <ActiveFilterChip only={only} onClear={() => setParams({ projOnly: null })} />
+          <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ projLayout: next === "compact" ? null : next })} /></div>
         </div>
 
         {loaded.status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading projects" /> : null}
@@ -64,6 +68,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
               scope="in_use"
               query={query}
               only={only}
+              layout={layout}
               selectedId={openPart}
               onOpen={(partId) => setParams({ part: partId })}
             />
