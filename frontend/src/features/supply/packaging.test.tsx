@@ -67,11 +67,12 @@ describe("picking a packaging", () => {
 });
 
 describe("a listing under another number", () => {
-  it("can be unpinned by those who decide, and then leaves the list", async () => {
+  it("is taken off by unticking it and saving, and then leaves the list", async () => {
     mocked.getPackagingOptions.mockResolvedValue(options);
     unpin.mockResolvedValue({ rejected: 1 });
     render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Unpin C2" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Track C2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(unpin).toHaveBeenCalledWith(["l2"]));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Pick C2" })).toBeNull());
   });
@@ -80,6 +81,6 @@ describe("a listing under another number", () => {
     mocked.getPackagingOptions.mockResolvedValue({ ...options, can_unpin: false });
     render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
     await screen.findByRole("button", { name: "Pick C2" });
-    expect(screen.queryByRole("button", { name: "Unpin C2" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Track C2" })).toBeNull();
   });
 });

@@ -24,6 +24,8 @@ export function PackagingPickDialog({
   const [similar, setSimilar] = useState<{ packaging: string; items: PackagingSimilar[] } | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
+  // Listings the person no longer wants tracked for this part; Save takes them off.
+  const [unticked, setUnticked] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -44,12 +46,15 @@ export function PackagingPickDialog({
       })
       .catch((caught: Error) => setError(caught.message));
   };
-  const unpin = (listing: PackagingListing) => {
-    rejectSupplyListings([listing.id])
+  const dropped = options ? options.listings.filter((item) => unticked.has(item.id)) : [];
+  const save = () => {
+    rejectSupplyListings(dropped.map((item) => item.id))
       .then(() => {
         onChanged();
-        setOptions((current) => (current ? { ...current, listings: current.listings.filter((item) => item.id !== listing.id) } : current));
-        toast.success(`${listing.sku} taken off the part`);
+        const gone = new Set(dropped.map((item) => item.id));
+        setOptions((current) => (current ? { ...current, listings: current.listings.filter((item) => !gone.has(item.id)) } : current));
+        setUnticked(new Set());
+        toast.success(dropped.length === 1 ? `${dropped[0].sku} taken off the part` : `${dropped.length} listings taken off the part`);
       })
       .catch((caught: Error) => setError(caught.message));
   };
@@ -87,8 +92,20 @@ export function PackagingPickDialog({
             <ul className="max-h-[60vh] divide-y overflow-y-auto border" aria-label="Listings">
               {options.listings.map((item) => (
                 <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 hover:bg-muted/30">
+                  {options.can_unpin ? (
+                    <Checkbox
+                      checked={!unticked.has(item.id)} aria-label={`Track ${item.sku}`}
+                      onCheckedChange={(on) => setUnticked((current) => {
+                        const next = new Set(current);
+                        if (on === true) next.delete(item.id); else next.add(item.id);
+                        return next;
+                      })}
+                    />
+                  ) : null}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{item.sku}</p>
+                    <p className="truncate text-sm font-medium">
+                      {item.product_url ? <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{item.sku}</a> : item.sku}
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">{item.raw_mpn || "No number listed"}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -101,9 +118,6 @@ export function PackagingPickDialog({
                     {item.marketplace ? <Chip>Marketplace</Chip> : null}
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    {item.other_number && options.can_unpin ? (
-                      <Button size="sm" variant="ghost" aria-label={`Unpin ${item.sku}`} onClick={() => unpin(item)}>Unpin</Button>
-                    ) : null}
                     <Button size="sm" variant={options.picked === item.id ? "default" : "outline"} aria-label={`Pick ${item.sku}`} onClick={() => pick(item)}>
                       {options.picked === item.id ? "Picked" : "Pick"}
                     </Button>
@@ -126,6 +140,7 @@ export function PackagingPickDialog({
         <DialogFooter>
           {!similar && options?.picked ? <Button variant="outline" onClick={clear}>Follow all listings again</Button> : null}
           <Button variant="outline" onClick={onClose}>{similar ? "Not these" : "Close"}</Button>
+          {!similar && options?.can_unpin ? <Button disabled={dropped.length === 0} onClick={save}>Save</Button> : null}
           {similar ? <Button disabled={chosen.size === 0} onClick={apply}>Apply to {chosen.size}</Button> : null}
         </DialogFooter>
       </DialogContent>

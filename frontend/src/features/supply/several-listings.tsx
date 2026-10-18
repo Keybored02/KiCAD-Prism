@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import type { User } from "@/types/auth";
 import type { PackagingSeveral } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
+import { PartSheet } from "./part-sheet";
 import { PackagingPickDialog } from "./packaging-pick-dialog";
 import { listPackagingSeveral } from "./packaging-api";
 import { useLoaded } from "./use-loaded";
@@ -16,11 +17,12 @@ function who(item: PackagingSeveral): string {
 }
 
 /** Every tracked part that a distributor lists in more than one packaging, with the listing followed there. A place to check and change the picks. */
-export function SeveralListings({ canDecide }: { canDecide: boolean }) {
+export function SeveralListings({ canDecide, user = null }: { canDecide: boolean; user?: User | null }) {
   const fetcher = useCallback((signal: AbortSignal) => listPackagingSeveral(signal), []);
   const { data, retry } = useLoaded("packaging-several", fetcher, "Could not load the listings");
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [choosing, setChoosing] = useState<PackagingSeveral | null>(null);
+  const [openPart, setOpenPart] = useState<string | null>(null);
   const items = data?.items ?? [];
   if (items.length === 0) return null;
   const shown = onlyOpen ? items.filter((item) => !item.picked_by) : items;
@@ -37,7 +39,7 @@ export function SeveralListings({ canDecide }: { canDecide: boolean }) {
         <ul className="divide-y">
           {shown.map((item) => (
             <li key={`${item.part_id}:${item.connector_id}`} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-              <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(item.part_id)}`} className="font-medium text-primary hover:underline">{item.mpn}</Link>
+              <button type="button" className="font-medium text-primary hover:underline" onClick={() => setOpenPart(item.part_id)}>{item.mpn}</button>
               <VendorName provider={item.provider} name={item.connector} className="text-xs" />
               <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{who(item)}</span>
               <span className="text-xs text-muted-foreground">
@@ -48,6 +50,7 @@ export function SeveralListings({ canDecide }: { canDecide: boolean }) {
           ))}
         </ul>
       </div>
+      <PartSheet partId={openPart} user={user} onClose={() => setOpenPart(null)} onWatchChanged={retry} />
       {choosing ? <PackagingPickDialog partId={choosing.part_id} connectorId={choosing.connector_id} onClose={() => setChoosing(null)} onChanged={retry} /> : null}
     </CollapsibleSection>
   );

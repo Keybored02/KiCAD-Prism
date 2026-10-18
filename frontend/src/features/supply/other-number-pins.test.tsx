@@ -19,13 +19,13 @@ beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); });
 afterEach(cleanup);
 
 describe("pins under another number", () => {
-  it("takes the ticked listings off the part in one go", async () => {
+  it("takes the unticked listings off the part in one go", async () => {
     reject.mockResolvedValue({ rejected: 1 });
     const decided = vi.fn().mockResolvedValue(undefined);
     render(<OtherNumberPins groups={groups} canDecide onDecided={decided} />);
     const group = screen.getByLabelText("Pinned under other numbers: TSR 1-2450");
-    fireEvent.click(within(group).getByLabelText("Unpin C2"));
-    fireEvent.click(within(group).getByRole("button", { name: "Unpin (1)" }));
+    fireEvent.click(within(group).getByLabelText("Track C1"));
+    fireEvent.click(within(group).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(reject).toHaveBeenCalledWith(["a"]));
     await waitFor(() => expect(decided).toHaveBeenCalled());
   });
@@ -34,6 +34,6 @@ describe("pins under another number", () => {
     const { container, rerender } = render(<OtherNumberPins groups={[]} canDecide onDecided={vi.fn()} />);
     expect(container.textContent).toBe("");
     rerender(<OtherNumberPins groups={groups} canDecide={false} onDecided={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: /Unpin \(/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 });

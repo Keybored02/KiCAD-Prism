@@ -79,7 +79,7 @@ export function ReviewView({ user }: { user: User | null }) {
               </CollapsibleSection>
             ) : null}
 
-            <SeveralListings canDecide={canDecide} />
+            <SeveralListings canDecide={canDecide} user={user} />
 
             <MatchedByPrism matched={queue.matched} canDecide={canDecide} onDecided={refresh} />
           </>

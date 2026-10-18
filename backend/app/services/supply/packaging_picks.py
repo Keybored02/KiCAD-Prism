@@ -40,7 +40,7 @@ def _listings(conn, part_id: str, connector_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.raw_mpn, l.packaging AS listing_packaging, o.packaging, o.reel_size, o.packaging_inferred, o.moq, o.order_multiple, o.stock, o.lead_time_days,
-               o.marketplace, o.currency, o.price_breaks, o.fetched_at
+               o.marketplace, o.currency, o.price_breaks, o.fetched_at, o.product_url
         FROM listings l LEFT JOIN offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state = ANY(%s) ORDER BY l.sku
         """,
@@ -113,6 +113,7 @@ def options(conn, part_id: str, connector_id: str) -> dict[str, Any]:
                 "stock": row["stock"], "lead_time_days": row["lead_time_days"], "marketplace": bool(row["marketplace"]),
                 "currency": row["currency"] or "", "prices": _prices(row),
                 "fetched_at": row["fetched_at"].isoformat() if row["fetched_at"] else None,
+                "product_url": row["product_url"] or "",
             }
             for row in rows
         ],

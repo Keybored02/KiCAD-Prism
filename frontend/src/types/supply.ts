@@ -1305,6 +1305,8 @@ export interface PackagingListing {
   /** Unit price at 1, 100 and 1,000 pieces. */
   prices: Record<string, string | null>;
   fetched_at: string | null;
+  /** The distributor's page for the listing. */
+  product_url?: string;
 }
 
 export interface PackagingOptions {
