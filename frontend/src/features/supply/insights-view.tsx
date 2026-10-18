@@ -104,14 +104,14 @@ export function InsightsView() {
             </div>
           </section>
         ) : null}
-        <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 [&>div]:flex [&>div>[data-slot=section]]:flex-1">
           <div id="insights-forecasts" className="scroll-mt-14">
-            <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen>
+            <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen className="h-full">
               <div className="p-3"><ForecastInsightsSection onOpenPart={openPart} /></div>
             </CollapsibleSection>
           </div>
           <div id="insights-sourcing" className="scroll-mt-14">
-            <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={page.sourcing.coverage.length} startOpen>
+            <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={-1} startOpen className="h-full">
               <div className="p-3"><SourcingSection page={page} onOpen={openFilter} /></div>
             </CollapsibleSection>
           </div>
@@ -122,7 +122,7 @@ export function InsightsView() {
           </CollapsibleSection>
         </div>
         <div id="insights-runway" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-runway" title="Runway" count={page.scatter.filter((point) => point.days_to_zero < point.lead_days).length} startOpen>
+          <CollapsibleSection id="insights-section-runway" title="Runway" count={-1} startOpen>
             <div className="p-3"><Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwaySection page={page} onOpen={openPart} /></Suspense></div>
           </CollapsibleSection>
         </div>

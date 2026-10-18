@@ -37,7 +37,7 @@ function Bars({ title, info, empty, rows }: { title: string; info?: string; empt
 export function DistributorsSection({ distributors }: { distributors: SupplyDistributorBehaviour }) {
   const arrivals = distributors.arrivals;
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div className="space-y-3">
       {distributors.scorecard ? <ScorecardTable scorecard={distributors.scorecard} /> : null}
       <Bars
         title="Days between price changes"

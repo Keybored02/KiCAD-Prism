@@ -28,7 +28,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
   // The detailed layout gives stock, price and vendors a row each below the part.
   const detailed = layout === "detailed";
   return (
-    <div className={cn("border", !stickyHead && "overflow-x-auto")}>
+    <div className={cn("border", !stickyHead && "overflow-x-auto overflow-y-hidden")}>
       <table className="w-full text-sm">
         <thead className={cn("border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground", stickyHead && "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--border)]")}>
           <tr>

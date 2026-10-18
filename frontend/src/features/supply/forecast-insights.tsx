@@ -94,7 +94,7 @@ function TrackRecord({ page }: { page: ForecastInsights }) {
       title="Track record" className="lg:col-span-2"
       info="Every forecast is kept and compared with what happened. A forecast is shown only while its 80% ranges hold about 80% of the time (a chance: off by no more than 10 points)."
     >
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-hidden">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr><th className="py-1 font-normal">Forecast</th><th className="py-1 text-right font-normal">Checks</th><th className="py-1 text-right font-normal">Held</th><th className="py-1 text-right font-normal">State</th></tr>

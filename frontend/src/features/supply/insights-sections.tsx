@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import type { PartsFilter, SupplyInsightsPage } from "@/types/supply";
 import { BarList } from "./bar-list";
 import { ChartCard } from "./chart-card";
@@ -8,30 +9,41 @@ import { vendorColor } from "./vendor-colors";
 type OpenParts = (filter: PartsFilter) => void;
 
 const GREY = "bg-muted-foreground/40";
+const COVERAGE = [
+  { key: "listed", label: "Lists" },
+  { key: "in_stock", label: "Has in stock" },
+  { key: "cheapest", label: "Cheapest for" },
+] as const;
 
 /** Which distributors carry the BOM: how many tracked parts each lists, holds in stock, and is cheapest for. */
 export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; onOpen: OpenParts }) {
   const { coverage, resilience } = page.sourcing;
   const behaviour = page.distributors.repricing.length + page.distributors.leaders.length + page.distributors.restock_first.length > 0 || page.distributors.arrivals !== null;
+  const largest = Math.max(1, ...coverage.flatMap((item) => [item.listed, item.in_stock, item.cheapest]));
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="space-y-3">
         <ChartCard
           title="Distributor coverage"
           info="Of the parts you track: how many each distributor lists, how many it holds in stock, and how many it is the cheapest for at 100 pieces."
           answer={coverage.length === 0 ? "No distributor has been read yet" : `${coverage[0].name} lists ${coverage[0].listed.toLocaleString()} of ${coverage[0].tracked.toLocaleString()} parts`}
         >
-          <div className="space-y-3">
+          <div className="space-y-1.5 text-xs">
+            <div className="grid grid-cols-[6rem_repeat(3,1fr)] gap-2 text-muted-foreground">
+              <span aria-hidden />
+              {COVERAGE.map((column) => <span key={column.key}>{column.label}</span>)}
+            </div>
             {coverage.map((item) => (
-              <div key={item.connector_id} className="space-y-0.5">
-                <p className="flex items-center gap-1.5 text-xs font-medium">
-                  <span aria-hidden className="h-2 w-2 rounded-[2px]" style={{ backgroundColor: vendorColor(item.provider) ?? "#6b7280" }} />{item.name}
+              <div key={item.connector_id} className="grid grid-cols-[6rem_repeat(3,1fr)] items-center gap-2">
+                <p className="flex min-w-0 items-center gap-1.5 font-medium">
+                  <span aria-hidden className="h-2 w-2 shrink-0 rounded-[2px]" style={{ backgroundColor: vendorColor(item.provider) ?? "#6b7280" }} /><span className="truncate">{item.name}</span>
                 </p>
-                <BarList labelWidth="6rem" rows={[
-                  { key: "listed", label: "Lists", value: item.listed },
-                  { key: "stock", label: "Has in stock", value: item.in_stock },
-                  { key: "cheap", label: "Cheapest for", value: item.cheapest },
-                ]} />
+                {COVERAGE.map((column) => (
+                  <span key={column.key} className="grid grid-cols-[1fr_2.5rem] items-center gap-1.5" aria-label={`${item.name} ${column.label.toLowerCase()}: ${item[column.key]}`}>
+                    <span className="h-3.5 bg-muted/30"><span className={cn("block h-full", item[column.key] === 0 ? "bg-muted" : "bg-primary")} style={{ width: `${Math.max((item[column.key] / largest) * 100, item[column.key] === 0 ? 2 : 0)}%` }} /></span>
+                    <span className="text-right tabular-nums">{item[column.key].toLocaleString()}</span>
+                  </span>
+                ))}
               </div>
             ))}
           </div>
@@ -41,12 +53,7 @@ export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; on
           onOpen={(key) => onOpen(key === "none" ? "out_of_stock" : key === "one" ? "one_distributor" : key === "unknown" ? "few_readings" : "")}
         />
       </div>
-      {behaviour ? (
-        <details>
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">How the distributors behave</summary>
-          <div className="mt-2"><DistributorsSection distributors={page.distributors} /></div>
-        </details>
-      ) : null}
+      {behaviour ? <DistributorsSection distributors={page.distributors} /> : null}
     </div>
   );
 }
