@@ -123,6 +123,15 @@ describe("the layouts", () => {
     expect(screen.queryByRole("img", { name: /^Tracked/ })).toBeNull();
   });
 
+  it("gives the price and the vendor swatches a column each", () => {
+    const row = partRowFixture({ mpn: "LM358", unit_price: "0.42", currency: "EUR", distributors: [{ connector_id: "c1", provider: "mouser", name: "Mouser", stock: 5 }] });
+    render(<PartsTable items={[row]} selectedId={null} onOpen={vi.fn()} />);
+    expect(screen.getByRole("columnheader", { name: "Vendors" })).toBeTruthy();
+    const swatch = screen.getByRole("button", { name: /Mouser: 5 in stock/ }).closest("td")!;
+    const price = screen.getByText(/0[.,]42/).closest("td")!;
+    expect(swatch).not.toBe(price);
+  });
+
   it("switches by two icons", () => {
     const change = vi.fn();
     render(<LayoutToggle layout="compact" onChange={change} />);

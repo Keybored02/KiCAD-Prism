@@ -36,6 +36,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             <th className="px-3 py-2">Part</th>
             <th className="px-3 py-2 text-right">In stock</th>
             <th className="px-3 py-2 text-right">Price</th>
+            <th className="px-3 py-2 text-right">Vendors</th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>
           </tr>
@@ -63,23 +64,20 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 {showProjects ? <ProjectNames part={part} /> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
-                {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
+                {/* The icons stand left of the figure and the graph, centred on the whole cell, so they sit as far from the top as from the bottom. */}
                 <div className="flex items-center justify-end gap-6">
                   <RateAndLead part={part} />
-                  {!detailed && part.spark && part.spark.length > 1 ? <Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /> : null}
+                  <div>
+                    {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
+                    {!detailed && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
+                    {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
+                      ? <RowRunout part={part} state={forecastState.runout} />
+                      : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
+                  </div>
                 </div>
-                {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
-                  ? <RowRunout part={part} state={forecastState.runout} />
-                  : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {detailed ? null : (
-                  <>
-                    <PriceCell part={part} />
-                    <div className="flex justify-end pt-0.5"><DistributorSquares part={part} /></div>
-                  </>
-                )}
-              </td>
+              <td className="px-3 py-2 text-right tabular-nums">{detailed ? null : <PriceCell part={part} />}</td>
+              <td className="px-3 py-2"><div className="flex justify-end">{detailed ? null : <DistributorSquares part={part} />}</div></td>
               <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
               <td className="px-3 py-2">
                 <span className="flex items-center gap-2"><RowFlags flags={part.flags} /></span>
@@ -88,7 +86,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             {detailed ? (
               <tr className={cn(selectedId === part.id && "bg-muted/60")}>
                 <td />
-                <td colSpan={5} className="px-3 pb-3"><PartOfferRows part={part} /></td>
+                <td colSpan={6} className="px-3 pb-3"><PartOfferRows part={part} /></td>
               </tr>
             ) : null}
           </tbody>
