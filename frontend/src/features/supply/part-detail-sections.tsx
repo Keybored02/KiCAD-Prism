@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { canReviewSupply } from "@/lib/roles";
@@ -48,9 +47,8 @@ interface PartDetailSectionsProps {
 }
 
 export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDetailSectionsProps) {
-  // Asking the forecast at another quantity is a question; nothing is saved.
-  const [forecastQuantity, setForecastQuantity] = useState<number | null>(null);
-  const forecast = usePartForecast(detail.part.id, forecastQuantity, detail.price.quantity);
+  // The forecast is made at the part's price quantity.
+  const forecast = usePartForecast(detail.part.id, null, detail.price.quantity);
   const history = usePartHistory(detail.part.id);
   return (
     <div className="space-y-6">
@@ -77,7 +75,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       {forecast.data ? (
         <FoldSection title="Forecast">
-          <ForecastSection titled={false} forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} />
+          <ForecastSection titled={false} forecast={forecast.data} currency={detail.price.currency} />
         </FoldSection>
       ) : null}
 

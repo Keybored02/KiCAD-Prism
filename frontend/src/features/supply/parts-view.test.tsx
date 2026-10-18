@@ -265,6 +265,8 @@ describe("a part", () => {
 
   it("marks listings that do not count and offers that have not been read", async () => {
     renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.click(await within(sheet).findByRole("button", { name: /Show 1 more/ }));
     const near = await screen.findByRole("article", { name: "Listing 595-LM358DR" });
     expect(within(near).getByText("Near match, not counted")).toBeTruthy();
     expect(within(near).getByText("Not read yet.")).toBeTruthy();
@@ -272,7 +274,10 @@ describe("a part", () => {
     expect(within(main).getByText("Cut tape")).toBeTruthy();
     expect(within(main).getByText("On order")).toBeTruthy();
     expect(within(main).getByText("5,000 due 2026-04-01")).toBeTruthy();
-    expect(within(main).getByLabelText("Open Mouser EU product page").getAttribute("href")).toBe("https://example.invalid/p");
+    const link = within(main).getByLabelText("Open Mouser EU product page");
+    expect(link.getAttribute("href")).toBe("https://example.invalid/p");
+    expect(link.textContent).toBe("595-LM358D");
+    expect(main.querySelector("svg.lucide-external-link")).toBeNull();
   });
 
   it("closes by clearing the URL", async () => {

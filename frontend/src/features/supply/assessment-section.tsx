@@ -4,7 +4,7 @@ import { canEditSupply, canReviewSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { SupplyAssessment, SupplySubScore } from "@/types/supply";
 import { FindingRow } from "./finding-row";
-import { HealthDetails } from "./health-details";
+import { HoverDetails } from "./hover-details";
 import { StatusDot } from "./status-dot";
 import { decideWaiver, getSupplyAssessment, proposeWaiver, revokeWaiver } from "./supply-api";
 import { STATUS_LABEL } from "./supply-format";
@@ -71,7 +71,7 @@ function HealthFigure({ data, partId, canPropose, canApprove, act }: {
       <span className="text-sm font-medium">{data.status === "unknown" ? "No data to assess yet" : `${data.health.toFixed(1)} of 10`}</span>
       <span className="text-xs text-muted-foreground">{STATUS_LABEL[data.status]}</span>
       {data.status !== "unknown" ? (
-        <HealthDetails label="Show the scores and findings">
+        <HoverDetails label="Show the scores and findings">
           <Details
             data={data}
             actions={{
@@ -82,7 +82,7 @@ function HealthFigure({ data, partId, canPropose, canApprove, act }: {
               onRevoke: (waiverId) => void act(() => revokeWaiver(waiverId)),
             }}
           />
-        </HealthDetails>
+        </HoverDetails>
       ) : null}
     </>
   );

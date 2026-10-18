@@ -61,7 +61,7 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
       {note ? <p className="text-xs text-warning">{note}</p> : null}
       {headline?.price_native ? <p className="text-xs text-muted-foreground">Converted from {formatPrice(headline.price_native.price, headline.price_native.currency)}.</p> : null}
       {headline && headline.price_unrated.length > 0 ? <p className="text-xs text-muted-foreground">No exchange rate for {headline.price_unrated.join(", ")}, so those prices are left out.</p> : null}
-      {change === null ? null : (
+      {change === null || change === 0 ? null : (
         <p className="text-xs text-muted-foreground">
           {`${change > 0 ? "Up" : change < 0 ? "Down" : "Unchanged,"} ${change === 0 ? "" : `${Math.abs(change)}% `}over ${trend?.days} days, from ${formatPrice(trend?.was ?? "", currency)}.`}
         </p>

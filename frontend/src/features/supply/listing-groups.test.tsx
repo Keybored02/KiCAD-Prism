@@ -55,20 +55,31 @@ describe("the part's listings by distributor", () => {
     expect(within(digikey).getAllByText("DigiKey")).toHaveLength(1);
   });
 
-  it("folds a distributor's listings behind a chevron", () => {
+  it("shows a distributor's first listing and keeps the others behind Show more", () => {
     renderGroups();
     const digikey = screen.getByRole("region", { name: "DigiKey listings" });
-    expect(within(digikey).getAllByRole("article").length).toBeGreaterThan(0);
-    fireEvent.click(within(digikey).getByRole("button", { name: "Hide DigiKey listings" }));
-    expect(within(digikey).queryAllByRole("article")).toHaveLength(0);
-    expect(within(screen.getByRole("region", { name: "Mouser listings" })).getAllByRole("article").length).toBeGreaterThan(0);
-    fireEvent.click(within(digikey).getByRole("button", { name: "Show DigiKey listings" }));
-    expect(within(digikey).getAllByRole("article").length).toBeGreaterThan(0);
+    expect(within(digikey).getAllByRole("article")).toHaveLength(1);
+    expect(within(digikey).getByRole("article", { name: "Listing CT-1" })).toBeTruthy();
+    fireEvent.click(within(digikey).getByRole("button", { name: /Show 1 more/ }));
+    expect(within(digikey).getAllByRole("article")).toHaveLength(2);
+    fireEvent.click(within(digikey).getByRole("button", { name: /Show less/ }));
+    expect(within(digikey).getAllByRole("article")).toHaveLength(1);
+    // Mouser has one listing, so nothing to expand.
+    const mouser = screen.getByRole("region", { name: "Mouser listings" });
+    expect(within(mouser).queryByRole("button", { name: /more|less/ })).toBeNull();
+  });
+
+  it("moves the listing that is followed to the top of its distributor", () => {
+    renderGroups({ packaging: { picks: { c1: "b" }, picked_by: { c1: { by: "ana", note: "" } }, needs_pick: [] } });
+    const digikey = screen.getByRole("region", { name: "DigiKey listings" });
+    expect(within(digikey).getAllByRole("article")[0].getAttribute("aria-label")).toBe("Listing REEL-2");
+    expect(within(digikey).getByText("Followed")).toBeTruthy();
   });
 
   it("follows another listing on request", async () => {
     vi.mocked(packaging.pickPackaging).mockResolvedValue({ picked: "b", packaging: "tape_reel", similar: [] });
     const onChanged = renderGroups();
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 more/ }));
     fireEvent.click(screen.getByRole("button", { name: "Follow this instead" }));
     await waitFor(() => expect(packaging.pickPackaging).toHaveBeenCalledWith("p1", "c1", "b"));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());

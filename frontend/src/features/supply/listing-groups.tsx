@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { SupplyListing, SupplyPartDetail } from "@/types/supply";
 import { ListingTable } from "./listing-table";
 import { OnePerDistributor } from "./one-per-distributor";
@@ -17,6 +16,21 @@ interface Group {
   name: string;
   provider: string;
   listings: SupplyListing[];
+}
+
+function firstPrice(listing: SupplyListing): number {
+  const price = listing.offer?.price_breaks[0]?.[1];
+  return price === undefined ? Number.POSITIVE_INFINITY : Number(price);
+}
+
+/** A distributor's listings: the followed one first, then the smallest order, then the lowest price at it. */
+function inOrder(listings: SupplyListing[], followed: string | null | undefined): SupplyListing[] {
+  return [...listings].sort((a, b) => (
+    Number(b.id === followed) - Number(a.id === followed)
+    || (a.offer?.moq ?? Number.POSITIVE_INFINITY) - (b.offer?.moq ?? Number.POSITIVE_INFINITY)
+    || firstPrice(a) - firstPrice(b)
+    || a.sku.localeCompare(b.sku)
+  ));
 }
 
 /** Listings by distributor: the preferred one first, then by name. */
@@ -47,10 +61,10 @@ export function ListingGroups({
 }: { detail: SupplyPartDetail; canDecide: boolean; canTrack: boolean; onChanged: () => Promise<void> | void }) {
   const { busy, error, run } = useConnectorSubmit();
   const [asking, setAsking] = useState(false);
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
-  const fold = (id: string, open: boolean) => setClosed((current) => {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggleMore = (id: string) => setExpanded((current) => {
     const next = new Set(current);
-    if (open) next.delete(id); else next.add(id);
+    if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
   const groups = useMemo(() => groupsOf(detail.listings, detail.preferred_connector_id), [detail.listings, detail.preferred_connector_id]);
@@ -75,17 +89,13 @@ export function ListingGroups({
       {groups.map((group) => {
         const line = followLine(group, detail);
         const isPreferred = group.connectorId === preferred;
+        const followedId = detail.packaging?.picks[group.connectorId] ?? null;
+        const [first, ...rest] = inOrder(group.listings, followedId);
+        const more = expanded.has(group.connectorId);
+        const shown = more ? [first, ...rest] : [first];
         return (
-          <Collapsible
-            key={group.connectorId} asChild open={!closed.has(group.connectorId)} onOpenChange={(next) => fold(group.connectorId, next)}
-          >
-          <section aria-label={`${group.name} listings`} className={`space-y-2 p-2 ${isPreferred ? "bg-primary/5" : ""}`}>
+          <section key={group.connectorId} aria-label={`${group.name} listings`} className={`space-y-2 p-2 ${isPreferred ? "bg-primary/5" : ""}`}>
             <div className="flex flex-wrap items-center gap-2">
-              <CollapsibleTrigger asChild>
-                <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label={`${closed.has(group.connectorId) ? "Show" : "Hide"} ${group.name} listings`}>
-                  <ChevronRight className={`h-4 w-4 transition-transform ${closed.has(group.connectorId) ? "" : "rotate-90"}`} />
-                </Button>
-              </CollapsibleTrigger>
               {canTrack ? (
                 <Button
                   type="button" size="icon" variant="ghost" className="h-6 w-6" disabled={busy} aria-pressed={isPreferred}
@@ -99,14 +109,20 @@ export function ListingGroups({
               {isPreferred ? <Badge variant="secondary">Preferred</Badge> : null}
               {line ? <span className="text-xs text-muted-foreground">{line}</span> : null}
             </div>
-            <CollapsibleContent>
-              <ListingTable
-                listings={group.listings} canDecide={canDecide} onChanged={() => void onChanged()}
-                follow={{ followed: detail.packaging?.picks[group.connectorId] ?? null, canFollow: canTrack, onFollow: (listing) => follow(group, listing) }}
-              />
-            </CollapsibleContent>
+            <ListingTable
+              listings={shown} canDecide={canDecide} onChanged={() => void onChanged()}
+              follow={{ followed: followedId, canFollow: canTrack, onFollow: (listing) => follow(group, listing) }}
+            />
+            {rest.length > 0 ? (
+              <button
+                type="button" aria-expanded={more} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => toggleMore(group.connectorId)}
+              >
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${more ? "rotate-90" : ""}`} />
+                {more ? "Show less" : `Show ${rest.length} more`}<span className="sr-only"> from {group.name}</span>
+              </button>
+            ) : null}
           </section>
-          </Collapsible>
         );
       })}
       {asking ? <OnePerDistributor partId={partId} onClose={() => setAsking(false)} onDone={onChanged} /> : null}

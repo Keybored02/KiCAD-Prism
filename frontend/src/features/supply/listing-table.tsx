@@ -1,5 +1,3 @@
-import { ExternalLink } from "lucide-react";
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
@@ -38,7 +36,14 @@ export function ListingTable({
           <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="border p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{listing.sku}</span>
+                {offer?.product_url ? (
+                  <a
+                    href={offer.product_url} target="_blank" rel="noreferrer" className="font-medium hover:underline"
+                    aria-label={`Open ${listing.connector_name} product page`} title={`Open ${listing.sku} at ${listing.connector_name}`}
+                  >
+                    {listing.sku}
+                  </a>
+                ) : <span className="font-medium">{listing.sku}</span>}
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
                 {follow?.followed === listing.id ? <Badge variant="secondary">Followed</Badge> : null}
                 {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (
@@ -57,12 +62,6 @@ export function ListingTable({
                 {offer?.marketplace ? <Badge variant="outline">{listing.provider === "jlcpcb" ? "Assembly stock" : "Marketplace"}</Badge> : null}
                 {offer?.discontinued ? <Badge variant="warning">Discontinued here</Badge> : null}
               </div>
-              {offer?.product_url ? (
-                <a href={offer.product_url} target="_blank" rel="noreferrer" aria-label={`Open ${listing.connector_name} product page`}
-                  className="text-muted-foreground hover:text-primary">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              ) : null}
             </div>
             {offer ? (
               <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-5">

@@ -1,23 +1,10 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { Input } from "@/components/ui/input";
 import type { ForecastModelState, PartForecast } from "@/types/supply";
 import { ModelChip } from "./forecast-chip";
+import { HoverDetails } from "./hover-details";
 import { chanceText, dateText, isGrey, priceRange, rangeText, whenText } from "./forecast-text";
 import { formatPrice } from "./supply-format";
-
-const MIN = 1;
-const MAX = 1_000_000;
-
-/** The inputs behind a line, one click away. */
-function Why({ children }: { children: string }) {
-  return (
-    <details className="text-xs text-muted-foreground">
-      <summary className="cursor-pointer select-none hover:text-foreground">Why</summary>
-      <p className="mt-0.5 max-w-prose">{children}</p>
-    </details>
-  );
-}
 
 function Line({ model, children, why }: { model: ForecastModelState | undefined; children: ReactNode; why: string }) {
   return (
@@ -25,7 +12,7 @@ function Line({ model, children, why }: { model: ForecastModelState | undefined;
       <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span>{children}</span>
         <ModelChip model={model} />
-        <Why>{why}</Why>
+        <HoverDetails label="Why"><p className="max-w-prose text-xs text-muted-foreground">{why}</p></HoverDetails>
       </div>
     </div>
   );
@@ -61,25 +48,6 @@ function whyStock(forecast: PartForecast): string {
   return `${drain}${outages}${weekly} ${inputs.span_days} days of readings. A fall in stock is not always sales.`;
 }
 
-function QuantityBox({ quantity, onChange }: { quantity: number; onChange: (next: number | null) => void }) {
-  const [text, setText] = useState(String(quantity));
-  const apply = () => {
-    const next = Math.floor(Number(text.replace(/[,\s]/g, "")));
-    if (Number.isFinite(next) && next >= MIN && next <= MAX) onChange(next);
-    else setText(String(quantity));
-  };
-  return (
-    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      at
-      <Input
-        aria-label="Quantity to forecast for" className="h-7 w-24" inputMode="numeric" value={text}
-        onChange={(event) => setText(event.target.value)} onBlur={apply} onKeyDown={(event) => { if (event.key === "Enter") apply(); }}
-      />
-      pieces
-    </label>
-  );
-}
-
 function priceWhy(forecast: PartForecast): string {
   const inputs = forecast.price?.inputs;
   if (!inputs) return "";
@@ -96,22 +64,17 @@ function backWhy(item: NonNullable<PartForecast["back"]>[number]): string {
 
 /**
  * What Prism expects for the part: the chance it can be bought, when it runs out, when a distributor is back, where its price is going.
- * A forecast whose model has not earned a place is greyed and labelled. Nothing is saved by asking at another quantity.
+ * A forecast whose model has not earned a place is greyed and labelled.
  */
-export function ForecastSection({ forecast, currency, onQuantity, titled = true }: {
+export function ForecastSection({ forecast, currency, titled = true }: {
   forecast: PartForecast | null;
   currency: string;
-  onQuantity: (next: number | null) => void;
   /** False inside a section that already carries the title. */
   titled?: boolean;
 }) {
   if (!forecast) return null;
-  const header = (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      {titled ? <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forecast</h3> : <span />}
-      {forecast.available && forecast.quantity ? <QuantityBox key={forecast.quantity} quantity={forecast.quantity} onChange={onQuantity} /> : null}
-    </div>
-  );
+  // It is made for the part's price quantity (the pencil beside the price); there is no second counter here.
+  const header = titled ? <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forecast</h3> : null;
   if (!forecast.available) {
     return (
       <section aria-label="Forecast" className="space-y-1">

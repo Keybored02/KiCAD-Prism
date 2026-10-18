@@ -37,8 +37,8 @@ describe("how a forecast is said", () => {
 });
 
 describe("the part sheet's Forecast section", () => {
-  it("says what to expect, in dates and words, with the quantity it is for", () => {
-    render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" onQuantity={vi.fn()} />);
+  it("says what to expect, in dates and words, ", () => {
+    render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" />);
     expect(screen.getByText(/Can be bought on 18 Dec/)).toBeTruthy();
     expect(screen.getByText("Likely (78%)")).toBeTruthy();
     expect(screen.getByText("around 14 Dec (between 2 Dec and 9 Jan 2027)")).toBeTruthy();
@@ -46,46 +46,41 @@ describe("the part sheet's Forecast section", () => {
     expect(screen.getByText("(quoted 6 weeks)")).toBeTruthy();
     expect(screen.getByText(/Out everywhere within 8 weeks: Likely \(82%\)/)).toBeTruthy();
     expect(screen.getByText(/In 90 days, at its price quantity/)).toBeTruthy();
-    expect((screen.getByLabelText("Quantity to forecast for") as HTMLInputElement).value).toBe("100");
     expect(screen.getAllByRole("listitem", { name: /^Week/ })).toHaveLength(12);
   });
 
   it("shows no Learning chip for a shown model and one for each learning line", () => {
-    const { rerender } = render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" onQuantity={vi.fn()} />);
+    const { rerender } = render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" />);
     expect(screen.queryAllByText("Learning")).toHaveLength(1);
-    rerender(<ForecastSection forecast={partForecastFixture({}, learning)} currency="EUR" onQuantity={vi.fn()} />);
+    rerender(<ForecastSection forecast={partForecastFixture({}, learning)} currency="EUR" />);
     expect(screen.getAllByText("Learning").length).toBeGreaterThanOrEqual(4);
   });
 
   it("explains each line when asked why", () => {
-    render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" onQuantity={vi.fn()} />);
-    expect(screen.getAllByText("Why").length).toBeGreaterThanOrEqual(4);
-    expect(screen.getByText(/real waits have run 1.4 times the quote/)).toBeTruthy();
+    render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" />);
+    const icons = screen.getAllByRole("button", { name: "Why" });
+    expect(icons.length).toBeGreaterThanOrEqual(4);
+    expect(screen.queryByText(/real waits have run 1.4 times the quote/)).toBeNull();
+    // Each opens its own words on hover.
+    icons.forEach((icon) => fireEvent.mouseEnter(icon));
+    expect(screen.getAllByText(/real waits have run 1.4 times the quote/).length).toBeGreaterThan(0);
   });
 
-  it("asks again at another quantity and refuses nonsense", () => {
-    const onQuantity = vi.fn();
-    render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" onQuantity={onQuantity} />);
-    const box = screen.getByLabelText("Quantity to forecast for") as HTMLInputElement;
-    fireEvent.change(box, { target: { value: "5,000" } });
-    fireEvent.keyDown(box, { key: "Enter" });
-    expect(onQuantity).toHaveBeenCalledWith(5000);
-    fireEvent.change(box, { target: { value: "0" } });
-    fireEvent.blur(box);
-    expect(onQuantity).toHaveBeenCalledTimes(1);
-    expect(box.value).toBe("100");
+  it("has no counter of its own: it is made at the price quantity", () => {
+    render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" />);
+    expect(screen.queryByLabelText("Quantity to forecast for")).toBeNull();
   });
 
   it("says a part with too few readings has none yet", () => {
-    render(<ForecastSection forecast={{ available: false, reason: "too_few_readings", today: "2026-11-20", models: {} }} currency="EUR" onQuantity={vi.fn()} />);
+    render(<ForecastSection forecast={{ available: false, reason: "too_few_readings", today: "2026-11-20", models: {} }} currency="EUR" />);
     expect(screen.getByText("Forecasts start after a week of readings.")).toBeTruthy();
     cleanup();
-    render(<ForecastSection forecast={{ available: false, reason: "no_readings", today: "2026-11-20", models: {} }} currency="EUR" onQuantity={vi.fn()} />);
+    render(<ForecastSection forecast={{ available: false, reason: "no_readings", today: "2026-11-20", models: {} }} currency="EUR" />);
     expect(screen.getByText("Nothing has been read for this part yet.")).toBeTruthy();
   });
 
   it("says out of stock now instead of a runout", () => {
-    render(<ForecastSection forecast={partForecastFixture({ out_now: true, runout: null }, shown)} currency="EUR" onQuantity={vi.fn()} />);
+    render(<ForecastSection forecast={partForecastFixture({ out_now: true, runout: null }, shown)} currency="EUR" />);
     expect(screen.getByText("Out of stock at every distributor now.")).toBeTruthy();
     expect(screen.queryByText(/Runs out/)).toBeNull();
   });

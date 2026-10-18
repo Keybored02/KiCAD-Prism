@@ -22,6 +22,11 @@ describe("the price section", () => {
     expect(screen.getByText(/Up 30% over 28 days, from/)).toBeTruthy();
   });
 
+  it("says nothing when the price has not moved", () => {
+    render(<PriceTrend price={{ currency: "EUR", history, trend: { currency: "EUR", was: "1.3", now: "1.3", change_percent: 0, days: 7 } }} />);
+    expect(screen.queryByText(/Unchanged/)).toBeNull();
+  });
+
   it("says why there is no move yet", () => {
     render(<PriceTrend price={{ currency: "EUR", history: [history[1]], trend: null }} />);
     expect(screen.getByRole("img", { name: /A move needs a week of readings/ })).toBeTruthy();
