@@ -23,7 +23,7 @@ interface PartSheetProps {
 export function PartSheet({ partId, user, onClose, onWatchChanged }: PartSheetProps) {
   return (
     <Sheet open={partId !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[43rem]">
         {partId ? <PartBody key={partId} partId={partId} user={user} onWatchChanged={onWatchChanged} /> : null}
       </SheetContent>
     </Sheet>

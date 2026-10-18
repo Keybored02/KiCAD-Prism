@@ -236,14 +236,16 @@ describe("a part", () => {
     const legend = await within(stock).findByRole("button", { name: /Mouser EU/ });
     expect(legend.textContent).toContain("12,500");
     const order = [...sheet.querySelectorAll("section[aria-label], [data-slot='collapsible'][aria-label], #try-quantity")].map((node) => node.getAttribute("aria-label") ?? node.id);
-    const at = (name: string) => order.indexOf(name);
+    const at = (name: string) => order.findIndex((item) => item === name || item.startsWith(`${name} (`));
     expect(at("Price")).toBeGreaterThan(at("Stock"));
     expect(at("Forecast")).toBeGreaterThan(at("Price"));
     // Listings follow the health, with the quantity try just above them.
     expect(at("Health")).toBeGreaterThan(at("Forecast"));
     expect(at("try-quantity")).toBeGreaterThan(at("Health"));
     expect(at("Listings")).toBe(at("try-quantity") + 1);
-    expect(order.indexOf("Compliance")).toBeGreaterThan(at("Listings"));
+    expect(at("Compliance")).toBeGreaterThan(at("Listings"));
+    // Listings fold, and start open.
+    expect(within(sheet).getByRole("heading", { name: /^Listings \(/ }).closest("[data-state]")?.getAttribute("data-state")).toBe("open");
     // The forecast is folded until its chevron is opened.
     expect(within(sheet).queryByRole("heading", { name: "Forecast" })?.closest("[data-state]")?.getAttribute("data-state")).toBe("closed");
   });

@@ -4,9 +4,9 @@ import { useState, type ReactNode } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
-/** A section on the part sheet that folds: the usual small heading with a chevron before it, closed until opened. */
-export function FoldSection({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+/** A section on the part sheet that folds: the usual small heading with a chevron before it, closed until opened unless it starts open. */
+export function FoldSection({ title, startOpen = false, children }: { title: string; startOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(startOpen);
   return (
     <Collapsible open={open} onOpenChange={setOpen} aria-label={title} className="space-y-2">
       <CollapsibleTrigger className="flex items-center gap-1 text-left">

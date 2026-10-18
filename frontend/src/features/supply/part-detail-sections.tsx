@@ -87,10 +87,9 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       {detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
 
-      <section aria-label="Listings" className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
+      <FoldSection title={`Listings (${detail.listings.length})`} startOpen>
         <ListingGroups detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
-      </section>
+      </FoldSection>
 
       <InsightPanel insight={detail.insight} />
       <RestockRecordSection record={detail.restock_record ?? []} />

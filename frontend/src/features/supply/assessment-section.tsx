@@ -57,6 +57,37 @@ function Details({ data, actions }: { data: SupplyAssessment; actions: FindingAc
   );
 }
 
+/** The score, its status word and the info icon, on the line of the heading. */
+function HealthFigure({ data, partId, canPropose, canApprove, act }: {
+  data: SupplyAssessment;
+  partId: string;
+  canPropose: boolean;
+  canApprove: boolean;
+  act: (action: () => Promise<unknown>) => Promise<void>;
+}) {
+  return (
+    <>
+      <StatusDot status={data.status} />
+      <span className="text-sm font-medium">{data.status === "unknown" ? "No data to assess yet" : `${data.health.toFixed(1)} of 10`}</span>
+      <span className="text-xs text-muted-foreground">{STATUS_LABEL[data.status]}</span>
+      {data.status !== "unknown" ? (
+        <HealthDetails label="Show the scores and findings">
+          <Details
+            data={data}
+            actions={{
+              canPropose,
+              canApprove,
+              onPropose: (check, reason) => void act(() => proposeWaiver(partId, check, reason)),
+              onDecide: (waiverId, approve) => void act(() => decideWaiver(waiverId, approve)),
+              onRevoke: (waiverId) => void act(() => revokeWaiver(waiverId)),
+            }}
+          />
+        </HealthDetails>
+      ) : null}
+    </>
+  );
+}
+
 /** How a part stands: its health at a glance. The scores and the findings people have accepted or still have to look at open from the info icon. */
 export function AssessmentSection({ partId, role }: { partId: string; role: UserRole | null | undefined }) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyAssessment(partId, undefined, signal), [partId]);
@@ -78,34 +109,16 @@ export function AssessmentSection({ partId, role }: { partId: string; role: User
   const data = assessment.data;
   return (
     <section aria-label="Health" className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Health</h3>
-      {assessment.status === "loading" ? <p className="text-xs text-muted-foreground">Assessing...</p> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Health</h3>
+        {assessment.status === "loading" ? <span className="text-xs text-muted-foreground">Assessing...</span> : null}
+        {data ? <HealthFigure data={data} partId={partId} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
+      </div>
       {assessment.status === "error" && !data ? (
         <p className="text-xs text-muted-foreground">
           {assessment.error}{" "}
           <button type="button" className="underline" onClick={assessment.retry}>Retry</button>
         </p>
-      ) : null}
-      {data ? (
-        <div className="flex items-center gap-2">
-          <StatusDot status={data.status} />
-          <span className="text-sm font-medium">{data.status === "unknown" ? "No data to assess yet" : `${data.health.toFixed(1)} of 10`}</span>
-          <span className="text-xs text-muted-foreground">{STATUS_LABEL[data.status]}</span>
-          {data.status !== "unknown" ? (
-            <HealthDetails label="Show the scores and findings">
-              <Details
-                data={data}
-                actions={{
-                  canPropose,
-                  canApprove,
-                  onPropose: (check, reason) => void act(() => proposeWaiver(partId, check, reason)),
-                  onDecide: (waiverId, approve) => void act(() => decideWaiver(waiverId, approve)),
-                  onRevoke: (waiverId) => void act(() => revokeWaiver(waiverId)),
-                }}
-              />
-            </HealthDetails>
-          ) : null}
-        </div>
       ) : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </section>

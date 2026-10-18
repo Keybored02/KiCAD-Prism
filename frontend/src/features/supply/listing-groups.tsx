@@ -69,7 +69,7 @@ export function ListingGroups({
         const line = followLine(group, detail);
         const isPreferred = group.connectorId === preferred;
         return (
-          <section key={group.connectorId} aria-label={`${group.name} listings`} className={`space-y-2 ${isPreferred ? "bg-primary/5 p-2" : ""}`}>
+          <section key={group.connectorId} aria-label={`${group.name} listings`} className={`space-y-2 p-2 ${isPreferred ? "bg-primary/5" : ""}`}>
             <div className="flex flex-wrap items-center gap-2">
               {canTrack ? (
                 <Button
