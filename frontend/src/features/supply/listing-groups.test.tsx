@@ -93,8 +93,9 @@ describe("the part's listings by distributor", () => {
     expect(regions[0].getAttribute("aria-label")).toBe("Mouser listings");
     expect(within(regions[0]).getByText("Preferred")).toBeTruthy();
     // The tint marks the preferred one without changing its size.
-    expect(regions[0].className).toContain("p-2");
-    expect(regions[1].className).toContain("p-2");
+    expect(regions[0].className).toContain("p-3");
+    expect(regions[1].className).toContain("p-3");
+    expect(regions[1].className).toContain("border");
     fireEvent.click(screen.getByRole("button", { name: "Prefer DigiKey" }));
     await waitFor(() => expect(api.setPreferredDistributor).toHaveBeenCalledWith("p1", "c1"));
     fireEvent.click(screen.getByRole("button", { name: "Stop preferring Mouser" }));

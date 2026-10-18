@@ -16,8 +16,9 @@ describe("the outlook section", () => {
     };
     render(<OutlookSection outlook={outlook} />);
     expect(screen.getByText("Under 2 years")).toBeTruthy();
+    expect(screen.queryByText(/A last time buy has been announced\./)).toBeNull();
     fireEvent.mouseEnter(screen.getByRole("button", { name: /Show how the outlook/ }));
-    expect(screen.getByText(/rule-based, from the signals listed under it/)).toBeTruthy();
+    expect(screen.getByText(/rule-based, from the signals below/)).toBeTruthy();
     expect(screen.getByText(/A last time buy has been announced\./)).toBeTruthy();
     expect(screen.getByText("(distributor lifecycle)")).toBeTruthy();
   });

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { ChevronRight, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ interface NoticesSectionProps {
 
 /**
  * Product change notices for the part: the ones people entered and the ones a distributor lists. They are a record, and an open
- * one that announces an ending raises an alert. The section folds away, and starts open only when a notice announces an ending.
+ * one that announces an ending raises an alert. The section folds away and starts closed.
  */
 export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => listPartNotices(part.id, signal), [part.id]);
@@ -38,6 +38,7 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const [lastShip, setLastShip] = useState("");
   const [url, setUrl] = useState("");
   const [checking, setChecking] = useState(false);
+  const [adding, setAdding] = useState(false);
   const items = loaded.data ?? [];
 
   const check = async () => {
@@ -58,9 +59,8 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   };
   if (!canEdit && items.length === 0) return null;
 
-  const announcesEnding = items.some((item) => item.state === "open" && item.kind !== "change");
   return (
-    <details aria-label="Notices" className="group space-y-2" open={announcesEnding || undefined}>
+    <details aria-label="Notices" className="group space-y-2">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
         Product change notices
@@ -99,7 +99,10 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
           ))}
         </ul>
       ) : null}
-      {canEdit ? (
+      {canEdit && !adding ? (
+        <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" />Add notice</Button>
+      ) : null}
+      {canEdit && adding ? (
         <form
           className="grid gap-2 sm:grid-cols-2"
           onSubmit={(event) => {
@@ -110,6 +113,7 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                 notice_url: url.trim(), last_time_buy: lastBuy || null, last_time_ship: lastShip || null, notes: "",
               });
               setTitle(""); setLastBuy(""); setLastShip(""); setUrl("");
+              setAdding(false);
               await loaded.refresh();
             });
           }}
@@ -136,8 +140,9 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
             <Label htmlFor="notice-ship" className="text-xs">Last time to ship</Label>
             <Input id="notice-ship" type="date" value={lastShip} onChange={(event) => setLastShip(event.target.value)} />
           </div>
-          <div className="sm:col-span-2">
-            <Button type="submit" size="sm" variant="outline" disabled={busy || title.trim() === ""}>Add notice</Button>
+          <div className="flex gap-2 sm:col-span-2">
+            <Button type="submit" size="sm" disabled={busy || title.trim() === ""}>Add notice</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
           </div>
         </form>
       ) : null}

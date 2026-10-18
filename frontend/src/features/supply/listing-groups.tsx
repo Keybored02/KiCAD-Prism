@@ -79,7 +79,7 @@ export function ListingGroups({
     void run(async () => { await pickPackaging(partId, group.connectorId, listing.id); await onChanged(); });
   if (groups.length === 0) return <ListingTable listings={[]} />;
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
       {canTrack && (detail.packaging?.needs_pick.length ?? 0) > 0 ? (
         <div className="flex justify-end">
@@ -94,7 +94,7 @@ export function ListingGroups({
         const more = expanded.has(group.connectorId);
         const shown = more ? [first, ...rest] : [first];
         return (
-          <section key={group.connectorId} aria-label={`${group.name} listings`} className={`space-y-2 p-2 ${isPreferred ? "bg-primary/5" : ""}`}>
+          <section key={group.connectorId} aria-label={`${group.name} listings`} className={`space-y-2 border p-3 ${isPreferred ? "bg-primary/5" : ""}`}>
             <div className="flex flex-wrap items-center gap-2">
               {canTrack ? (
                 <Button
@@ -115,7 +115,7 @@ export function ListingGroups({
             />
             {rest.length > 0 ? (
               <button
-                type="button" aria-expanded={more} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                type="button" aria-expanded={more} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 onClick={() => toggleMore(group.connectorId)}
               >
                 <ChevronRight className={`h-3.5 w-3.5 transition-transform ${more ? "rotate-90" : ""}`} />

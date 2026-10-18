@@ -337,8 +337,8 @@ listing them. People's own declarations are never changed.
 
 ## Parameters
 
-A part sheet's Parameters section lists the attributes distributors give for the part (Mouser, DigiKey and LCSC give them
-when the part is found). For resistors, capacitors and inductors the common ones (resistance, capacitance, inductance,
+Prism keeps the attributes distributors give for a part (Mouser, DigiKey and LCSC give them when the part is found). The part
+sheet does not show them any more; they are kept and sent with the part's detail. For resistors, capacitors and inductors the common ones (resistance, capacitance, inductance,
 tolerance, voltage and power rating, package, dielectric) are put in one vocabulary first, with the value in SI units next
 to the distributor's own text; everything else is shown as written, with who gave it. A text Prism cannot read is shown
 raw and never guessed.
@@ -403,7 +403,8 @@ Each part gets findings, five risk scores (lifecycle, sourcing, inventory, marke
 | Manufacturer missing | The BOM line has a part number but no manufacturer |
 | Not in library | No catalog component has this manufacturer and part number |
 
-A finding can be waived with a reason; QA approves. A waiver holds only while the condition it was raised for does.
+A waiver QA approved holds only while the condition it was raised for does; QA can approve or reject one that is waiting, and
+anyone who may edit can withdraw or revoke one. The part sheet no longer offers a way to ask for a new waiver.
 Administrators set the limits, the severity of each check and the weight of each risk area in the gear on the Supply
 section.
 

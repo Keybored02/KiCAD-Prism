@@ -1,15 +1,14 @@
 import type { SupplyAssessment, SupplySubScore } from "@/types/supply";
 import { FindingRow } from "./finding-row";
-import { decideWaiver, proposeWaiver, revokeWaiver } from "./supply-api";
+import { decideWaiver, revokeWaiver } from "./supply-api";
 
 const SCORE_LABEL: Record<SupplySubScore["name"], string> = {
   lifecycle: "Lifecycle", sourcing: "Sourcing", inventory: "Inventory", market: "Market", compliance: "Compliance",
 };
 
 /** The five scores and every finding behind a part's health, with the waivers people have asked for or approved. */
-export function HealthBody({ data, partId, canPropose, canApprove, act }: {
+export function HealthBody({ data, canPropose, canApprove, act }: {
   data: SupplyAssessment;
-  partId: string;
   canPropose: boolean;
   canApprove: boolean;
   act: (action: () => Promise<unknown>) => Promise<void>;
@@ -34,7 +33,6 @@ export function HealthBody({ data, partId, canPropose, canApprove, act }: {
               finding={finding}
               canPropose={canPropose}
               canApprove={canApprove}
-              onPropose={(reason) => void act(() => proposeWaiver(partId, finding.check, reason))}
               onDecide={(waiverId, approve) => void act(() => decideWaiver(waiverId, approve))}
               onRevoke={(waiverId) => void act(() => revokeWaiver(waiverId))}
             />

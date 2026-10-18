@@ -54,6 +54,8 @@ describe("the notices section", () => {
   it("adds a notice for this part", async () => {
     render(<NoticesSection part={part} canEdit />);
     await screen.findByRole("link", { name: "PCN-1234" });
+    expect(screen.queryByLabelText("Notice title or number")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add notice" }));
     fireEvent.change(screen.getByLabelText("Notice title or number"), { target: { value: "PCN-9" } });
     fireEvent.change(screen.getByLabelText("What it announces"), { target: { value: "last_time_buy" } });
     fireEvent.change(screen.getByLabelText("Last time buy"), { target: { value: "2026-09-01" } });
@@ -84,7 +86,7 @@ describe("the notices section", () => {
     expect(screen.queryByText(/Entered by/)).toBeNull();
   });
 
-  it("folds away, open only when a notice announces an ending", async () => {
+  it("is closed until opened, whatever a notice announces", async () => {
     const change = { ...fromDigikey, id: "n8", kind: "change" as const, kind_label: "Product change", title: "PCN Packaging" };
     mocked.listPartNotices.mockResolvedValue([change]);
     const { container, unmount } = render(<NoticesSection part={part} canEdit={false} />);
@@ -95,7 +97,7 @@ describe("the notices section", () => {
     mocked.listPartNotices.mockResolvedValue([notice]);
     const ending = render(<NoticesSection part={part} canEdit={false} />);
     await screen.findByText("PCN-1234");
-    expect(ending.container.querySelector("details")?.hasAttribute("open")).toBe(true);
+    expect(ending.container.querySelector("details")?.hasAttribute("open")).toBe(false);
   });
 
   it("checks the part's notices on request, without folding the section, and says what it found", async () => {
@@ -105,7 +107,7 @@ describe("the notices section", () => {
     fireEvent.click(screen.getByRole("button", { name: /Check notices/ }));
     await waitFor(() => expect(mocked.checkPartNotices).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Read 3 listings: 2 new notices."));
-    expect(container.querySelector("details")?.hasAttribute("open"), "the click does not toggle the section").toBe(true);
+    expect(container.querySelector("details")?.hasAttribute("open"), "the click does not toggle the section").toBe(false);
     mocked.checkPartNotices.mockResolvedValue({ read: 0, new: 0, connectors: 1, problems: [{ connector: "DigiKey", reason: "DigiKey needs an administrator to sign in at DigiKey." }] });
     fireEvent.click(screen.getByRole("button", { name: /Check notices/ }));
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("Read 0 listings: no new notices. DigiKey needs an administrator to sign in at DigiKey."));

@@ -10,6 +10,7 @@ import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
+import { DatasheetLink } from "./datasheet-link";
 import { LibraryComponentLink } from "./library-component-link";
 import { LIFECYCLE_BADGE } from "./lifecycle-tone";
 import { JlcIcon } from "./supply-icons";
@@ -95,7 +96,10 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
             </SheetTitle>
             <UsedInLinks uses={detail.used_in} />
           </div>
-          <LibraryComponentLink partId={detail.part.id} />
+          <span className="flex shrink-0 items-center gap-1">
+            <DatasheetLink partId={detail.part.id} canEdit={canEdit} />
+            <LibraryComponentLink partId={detail.part.id} />
+          </span>
         </div>
         <SheetDescription className="sr-only">{detail.part.manufacturer} {detail.part.mpn}</SheetDescription>
       </SheetHeader>

@@ -99,14 +99,23 @@ describe("the outlook and health line", () => {
     expect(screen.queryByRole("list", { name: "Risk" })).toBeNull();
   });
 
-  it("lets a designer ask for a waiver with a reason, then reloads", async () => {
+  it("offers no Waive, and puts the severity tag above each finding", async () => {
     renderIt("designer");
     await openDetails();
-    fireEvent.click(await screen.findByRole("button", { name: "Waive" }));
-    fireEvent.change(screen.getByLabelText("Why nrnd is acceptable"), { target: { value: "We hold stock" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask QA" }));
-    await waitFor(() => expect(mocked.proposeWaiver).toHaveBeenCalledWith("p1", "nrnd", "We hold stock"));
-    await waitFor(() => expect(mocked.getSupplyAssessment).toHaveBeenCalledTimes(2));
+    const findings = await screen.findByRole("list", { name: "Findings" });
+    expect(within(findings).queryByRole("button", { name: /Waive|Ask QA/ })).toBeNull();
+    const tag = within(findings).getByText("Warning");
+    const text = within(findings).getByText(/does not recommend this part/);
+    expect(tag.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("lists the outlook's signals in the same modal", async () => {
+    render(<OutlookSection outlook={{ ...OUTLOOK, band: "under_2_years", label: "Under 2 years", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
+    expect(screen.queryByText(/A notice announces end of life/)).toBeNull();
+    await openDetails();
+    expect(screen.getByRole("list", { name: "Outlook signals" })).toBeTruthy();
+    expect(screen.getByText("(product change notice)")).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Risk" })).toBeTruthy();
   });
 
   it("lets QA approve what a designer asked for, but not a designer", async () => {
@@ -135,7 +144,7 @@ describe("the outlook and health line", () => {
     renderIt("designer");
     await openDetails();
     expect(await screen.findByText(/Waived for an earlier condition/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Waive again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Waive again" })).toBeNull();
   });
 
   it("offers no waiver to a viewer and shows a failed action", async () => {

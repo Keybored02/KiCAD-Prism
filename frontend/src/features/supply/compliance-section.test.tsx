@@ -37,9 +37,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+async function openSection() {
+  fireEvent.click(await screen.findByRole("button", { name: "Compliance" }));
+}
+
 describe("the compliance section", () => {
   it("shows RoHS and REACH with their reasons and the declared substances", async () => {
     render(<ComplianceSection partId="p1" canEdit={false} />);
+    await openSection();
     expect(await screen.findByText("A declared substance is on the Candidate List: Lead.")).toBeTruthy();
     expect(screen.getByText("Compliant")).toBeTruthy();
     expect(screen.getByText("Affected")).toBeTruthy();
@@ -49,6 +54,7 @@ describe("the compliance section", () => {
 
   it("lets a writer declare and remove a substance", async () => {
     render(<ComplianceSection partId="p1" canEdit />);
+    await openSection();
     fireEvent.change(await screen.findByLabelText("Declared substance (CAS number)"), { target: { value: "7440-43-9" } });
     fireEvent.click(screen.getByRole("button", { name: "Declare" }));
     await waitFor(() => expect(mocked.declareSubstance).toHaveBeenCalledWith("p1", "7440-43-9", ""));
@@ -71,6 +77,7 @@ describe("the compliance section", () => {
       ],
     });
     render(<ComplianceSection partId="p1" canEdit />);
+    await openSection();
     expect(await screen.findByText("ROHS3 Compliant")).toBeTruthy();
     expect(screen.getByText("RoHS non-compliant")).toBeTruthy();
     expect(screen.getByText("Sources disagree")).toBeTruthy();
@@ -82,6 +89,7 @@ describe("the compliance section", () => {
   it("says when the Candidate List is not loaded", async () => {
     mocked.getPartCompliance.mockResolvedValue({ ...data, list: { ...data.list, loaded: false } });
     render(<ComplianceSection partId="p1" canEdit={false} />);
+    await openSection();
     expect(await screen.findByText(/Candidate List is not loaded/)).toBeTruthy();
   });
 

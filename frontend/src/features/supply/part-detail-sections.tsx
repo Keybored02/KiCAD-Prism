@@ -10,19 +10,18 @@ import { HoverDetails } from "./hover-details";
 import { InsightDetails } from "./insight-panel";
 import { insightLines } from "./insight-text";
 import { behaviourLines } from "./market-behaviour-text";
-import { RestockRecordSection } from "./restock-record";
+import { RestockRecordDetails } from "./restock-record";
+import { restockItems } from "./restock-items";
 import { FoldSection } from "./fold-section";
 import { ForecastSection } from "./forecast-section";
 import { TryQuantity } from "./price-quantity";
 import { usePartForecast } from "./use-part-forecast";
 import { ComplianceSection } from "./compliance-section";
-import { DatasheetSection } from "./datasheet-section";
 import { ListingGroups } from "./listing-groups";
 import { PartHistoryPanel } from "./part-history";
 import { usePartHistory } from "./use-part-history";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
-import { ParametersSection } from "./parameters-section";
 import { PriceTrend } from "./price-trend";
 import { formatStock } from "./supply-format";
 import { TrackingControl } from "./tracking-control";
@@ -41,6 +40,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
   const forecast = usePartForecast(detail.part.id, null, detail.price.quantity);
   const history = usePartHistory(detail.part.id);
   const trend = insightLines(detail.insight).length > 0;
+  const restock = restockItems(detail.restock_record ?? []).length > 0;
   const compared = behaviourLines(detail.market_behaviour);
   return (
     <div className="space-y-6">
@@ -50,7 +50,14 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
             {formatStock(detail.stock.total)}
-            {trend ? <HoverDetails label="Show the stock trend"><InsightDetails insight={detail.insight} /></HoverDetails> : null}
+            {trend || restock ? (
+              <HoverDetails label="Show the stock trend and restock promises">
+                <div className="space-y-3">
+                  {trend ? <InsightDetails insight={detail.insight} /> : null}
+                  <RestockRecordDetails record={detail.restock_record ?? []} />
+                </div>
+              </HoverDetails>
+            ) : null}
           </p>
           {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
         </div>
@@ -84,8 +91,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <CrossReferenceSection partId={detail.part.id} canEdit={canEdit} />
 
-      <RestockRecordSection record={detail.restock_record ?? []} />
-
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>
         <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} needsPick={detail.packaging?.needs_pick} />
@@ -102,10 +107,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       ) : null}
 
       <ComplianceSection partId={detail.part.id} canEdit={canEdit} trade={detail.trade} onChanged={onChanged} />
-
-      <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
-
-      <ParametersSection parameters={detail.parameters} />
 
     </div>
   );

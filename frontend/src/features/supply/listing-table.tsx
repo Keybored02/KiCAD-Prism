@@ -27,13 +27,13 @@ export function ListingTable({
     );
   }
   return (
-    <div className="space-y-2">
-      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+    <div className="divide-y">
+      {error ? <p role="alert" className="py-1 text-xs text-destructive">{error}</p> : null}
       {listings.map((listing) => {
         const offer = listing.offer;
         const firstBreak = offer?.price_breaks[0];
         return (
-          <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="border p-3 text-sm">
+          <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="py-2 text-sm first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 {offer?.product_url ? (

@@ -306,11 +306,27 @@ describe("a part", () => {
     }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
-    const icon = await within(sheet).findByRole("button", { name: "Show the stock trend" });
+    const icon = await within(sheet).findByRole("button", { name: "Show the stock trend and restock promises" });
     expect(icon.hasAttribute("title")).toBe(false);
     expect(icon.parentElement?.textContent).toContain("12,500");
     fireEvent.mouseEnter(icon);
     expect(await screen.findByRole("heading", { name: "Trend" })).toBeTruthy();
+  });
+
+  it("keeps the restock promises in the stock info modal, and has no datasheet or parameters section", async () => {
+    mocked.getPartDatasheet.mockResolvedValue({ url: "https://acme.example/lm358.pdf" });
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
+      restock_record: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", open: { kind: "dated", quantity: 5000, expected: "2026-04-01", late: false, quoted_lead_days: null }, resolved: 3, kept: 2, stock_outs: 3 }] as never,
+    }));
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).queryByRole("region", { name: "Restock promises" })).toBeNull();
+    fireEvent.mouseEnter(await within(sheet).findByRole("button", { name: "Show the stock trend and restock promises" }));
+    const promises = await screen.findByLabelText("Restock promises");
+    expect(within(promises).getByText("kept 2 of 3 here")).toBeTruthy();
+    expect(within(sheet).getByRole("link", { name: "Open the datasheet" }).getAttribute("href")).toBe("https://acme.example/lm358.pdf");
+    expect(within(sheet).queryByRole("heading", { name: "Datasheet" })).toBeNull();
+    expect(within(sheet).queryByRole("heading", { name: "Parameters" })).toBeNull();
   });
 
   it("closes on one Escape, even with a hover popover open", async () => {
@@ -483,7 +499,7 @@ describe("the watch settings", () => {
     const sheet = await screen.findByRole("dialog");
     const stock = await within(sheet).findByRole("region", { name: "Stock" });
     expect(within(sheet).queryByRole("heading", { name: "Trend" })).toBeNull();
-    fireEvent.mouseEnter(within(stock).getByRole("button", { name: "Show the stock trend" }));
+    fireEvent.mouseEnter(within(stock).getByRole("button", { name: "Show the stock trend and restock promises" }));
     const trend = await screen.findByLabelText("Stock trend");
     expect(within(trend).getByText("High confidence")).toBeTruthy();
     expect(within(trend).getByText("Observed net decrease: 50 a day.")).toBeTruthy();

@@ -39,9 +39,18 @@ export function OutlookSection({ outlook, partId = null, role }: { outlook: Supp
           <p className="text-xs text-muted-foreground">
             {outlook.band === "no_signs"
               ? "The outlook is rule-based. Nothing found points to an end. That is not a promise of a long life."
-              : "The outlook is rule-based, from the signals listed under it."}
+              : "The outlook is rule-based, from the signals below."}
           </p>
-          {scored && partId ? <HealthBody data={data} partId={partId} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
+          {outlook.signals.length > 0 ? (
+            <ul aria-label="Outlook signals" className="space-y-0.5 text-sm">
+              {outlook.signals.map((signal) => (
+                <li key={signal.text}>
+                  {signal.text} <span className="text-xs text-muted-foreground">({signal.source})</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {scored && partId ? <HealthBody data={data} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         </HoverDetails>
       </div>
@@ -51,15 +60,7 @@ export function OutlookSection({ outlook, partId = null, role }: { outlook: Supp
           <button type="button" className="underline" onClick={assessment.retry}>Retry</button>
         </p>
       ) : null}
-      {outlook.signals.length > 0 ? (
-        <ul className="space-y-0.5 text-sm">
-          {outlook.signals.map((signal) => (
-            <li key={signal.text}>
-              {signal.text} <span className="text-xs text-muted-foreground">({signal.source})</span>
-            </li>
-          ))}
-        </ul>
-      ) : outlook.band === "unknown" ? (
+      {outlook.signals.length === 0 && outlook.band === "unknown" ? (
         <p className="text-xs text-muted-foreground">Nothing has been read for this part yet.</p>
       ) : null}
     </section>

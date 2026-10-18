@@ -1,6 +1,7 @@
 import { Clock } from "lucide-react";
 
 import type { RestockRecord } from "@/types/supply";
+import { restockItems } from "./restock-items";
 import { VendorName } from "./vendor-name";
 
 function promise(item: NonNullable<RestockRecord["open"]>): string {
@@ -10,12 +11,12 @@ function promise(item: NonNullable<RestockRecord["open"]>): string {
   return item.late ? `${said}, past that day` : said;
 }
 
-/** What each distributor said about the part's return, and how often it kept its word on this part. Nothing until one has run out or announced stock. */
-export function RestockRecordSection({ record }: { record: RestockRecord[] }) {
-  const shown = record.filter((item) => item.open || item.resolved > 0 || item.stock_outs > 0);
+/** What each distributor said about the part's return, and how often it kept its word on this part. It opens from the info icon beside the stock. */
+export function RestockRecordDetails({ record }: { record: RestockRecord[] }) {
+  const shown = restockItems(record);
   if (shown.length === 0) return null;
   return (
-    <section aria-label="Restock promises" className="space-y-1">
+    <div aria-label="Restock promises" className="space-y-1">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Restock promises</h3>
       <ul className="space-y-0.5 text-sm">
         {shown.map((item) => (
@@ -32,6 +33,6 @@ export function RestockRecordSection({ record }: { record: RestockRecord[] }) {
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }
