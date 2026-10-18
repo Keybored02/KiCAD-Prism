@@ -34,7 +34,7 @@ export function ScorecardTable({ scorecard }: { scorecard: SupplyScorecard }) {
   return (
     <ChartCard
       title="Scorecard"
-      className="lg:col-span-2"
+      className="lg:row-span-2"
       info={`Only parts that two or more distributors list count. A figure shows from ${scorecard.min_events} events. It needs months of readings to say much.`}
     >
       {rows.length === 0 ? (

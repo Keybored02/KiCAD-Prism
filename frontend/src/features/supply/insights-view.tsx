@@ -86,7 +86,7 @@ export function InsightsView() {
   const openFilter = (filter: PartsFilter) => go("parts", filter ? { partsOnly: filter } : {});
 
   return (
-    <div ref={scroller} className="themed-scrollbar h-full overflow-y-auto">
+    <div ref={scroller} className="themed-scrollbar relative h-full overflow-y-auto">
       <nav aria-label="Insights" className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-background px-4 py-2">
         {SECTIONS.filter((item) => item.id !== "signals" || signals.length > 0).map((item) => (
           <Button
