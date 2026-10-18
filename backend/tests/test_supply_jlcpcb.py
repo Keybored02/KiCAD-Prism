@@ -71,7 +71,7 @@ class JlcpcbTests(unittest.TestCase):
         with self.assertRaises(Blocked):
             provider(Refusing()).lookup_mpn("LM358DR")
 
-    def test_each_call_waits_between_six_and_twelve_seconds(self) -> None:
+    def test_each_call_waits_between_three_quarters_and_one_and_a_half_times_the_pace(self) -> None:
         sleeps = []
         clock = {"t": 0.0}
 
@@ -84,7 +84,8 @@ class JlcpcbTests(unittest.TestCase):
         pacer = pacing.Pacer(jlcpcb.PACE_SECONDS, monotonic=lambda: clock["t"], sleep=sleep)
         for _ in range(60):
             pacer.wait()
-        self.assertTrue(all(6.0 <= gap <= 12.0 for gap in sleeps), (min(sleeps), max(sleeps)))
+        low, high = 0.75 * jlcpcb.PACE_SECONDS, 1.5 * jlcpcb.PACE_SECONDS
+        self.assertTrue(all(low <= gap <= high for gap in sleeps), (min(sleeps), max(sleeps)))
 
 
 if __name__ == "__main__":
