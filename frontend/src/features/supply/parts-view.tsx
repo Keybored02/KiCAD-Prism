@@ -114,11 +114,11 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   );
 
   return (
-    <div className="relative h-full overflow-y-auto p-4">
-      <div className="space-y-5">
-        {headerSlot === undefined ? <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div> : headerSlot ? createPortal(actions, headerSlot) : null}
+    <div className="relative flex h-full min-h-0 flex-col p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-5">
+        {headerSlot === undefined ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : headerSlot ? createPortal(actions, headerSlot) : null}
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
           <div role="group" aria-label="Which parts" className="flex gap-1">
             {SCOPES.map((item) => (
               <Button
@@ -132,7 +132,6 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               </Button>
             ))}
           </div>
-          <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
           <Select
             value={LIFECYCLE_FILTERS.some((item) => item === only) ? only : ANY}
             onValueChange={(next) => setParams({ partsOnly: next === ANY ? null : next })}
@@ -146,13 +145,16 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               {LIFECYCLE_FILTERS.filter((item) => item !== "lifecycle").map((item) => <SelectItem key={item} value={item}>{FILTER_LABEL[item]}</SelectItem>)}
             </SelectContent>
           </Select>
+          <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
           {only && !LIFECYCLE_FILTERS.some((item) => item === only) ? (
             <Button size="sm" variant="secondary" onClick={() => setParams({ partsOnly: null })} aria-label={`Showing only ${FILTER_LABEL[only]}. Show all`}>
               {FILTER_LABEL[only]}<X className="h-3.5 w-3.5" />
             </Button>
           ) : null}
         </div>
-        {scope === "followed" || scope === "watched" ? <TrackingRoomLine /> : null}
+        {scope === "followed" || scope === "watched" ? <div className="shrink-0"><TrackingRoomLine /></div> : null}
+
+        <div className="min-h-0 flex-1 space-y-5 overflow-auto">
 
         {status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading parts" /> : null}
         {status === "error" ? (
@@ -170,13 +172,14 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
-                <PartsTable items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} />
+                <PartsTable stickyHead items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} />
                 <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
                 <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>
             )}
           </>
         ) : null}
+        </div>
       </div>
 
       <Dialog open={searchParams.get("tool") === "bom-file"} onOpenChange={(next) => { if (!next) setParams({ tool: null }); }}>

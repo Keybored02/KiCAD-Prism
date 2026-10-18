@@ -10,8 +10,9 @@ import { cn } from "@/lib/utils";
 import type { SupplyBomLookup } from "@/types/supply";
 import { rollupSentences } from "./bom-rollup-text";
 import {
-  buildFileLines, guessMapping, MAX_FILE_BYTES, MAX_FILE_ROWS, parseTable, type Mapping, type Role,
+  buildFileLines, guessMapping, MAX_FILE_BYTES, MAX_FILE_ROWS, type Mapping, type Role,
 } from "./bom-file-model";
+import { readTableFile } from "./bom-file-read";
 import { BomFileResults } from "./bom-file-results";
 import { lineInput } from "./bom-supply";
 import { lookupSupplyBom } from "./supply-api";
@@ -48,7 +49,14 @@ export function BomFileView() {
       await run(async () => { throw new Error("The file is larger than 2 MB."); });
       return;
     }
-    const parsed = parseTable(await file.text()).slice(0, MAX_FILE_ROWS + 1);
+    let parsed: string[][];
+    try {
+      parsed = (await readTableFile(file)).slice(0, MAX_FILE_ROWS + 1);
+    } catch {
+      setRows([]);
+      await run(async () => { throw new Error("That file could not be read as a spreadsheet or a delimited text file."); });
+      return;
+    }
     setRows(parsed);
     setFileName(file.name);
     if (parsed.length > 0) setMapping(guessMapping(parsed[0]));
@@ -79,8 +87,8 @@ export function BomFileView() {
       >
         <Upload className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm font-medium">{dragging ? "Drop the file to read it" : "Drop a BOM file here"}</p>
-        <p className="text-xs text-muted-foreground">CSV, semicolon or tab separated, up to 2 MB.</p>
-        <input id="bom-file" type="file" accept=".csv,.tsv,.txt,text/csv" className="sr-only" aria-label="BOM file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void choose(file); event.target.value = ""; }} />
+        <p className="text-xs text-muted-foreground">Excel (.xls, .xlsx) or CSV, up to 2 MB. The first sheet is read.</p>
+        <input id="bom-file" type="file" accept=".csv,.tsv,.txt,.xls,.xlsx,.xlsm,.ods,text/csv" className="sr-only" aria-label="BOM file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void choose(file); event.target.value = ""; }} />
         <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById("bom-file")?.click()}>
           <FileSpreadsheet className="h-4 w-4" />Choose file
         </Button>

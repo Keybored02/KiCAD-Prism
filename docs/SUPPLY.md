@@ -9,7 +9,7 @@ and no purchase support.
 | Place | What it answers |
 | --- | --- |
 | **Supply > Dashboard** | What needs a person: counts with their change over seven days and a 30-day line (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then what is behind them: a grid of lifecycle against how many distributors hold stock (unknown is its own row and column), the last-time-buy and last-ship dates of the next year in days, when stock runs out, and a table of the tracked projects (parts at risk, parts held by one distributor, boards the stock covers, cost per board and its 30-day move). Each opens the parts or the project behind it and has a table view behind an icon. Then the alerts with a chip for each kind and how long each has been open, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
-| **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
+| **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, upload a BOM, read catalog vendors. |
 | **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). A closed row has three lines: the designs and packaging followed, a bar of the parts by status with the counts that need a look (at risk, out, end of life, one distributor, running out within two weeks), and for a tracked project its cost per board and 30-day move, how many boards the stock covers, how old the BOM read is and its open alerts. An arrow button opens the project. |
 | **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
 | **Supply > Insights** | One page, seven sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Sourcing (how many of your parts each distributor lists, holds and is cheapest for; how many distributors hold each part; and, folded away, how often each changes price, who moves first, who restocks first, arrivals on time), Lifecycle and compliance (lifecycle mix, when parts will end, RoHS and REACH), Lead times and prices (lead times in buckets, the biggest price rises and falls over 30 days), Market, Trade (country of origin, export controlled parts). Unknown is always its own grey bar. |
@@ -411,7 +411,7 @@ section.
 
 ## BOM file
 
-Supply > Parts > Check a BOM file checks a BOM that is not a project. Choose a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
+Supply > Parts > Upload BOM checks a BOM that is not a project. Drop or choose an Excel file (.xls, .xlsx; the first sheet is read) or a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
 rows), confirm which column is the part number, manufacturer, LCSC number, quantity and references (they are guessed from
 the header), set the number of boards, and Prism shows what the parts would cost and whether they can be built, with the
 same rollup as a project BOM. A row needs a part number or an LCSC number. Rows of the same part are added together.

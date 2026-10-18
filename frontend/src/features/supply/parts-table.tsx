@@ -16,13 +16,15 @@ interface PartsTableProps {
   onOpen: (partId: string) => void;
   /** The state of the forecast models, from the list. */
   forecastState?: Partial<Record<"runout" | "out_4w" | "can_buy_4w" | "can_buy_8w", ForecastState>>;
+  /** The column names stay at the top of the scrolling parent. The parent must be the one that scrolls, both ways. */
+  stickyHead?: boolean;
 }
 
-export function PartsTable({ items, selectedId, onOpen, forecastState }: PartsTableProps) {
+export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false }: PartsTableProps) {
   return (
-    <div className="overflow-x-auto border">
+    <div className={cn("border", !stickyHead && "overflow-x-auto")}>
       <table className="w-full text-sm">
-        <thead className="border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground">
+        <thead className={cn("border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground", stickyHead && "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--border)]")}>
           <tr>
             <th className="w-8 px-3 py-2"><span className="sr-only">Status</span></th>
             <th className="px-3 py-2">Part</th>
