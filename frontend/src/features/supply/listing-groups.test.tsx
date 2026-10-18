@@ -45,6 +45,18 @@ function renderGroups(overrides = {}, canTrack = true) {
 }
 
 describe("the part's listings by distributor", () => {
+  it("says a near listing differs by number, not by maker, and links its page before it is read", () => {
+    const near: SupplyListing = {
+      ...listing("n", "c3", "LCSC", "lcsc", "C42411", "unknown"), match_state: "near", counted: false,
+      raw_mpn: "912-121A1027D10200", raw_manufacturer: "Jing Extension of the Electronic Co.", match_reason: "different part number",
+      page_url: "https://www.lcsc.com/product-detail/C42411.html",
+    };
+    render(<MemoryRouter><ListingGroups detail={partDetailFixture({ listings: [near] })} canDecide canTrack onChanged={vi.fn()} /></MemoryRouter>);
+    expect(screen.getByText("Different part number (912-121A1027D10200), not counted")).toBeTruthy();
+    expect(screen.queryByText(/Other maker/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open LCSC product page" }).getAttribute("href")).toBe("https://www.lcsc.com/product-detail/C42411.html");
+  });
+
   it("marks the followed listing with an eye, says nothing about who picked it, and does not count the others", () => {
     renderGroups();
     const digikey = screen.getByRole("region", { name: "DigiKey listings" });

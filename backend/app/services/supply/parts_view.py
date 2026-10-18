@@ -752,6 +752,19 @@ def _price_block(conn, part_id: str, now: datetime, offers: list[dict]) -> dict[
     return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": headline}
 
 
+# Distributors whose product page is known from the number alone, for a listing not read yet.
+_PAGE_URLS = {"lcsc": "https://www.lcsc.com/product-detail/{}.html", "tme": "https://www.tme.eu/en/details/{}/"}
+
+
+def _page_url(provider: str, sku: str, read_url: str | None) -> str:
+    """The distributor's page for a listing: the one its last reading gave, else one built from the number."""
+
+    if read_url:
+        return str(read_url)
+    pattern = _PAGE_URLS.get(provider)
+    return pattern.format(sku.lower() if provider == "tme" else sku) if pattern and sku and "/" not in sku else ""
+
+
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
@@ -805,6 +818,8 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "match_state": r["match_state"],
             "raw_mpn": r["raw_mpn"] or "",
             "raw_manufacturer": r["raw_manufacturer"] or "",
+            "match_reason": r["match_reason"] or "",
+            "page_url": _page_url(r["provider"], r["sku"], r["product_url"]),
             "counted": r["match_state"] in _COUNTED,
             "offer": {
                 "fetched_at": iso(r["fetched_at"]),

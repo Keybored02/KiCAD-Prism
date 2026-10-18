@@ -38,9 +38,9 @@ export function ListingTable({
           <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="py-2 text-sm first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                {offer?.product_url ? (
+                {offer?.product_url || listing.page_url ? (
                   <a
-                    href={offer.product_url} target="_blank" rel="noreferrer" className="font-medium hover:underline"
+                    href={offer?.product_url || listing.page_url} target="_blank" rel="noreferrer" className="font-medium hover:underline"
                     aria-label={`Open ${listing.connector_name} product page`} title={`Open ${listing.sku} at ${listing.connector_name}`}
                   >
                     {listing.sku}
@@ -53,7 +53,7 @@ export function ListingTable({
                 ) : null}
                 {!listing.counted ? (
                   <Badge variant="warning">
-                    {listing.match_state === "near" && listing.raw_manufacturer ? `Other maker: ${listing.raw_manufacturer}` : `${matchLabel(listing.match_state)}, not counted`}
+                    {notCountedText(listing)}
                   </Badge>
                 ) : null}
                 {listing.match_state === "near" && canDecide ? (
@@ -90,6 +90,16 @@ export function ListingTable({
       })}
     </div>
   );
+}
+
+/** Why a listing is not counted, in the words of what differs: the maker, or the number the distributor lists it under. */
+function notCountedText(listing: SupplyListing): string {
+  if (listing.match_state !== "near") return `${matchLabel(listing.match_state)}, not counted`;
+  const number = listing.raw_mpn ? ` (${listing.raw_mpn})` : "";
+  const reason = listing.match_reason ?? "";
+  if (reason === "different part number") return `Different part number${number}, not counted`;
+  if (reason === "longer number") return `Longer number${number}, not counted`;
+  return listing.raw_manufacturer ? `Other maker: ${listing.raw_manufacturer}` : `${matchLabel(listing.match_state)}, not counted`;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

@@ -838,6 +838,10 @@ export interface SupplyListing {
   /** What the distributor calls the part and its maker. */
   raw_mpn?: string;
   raw_manufacturer?: string;
+  /** Why it matched, or did not. */
+  match_reason?: string;
+  /** The distributor's page for it, even before it has been read. */
+  page_url?: string;
   /** Only counted listings feed stock and price. */
   counted: boolean;
   offer: SupplyOffer | null;
