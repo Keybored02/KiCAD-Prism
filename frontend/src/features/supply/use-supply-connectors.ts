@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer } from "react";
 
 import type { SupplyConnector, SupplyProvider } from "@/types/supply";
+import { readLoaded, storeLoaded } from "./loaded-cache";
 import { listSupplyConnectors, listSupplyProviders } from "./supply-api";
 
 interface State {
@@ -19,6 +20,12 @@ type Action =
   | { type: "removed"; id: string };
 
 const INITIAL: State = { status: "loading", providers: [], connectors: [], error: "" };
+const CACHE_KEY = "connectors";
+
+function initial(): State {
+  const cached = readLoaded<Pick<State, "providers" | "connectors">>(CACHE_KEY);
+  return cached ? { status: "ready", ...cached, error: "" } : INITIAL;
+}
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -44,25 +51,28 @@ function reducer(state: State, action: Action): State {
 
 /** Providers and connectors for the Connectors tab, with local updates after a change. */
 export function useSupplyConnectors() {
-  const [state, dispatch] = useReducer(reducer, INITIAL);
+  const [state, dispatch] = useReducer(reducer, undefined, initial);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    dispatch({ type: "loading" });
+  const load = useCallback(async (signal?: AbortSignal, quiet = false) => {
+    if (!quiet) dispatch({ type: "loading" });
     try {
       const [providers, connectors] = await Promise.all([
         listSupplyProviders(signal),
         listSupplyConnectors(signal),
       ]);
+      storeLoaded(CACHE_KEY, { providers, connectors });
       dispatch({ type: "loaded", providers, connectors });
     } catch (error) {
       if (signal?.aborted) return;
+      if (quiet) return;
       dispatch({ type: "failed", error: error instanceof Error ? error.message : "Could not load connectors" });
     }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    // Back on the page: show what it showed and reload behind it.
+    void load(controller.signal, readLoaded(CACHE_KEY) !== undefined);
     return () => controller.abort();
   }, [load]);
 

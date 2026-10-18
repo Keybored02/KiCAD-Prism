@@ -59,7 +59,6 @@ describe("the dashboard", () => {
     expect(screen.getByText("Waiting for room").closest("button")!.textContent).toContain("3");
     await waitFor(() => expect(screen.getByText("Needs you").closest("button")!.textContent).toContain("4"));
     expect(await screen.findByText("OOS-1")).toBeTruthy();
-    expect(screen.getByText(/Latest read 10 min ago/)).toBeTruthy();
   });
 
   it("opens the place that deals with each count", async () => {
@@ -104,12 +103,11 @@ describe("the dashboard", () => {
     expect(screen.queryByText("Ending in library")).toBeNull();
   });
 
-  it("swaps a chart for its numbers", async () => {
+  it("has no chart and table switch", async () => {
     renderView();
-    fireEvent.click(await screen.findByRole("button", { name: "Show When stock runs out as a table" }));
-    const card = screen.getByRole("region", { name: "When stock runs out" });
-    expect(within(card).getByRole("table")).toBeTruthy();
+    const card = await screen.findByRole("region", { name: "Projected stock" });
     expect(within(card).getByText("Steady or rising")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /as a table/ })).toBeNull();
   });
 
   it("narrows the alerts by kind", async () => {
@@ -133,7 +131,7 @@ describe("the dashboard", () => {
       }],
     }));
     renderView();
-    const deadlines = await screen.findByRole("region", { name: "Dates you cannot miss" });
+    const deadlines = await screen.findByRole("region", { name: "Deadlines" });
     expect(within(deadlines).getByText("OLD-7")).toBeTruthy();
     expect(within(deadlines).getByText("in 20 days")).toBeTruthy();
     fireEvent.click(within(deadlines).getByRole("button", { name: "OLD-7" }));

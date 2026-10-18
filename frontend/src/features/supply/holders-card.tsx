@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 
 export type HolderKey = "none" | "one" | "two" | "three_plus" | "unknown";
 
@@ -26,7 +26,6 @@ export function HoldersCard({ holders, onOpen }: { holders: Record<HolderKey, nu
     <ChartCard
       title="Where stock is held"
       answer={holders.one === 0 ? "No part depends on a single distributor" : `${holders.one.toLocaleString()} ${holders.one === 1 ? "part depends" : "parts depend"} on one distributor`}
-      table={<FigureTable rows={HOLDERS.map((item) => [item.label, holders[item.key]])} />}
     >
       <div className="flex items-center gap-4">
         <svg role="img" aria-label="Parts by number of distributors holding stock" viewBox="0 0 36 36" className="h-24 w-24 shrink-0">

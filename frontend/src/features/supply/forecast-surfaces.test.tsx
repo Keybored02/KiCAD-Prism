@@ -104,12 +104,7 @@ describe("the project's forecast", () => {
     expect(mocked.getProjectForecast).toHaveBeenCalledWith("prj", 100, "", expect.anything());
   });
 
-  it("has a table view of the weeks and says when nothing can be said yet", async () => {
-    mocked.getProjectForecast.mockResolvedValueOnce(projectForecastFixture());
-    render(<ProjectForecastSection projectId="prj" variant="Lite" boards={50} currency="EUR" onOpenPart={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: /as a table/ }));
-    expect(screen.getByText("Week 8")).toBeTruthy();
-    cleanup();
+  it("says when nothing can be said yet", async () => {
     mocked.getProjectForecast.mockResolvedValueOnce(projectForecastFixture({ available: false, weeks: [], holding_back: [] }));
     render(<ProjectForecastSection projectId="prj" variant="" boards={50} currency="EUR" onOpenPart={vi.fn()} />);
     expect(await screen.findByText(/Forecasts start after a week of readings/)).toBeTruthy();

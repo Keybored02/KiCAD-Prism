@@ -65,8 +65,9 @@ export function AdminStrip({ waiting }: { waiting: number }) {
     try { list = await getSvhcList(signal); } catch { /* the list is optional */ }
     return { connectors, signins, list };
   }, []);
-  const { data } = useLoaded("admin-strip", fetcher, "Could not load the administrator notes");
+  const { data } = useLoaded("admin-strip", fetcher, "Could not load the administrator notes", "supply");
   const notices = data ? adminNotices(data.connectors, data.signins, data.list, waiting, Date.now()) : [];
+  if (notices.length === 0) return null;
   return (
     <div className="space-y-2" aria-label="For administrators">
       {notices.length > 0 ? (

@@ -39,10 +39,11 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
   }, [data]);
   const shown = (data ?? []).filter((alert) => !kind || alert.kind === kind);
   return (
-    <section id="dashboard-alerts" aria-label="Alerts" className="space-y-2">
+    <details id="dashboard-alerts" open>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alerts</summary>
+      <section aria-label="Alerts" className="mt-2 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div role="group" aria-label="Kind of alert" className="flex flex-wrap items-center gap-1">
-          <h3 className="mr-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alerts</h3>
           {kinds.length > 1 ? (
             <>
               <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => onKind("")}>All {data?.length}</Button>
@@ -88,7 +89,8 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
           </ul>
         )
       ) : null}
-    </section>
+      </section>
+    </details>
   );
 }
 

@@ -3,7 +3,7 @@ import { lazy, Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PartsFilter, SupplyInsightsPage } from "@/types/supply";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 import { LoadMore } from "./load-more";
 import { PartsTable } from "./parts-table";
 import { useSupplyPartsFeed } from "./use-supply-parts";
@@ -43,7 +43,6 @@ export function RunwaySection({ page, onOpen }: { page: SupplyInsightsPage; onOp
         title="Stock left against lead time"
         info="Days of stock left is projected from each part's own readings; lead time is the shortest any distributor quotes. A dot above the line runs out before an order could arrive."
         answer={page.scatter.length === 0 ? "Not enough readings yet" : short.length === 0 ? "No part runs out before an order could arrive" : `${short.length} ${short.length === 1 ? "part runs" : "parts run"} out before an order could arrive`}
-        table={<FigureTable head={["Part", "Left / lead"]} rows={page.scatter.slice(0, 50).map((point) => [point.mpn, `${point.days_to_zero} / ${point.lead_days} days`])} />}
       >
         {page.scatter.length > 0 ? <Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwayScatter points={page.scatter} onOpen={onOpen} /></Suspense> : null}
         {missing.no_rate + missing.no_lead_time > 0 ? (

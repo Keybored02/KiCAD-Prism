@@ -1,6 +1,6 @@
 import type { PartsFilter, SupplyInsightsPage } from "@/types/supply";
 import { BarList } from "./bar-list";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 import { DistributorsSection } from "./distributors-section";
 import { HoldersCard } from "./holders-card";
 import { vendorColor } from "./vendor-colors";
@@ -20,7 +20,6 @@ export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; on
           title="Distributor coverage"
           info="Of the parts you track: how many each distributor lists, how many it holds in stock, and how many it is the cheapest for at 100 pieces."
           answer={coverage.length === 0 ? "No distributor has been read yet" : `${coverage[0].name} lists ${coverage[0].listed.toLocaleString()} of ${coverage[0].tracked.toLocaleString()} parts`}
-          table={<FigureTable head={["Distributor", "Lists / in stock / cheapest"]} rows={coverage.map((item) => [item.name, `${item.listed} / ${item.in_stock} / ${item.cheapest}`])} />}
         >
           <div className="space-y-3">
             {coverage.map((item) => (
@@ -77,14 +76,12 @@ export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; o
       <ChartCard
         title="Lifecycle"
         answer={ending === 0 ? "No tracked part is ending" : `${ending.toLocaleString()} ${ending === 1 ? "part is" : "parts are"} not recommended for new designs, in last-time-buy or obsolete`}
-        table={<FigureTable rows={LIFECYCLE.map((item) => [item.label, mix[item.key]])} />}
       >
         <BarList rows={LIFECYCLE.map((item) => ({ key: item.key, label: item.label, value: mix[item.key], tone: item.tone, onClick: item.key === "active" || item.key === "unknown" ? undefined : () => onOpen("lifecycle") }))} labelWidth="11rem" />
       </ChartCard>
       <ChartCard
         title="When parts will end"
         info="From each part's lifecycle, open notices, last dates to buy and distributors dropping it. Rule-based; parts without data are unknown."
-        table={<FigureTable rows={OUTLOOK.map((item) => [item.label, outlook[item.key]])} />}
       >
         <BarList rows={OUTLOOK.map((item) => ({ key: item.key, label: item.label, value: outlook[item.key], tone: item.tone }))} labelWidth="11rem" />
       </ChartCard>
@@ -126,7 +123,7 @@ const BUCKETS: Record<SupplyInsightsPage["lead_times"][number]["bucket"], string
 export function LeadAndPricesSection({ page, onOpenPart }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void }) {
   const long = page.lead_times.filter((item) => item.bucket === "16_to_26w" || item.bucket === "over_26w").reduce((sum, item) => sum + item.parts, 0);
   const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"], empty: string) => (
-    <ChartCard title={title} table={<FigureTable head={["Part", "30 days"]} rows={rows.map((row) => [row.mpn, `${row.percent}%`])} />}>
+    <ChartCard title={title}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : (
         <ul className="divide-y text-sm">
           {rows.map((row) => (
@@ -146,7 +143,6 @@ export function LeadAndPricesSection({ page, onOpenPart }: { page: SupplyInsight
         title="Lead times"
         info="The shortest lead time any distributor quotes for each part."
         answer={long === 0 ? "No part is quoted over 16 weeks" : `${long.toLocaleString()} ${long === 1 ? "part is" : "parts are"} quoted over 16 weeks`}
-        table={<FigureTable rows={page.lead_times.map((item) => [BUCKETS[item.bucket], item.parts])} />}
       >
         <BarList rows={page.lead_times.map((item) => ({ key: item.bucket, label: BUCKETS[item.bucket], value: item.parts, tone: item.bucket === "none" ? GREY : undefined }))} labelWidth="8rem" />
       </ChartCard>
@@ -164,7 +160,6 @@ export function TradeSection({ page, onOpenPart }: { page: SupplyInsightsPage; o
       <ChartCard
         title="Country of origin"
         info="What distributors state. A part with several answers is counted as Several."
-        table={<FigureTable rows={origins.map((item) => [item.country, item.parts])} />}
       >
         <BarList labelWidth="8rem" rows={[
           ...origins.map((item) => ({ key: item.country, label: item.country, value: item.parts, tone: item.country === "Unknown" || item.country === "Several" ? GREY : undefined })),
@@ -175,7 +170,6 @@ export function TradeSection({ page, onOpenPart }: { page: SupplyInsightsPage; o
         title="Export control"
         info="The ECCN distributors give; EAR99 is no control. A mark set on a part's sheet wins."
         answer={control.controlled === 0 ? "No part is export controlled" : `${control.controlled.toLocaleString()} ${control.controlled === 1 ? "part is" : "parts are"} export controlled`}
-        table={<FigureTable rows={[["Controlled", control.controlled], ["Not controlled (EAR99)", control.none], ["Disputed", control.disputed], ["No class given", control.unknown]]} />}
       >
         <BarList labelWidth="9rem" rows={[
           { key: "controlled", label: "Controlled", value: control.controlled, tone: "bg-destructive/70" },

@@ -40,8 +40,7 @@ function sentence(change: SupplyRecentChange): string {
 export function RecentChanges({ changes, onOpenPart }: { changes: SupplyRecentChange[]; onOpenPart: (partId: string) => void }) {
   if (changes.length === 0) return null;
   return (
-    <section aria-label="Recent changes" className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</h3>
+    <section aria-label="Recent changes">
       <ul className="border">
         {changes.map((change) => (
           <li key={`${change.type}-${change.part_id ?? String(change.detail?.project_id)}-${change.at}`} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">

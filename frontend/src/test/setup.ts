@@ -1,6 +1,7 @@
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import { clearLoadedCache } from "@/features/supply/loaded-cache";
 
 /**
  * Give `waitFor` and friends a budget that survives a loaded CI runner.
@@ -38,6 +39,7 @@ configure({ asyncUtilTimeout: 5_000 });
  * reason — there are no vitest globals here.
  */
 afterEach(cleanup);
+afterEach(clearLoadedCache);
 
 /**
  * jsdom implements no layout, so it ships no `Element.scrollIntoView`.

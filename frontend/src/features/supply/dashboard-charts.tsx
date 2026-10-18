@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { SupplyDashboard } from "@/types/supply";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 
 type RunwayKey = keyof SupplyDashboard["runway"];
 
@@ -19,10 +19,9 @@ export function RunwayCard({ runway, onOpen }: { runway: SupplyDashboard["runway
   const soon = runway.out_now + runway.runs_out_2w;
   return (
     <ChartCard
-      title="When stock runs out"
+      title="Projected stock"
       info="Projected from each part's own readings at the rate its stock has been falling. Parts with too few readings are not guessed at."
       answer={soon === 0 ? "Nothing runs out within 2 weeks" : `${soon.toLocaleString()} ${soon === 1 ? "part is" : "parts are"} out or run out within 2 weeks`}
-      table={<FigureTable rows={RUNWAY.map((item) => [item.label, runway[item.key]])} />}
     >
       <ul className="space-y-1">
         {RUNWAY.map((item) => (

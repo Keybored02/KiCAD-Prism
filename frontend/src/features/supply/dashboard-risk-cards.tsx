@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
 import type { PartsFilter, SupplyDashboard } from "@/types/supply";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 import { counts } from "./project-row-text";
 import { formatPrice } from "./supply-format";
 
@@ -38,16 +38,15 @@ function filterOf(lifecycle: Lifecycle, column: Column): PartsFilter {
   return column === "out" ? "out_of_stock" : column === "one" ? "one_distributor" : column === "not_read" ? "few_readings" : "";
 }
 
-/** Where the risk sits: lifecycle against availability. A cell opens the parts behind it. */
+/** Risk distribution: lifecycle against availability. A cell opens the parts behind it. */
 export function RiskGridCard({ grid, onOpen }: { grid: SupplyDashboard["risk_grid"]; onOpen: (filter: PartsFilter) => void }) {
   const total = grid.reduce((sum, row) => sum + row.two_plus + row.one + row.out + row.not_read, 0);
   const worst = grid.filter((row) => row.lifecycle !== "active" && row.lifecycle !== "unknown").reduce((sum, row) => sum + row.one + row.out, 0);
   return (
     <ChartCard
-      title="Where the risk sits"
+      title="Risk Distribution"
       info="Manufacturer lifecycle against how many distributors hold stock. Unknown is its own row and column: it is not counted as fine."
       answer={total === 0 ? "No parts tracked yet" : worst === 0 ? "No ending part is thinly held" : `${worst.toLocaleString()} ending ${worst === 1 ? "part is" : "parts are"} out or held by one distributor`}
-      table={<FigureTable head={["Lifecycle", "Out / one / 2+ / not read"]} rows={grid.map((row) => [ROWS.find((item) => item.key === row.lifecycle)?.label ?? row.lifecycle, `${row.out} / ${row.one} / ${row.two_plus} / ${row.not_read}`])} />}
     >
       <table className="w-full table-fixed border-separate border-spacing-0.5 text-xs">
         <thead>
@@ -97,10 +96,9 @@ export function DeadlinesCard({ deadlines, onOpenPart }: { deadlines: SupplyDash
   const soon = deadlines.filter((item) => inDays(item.date, now) <= 90).length;
   return (
     <ChartCard
-      title="Dates you cannot miss"
+      title="Deadlines"
       info="Last-time-buy and last-ship dates from open product change notices, and the last date to buy a distributor gives, in the next 12 months."
       answer={deadlines.length === 0 ? "No dated deadline in the next year" : soon === 0 ? `${deadlines.length} in the next year, none within 90 days` : `${soon} within 90 days`}
-      table={<FigureTable head={["Part", "Date"]} rows={deadlines.map((item) => [`${item.mpn} ${KIND[item.kind]}`, item.date])} />}
     >
       {deadlines.length === 0 ? null : (
         <ul className="max-h-64 divide-y overflow-y-auto text-sm">
@@ -128,7 +126,6 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
     <ChartCard
       title="Tracked projects"
       answer={projects.length === 0 ? "No project is tracked yet" : `${projects.length} ${projects.length === 1 ? "project" : "projects"} tracked`}
-      className="lg:col-span-2"
     >
       {projects.length === 0 ? null : (
         <div className="overflow-x-auto">

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenLibraryManager } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { PartsFilter, SupplyDashboard, SupplyOverview, SupplyReviewQueue } from "@/types/supply";
+import type { PartsFilter, SupplyDashboard, SupplyReviewQueue } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
 import { RunwayCard } from "./dashboard-charts";
@@ -16,7 +16,6 @@ import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk
 import { TileButton, type Tile } from "./dashboard-tiles";
 import { RecentChanges } from "./recent-changes";
 import { getSupplyDashboard, getSupplyReviewQueue } from "./supply-api";
-import { formatAgo } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 import { useSupplyNavigation } from "./use-supply-navigation";
 import { useSupplyOverview } from "./use-supply-parts";
@@ -35,9 +34,9 @@ function reviewCountOf(review: SupplyReviewQueue | null | undefined): number | u
 export function DashboardView({ user }: { user: User | null }) {
   const overview = useSupplyOverview();
   const dashboardFetcher = useCallback((signal: AbortSignal) => getSupplyDashboard(signal), []);
-  const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard");
+  const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard", "supply");
   const reviewFetcher = useCallback((signal: AbortSignal) => getSupplyReviewQueue(signal), []);
-  const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue");
+  const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue", "supply");
   const { go, openPart } = useSupplyNavigation();
   const navigate = useNavigate();
   const [alertKind, setAlertKind] = useState("");
@@ -60,8 +59,8 @@ export function DashboardView({ user }: { user: User | null }) {
   ];
 
   return (
-    <div className="relative h-full overflow-y-auto p-4">
-      <div className="space-y-6">
+    <div className="relative h-full overflow-y-auto px-4 pb-4 pt-2">
+      <div className="space-y-4">
         {user?.role === "admin" ? <AdminStrip waiting={data?.figures.waiting ?? 0} /> : null}
         {dashboard.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {dashboard.status === "error" ? (
@@ -77,7 +76,6 @@ export function DashboardView({ user }: { user: User | null }) {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
               {tiles.filter((tile) => tile.value !== undefined).map((tile) => <TileButton key={tile.label} tile={tile} />)}
             </div>
-            {overview.data ? <p className="text-xs text-muted-foreground">{dataAge(overview.data)}</p> : null}
             <div className="grid gap-3 lg:grid-cols-2">
               <RiskGridCard grid={data.risk_grid} onOpen={(filter) => parts(filter)()} />
               <DeadlinesCard deadlines={data.deadlines} onOpenPart={openPart} />
@@ -99,9 +97,4 @@ export function DashboardView({ user }: { user: User | null }) {
       </div>
     </div>
   );
-}
-
-function dataAge({ data_age: age, figures }: SupplyOverview): string {
-  if (!age.newest) return figures.watched ? "Nothing has been read yet." : "";
-  return `Latest read ${formatAgo(age.newest)}. The part read longest ago: ${formatAgo(age.oldest)}.`;
 }

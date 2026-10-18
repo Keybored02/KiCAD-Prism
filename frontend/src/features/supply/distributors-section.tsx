@@ -1,5 +1,5 @@
 import type { SupplyDistributorBehaviour } from "@/types/supply";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 import { ScorecardTable } from "./scorecard-table";
 import { vendorColor } from "./vendor-colors";
 
@@ -17,7 +17,7 @@ function colourOf(name: string): string {
 function Bars({ title, info, empty, rows }: { title: string; info?: string; empty: string; rows: Bar[] }) {
   const largest = Math.max(1, ...rows.map((row) => row.value));
   return (
-    <ChartCard title={title} info={info} table={rows.length ? <FigureTable head={["Distributor", ""]} rows={rows.map((row) => [row.name, row.label])} /> : undefined}>
+    <ChartCard title={title} info={info}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : (
         <ul className="space-y-1">
           {rows.map((row) => (

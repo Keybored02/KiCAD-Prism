@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ProjectForecast } from "@/types/supply";
-import { ChartCard, FigureTable } from "./chart-card";
+import { ChartCard } from "./chart-card";
 import { ModelChip } from "./forecast-chip";
 import { chanceText } from "./forecast-text";
 import { forecastWord } from "./forecast-words";
@@ -107,7 +107,6 @@ export function ProjectForecastSection({ projectId, variant, boards, currency, o
       </p>
       <ChartCard
         title="Chance every part can be bought" info="Each week is the share of 1,000 simulated futures in which every line can be bought at its quantity from some distributor."
-        table={<FigureTable head={["Week", "Chance"]} rows={forecast.weeks.map((value, week) => [week === 0 ? "Now" : `Week ${week}`, `${Math.round(value * 100)}%`])} />}
       >
         <WeeksChart weeks={forecast.weeks} grey={grey} />
       </ChartCard>

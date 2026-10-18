@@ -32,7 +32,7 @@ const jump = (id: string) => document.getElementById(`insights-${id}`)?.scrollIn
 export function InsightsView() {
   const [searchParams] = useSearchParams();
   const fetcher = useCallback((signal: AbortSignal) => getSupplyInsights(signal), []);
-  const loaded = useLoaded<SupplyInsightsPage>("insights", fetcher, "Could not load the insights");
+  const loaded = useLoaded<SupplyInsightsPage>("insights", fetcher, "Could not load the insights", "supply");
   const { go, openPart } = useSupplyNavigation();
   const asked = searchParams.get("insightsView");
   const ready = loaded.status === "ready";

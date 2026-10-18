@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer } from "react";
 
 import type { SupplyReviewQueue } from "@/types/supply";
+import { readLoaded, storeLoaded } from "./loaded-cache";
 import { getSupplyReviewQueue } from "./supply-api";
 
 interface State {
@@ -31,12 +32,17 @@ function reducer(state: State, action: Action): State {
  * does not blank the list; the server is the source of truth for what remains.
  */
 export function useSupplyReview() {
-  const [state, dispatch] = useReducer(reducer, { status: "loading", queue: null, error: "" });
+  const [state, dispatch] = useReducer(reducer, undefined, (): State => {
+    const cached = readLoaded<SupplyReviewQueue>("review");
+    return cached ? { status: "ready", queue: cached, error: "" } : { status: "loading", queue: null, error: "" };
+  });
 
   const load = useCallback(async (quiet: boolean, signal?: AbortSignal) => {
     if (!quiet) dispatch({ type: "loading" });
     try {
-      dispatch({ type: "loaded", queue: await getSupplyReviewQueue(signal) });
+      const queue = await getSupplyReviewQueue(signal);
+      storeLoaded("review", queue);
+      dispatch({ type: "loaded", queue });
     } catch (error) {
       if (signal?.aborted) return;
       dispatch({ type: "failed", error: error instanceof Error ? error.message : "Could not load the review queue" });
@@ -45,7 +51,8 @@ export function useSupplyReview() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(false, controller.signal);
+    // Back on the page: show what it showed and reload behind it.
+    void load(readLoaded("review") !== undefined, controller.signal);
     return () => controller.abort();
   }, [load]);
 

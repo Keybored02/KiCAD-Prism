@@ -24,7 +24,7 @@ import { useLoaded } from "./use-loaded";
 
 export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "", limit = 0, projectId = "") {
   const fetcher = useCallback((signal: AbortSignal) => listSupplyParts(scope, query, signal, only, 0, limit, projectId), [scope, query, only, limit, projectId]);
-  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}|${projectId}`, fetcher, "Could not load parts");
+  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}|${projectId}|${limit}`, fetcher, "Could not load parts", "parts");
 }
 
 const FEED_PAGE = 50;
@@ -67,7 +67,7 @@ export function useSupplyPart(partId: string | null) {
 
 export function useSupplyOverview() {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyOverview(signal), []);
-  return useLoaded<SupplyOverview>("overview", fetcher, "Could not load the overview");
+  return useLoaded<SupplyOverview>("overview", fetcher, "Could not load the overview", "overview");
 }
 
 export function useSupplyAlerts(includeResolved: boolean) {
@@ -75,7 +75,7 @@ export function useSupplyAlerts(includeResolved: boolean) {
     async (signal: AbortSignal) => (await listSupplyAlerts(includeResolved, signal)).items,
     [includeResolved],
   );
-  return useLoaded<SupplyAlert[]>(includeResolved ? "resolved" : "active", fetcher, "Could not load alerts");
+  return useLoaded<SupplyAlert[]>(includeResolved ? "resolved" : "active", fetcher, "Could not load alerts", "alerts");
 }
 
 /** The part Prism tracks for a catalog component's manufacturer and number; null data when none. */
@@ -87,5 +87,5 @@ export function useSupplyPartFor(manufacturer: string, mpn: string) {
 /** The matching parts grouped by the projects that use them. */
 export function useSupplyPartGroups(scope: PartsScope, query: string, only: PartsFilter = "") {
   const fetcher = useCallback((signal: AbortSignal) => listSupplyPartGroups(scope, query, signal, only), [scope, query, only]);
-  return useLoaded<SupplyPartGroups>(`groups|${scope}|${query}|${only}`, fetcher, "Could not load the parts");
+  return useLoaded<SupplyPartGroups>(`groups|${scope}|${query}|${only}`, fetcher, "Could not load the parts", "parts");
 }
