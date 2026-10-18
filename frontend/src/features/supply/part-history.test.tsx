@@ -53,7 +53,10 @@ describe("the history on the part sheet", () => {
     expect(digikey.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(digikey);
     expect(digikey.getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByRole("button", { name: /Mouser \(not read lately\)/ })).toBeTruthy();
+    const mouser = screen.getByRole("button", { name: /Mouser/ });
+    expect(mouser.textContent).not.toContain("not read lately");
+    expect(mouser.textContent).toContain("10");
+    expect(mouser.getAttribute("title")).toContain("Not read for longer");
     fireEvent.click(screen.getByRole("button", { name: "Open the stock history larger" }));
     await waitFor(() => expect(api.getPartHistory).toHaveBeenCalledWith("p1", 90, expect.anything()));
     expect(await screen.findByRole("radio", { name: "6 months" })).toBeTruthy();

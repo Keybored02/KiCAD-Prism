@@ -16,14 +16,16 @@ describe("the outlook section", () => {
     };
     render(<OutlookSection outlook={outlook} />);
     expect(screen.getByText("Under 2 years")).toBeTruthy();
-    expect(screen.getByText("rule-based")).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Rule-based/ })).toBeTruthy();
     expect(screen.getByText(/A last time buy has been announced\./)).toBeTruthy();
     expect(screen.getByText("(distributor lifecycle)")).toBeTruthy();
   });
 
   it("does not promise a long life when nothing was found", () => {
     render(<OutlookSection outlook={{ band: "no_signs", label: "No signs of an end of life", method: "rule-based", signals: [] }} />);
-    expect(screen.getByText(/not a promise of a long life/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: /not a promise of a long life/ })).toBeTruthy();
+    expect(screen.queryByText(/not a promise of a long life/)).toBeNull();
+    expect(screen.getByText("No signs of an end of life").className).toContain("success");
   });
 
   it("says when nothing has been read", () => {

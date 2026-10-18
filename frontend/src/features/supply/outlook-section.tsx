@@ -1,11 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import type { SupplyOutlook } from "@/types/supply";
+import { Hint } from "./hint";
 
-const TONE: Record<SupplyOutlook["band"], "outline" | "warning" | "destructive"> = {
+const TONE: Record<SupplyOutlook["band"], "outline" | "warning" | "destructive" | "success"> = {
   ended: "destructive",
   under_2_years: "destructive",
   "2_to_5_years": "warning",
-  no_signs: "outline",
+  no_signs: "success",
   unknown: "outline",
 };
 
@@ -16,7 +17,7 @@ export function OutlookSection({ outlook }: { outlook: SupplyOutlook }) {
       <div className="flex items-center gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Outlook</h3>
         <Badge variant={TONE[outlook.band]}>{outlook.label}</Badge>
-        <span className="text-xs text-muted-foreground">rule-based</span>
+        <Hint text={outlook.band === "no_signs" ? "Rule-based. Nothing found points to an end. That is not a promise of a long life." : "Rule-based, from the signals listed here."} />
       </div>
       {outlook.signals.length > 0 ? (
         <ul className="space-y-0.5 text-sm">
@@ -26,11 +27,9 @@ export function OutlookSection({ outlook }: { outlook: SupplyOutlook }) {
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          {outlook.band === "unknown" ? "Nothing has been read for this part yet." : "Nothing found points to an end. That is not a promise of a long life."}
-        </p>
-      )}
+      ) : outlook.band === "unknown" ? (
+        <p className="text-xs text-muted-foreground">Nothing has been read for this part yet.</p>
+      ) : null}
     </section>
   );
 }

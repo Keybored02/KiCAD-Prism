@@ -14,7 +14,9 @@ import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
 import { behaviourLines } from "./market-behaviour-text";
 import { RestockRecordSection } from "./restock-record";
+import { CollapsibleSection } from "./collapsible-section";
 import { ForecastSection } from "./forecast-section";
+import { TryQuantity } from "./price-quantity";
 import { usePartForecast } from "./use-part-forecast";
 import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
@@ -30,7 +32,6 @@ import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
 import { TrackingControl } from "./tracking-control";
 import { TradeTag } from "./trade-tag";
 import { WatchSettings } from "./watch-settings";
-import { VendorName } from "./vendor-name";
 
 
 /** The lifecycle tag's colour: green when active, amber when ending, red when obsolete, plain when unknown. */
@@ -69,21 +70,18 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
           </div>
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
-        {detail.stock.by_connector.length > 1 ? (
-          <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-            {detail.stock.by_connector.map((item) => (
-              <VendorName key={item.connector_id} provider={item.provider} name={`${item.connector_name} ${item.stock.toLocaleString()}`} />
-            ))}
-          </p>
-        ) : null}
         <PartHistoryPanel kind="stock" partId={detail.part.id} history={history.data} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
       </section>
 
-      <ForecastSection forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} />
-
-      <PriceTrend price={detail.price} partId={detail.part.id} listings={detail.listings} canEdit={canEdit} onChanged={onChanged}>
+      <PriceTrend price={detail.price} partId={detail.part.id} canEdit={canEdit} onChanged={onChanged}>
         <PartHistoryPanel kind="price" partId={detail.part.id} history={history.data} forecast={forecast.data} />
       </PriceTrend>
+
+      {forecast.data ? (
+        <CollapsibleSection id="part-forecast" title="Forecast" count={-1} startOpen={false}>
+          <div className="p-3"><ForecastSection titled={false} forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} /></div>
+        </CollapsibleSection>
+      ) : null}
 
       <OutlookSection outlook={detail.outlook} />
 
@@ -141,6 +139,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
 
       <ParametersSection parameters={detail.parameters} />
+
+      {detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
 
       <section aria-label="Listings" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>

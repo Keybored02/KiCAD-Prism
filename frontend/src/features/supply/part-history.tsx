@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import type { PartForecast, PartHistory } from "@/types/supply";
 import { HistoryLegend } from "./history-legend";
 import { PartHistoryDialog } from "./part-history-dialog";
-import type { HistoryKind } from "./part-history-model";
+import { TOTAL_KEY, type HistoryKind } from "./part-history-model";
+import { formatPrice } from "./supply-format";
 import { useHidden } from "./use-hidden";
 
 const PartHistoryChart = lazy(() => import("./part-history-chart"));
@@ -22,6 +23,18 @@ function ChartButton({ kind, label, onOpen, children }: { kind: HistoryKind; lab
       </Button>
     </div>
   );
+}
+
+/** The latest figure of each line: its stock, or its price in the base currency. */
+function latest(history: PartHistory, kind: "stock" | "price"): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of history.connectors) {
+    const last = (kind === "stock" ? line.stock : line.price).at(-1);
+    if (last) out[line.connector_id] = kind === "stock" ? last[1].toLocaleString() : formatPrice(String(last[1]), history.currency);
+  }
+  const total = history.total.at(-1);
+  if (kind === "stock" && total) out[TOTAL_KEY] = total[1].toLocaleString();
+  return out;
 }
 
 /**
@@ -43,7 +56,7 @@ export function PartHistoryPanel({ partId, history, kind, threshold = null, fore
   }
   return (
     <div className="space-y-2">
-      <HistoryLegend history={drawn} hidden={hidden} onToggle={toggle} withTotal={kind === "stock"} />
+      <HistoryLegend history={drawn} hidden={hidden} onToggle={toggle} withTotal={kind === "stock"} values={latest(drawn, kind)} />
       <ChartButton kind={kind} label={`Open the ${kind} history larger`} onOpen={setOpened}>
         <Suspense fallback={<div className={kind === "stock" ? "h-44" : "h-36"} />}>
           <PartHistoryChart history={history} kind={kind} hidden={hidden} threshold={kind === "stock" ? threshold : undefined} height={kind === "stock" ? undefined : "h-36"} forecast={forecast} />

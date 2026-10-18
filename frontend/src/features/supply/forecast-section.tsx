@@ -98,11 +98,17 @@ function backWhy(item: NonNullable<PartForecast["back"]>[number]): string {
  * What Prism expects for the part: the chance it can be bought, when it runs out, when a distributor is back, where its price is going.
  * A forecast whose model has not earned a place is greyed and labelled. Nothing is saved by asking at another quantity.
  */
-export function ForecastSection({ forecast, currency, onQuantity }: { forecast: PartForecast | null; currency: string; onQuantity: (next: number | null) => void }) {
+export function ForecastSection({ forecast, currency, onQuantity, titled = true }: {
+  forecast: PartForecast | null;
+  currency: string;
+  onQuantity: (next: number | null) => void;
+  /** False inside a section that already carries the title. */
+  titled?: boolean;
+}) {
   if (!forecast) return null;
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forecast</h3>
+      {titled ? <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forecast</h3> : <span />}
       {forecast.available && forecast.quantity ? <QuantityBox key={forecast.quantity} quantity={forecast.quantity} onChange={onQuantity} /> : null}
     </div>
   );

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiHttpError } from "@/lib/api";
 import type { User, UserRole } from "@/types/auth";
+import { partForecastFixture } from "./forecast-test-fixtures";
 import { connectorFixture, partDetailFixture, partRowFixture } from "./supply-test-fixtures";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -20,6 +21,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listSupplyParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
   getLibraryComponentOf: vi.fn(),
+  getPartForecast: vi.fn(),
   getSupplyPart: vi.fn(),
   getPartHistory: vi.fn(),
   addSupplyWatch: vi.fn(),
@@ -71,6 +73,7 @@ beforeEach(() => {
   });
   mocked.listSupplyConnectors.mockResolvedValue([connectorFixture({ id: "c-mouser", provider: "mouser", display_name: "Mouser EU", enabled: true })]);
   mocked.getLibraryComponentOf.mockResolvedValue({ component_id: null });
+  mocked.getPartForecast.mockResolvedValue(partForecastFixture());
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
@@ -203,7 +206,7 @@ describe("a part", () => {
     const sheet = await screen.findByRole("dialog");
     const stock = await within(sheet).findByRole("region", { name: "Stock" });
     expect(within(stock).getByText("In stock")).toBeTruthy();
-    expect(within(stock).getByText((12500).toLocaleString())).toBeTruthy();
+    expect(within(stock).getAllByText((12500).toLocaleString()).length).toBeGreaterThan(0);
     expect(within(sheet).getByRole("img", { name: "OK" })).toBeTruthy();
     expect(await within(sheet).findByRole("img", { name: "stock chart" })).toBeTruthy();
     expect(within(sheet).getByRole("article", { name: "Listing 595-LM358D" })).toBeTruthy();
@@ -222,6 +225,21 @@ describe("a part", () => {
     expect(within(sheet).getByText("Obsolete").className).toContain("destructive");
     const link = await within(sheet).findByRole("link", { name: "Open in the component library" });
     expect(link.getAttribute("href")).toBe("/?section=library-manager&libraryView=catalog&component=cmp%201&componentTab=sourcing");
+  });
+
+  it("keeps one legend for the stock, with each vendor's stock, and puts the forecast under the price and the quantity try above the listings", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ price: { currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null } }));
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    const stock = await within(sheet).findByRole("region", { name: "Stock" });
+    expect(within(stock).getAllByRole("list", { name: "Distributors drawn" })).toHaveLength(1);
+    const legend = await within(stock).findByRole("button", { name: /Mouser EU/ });
+    expect(legend.textContent).toContain("12,500");
+    const order = [...sheet.querySelectorAll("section[aria-label], [data-slot='section'], #try-quantity")].map((node) => node.getAttribute("aria-label") ?? node.id);
+    expect(order.indexOf("Price")).toBeGreaterThan(order.indexOf("Stock"));
+    expect(order.indexOf("Forecast")).toBeGreaterThan(order.indexOf("Price"));
+    expect(order.indexOf("try-quantity")).toBeLessThan(order.indexOf("Listings"));
+    expect(order.indexOf("try-quantity")).toBeGreaterThan(order.indexOf("Forecast"));
   });
 
   it("gives the price its own heading, vendors legend and chart like the stock", async () => {

@@ -4,7 +4,7 @@ import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { PartForecast, PartHistory } from "@/types/supply";
 import { formatDay } from "./chart-format";
-import { BAND_KEY, FORECAST_KEY, historyRows, withForecast, type HistoryKind } from "./part-history-model";
+import { BAND_KEY, FORECAST_KEY, historyRows, TOTAL_KEY, withForecast, type HistoryKind } from "./part-history-model";
 import { formatPrice } from "./supply-format";
 
 interface Props {
@@ -30,10 +30,12 @@ function makeTip(format: (value: number) => string) {
     if (!active || !payload?.length) return null;
     const rows = payload.filter((item) => item.value !== null && item.value !== undefined && !Array.isArray(item.value) && !String(item.dataKey).endsWith("~"));
     if (rows.length === 0) return null;
+    // The total always closes the list.
+    const ordered = [...rows].sort((a, b) => Number(a.dataKey === TOTAL_KEY) - Number(b.dataKey === TOTAL_KEY));
     return (
       <div className="border bg-background px-2.5 py-1.5 text-xs shadow-md">
         <p className="mb-1 font-medium">{formatDay(String(label))}</p>
-        {rows.map((item) => (
+        {ordered.map((item) => (
           <p key={String(item.dataKey)} className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5"><span aria-hidden className="h-2 w-2" style={{ backgroundColor: item.color }} />{item.name}</span>
             <span className="tabular-nums">{format(Number(item.value))}</span>

@@ -24,7 +24,8 @@ describe("the price section", () => {
 
   it("says why there is no move yet", () => {
     render(<PriceTrend price={{ currency: "EUR", history: [history[1]], trend: null }} />);
-    expect(screen.getByText(/needs a week of readings/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: /A move needs a week of readings/ })).toBeTruthy();
+    expect(screen.queryByText(/needs a week of readings/)).toBeNull();
   });
 
   it("shows the quantity it is priced at and lets a person change it", async () => {
@@ -57,7 +58,7 @@ describe("the price section", () => {
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("explains a price that nothing can be bought at, and the range", () => {
+  it("explains a price that nothing can be bought at", () => {
     render(
       <PriceTrend
         price={{
@@ -67,12 +68,13 @@ describe("the price section", () => {
       />,
     );
     expect(screen.getByText(/Nothing is in stock. This is the cheapest price with a lead time, 12 w/)).toBeTruthy();
-    expect(screen.getByText(/Across 2 distributors/)).toBeTruthy();
+    expect(screen.queryByText(/Across 2 distributors/)).toBeNull();
     expect(screen.getByText(/No exchange rate for CHF/)).toBeTruthy();
   });
 
   it("says which days are drawn at 100 pieces", () => {
     render(<PriceTrend price={{ currency: "EUR", history, trend: null, quantity: 1000, default: 100, own: true, estimated_until: "2026-10-12" }} />);
-    expect(screen.getByText(/Until 2026-10-12 the history is the price at 100 pieces/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Until 2026-10-12 the history is the price at 100 pieces/ })).toBeTruthy();
+    expect(screen.queryByText(/Until 2026-10-12/)).toBeNull();
   });
 });
