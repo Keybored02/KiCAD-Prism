@@ -46,7 +46,12 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
   return (
     <section aria-label="Price" className="space-y-2">
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Price</p>
+        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Price
+          {partId && price.quantity ? (
+            <PriceQuantity partId={partId} quantity={quantity} standard={price.default ?? 100} own={Boolean(price.own)} canEdit={canEdit} onChanged={onChanged ?? (() => undefined)} />
+          ) : null}
+        </p>
         <p className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
           {formatPrice(latest, currency)}
           <Hint text={hints.join(" ")} />
@@ -61,9 +66,6 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
           {`${change > 0 ? "Up" : change < 0 ? "Down" : "Unchanged,"} ${change === 0 ? "" : `${Math.abs(change)}% `}over ${trend?.days} days, from ${formatPrice(trend?.was ?? "", currency)}.`}
         </p>
       )}
-      {partId && price.quantity ? (
-        <PriceQuantity partId={partId} quantity={quantity} standard={price.default ?? 100} own={Boolean(price.own)} canEdit={canEdit} onChanged={onChanged ?? (() => undefined)} />
-      ) : null}
     </section>
   );
 }

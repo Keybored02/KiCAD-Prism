@@ -1,3 +1,4 @@
+import { Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -48,17 +49,21 @@ function QuantityDialog({ partId, quantity, standard, own, onClose, onChanged }:
   );
 }
 
-/** "Priced at 100 pieces", with a way to give this part its own quantity. */
+/** "for 100" and a pencil, in the line of the Price heading and its type: the quantity the price is for, and a way to give this part its own. */
 export function PriceQuantity({ partId, quantity, standard, own, canEdit, onChanged }: {
   partId: string; quantity: number; standard: number; own: boolean; canEdit: boolean; onChanged: () => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-      <span>Priced at {quantity.toLocaleString()} pieces{own ? ", set for this part" : ""}.</span>
-      {canEdit ? <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setOpen(true)}>Change</Button> : null}
+    <span className="inline-flex items-center gap-1">
+      <span title={own ? "Set for this part" : `Priced at ${standard.toLocaleString()} pieces unless a part has its own`}>for {quantity.toLocaleString()}</span>
+      {canEdit ? (
+        <Button type="button" size="icon" variant="ghost" className="h-5 w-5" aria-label="Change the price quantity" title="Change the price quantity" onClick={() => setOpen(true)}>
+          <Pencil className="h-3 w-3" />
+        </Button>
+      ) : null}
       {open ? <QuantityDialog partId={partId} quantity={quantity} standard={standard} own={own} onClose={() => setOpen(false)} onChanged={onChanged} /> : null}
-    </p>
+    </span>
   );
 }
 

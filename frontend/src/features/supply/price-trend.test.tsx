@@ -32,8 +32,8 @@ describe("the price section", () => {
     vi.mocked(api.setPriceQuantity).mockResolvedValue(undefined);
     const onChanged = vi.fn();
     render(<PriceTrend partId="p1" canEdit onChanged={onChanged} price={{ currency: "EUR", history, trend: null, quantity: 100, default: 100, own: false }} />);
-    expect(screen.getByText(/Priced at 100 pieces/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.getByText("for 100")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Change the price quantity" }));
     fireEvent.change(screen.getByLabelText("Pieces"), { target: { value: "4,000" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.setPriceQuantity).toHaveBeenCalledWith("p1", 4000));
@@ -43,17 +43,18 @@ describe("the price section", () => {
   it("goes back to the default quantity", async () => {
     vi.mocked(api.setPriceQuantity).mockResolvedValue(undefined);
     render(<PriceTrend partId="p1" canEdit onChanged={vi.fn()} price={{ currency: "EUR", history, trend: null, quantity: 4000, default: 100, own: true }} />);
-    expect(screen.getByText(/set for this part/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.getByText("for 4,000").getAttribute("title")).toBe("Set for this part");
+    fireEvent.click(screen.getByRole("button", { name: "Change the price quantity" }));
     fireEvent.click(screen.getByRole("button", { name: "Use 100" }));
     await waitFor(() => expect(api.setPriceQuantity).toHaveBeenCalledWith("p1", null));
   });
 
   it("does not offer the change to a reader, and refuses a quantity out of range", () => {
     const { rerender } = render(<PriceTrend partId="p1" canEdit={false} price={{ currency: "EUR", history, trend: null, quantity: 100, default: 100, own: false }} />);
-    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change the price quantity" })).toBeNull();
+    expect(screen.getByText("for 100")).toBeTruthy();
     rerender(<PriceTrend partId="p1" canEdit price={{ currency: "EUR", history, trend: null, quantity: 100, default: 100, own: false }} />);
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change the price quantity" }));
     fireEvent.change(screen.getByLabelText("Pieces"), { target: { value: "0" } });
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
