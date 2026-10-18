@@ -86,7 +86,7 @@ export function TradeTag({ partId, trade, canEdit, onChanged, show = "both" }: {
         </Badge>
       ) : null}
       {button ? (
-        <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="Set export control" title="Set export control" onClick={() => setOpen(true)}>
+        <Button type="button" size="icon" variant="outline" className="h-7 w-7" aria-label="Set export control" title="Set export control" onClick={() => setOpen(true)}>
           <ShieldCheck className="h-3.5 w-3.5" />
         </Button>
       ) : null}

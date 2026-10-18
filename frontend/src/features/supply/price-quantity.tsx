@@ -82,7 +82,7 @@ export function TryQuantity({ listings }: { listings: SupplyListing[] }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          type="button" size="icon" variant={open ? "secondary" : "ghost"} className="h-6 w-6" aria-expanded={open}
+          type="button" size="icon" variant={open ? "secondary" : "outline"} className="h-7 w-7" aria-expanded={open}
           aria-label="Try a quantity" title="Try a quantity"
         >
           <Calculator className="h-3.5 w-3.5" />

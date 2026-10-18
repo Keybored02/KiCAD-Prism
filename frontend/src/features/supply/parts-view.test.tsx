@@ -423,10 +423,16 @@ describe("watching", () => {
   });
 });
 
+/** The watch's controls open from the clock beside the title. */
+async function openWatch() {
+  fireEvent.click(await screen.findByRole("button", { name: "How often this part is read" }));
+}
+
 describe("the watch settings", () => {
   it("saves a changed threshold and pin", async () => {
     mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: 800, pinned: true, owner: "o", packaging: "any" });
     renderView("designer", "/?part=p1");
+    await openWatch();
     const threshold = (await screen.findByLabelText("Warn when stock is at or below")) as HTMLInputElement;
     expect(threshold.value).toBe("500");
     const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
@@ -441,6 +447,7 @@ describe("the watch settings", () => {
   it("clears the threshold with an empty box", async () => {
     mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: null, pinned: false, owner: "o", packaging: "any" });
     renderView("designer", "/?part=p1");
+    await openWatch();
     fireEvent.change(await screen.findByLabelText("Warn when stock is at or below"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: null, pinned: false, packaging: "any" }));
@@ -449,6 +456,7 @@ describe("the watch settings", () => {
   it("saves which packaging the watch counts", async () => {
     mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: 500, pinned: false, owner: "o", packaging: "cut_tape" });
     renderView("designer", "/?part=p1");
+    await openWatch();
     fireEvent.change(await screen.findByLabelText("Count stock of"), { target: { value: "cut_tape" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: 500, pinned: false, packaging: "cut_tape" }));
@@ -456,6 +464,7 @@ describe("the watch settings", () => {
 
   it("will not save an invalid threshold", async () => {
     renderView("designer", "/?part=p1");
+    await openWatch();
     fireEvent.change(await screen.findByLabelText("Warn when stock is at or below"), { target: { value: "-5" } });
     expect(screen.getByText("A whole number, or leave it empty.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
@@ -464,6 +473,7 @@ describe("the watch settings", () => {
   it("asks before it stops watching, and keeps watching if told to", async () => {
     mocked.removeSupplyWatch.mockResolvedValue(undefined);
     renderView("designer", "/?part=p1");
+    await openWatch();
     fireEvent.click(await screen.findByRole("button", { name: "Stop watching…" }));
     expect(mocked.removeSupplyWatch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Keep watching" }));
@@ -508,8 +518,8 @@ describe("the watch settings", () => {
 
   it("shows no trend section while there is no insight to give", async () => {
     renderView("designer", "/?part=p1");
-    await screen.findByRole("region", { name: "Watch" });
-    expect(screen.queryByRole("region", { name: "Trend" })).toBeNull();
+    await screen.findByRole("region", { name: "Stock" });
+    expect(screen.queryByRole("button", { name: "Show the stock trend and restock promises" })).toBeNull();
   });
 
   it("reads where parts are used when the In use scope is chosen, then reloads the list", async () => {
@@ -563,14 +573,14 @@ describe("the watch settings", () => {
     expect(await screen.findByRole("button", { name: /Read now/ })).toBeTruthy();
     cleanup();
     renderView("qa", "/?part=p1");
-    await screen.findByRole("region", { name: "Watch" });
+    await screen.findByRole("region", { name: "Stock" });
     expect(screen.queryByRole("button", { name: /Read now/ })).toBeNull();
   });
 
   it("shows no Used in section for a part no BOM carries", async () => {
     renderView("designer", "/?part=p1");
-    await screen.findByRole("region", { name: "Watch" });
-    expect(screen.queryByRole("region", { name: "Used in" })).toBeNull();
+    await screen.findByRole("region", { name: "Stock" });
+    expect(screen.queryByLabelText("Projects using this part")).toBeNull();
   });
 
   it("quotes the price at the quantity it applies to", async () => {
@@ -610,23 +620,26 @@ describe("the watch settings", () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ watch: null }));
     mocked.addSupplyWatch.mockResolvedValue({ id: "w2", part_id: "p1", manufacturer: "T", mpn: "L", threshold: null, pinned: false, owner: "o", packaging: "any" });
     renderView("admin", "/?part=p1");
+    await openWatch();
     fireEvent.click(await screen.findByRole("button", { name: "Watch this part" }));
     await waitFor(() => expect(mocked.addSupplyWatch).toHaveBeenCalledWith({ manufacturer: "Texas Instruments", mpn: "LM358D" }));
   });
 
   it("shows readers the rules without controls", async () => {
     renderView("qa", "/?part=p1");
-    const sheet = await screen.findByRole("dialog");
-    expect(await within(sheet).findByText(/Watched by ana@example.com\. Warns at 500 in stock\./)).toBeTruthy();
-    expect(within(sheet).queryByLabelText("Warn when stock is at or below")).toBeNull();
-    expect(within(sheet).queryByRole("button", { name: "Stop watching" })).toBeNull();
+    await screen.findByRole("dialog");
+    await openWatch();
+    expect(await screen.findByText(/Watched by ana@example.com\. Warns at 500 in stock\./)).toBeTruthy();
+    expect(screen.queryByLabelText("Warn when stock is at or below")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop watching" })).toBeNull();
   });
 
   it("does not offer to watch to a reader", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ watch: null }));
     renderView("qa", "/?part=p1");
-    const sheet = await screen.findByRole("dialog");
-    expect(await within(sheet).findByText(/Not watched/)).toBeTruthy();
-    expect(within(sheet).queryByRole("button", { name: "Watch this part" })).toBeNull();
+    await screen.findByRole("dialog");
+    await openWatch();
+    expect(await screen.findByText(/Not watched/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Watch this part" })).toBeNull();
   });
 });

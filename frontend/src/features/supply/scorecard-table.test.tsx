@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { RestockRecord, ScorecardRow } from "@/types/supply";
-import { RestockRecordSection } from "./restock-record";
+import { RestockRecordDetails } from "./restock-record";
 import { ScorecardTable } from "./scorecard-table";
 
 afterEach(cleanup);
@@ -52,7 +52,7 @@ const record = (over: Partial<RestockRecord> = {}): RestockRecord => ({
 describe("the restock promises on a part", () => {
   it("shows a dated arrival and a quoted lead time, and marks one past its day", () => {
     render(
-      <RestockRecordSection record={[
+      <RestockRecordDetails record={[
         record({ open: { kind: "dated", expected: "2026-11-02", quantity: 4000, late: false }, kept: 2, resolved: 3 }),
         record({ connector_id: "c2", name: "DigiKey", provider: "digikey", open: { kind: "lead_time", expected: "2026-10-01", quoted_lead_days: 84, late: true }, stock_outs: 1 }),
       ]} />,
@@ -64,7 +64,7 @@ describe("the restock promises on a part", () => {
   });
 
   it("shows nothing when no distributor has run out or announced stock", () => {
-    const { container } = render(<RestockRecordSection record={[record()]} />);
+    const { container } = render(<RestockRecordDetails record={[record()]} />);
     expect(container.textContent).toBe("");
   });
 });

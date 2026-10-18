@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { ForecastSection } from "./forecast-section";
 import { chanceText, chipText, dateText, isGrey, rangeText } from "./forecast-text";

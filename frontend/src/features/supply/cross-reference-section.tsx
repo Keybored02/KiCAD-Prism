@@ -55,8 +55,8 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alternatives</h3>
         <span className="flex gap-1">
-          {canEdit ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}
-          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void look()}>Find alternatives</Button>
+          {canEdit ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void look()}>Find alternatives</Button>
         </span>
       </div>
       {found ? (

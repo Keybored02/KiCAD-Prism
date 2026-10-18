@@ -37,7 +37,6 @@ import type {
   SupplyPartsPage,
   SupplyProvider,
   SupplyMakerGroup,
-  SupplyPartNumber,
   SupplyReviewQueue,
   SupplyBomRollup,
   SupplyCompliance,

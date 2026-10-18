@@ -32,6 +32,11 @@ describe("the export control tag", () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 
+  it("boxes the button so it can be seen", () => {
+    render(<TradeTag show="button" partId="p1" trade={stated} canEdit onChanged={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Set export control" }).className).toContain("border");
+  });
+
   it("can show only the tag or only the button, so the two can stand apart", () => {
     const { rerender } = render(<TradeTag show="tag" partId="p1" trade={stated} canEdit onChanged={vi.fn()} />);
     expect(screen.getByText("Export controlled 3A991")).toBeTruthy();

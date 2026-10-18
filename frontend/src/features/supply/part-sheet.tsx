@@ -11,6 +11,7 @@ import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
 import { DatasheetLink } from "./datasheet-link";
+import { WatchPopover } from "./watch-popover";
 import { LibraryComponentLink } from "./library-component-link";
 import { LIFECYCLE_BADGE } from "./lifecycle-tone";
 import { JlcIcon } from "./supply-icons";
@@ -97,7 +98,8 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
             <UsedInLinks uses={detail.used_in} />
           </div>
           <span className="flex shrink-0 items-center gap-1">
-            <DatasheetLink partId={detail.part.id} canEdit={canEdit} />
+            <WatchPopover detail={detail} canEdit={canEdit} onChanged={onChanged} />
+            <DatasheetLink partId={detail.part.id} />
             <LibraryComponentLink partId={detail.part.id} />
           </span>
         </div>

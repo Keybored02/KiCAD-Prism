@@ -67,7 +67,7 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
         {items.length > 0 ? <span className="font-normal normal-case tracking-normal">({items.length})</span> : null}
         {canEdit ? (
           <Button
-            type="button" size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs normal-case tracking-normal" disabled={checking}
+            type="button" size="sm" variant="outline" className="ml-auto h-7 px-2 text-xs normal-case tracking-normal" disabled={checking}
             title="Ask the distributors for this part's notices now"
             onClick={(event) => { event.preventDefault(); void check(); }}
           >

@@ -1,3 +1,5 @@
+import { Eye } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
@@ -45,9 +47,9 @@ export function ListingTable({
                   </a>
                 ) : <span className="font-medium">{listing.sku}</span>}
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
-                {follow?.followed === listing.id ? <Badge variant="secondary">Followed</Badge> : null}
+                {follow?.followed === listing.id ? <Badge variant="secondary" role="img" aria-label="Followed" title="Followed"><Eye className="h-3 w-3" /></Badge> : null}
                 {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (
-                  <Button size="sm" className="h-6 px-2 text-xs" onClick={() => follow.onFollow(listing)}>Follow this instead</Button>
+                  <Button size="icon" className="h-6 w-6" aria-label="Follow this instead" title="Follow this instead" onClick={() => follow.onFollow(listing)}><Eye className="h-3.5 w-3.5" /></Button>
                 ) : null}
                 {!listing.counted ? (
                   <Badge variant="warning">

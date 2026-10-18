@@ -44,17 +44,6 @@ function groupsOf(listings: SupplyListing[], preferred: string | null | undefine
   return [...byConnector.values()].sort((a, b) => Number(b.connectorId === preferred) - Number(a.connectorId === preferred) || a.name.localeCompare(b.name));
 }
 
-function followLine(group: Group, detail: SupplyPartDetail): string | null {
-  const counted = group.listings.filter((listing) => listing.counted);
-  if (counted.length < 2) return null;
-  const followed = detail.packaging?.picks[group.connectorId];
-  const sku = counted.find((listing) => listing.id === followed)?.sku;
-  if (!sku) return `${counted.length} listings, all read`;
-  const by = detail.packaging?.picked_by?.[group.connectorId];
-  const who = by?.by === "auto" ? "picked by Prism" : by?.by ? `picked by ${by.by}` : "";
-  return `Following ${sku}${who ? `, ${who}` : ""}${by?.note ? ` (${by.note})` : ""}`;
-}
-
 /** The part's listings grouped by distributor. Each group can be made the preferred one; one with several listings says which is followed. */
 export function ListingGroups({
   detail, canDecide, canTrack, onChanged,
@@ -87,7 +76,6 @@ export function ListingGroups({
         </div>
       ) : null}
       {groups.map((group) => {
-        const line = followLine(group, detail);
         const isPreferred = group.connectorId === preferred;
         const followedId = detail.packaging?.picks[group.connectorId] ?? null;
         const [first, ...rest] = inOrder(group.listings, followedId);
@@ -107,7 +95,6 @@ export function ListingGroups({
               ) : isPreferred ? <Star className="h-3.5 w-3.5 fill-current text-primary" aria-hidden /> : null}
               <VendorName provider={group.provider} name={group.name} className="text-sm font-semibold" />
               {isPreferred ? <Badge variant="secondary">Preferred</Badge> : null}
-              {line ? <span className="text-xs text-muted-foreground">{line}</span> : null}
             </div>
             <ListingTable
               listings={shown} canDecide={canDecide} onChanged={() => void onChanged()}

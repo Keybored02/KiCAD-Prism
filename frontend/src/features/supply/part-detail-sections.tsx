@@ -24,8 +24,6 @@ import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
 import { PriceTrend } from "./price-trend";
 import { formatStock } from "./supply-format";
-import { TrackingControl } from "./tracking-control";
-import { WatchSettings } from "./watch-settings";
 
 /** What is known about one part: stock and history, its watch, where it is used and every listing. */
 interface PartDetailSectionsProps {
@@ -90,12 +88,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       </FoldSection>
 
       <CrossReferenceSection partId={detail.part.id} canEdit={canEdit} />
-
-      <section aria-label="Watch" className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>
-        <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} needsPick={detail.packaging?.needs_pick} />
-        <WatchSettings part={detail.part} watch={detail.watch} canEdit={canEdit} onChanged={onChanged} />
-      </section>
 
       {detail.watch ? <AlertRulesSection partId={detail.part.id} canEdit={canEdit} /> : null}
 

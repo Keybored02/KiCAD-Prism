@@ -45,11 +45,11 @@ function renderGroups(overrides = {}, canTrack = true) {
 }
 
 describe("the part's listings by distributor", () => {
-  it("says which listing is followed, who picked it, and greys the others", () => {
+  it("marks the followed listing with an eye, says nothing about who picked it, and does not count the others", () => {
     renderGroups();
     const digikey = screen.getByRole("region", { name: "DigiKey listings" });
-    expect(within(digikey).getByText("Following CT-1, picked by Prism")).toBeTruthy();
-    expect(within(digikey).getByText("Followed")).toBeTruthy();
+    expect(within(digikey).queryByText(/Following CT-1|picked by/)).toBeNull();
+    expect(within(digikey).getByRole("img", { name: "Followed" })).toBeTruthy();
     expect(within(digikey).queryByText("Not counted")).toBeNull();
     // The vendor is named once, by its group, not on each listing.
     expect(within(digikey).getAllByText("DigiKey")).toHaveLength(1);
@@ -73,7 +73,7 @@ describe("the part's listings by distributor", () => {
     renderGroups({ packaging: { picks: { c1: "b" }, picked_by: { c1: { by: "ana", note: "" } }, needs_pick: [] } });
     const digikey = screen.getByRole("region", { name: "DigiKey listings" });
     expect(within(digikey).getAllByRole("article")[0].getAttribute("aria-label")).toBe("Listing REEL-2");
-    expect(within(digikey).getByText("Followed")).toBeTruthy();
+    expect(within(digikey).getByRole("img", { name: "Followed" })).toBeTruthy();
   });
 
   it("follows another listing on request", async () => {

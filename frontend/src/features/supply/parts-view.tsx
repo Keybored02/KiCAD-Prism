@@ -11,7 +11,7 @@ import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { PartsFilter, PartsScope } from "@/types/supply";
+import type { PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
 import { refreshSupplyUsage } from "./supply-api";
