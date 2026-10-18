@@ -59,7 +59,7 @@ from app.services.supply.vocabulary import Lifecycle, Packaging
 KEY = "farnell"
 BASE_URL = "https://api.element14.com/catalog/products"
 ALLOWED_HOSTS = ("api.element14.com",)
-# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
+# No limit is known for this service: an assumed, polite pace, drawn at random from 0.75 to 1.5 times this (see pacing.py). Change it when a limit is learned.
 PACE_SECONDS = 1.5
 MAX_MATCHES = 10
 

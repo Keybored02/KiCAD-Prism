@@ -16,7 +16,7 @@ showed (see ``_source`` in each file for how they were made).
   on its own line, never added to a part's total, its status or the checks. Basic, Extended and Preferred are facts.
 * Prices are US dollars on the site.
 * No limit is published, and the service sits behind a bot filter that answers 403 now and then. It is asked at the
-  most careful pace (one call every 6 to 12 seconds, 300 a day), and a refusal is a block, not a bad key: the connector
+  same pace as LCSC (a call about every 1.5 seconds, 300 a day), and a refusal is a block, not a bad key: the connector
   rests for hours instead of retrying.
 """
 
@@ -48,8 +48,8 @@ SEARCH_URL = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/
 PAGE_URL = "https://jlcpcb.com/partdetail/{}"
 ALLOWED_HOSTS = ("jlcpcb.com",)
 PAGE_SIZE = 10
-# One call every 6 to 12 seconds: the pacer draws each gap between 0.75 and 1.5 times this (see pacing.py).
-PACE_SECONDS = 8.0
+# The same pace as LCSC, with no published limit either: the pacer draws each gap between 0.75 and 1.5 times this (see pacing.py).
+PACE_SECONDS = 1.5
 CURRENCY = "USD"
 DEFAULT_DAILY_BUDGET = 300
 LIBRARY = {"base": "Basic", "expand": "Extended"}

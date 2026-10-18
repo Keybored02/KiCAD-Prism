@@ -63,7 +63,7 @@ from app.services.supply.providers.unrecognised import note
 
 KEY = "tme"
 BASE_URL = "https://api.tme.eu"
-# About half the per-minute rate TME allows; the pacer draws each gap at random around it (see pacing.py).
+# No limit is known for this service: an assumed, polite pace, drawn at random from 0.75 to 1.5 times this (see pacing.py). Change it when a limit is learned.
 PACE_SECONDS = 1.5
 ALLOWED_HOSTS = ("api.tme.eu",)
 MAX_BATCH = 50

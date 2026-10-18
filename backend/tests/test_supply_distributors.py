@@ -343,7 +343,7 @@ class MouserTests(unittest.TestCase):
         self.assertEqual([len(call["json"]["SearchByPartRequest"]["mouserPartNumber"].split("|")) for call in client.calls], [10, 10, 3])
         self.assertEqual(len(sleeps), 2)
         for gap in sleeps:
-            self.assertTrue(0.75 * mouser.PACE_SECONDS <= gap <= 1.5 * mouser.PACE_SECONDS, "spaced at random around half Mouser's limit")
+            self.assertTrue(0.75 * mouser.PACE_SECONDS <= gap <= 1.5 * mouser.PACE_SECONDS, "spaced at random around Mouser's pace")
 
     def test_lookup_skips_unorderable_numbers_and_impossible_queries(self) -> None:
         answer = copy.deepcopy(MOUSER)

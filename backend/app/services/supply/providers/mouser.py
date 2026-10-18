@@ -64,8 +64,9 @@ SEARCH_URL = "https://api.mouser.com/api/v1/search/partnumber"
 SEARCH_V2_URL = "https://api.mouser.com/api/v2/search/partnumberandmanufacturer"
 ALLOWED_HOSTS = ("api.mouser.com",)
 MAX_BATCH = 10
-# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
-PACE_SECONDS = 4.0
+# Mouser's 30 calls a minute (published, and confirmed). Each gap is drawn at random from 0.75 to 1.5 times this (see pacing.py), so the average
+# is about 2.25 s: roughly 27 a minute, 90% of the limit.
+PACE_SECONDS = 2.0
 
 # Mouser's lifecycle wording, lower case, to the canonical set. Anything else is unknown.
 _LIFECYCLE = {

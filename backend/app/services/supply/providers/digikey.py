@@ -79,8 +79,9 @@ AUTHORIZE_URL = "https://api.digikey.com/v1/oauth2/authorize"
 TOKEN_URL = "https://api.digikey.com/v1/oauth2/token"
 ALLOWED_HOSTS = ("api.digikey.com",)
 TOKEN_MARGIN_SECONDS = 30
-# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
-PACE_SECONDS = 1.0
+# DigiKey's published 120 calls a minute. Each gap is drawn at random from 0.75 to 1.5 times this (see pacing.py), so the average is about 0.56 s:
+# roughly 108 a minute, 90% of the limit.
+PACE_SECONDS = 0.5
 MAX_MATCHES = 10
 
 # DigiKey sites that sell in a currency of their own. A wrong one is corrected by the server, which

@@ -17,7 +17,7 @@ root first.
 | `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
 | `providers/digikey.py` | DigiKey Product Information V4, from its Swagger file: OAuth client credentials, keyword search, one product-details call per SKU (one SKU is one packaging), stock pooled. Not yet run against the live service. |
 | `providers/farnell.py` | Farnell, Newark and element14 Product Search REST: manufacturer-number search, one SKU per call, the connector names the store and the currency. Not yet run against the live service. |
-| `providers/jlcpcb.py` | JLCPCB's own parts search, no key (unpublished, can change). Assembly-only; its stock is marked marketplace so no total counts it; Basic, Extended and Preferred are facts. One call every 6 to 12 seconds, 300 a day. |
+| `providers/jlcpcb.py` | JLCPCB's own parts search, no key (unpublished, can change). Assembly-only; its stock is marked marketplace so no total counts it; Basic, Extended and Preferred are facts. Paced like LCSC (a call about every 1.5 seconds), 300 a day. |
 | `providers/lcsc.py` | LCSC through its product page data service, no key. Searches by manufacturer number through EasyEDA's product search (LCSC's own refuses non-browsers); checked live. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
