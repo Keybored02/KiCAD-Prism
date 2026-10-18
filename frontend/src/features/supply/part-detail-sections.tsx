@@ -46,12 +46,12 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
     <div className="space-y-6">
 
       <section aria-label="Stock" className="space-y-2">
-        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          In stock
-          {trend ? <HoverDetails label="Show the stock trend"><InsightDetails insight={detail.insight} /></HoverDetails> : null}
-        </p>
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-2xl font-semibold tabular-nums">{formatStock(detail.stock.total)}</p>
+          <p className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
+            {formatStock(detail.stock.total)}
+            {trend ? <HoverDetails label="Show the stock trend"><InsightDetails insight={detail.insight} /></HoverDetails> : null}
+          </p>
           {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
@@ -73,9 +73,12 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <OutlookSection outlook={detail.outlook} partId={detail.part.id} role={role} />
 
-      {detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
+      <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 
-      <FoldSection title={`Listings (${detail.listings.length})`} startOpen>
+      <FoldSection
+        title={`Listings (${detail.listings.length})`} startOpen
+        actions={detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
+      >
         <ListingGroups detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
       </FoldSection>
 
@@ -99,8 +102,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       ) : null}
 
       <ComplianceSection partId={detail.part.id} canEdit={canEdit} trade={detail.trade} onChanged={onChanged} />
-
-      <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 
       <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
 

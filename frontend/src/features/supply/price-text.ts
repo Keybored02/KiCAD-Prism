@@ -28,6 +28,10 @@ export function noPriceReason(part: Pick<SupplyPartRow, "stock" | "price_unrated
 
 export interface PriceAt {
   id: string;
+  /** The distributor, its colour key and the number it lists the part under. */
+  vendor: string;
+  provider: string;
+  sku: string;
   name: string;
   price: string;
   currency: string;
@@ -45,7 +49,7 @@ export function pricesAt(listings: SupplyListing[], wanted: number): PriceAt[] {
     const quantity = Math.ceil(Math.max(wanted, offer.moq || 1, 1) / multiple) * multiple;
     let price: string | null = null;
     for (const [from, each] of offer.price_breaks) if (from <= quantity) price = each;
-    if (price !== null) found.push({ id: listing.id, name: `${listing.connector_name} ${listing.sku}`, price, currency: offer.currency, quantity });
+    if (price !== null) found.push({ id: listing.id, vendor: listing.connector_name, provider: listing.provider ?? "", sku: listing.sku, name: `${listing.connector_name} ${listing.sku}`, price, currency: offer.currency, quantity });
   }
   return found;
 }

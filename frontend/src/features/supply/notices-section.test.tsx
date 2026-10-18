@@ -63,16 +63,12 @@ describe("the notices section", () => {
     }));
   });
 
-  it("closes an open notice for those who may edit, and keeps it listed", async () => {
+  it("has no Close button on a notice, for anyone", async () => {
     mocked.listPartNotices.mockResolvedValue([{ ...notice, state: "open" }]);
-    mocked.closeNotice.mockResolvedValue(undefined);
     render(<NoticesSection part={part} canEdit />);
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
-    await waitFor(() => expect(mocked.closeNotice).toHaveBeenCalledWith(notice.id));
-  });
-
-  it("offers no close to those who may only read", async () => {
-    mocked.listPartNotices.mockResolvedValue([{ ...notice, state: "open" }]);
+    await screen.findByText(notice.title);
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    cleanup();
     render(<NoticesSection part={part} canEdit={false} />);
     await screen.findByText(notice.title);
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();

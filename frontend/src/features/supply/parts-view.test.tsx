@@ -235,14 +235,14 @@ describe("a part", () => {
     expect(within(stock).getAllByRole("list", { name: "Distributors drawn" })).toHaveLength(1);
     const legend = await within(stock).findByRole("button", { name: /Mouser EU/ });
     expect(legend.textContent).toContain("12,500");
-    const order = [...sheet.querySelectorAll("section[aria-label], [data-slot='collapsible'][aria-label], #try-quantity")].map((node) => node.getAttribute("aria-label") ?? node.id);
+    const order = [...sheet.querySelectorAll("section[aria-label], details[aria-label], [data-slot='collapsible'][aria-label]")].map((node) => node.getAttribute("aria-label") ?? node.id);
     const at = (name: string) => order.findIndex((item) => item === name || item.startsWith(`${name} (`));
     expect(at("Price")).toBeGreaterThan(at("Stock"));
     expect(at("Forecast")).toBeGreaterThan(at("Price"));
-    // Listings follow the health, with the quantity try just above them.
+    // The notices follow the outlook, and the listings follow the notices.
     expect(at("Outlook")).toBeGreaterThan(at("Forecast"));
-    expect(at("try-quantity")).toBeGreaterThan(at("Outlook"));
-    expect(at("Listings")).toBe(at("try-quantity") + 1);
+    expect(at("Notices")).toBe(at("Outlook") + 1);
+    expect(at("Listings")).toBe(at("Notices") + 1);
     expect(at("Alternatives")).toBeGreaterThan(at("Listings"));
     expect(at("Compliance")).toBeGreaterThan(at("Alternatives"));
     // Listings fold, and start open.
@@ -281,6 +281,38 @@ describe("a part", () => {
     expect(main.querySelector("svg.lucide-external-link")).toBeNull();
   });
 
+  it("tries a quantity from an icon on the Listings line, with the vendor in colour and its number in grey", async () => {
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    const icon = await within(sheet).findByRole("button", { name: "Try a quantity" });
+    const heading = within(sheet).getByRole("heading", { name: /^Listings \(/ });
+    expect(heading.closest("[data-slot='collapsible']")?.contains(icon)).toBe(true);
+    fireEvent.click(icon);
+    fireEvent.change(await screen.findByLabelText("Try a quantity", { selector: "input" }), { target: { value: "500" } });
+    const row = (await screen.findByText("(595-LM358D)")).closest("li")!;
+    expect(within(row).getByText("Mouser EU").className).not.toContain("muted");
+    expect(within(row).getByText("(595-LM358D)").className).toContain("text-muted-foreground");
+    fireEvent.click(icon);
+    await waitFor(() => expect(screen.queryByLabelText("Try a quantity", { selector: "input" })).toBeNull());
+  });
+
+  it("opens the stock trend beside the figure under its own Trend title, with no native hint", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
+      insight: {
+        confidence: "high", trend: "falling", decrease_per_day: 50, days_to_zero: 6, days_to_threshold: 2,
+        restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
+        inputs: { points: 35, span_days: 34, points_in_run: 35, current: 300 },
+      },
+    }));
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    const icon = await within(sheet).findByRole("button", { name: "Show the stock trend" });
+    expect(icon.hasAttribute("title")).toBe(false);
+    expect(icon.parentElement?.textContent).toContain("12,500");
+    fireEvent.mouseEnter(icon);
+    expect(await screen.findByRole("heading", { name: "Trend" })).toBeTruthy();
+  });
+
   it("closes on one Escape, even with a hover popover open", async () => {
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
@@ -295,8 +327,8 @@ describe("a part", () => {
     const sheet = await screen.findByRole("dialog");
     const title = await within(sheet).findByRole("heading", { name: /LM358D/ });
     const tag = within(title).getByText("Last time buy");
-    const number = within(title).getByText("LM358D");
-    expect(tag.compareDocumentPosition(number) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const maker = within(title).getByText("Texas Instruments");
+    expect(maker.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(sheet).queryByRole("region", { name: "Numbers" })).toBeNull();
     expect(within(sheet).queryByRole("heading", { name: "Distributors compared" })).toBeNull();
   });

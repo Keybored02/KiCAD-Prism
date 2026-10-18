@@ -17,7 +17,7 @@ export function HoverDetails({ label, children }: { label: string; children: Rea
     >
       <PopoverTrigger asChild>
         <button
-          type="button" aria-label={label} title={pinned ? undefined : label}
+          type="button" aria-label={label}
           className="inline-flex shrink-0 text-muted-foreground hover:text-foreground"
           onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
           onClick={() => setPinned((current) => !current)}

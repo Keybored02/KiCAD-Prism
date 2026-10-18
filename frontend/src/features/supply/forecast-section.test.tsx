@@ -44,7 +44,9 @@ describe("the part sheet's Forecast section", () => {
     expect(screen.getByText("around 14 Dec (between 2 Dec and 9 Jan 2027)")).toBeTruthy();
     expect(screen.getByText(/DigiKey back/)).toBeTruthy();
     expect(screen.getByText("(quoted 6 weeks)")).toBeTruthy();
-    expect(screen.getByText(/Out everywhere within 8 weeks: Likely \(82%\)/)).toBeTruthy();
+    expect(screen.getByText(/Out everywhere within 8 weeks:/)).toBeTruthy();
+    expect(screen.getByText("Likely (82%)").tagName).toBe("STRONG");
+    expect(screen.getByText(/Chance of an end-of-life change within 12 months/).querySelector("strong")).not.toBeNull();
     expect(screen.getByText(/In 90 days, at its price quantity/)).toBeTruthy();
     expect(screen.getAllByRole("listitem", { name: /^Week/ })).toHaveLength(12);
   });

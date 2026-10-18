@@ -87,10 +87,10 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
         <div className="flex items-start justify-between gap-3 pr-8">
           <div className="min-w-0 space-y-1">
             <SheetTitle className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Badge variant={LIFECYCLE_BADGE[detail.lifecycle]}>{LIFECYCLE_LABEL[detail.lifecycle]}</Badge>
-              <TradeTag show="tag" partId={detail.part.id} trade={detail.trade} canEdit={canEdit} onChanged={onChanged} />
               <span className="flex items-center gap-2"><StatusDot status={detail.status} />{detail.part.mpn}</span>
               <span className="text-sm font-normal text-muted-foreground">{detail.part.manufacturer}</span>
+              <Badge variant={LIFECYCLE_BADGE[detail.lifecycle]}>{LIFECYCLE_LABEL[detail.lifecycle]}</Badge>
+              <TradeTag show="tag" partId={detail.part.id} trade={detail.trade} canEdit={canEdit} onChanged={onChanged} />
               <JlcIcon jlc={detail.jlc} />
             </SheetTitle>
             <UsedInLinks uses={detail.used_in} />

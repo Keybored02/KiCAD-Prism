@@ -106,7 +106,7 @@ export function ForecastSection({ forecast, currency, titled = true }: {
         </Line>
       ) : null}
       {forecast.out_everywhere ? (
-        <p className={`text-sm ${isGrey(forecast.buy_state?.["8w"]) ? "text-muted-foreground" : ""}`}>Out everywhere within 8 weeks: {chanceText(forecast.out_everywhere["8w"])}</p>
+        <p className={`text-sm ${isGrey(forecast.buy_state?.["8w"]) ? "text-muted-foreground" : ""}`}>Out everywhere within 8 weeks: <strong>{chanceText(forecast.out_everywhere["8w"])}</strong></p>
       ) : null}
       {(forecast.back ?? []).map((item) => (
         <Line key={item.connector_id} model={item.state} why={backWhy(item)}>
@@ -124,7 +124,7 @@ export function ForecastSection({ forecast, currency, titled = true }: {
           model={forecast.end_of_life.state}
           why={`Lifecycle changes seen across all tracked parts, pooled by maker. ${forecast.end_of_life.changes} of the ${forecast.end_of_life.needs} needed so far; the rule-based outlook above stays the guide until then.`}
         >
-          Chance of an end-of-life change within 12 months: {chanceText(forecast.end_of_life.p12)}
+          Chance of an end-of-life change within 12 months: <strong>{chanceText(forecast.end_of_life.p12)}</strong>
         </Line>
       ) : null}
     </section>
