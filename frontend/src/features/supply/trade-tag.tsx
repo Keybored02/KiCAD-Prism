@@ -65,19 +65,27 @@ function MarkDialog({ partId, trade, onClose, onChanged }: { partId: string; tra
 }
 
 /** "Export controlled 3A991" beside the lifecycle, "ECCN disputed" when distributors differ, nothing for EAR99 or no class. A person can set it. */
-export function TradeTag({ partId, trade, canEdit, onChanged }: { partId: string; trade: SupplyPartDetail["trade"]; canEdit: boolean; onChanged: () => Promise<void> | void }) {
+export function TradeTag({ partId, trade, canEdit, onChanged, show = "both" }: {
+  partId: string;
+  trade: SupplyPartDetail["trade"];
+  canEdit: boolean;
+  onChanged: () => Promise<void> | void;
+  /** The tag, the button that sets it, or both. The sheet shows the tag high up and the button with the compliance. */
+  show?: "both" | "tag" | "button";
+}) {
   const [open, setOpen] = useState(false);
   if (!trade) return null;
-  const words = text(trade);
-  if (!words && !canEdit) return null;
+  const words = show === "button" ? "" : text(trade);
+  const button = canEdit && show !== "tag";
+  if (!words && !button) return null;
   return (
     <>
       {words ? (
-        <Badge variant={trade.control === "controlled" ? "warning" : "outline"} title={trade.mark ? `Set by ${trade.mark.set_by}` : "What distributors state"}>
+        <Badge variant={trade.control === "controlled" ? "warning" : "info"} title={trade.mark ? `Set by ${trade.mark.set_by}` : "What distributors state"}>
           {words}{trade.mark ? " (set by a person)" : ""}
         </Badge>
       ) : null}
-      {canEdit ? (
+      {button ? (
         <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="Set export control" title="Set export control" onClick={() => setOpen(true)}>
           <ShieldCheck className="h-3.5 w-3.5" />
         </Button>

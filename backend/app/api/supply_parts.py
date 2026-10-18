@@ -264,6 +264,18 @@ async def cross_reference_of(part_id: str, _user: AuthenticatedUser = Depends(re
     return await _run(read)
 
 
+@router.get("/parts/{part_id}/library-component")
+async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """The catalog component that has this part, so the part sheet can open it. None when the library has none."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            part = parts.get_part(conn, part_id)
+        return {"component_id": catalog_read.component_for(part.manufacturer_name, part.mpn)}
+
+    return await _run(read)
+
+
 @router.post("/parts/{part_id}/refresh")
 async def read_part_now(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part."""

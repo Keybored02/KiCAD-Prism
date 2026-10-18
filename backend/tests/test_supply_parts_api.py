@@ -375,6 +375,18 @@ class SupplyPartsApiTests(unittest.TestCase):
         none = self.call("GET", "/api/supply/parts", query="scope=all&vendor=no-such-connector").json
         self.assertEqual((none["items"], none["total"]), ([], 0))
 
+    def test_a_part_names_the_library_component_that_has_it(self) -> None:
+        from unittest import mock
+
+        from app.services.supply import catalog_read
+
+        self.watch_via_api("ABC123")
+        part_id = self.part_row("ABC123")["id"]
+        with mock.patch.object(catalog_read, "component_for", lambda maker, mpn: "cmp-9" if mpn == "ABC123" else None):
+            self.assertEqual(self.call("GET", f"/api/supply/parts/{part_id}/library-component").json, {"component_id": "cmp-9"})
+        with mock.patch.object(catalog_read, "component_for", lambda maker, mpn: None):
+            self.assertEqual(self.call("GET", f"/api/supply/parts/{part_id}/library-component").json, {"component_id": None})
+
     def test_status_follows_what_the_market_says(self) -> None:
         cid = self.fake_connector()
         for mpn in ("OOS-1", "EOL-1", "NRND-1"):

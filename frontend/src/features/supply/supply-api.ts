@@ -350,6 +350,11 @@ export function listSupplyParts(scope: PartsScope, query: string, signal?: Abort
   return fetchJson<SupplyPartsPage>(`${BASE}/parts?${params}`, { signal }, "Could not load parts");
 }
 
+/** The catalog component that has a part, or null data when the library has none. */
+export function getLibraryComponentOf(partId: string, signal?: AbortSignal): Promise<{ component_id: string | null }> {
+  return fetchJson<{ component_id: string | null }>(`${BASE}/parts/${encodeURIComponent(partId)}/library-component`, { signal }, "Could not look the component up");
+}
+
 export function getSupplyDashboard(signal?: AbortSignal): Promise<SupplyDashboard> {
   return fetchJson<SupplyDashboard>(`${BASE}/dashboard`, { signal }, "Could not load the dashboard");
 }

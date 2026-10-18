@@ -1,18 +1,14 @@
 import { Maximize2 } from "lucide-react";
-import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { PartForecast, PartHistory } from "@/types/supply";
 import { HistoryLegend } from "./history-legend";
 import { PartHistoryDialog } from "./part-history-dialog";
 import type { HistoryKind } from "./part-history-model";
-import { getPartHistory } from "./supply-api";
 import { useHidden } from "./use-hidden";
-import { useLoaded } from "./use-loaded";
 
 const PartHistoryChart = lazy(() => import("./part-history-chart"));
-
-const SHEET_DAYS = 90;
 
 function ChartButton({ kind, label, onOpen, children }: { kind: HistoryKind; label: string; onOpen: (kind: HistoryKind) => void; children: ReactNode }) {
   return (
@@ -28,31 +24,31 @@ function ChartButton({ kind, label, onOpen, children }: { kind: HistoryKind; lab
   );
 }
 
-/** Stock and price of the part over the last 90 days, a line per distributor. A chart opens larger with a choice of timeframe. */
-export function PartHistoryPanel({ partId, threshold, forecast = null }: { partId: string; threshold: number | null; forecast?: PartForecast | null }) {
-  const fetcher = useCallback((signal: AbortSignal) => getPartHistory(partId, SHEET_DAYS, signal), [partId]);
-  const { data } = useLoaded<PartHistory>(`part-history:${partId}`, fetcher, "Could not load the history");
+/**
+ * One chart of the part over the last 90 days, a line per distributor, under a legend that switches them. Stock or price: the
+ * sheet shows each under its own heading. A chart opens larger with a choice of timeframe.
+ */
+export function PartHistoryPanel({ partId, history, kind, threshold = null, forecast = null }: {
+  partId: string;
+  history: PartHistory | null | undefined;
+  kind: "stock" | "price";
+  threshold?: number | null;
+  forecast?: PartForecast | null;
+}) {
   const { hidden, toggle } = useHidden();
   const [opened, setOpened] = useState<HistoryKind | null>(null);
-  if (!data || data.connectors.length === 0) {
-    return <p className="text-xs text-muted-foreground">History builds up as the part is read.</p>;
+  const drawn = history ? { ...history, connectors: history.connectors.filter((line) => kind === "stock" || line.price.length > 0) } : null;
+  if (!history || !drawn || drawn.connectors.length === 0) {
+    return <p className="text-xs text-muted-foreground">{kind === "stock" ? "History builds up as the part is read." : "Price history builds up as the part is read."}</p>;
   }
-  const priced = data.connectors.some((line) => line.price.length > 0);
   return (
     <div className="space-y-2">
-      <HistoryLegend history={data} hidden={hidden} onToggle={toggle} withTotal />
-      <ChartButton kind="stock" label="Open the stock history larger" onOpen={setOpened}>
-        <Suspense fallback={<div className="h-44" />}>
-          <PartHistoryChart history={data} kind="stock" hidden={hidden} threshold={threshold} forecast={forecast} />
+      <HistoryLegend history={drawn} hidden={hidden} onToggle={toggle} withTotal={kind === "stock"} />
+      <ChartButton kind={kind} label={`Open the ${kind} history larger`} onOpen={setOpened}>
+        <Suspense fallback={<div className={kind === "stock" ? "h-44" : "h-36"} />}>
+          <PartHistoryChart history={history} kind={kind} hidden={hidden} threshold={kind === "stock" ? threshold : undefined} height={kind === "stock" ? undefined : "h-36"} forecast={forecast} />
         </Suspense>
       </ChartButton>
-      {priced ? (
-        <ChartButton kind="price" label="Open the price history larger" onOpen={setOpened}>
-          <Suspense fallback={<div className="h-36" />}>
-            <PartHistoryChart history={data} kind="price" hidden={hidden} height="h-36" forecast={forecast} />
-          </Suspense>
-        </ChartButton>
-      ) : null}
       {opened ? <PartHistoryDialog partId={partId} threshold={threshold} forecast={forecast} onClose={() => setOpened(null)} /> : null}
     </div>
   );

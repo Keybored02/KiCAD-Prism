@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { SupplyCompliance } from "@/types/supply";
+import type { SupplyCompliance, SupplyPartDetail } from "@/types/supply";
 import { ComplianceFacts } from "./compliance-facts";
 import { complianceBadge } from "./compliance-model";
 import { RohsExemptions } from "./rohs-exemptions";
+import { TradeTag } from "./trade-tag";
 import { declareSubstance, getPartCompliance, undeclareSubstance } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
@@ -16,10 +17,13 @@ import { useLoaded } from "./use-loaded";
 interface ComplianceSectionProps {
   partId: string;
   canEdit: boolean;
+  /** With these, the header carries the button that sets the export control. */
+  trade?: SupplyPartDetail["trade"];
+  onChanged?: () => Promise<void> | void;
 }
 
 /** RoHS and REACH, with where each answer comes from, what distributors state, and the substances declared for the part. */
-export function ComplianceSection({ partId, canEdit }: ComplianceSectionProps) {
+export function ComplianceSection({ partId, canEdit, trade, onChanged }: ComplianceSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => getPartCompliance(partId, signal), [partId]);
   const loaded = useLoaded<SupplyCompliance>(`${partId}:compliance`, fetcher, "Could not load the compliance");
   const { busy, error, run } = useConnectorSubmit();
@@ -34,7 +38,10 @@ export function ComplianceSection({ partId, canEdit }: ComplianceSectionProps) {
 
   return (
     <section aria-label="Compliance" className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Compliance</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Compliance</h3>
+        {trade && onChanged ? <TradeTag show="button" partId={partId} trade={trade} canEdit={canEdit} onChanged={onChanged} /> : null}
+      </div>
       <ul className="space-y-1 text-sm">
         {rows.map((row) => {
           const badge = complianceBadge(row.state);

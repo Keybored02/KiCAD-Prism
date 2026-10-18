@@ -68,6 +68,18 @@ def in_library(pairs: Iterable[tuple[str, str]]) -> set[tuple[str, str]]:
     return have  # type: ignore[return-value]
 
 
+def component_for(maker: str, mpn: str) -> str | None:
+    """The id of the active catalog component that has this maker and number, or None. Tries one query before reading the catalog."""
+
+    from app.services.component_catalog_service import catalog_service
+
+    found = catalog_service.match_component_identities([{"manufacturer": maker, "mpn": mpn}])
+    exact = found.get(chr(0).join((maker.strip().casefold(), mpn.strip().casefold())))
+    if exact:
+        return str(exact["component_id"])
+    return component_ids_by_part().get((alias_key(maker), match_key(mpn)))
+
+
 class ComponentsByPart(dict):
     """(manufacturer key, part number key) to catalog component id.
 

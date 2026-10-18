@@ -48,7 +48,7 @@ describe("the history rows", () => {
 describe("the history on the part sheet", () => {
   it("shows a legend that switches a distributor off, and opens the chart larger", async () => {
     vi.mocked(api.getPartHistory).mockResolvedValue(HISTORY);
-    render(<PartHistoryPanel partId="p1" threshold={null} />);
+    render(<PartHistoryPanel kind="stock" partId="p1" history={HISTORY} threshold={null} />);
     const digikey = await screen.findByRole("button", { name: /DigiKey/ });
     expect(digikey.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(digikey);
@@ -61,8 +61,15 @@ describe("the history on the part sheet", () => {
   }, 30_000);
 
   it("says history builds up when there is none", async () => {
-    vi.mocked(api.getPartHistory).mockResolvedValue({ ...HISTORY, connectors: [], total: [], events: [] });
-    render(<PartHistoryPanel partId="p2" threshold={null} />);
+    render(<PartHistoryPanel kind="stock" partId="p2" history={{ ...HISTORY, connectors: [], total: [], events: [] }} />);
     expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
+  });
+
+  it("draws the price under its own legend, with only the distributors that have prices and no total", () => {
+    render(<PartHistoryPanel kind="price" partId="p1" history={HISTORY} />);
+    expect(screen.getByRole("button", { name: /DigiKey/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Mouser/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Counted in total/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open the price history larger" })).toBeTruthy();
   });
 });

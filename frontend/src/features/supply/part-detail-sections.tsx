@@ -20,6 +20,7 @@ import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { ListingGroups } from "./listing-groups";
 import { PartHistoryPanel } from "./part-history";
+import { usePartHistory } from "./use-part-history";
 import { PartNumbers } from "./part-numbers";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
@@ -31,6 +32,11 @@ import { TradeTag } from "./trade-tag";
 import { WatchSettings } from "./watch-settings";
 import { VendorName } from "./vendor-name";
 
+
+/** The lifecycle tag's colour: green when active, amber when ending, red when obsolete, plain when unknown. */
+const LIFECYCLE_BADGE: Record<SupplyPartDetail["lifecycle"], "success" | "warning" | "destructive" | "outline"> = {
+  active: "success", nrnd: "warning", last_time_buy: "warning", obsolete: "destructive", unknown: "outline",
+};
 
 /** What is known about one part: stock and history, its watch, where it is used and every listing. */
 interface PartDetailSectionsProps {
@@ -44,6 +50,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
   // Asking the forecast at another quantity is a question; nothing is saved.
   const [forecastQuantity, setForecastQuantity] = useState<number | null>(null);
   const forecast = usePartForecast(detail.part.id, forecastQuantity, detail.price.quantity);
+  const history = usePartHistory(detail.part.id);
   return (
     <div className="space-y-6">
 
@@ -54,10 +61,10 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             <p className="text-2xl font-semibold tabular-nums">{formatStock(detail.stock.total)}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={detail.lifecycle === "active" || detail.lifecycle === "unknown" ? "outline" : "warning"}>
+            <Badge variant={LIFECYCLE_BADGE[detail.lifecycle]}>
               {LIFECYCLE_LABEL[detail.lifecycle]}
             </Badge>
-            <TradeTag partId={detail.part.id} trade={detail.trade} canEdit={canEdit} onChanged={onChanged} />
+            <TradeTag show="tag" partId={detail.part.id} trade={detail.trade} canEdit={canEdit} onChanged={onChanged} />
             {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
           </div>
         </div>
@@ -69,12 +76,14 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             ))}
           </p>
         ) : null}
-        <PartHistoryPanel partId={detail.part.id} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
+        <PartHistoryPanel kind="stock" partId={detail.part.id} history={history.data} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
       </section>
 
       <ForecastSection forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} />
 
-      <PriceTrend price={detail.price} partId={detail.part.id} listings={detail.listings} canEdit={canEdit} onChanged={onChanged} />
+      <PriceTrend price={detail.price} partId={detail.part.id} listings={detail.listings} canEdit={canEdit} onChanged={onChanged}>
+        <PartHistoryPanel kind="price" partId={detail.part.id} history={history.data} forecast={forecast.data} />
+      </PriceTrend>
 
       <OutlookSection outlook={detail.outlook} />
 
@@ -125,7 +134,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         </section>
       ) : null}
 
-      <ComplianceSection partId={detail.part.id} canEdit={canEdit} />
+      <ComplianceSection partId={detail.part.id} canEdit={canEdit} trade={detail.trade} onChanged={onChanged} />
 
       <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 

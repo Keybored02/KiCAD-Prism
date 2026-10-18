@@ -31,4 +31,13 @@ describe("the export control tag", () => {
     await waitFor(() => expect(api.setTradeMark).toHaveBeenCalledWith("p1", "controlled", "5A002"));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
+
+  it("can show only the tag or only the button, so the two can stand apart", () => {
+    const { rerender } = render(<TradeTag show="tag" partId="p1" trade={stated} canEdit onChanged={vi.fn()} />);
+    expect(screen.getByText("Export controlled 3A991")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Set export control" })).toBeNull();
+    rerender(<TradeTag show="button" partId="p1" trade={stated} canEdit onChanged={vi.fn()} />);
+    expect(screen.queryByText("Export controlled 3A991")).toBeNull();
+    expect(screen.getByRole("button", { name: "Set export control" })).toBeTruthy();
+  });
 });

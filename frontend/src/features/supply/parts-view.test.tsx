@@ -19,6 +19,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listSupplyParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
+  getLibraryComponentOf: vi.fn(),
   getSupplyPart: vi.fn(),
   getPartHistory: vi.fn(),
   addSupplyWatch: vi.fn(),
@@ -69,6 +70,7 @@ beforeEach(() => {
     connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [] }],
   });
   mocked.listSupplyConnectors.mockResolvedValue([connectorFixture({ id: "c-mouser", provider: "mouser", display_name: "Mouser EU", enabled: true })]);
+  mocked.getLibraryComponentOf.mockResolvedValue({ component_id: null });
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
@@ -206,6 +208,33 @@ describe("a part", () => {
     expect(await within(sheet).findByRole("img", { name: "stock chart" })).toBeTruthy();
     expect(within(sheet).getByRole("article", { name: "Listing 595-LM358D" })).toBeTruthy();
     expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything());
+  });
+
+  it("heads the sheet with the maker beside the number, no status words, a coloured lifecycle and a library link", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments", first_seen: "2026-10-16" } as never, status: "error", lifecycle: "obsolete" }));
+    mocked.getLibraryComponentOf.mockResolvedValue({ component_id: "cmp 1" });
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    const title = await within(sheet).findByRole("heading", { name: /LM358D/ });
+    expect(title.textContent).toContain("Texas Instruments");
+    expect(within(sheet).queryByText(/Known to Prism/)).toBeNull();
+    expect(within(sheet).queryByText(/At risk\./)).toBeNull();
+    expect(within(sheet).getByText("Obsolete").className).toContain("destructive");
+    const link = await within(sheet).findByRole("link", { name: "Open in the component library" });
+    expect(link.getAttribute("href")).toBe("/?section=library-manager&libraryView=catalog&component=cmp%201&componentTab=sourcing");
+  });
+
+  it("gives the price its own heading, vendors legend and chart like the stock", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ price: { currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null } }));
+    mocked.getPartHistory.mockResolvedValue({
+      days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
+      connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [["2026-03-01", 0.5]] }],
+    });
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    const price = await within(sheet).findByRole("region", { name: "Price" });
+    expect(await within(price).findByRole("img", { name: "price chart" })).toBeTruthy();
+    expect(within(price).getByRole("list", { name: "Distributors drawn" })).toBeTruthy();
   });
 
   it("marks listings that do not count and offers that have not been read", async () => {

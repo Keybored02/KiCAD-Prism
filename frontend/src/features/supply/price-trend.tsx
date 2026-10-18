@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { SupplyListing, SupplyPartDetail } from "@/types/supply";
 
 import { leadText, daysSince } from "./price-text";
@@ -10,6 +12,8 @@ interface PriceTrendProps {
   listings?: SupplyListing[];
   canEdit?: boolean;
   onChanged?: () => Promise<void> | void;
+  /** The vendors legend and the price chart, shown under the figure like the stock section. */
+  children?: ReactNode;
 }
 
 /** What the list price means when nothing can be bought now. */
@@ -27,7 +31,7 @@ function kindLine(headline: NonNullable<SupplyPartDetail["price"]["headline"]>, 
 }
 
 /** The price at the part's quantity, how far it moved in the last 30 days, and the range over distributors. Nothing until the part has priced readings. */
-export function PriceTrend({ price, partId, listings, canEdit = false, onChanged }: PriceTrendProps) {
+export function PriceTrend({ price, partId, listings, canEdit = false, onChanged, children }: PriceTrendProps) {
   const { history, trend, currency, headline } = price;
   if (history.length === 0 && !headline?.unit_price) return null;
   const latest = headline?.unit_price ?? String(history[history.length - 1].price);
@@ -36,11 +40,12 @@ export function PriceTrend({ price, partId, listings, canEdit = false, onChanged
   const note = headline ? kindLine(headline, Date.now()) : null;
   const quantity = price.quantity ?? 100;
   return (
-    <section aria-label="Price" className="space-y-1">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Price</h3>
-      <div className="flex items-center gap-3">
-        <p className="text-lg font-semibold tabular-nums">{formatPrice(latest, currency)}</p>
+    <section aria-label="Price" className="space-y-2">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Price</p>
+        <p className="text-2xl font-semibold tabular-nums">{formatPrice(latest, currency)}</p>
       </div>
+      {children}
       {note ? <p className="text-xs text-warning">{note}</p> : null}
       {headline?.price_native ? <p className="text-xs text-muted-foreground">Converted from {formatPrice(headline.price_native.price, headline.price_native.currency)}.</p> : null}
       {range ? (

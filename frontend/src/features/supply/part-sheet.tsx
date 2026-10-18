@@ -7,8 +7,8 @@ import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
+import { LibraryComponentLink } from "./library-component-link";
 import { JlcIcon } from "./supply-icons";
-import { STATUS_LABEL } from "./supply-format";
 import { useSupplyPart } from "./use-supply-parts";
 
 interface PartSheetProps {
@@ -65,14 +65,15 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
   return (
     <div className="space-y-6">
       <SheetHeader>
-        <SheetTitle className="flex items-center gap-2">
-          <StatusDot status={detail.status} />
-          {detail.part.mpn}
-          <JlcIcon jlc={detail.jlc} />
-        </SheetTitle>
-        <SheetDescription>
-          {detail.part.manufacturer}. {STATUS_LABEL[detail.status]}.{detail.part.first_seen ? ` Known to Prism since ${detail.part.first_seen}.` : ""}
-        </SheetDescription>
+        <div className="flex items-start justify-between gap-3 pr-8">
+          <SheetTitle className="flex flex-wrap items-baseline gap-x-2">
+            <span className="flex items-center gap-2"><StatusDot status={detail.status} />{detail.part.mpn}</span>
+            <span className="text-sm font-normal text-muted-foreground">{detail.part.manufacturer}</span>
+            <JlcIcon jlc={detail.jlc} />
+          </SheetTitle>
+          <LibraryComponentLink partId={detail.part.id} />
+        </div>
+        <SheetDescription className="sr-only">{detail.part.manufacturer} {detail.part.mpn}</SheetDescription>
       </SheetHeader>
 
       <PartDetailSections detail={detail} canEdit={canEdit} role={role} onChanged={onChanged} />
