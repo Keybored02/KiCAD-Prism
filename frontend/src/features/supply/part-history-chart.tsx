@@ -4,7 +4,7 @@ import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { PartForecast, PartHistory } from "@/types/supply";
 import { formatDay } from "./chart-format";
-import { BAND_KEY, FORECAST_KEY, forecastKeyOf, historyRows, TOTAL_KEY, withDistributorForecasts, withForecast, type HistoryKind } from "./part-history-model";
+import { BAND_KEY, FORECAST_KEY, forecastKeyOf, historyRows, readingsDomain, TOTAL_KEY, withDistributorForecasts, withForecast, type HistoryKind } from "./part-history-model";
 import { formatPrice } from "./supply-format";
 
 interface Props {
@@ -60,6 +60,7 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
   const config: ChartConfig = Object.fromEntries(keys.map((item) => [item.key, { label: item.name, color: item.color }]));
   const format = kind === "stock" ? (value: number) => value.toLocaleString() : (value: number) => formatPrice(String(value), history.currency);
   const Tip = makeTip(format);
+  const domain = readingsDomain(base, kind, kind === "stock" ? threshold : null);
   const label = `${kind === "stock" ? "Stock per distributor" : "Price per distributor"}${overlay ? (overlay.grey ? ", with a forecast that is still learning" : ", with a forecast") : ""}`;
   const tone = overlay?.grey ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))";
   return (
@@ -69,7 +70,7 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
           <CartesianGrid vertical={false} />
           <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickMargin={6} tickFormatter={formatDay} />
           <YAxis
-            width={kind === "stock" ? 48 : 60} tickLine={false} axisLine={false} domain={kind === "stock" ? [0, "auto"] : ["auto", "auto"]}
+            width={kind === "stock" ? 48 : 60} tickLine={false} axisLine={false} domain={domain ?? (kind === "stock" ? [0, "auto"] : ["auto", "auto"])} allowDataOverflow={domain !== null}
             tickFormatter={(value: number) => format(value)}
           />
           <Tooltip cursor={false} content={<Tip />} />

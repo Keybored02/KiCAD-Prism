@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { SupplyOtherNumberGroup } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
-import { rejectSupplyListings } from "./supply-api";
+import { pinSupplyListing, rejectSupplyListings } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 
 function Group({ group, canDecide, onDecided }: { group: SupplyOtherNumberGroup; canDecide: boolean; onDecided: () => Promise<void> }) {
@@ -23,7 +23,12 @@ function Group({ group, canDecide, onDecided }: { group: SupplyOtherNumberGroup;
           <p className="truncate text-xs text-muted-foreground">{group.manufacturer}</p>
         </div>
         {canDecide ? (
-          <Button size="sm" disabled={busy || taking.length === 0} onClick={() => void run(async () => { await rejectSupplyListings(taking.map((item) => item.id)); await onDecided(); })}>
+          <Button size="sm" disabled={busy} onClick={() => void run(async () => {
+            // The ones left ticked are confirmed: the part is also sold under their number, so they leave this list.
+            for (const item of group.listings.filter((entry) => !dropped.has(entry.id))) await pinSupplyListing(item.id, true);
+            if (taking.length > 0) await rejectSupplyListings(taking.map((item) => item.id));
+            await onDecided();
+          })}>
             Save
           </Button>
         ) : null}
@@ -45,7 +50,7 @@ function Group({ group, canDecide, onDecided }: { group: SupplyOtherNumberGroup;
   );
 }
 
-/** Listings pinned as a part although numbered otherwise: their stock counts as the part's. Ticked ones stay tracked; Save takes the others off. */
+/** Listings pinned as a part although numbered otherwise: their stock counts as the part's. Ticked ones are confirmed as this part and leave the list; Save takes the others off. */
 export function OtherNumberPins({ groups, canDecide, onDecided }: { groups: readonly SupplyOtherNumberGroup[]; canDecide: boolean; onDecided: () => Promise<void> }) {
   if (groups.length === 0) return null;
   const total = groups.length;

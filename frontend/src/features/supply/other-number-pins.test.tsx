@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./supply-api", () => ({ rejectSupplyListings: vi.fn() }));
+vi.mock("./supply-api", () => ({ rejectSupplyListings: vi.fn(), pinSupplyListing: vi.fn() }));
 
 import { OtherNumberPins } from "./other-number-pins";
-import { rejectSupplyListings } from "./supply-api";
+import { pinSupplyListing, rejectSupplyListings } from "./supply-api";
 
 const reject = vi.mocked(rejectSupplyListings);
 const groups = [{
@@ -27,6 +27,7 @@ describe("pins under another number", () => {
     fireEvent.click(within(group).getByLabelText("Track C1"));
     fireEvent.click(within(group).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(reject).toHaveBeenCalledWith(["a"]));
+    expect(vi.mocked(pinSupplyListing)).toHaveBeenCalledWith("b", true);
     await waitFor(() => expect(decided).toHaveBeenCalled());
   });
 

@@ -74,6 +74,21 @@ export function historyRows(history: PartHistory, kind: HistoryKind, hidden: Rea
   return { rows, keys };
 }
 
+/**
+ * The vertical range the readings need, with a little room: a forecast that runs far beyond it is cut off at the chart's edge
+ * and does not squeeze the real lines together. Null when nothing is drawn.
+ */
+export function readingsDomain(base: HistoryRows, kind: HistoryKind, extra: number | null = null): [number, number] | null {
+  const values = base.rows.flatMap((row) => base.keys.map((item) => row[item.key])).filter((value): value is number => typeof value === "number");
+  if (extra !== null) values.push(extra);
+  if (values.length === 0) return null;
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  if (kind === "stock") return [0, Math.max(Math.ceil(high * 1.15), 1)];
+  const pad = high > low ? (high - low) * 0.2 : Math.max(Math.abs(high) * 0.1, 0.0001);
+  return [Math.max(low - pad, 0), high + pad];
+}
+
 /** The forecast keys of a chart row: the most likely value and its band (low, high). */
 export const FORECAST_KEY = "forecast";
 export const BAND_KEY = "band";
