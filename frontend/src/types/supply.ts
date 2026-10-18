@@ -448,20 +448,6 @@ export interface SupplyReviewListing {
   part: { id: string; mpn: string; manufacturer: string } | null;
 }
 
-export interface SupplyPartNumber {
-  mpn: string;
-  match_key: string;
-  source: string;
-}
-
-/** A longer number the part's maker lists that does not count for the part yet. `kind` says what its ending means. */
-export interface SupplySoldAs {
-  key: string;
-  mpn: string;
-  kind: "packaging" | "grade" | "other";
-  connectors: string[];
-}
-
 export interface SupplyChoiceOption {
   key: string;
   spelling: string;
@@ -870,9 +856,6 @@ export interface MarketBehaviour {
 }
 
 export interface SupplyPartDetail {
-  /** Other numbers the part is sold under. */
-  numbers?: SupplyPartNumber[];
-  sold_as?: SupplySoldAs[];
   market_behaviour?: MarketBehaviour;
   restock_record?: RestockRecord[];
   jlc?: JlcClass | null;

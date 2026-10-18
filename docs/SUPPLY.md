@@ -278,14 +278,14 @@ the maker most distributors list when several do. A spelling two parts of one ma
 every part (Review > Matched by Prism, with Undo).
 
 A part can also be sold under other numbers (`LM358D` as `LM358DR`). Packaging suffixes of the same maker are added by Prism;
-a family number asks once which numbers it is sold as; the part sheet's Numbers row adds or removes one. BOM lines naming any
-of them find the part.
+a family number asks once which numbers it is sold as (Review). The part sheet no longer lists or edits numbers. BOM lines naming
+any of them find the part.
 
 Distributors list orderable numbers longer than the base number a catalog keeps, so a search keeps the part's own number
 and up to ten longer forms of it (`74AHC1G09GV` and `74AHC1G09GV,125`). A longer number of the same maker whose ending is
 a packaging ending (`R`, `TR`, `#PBF`, `/NOPB`, a comma and three digits) is added to the part by Prism. A grade ending
-(`-Q100`, `-EP`) is another orderable part: it shows on the Numbers row as "Count it". Administrators edit the endings in
-Supply settings. A number a person added is searched on its own. A second source that lists the same number under an
+(`-Q100`, `-EP`) is another orderable part: Review asks about it. Administrators edit the endings in
+Supply settings. A number a person said the part is sold as is searched on its own. A second source that lists the same number under an
 unrelated maker is shown on the part and asks nothing.
 
 ## Review

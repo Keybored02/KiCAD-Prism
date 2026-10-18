@@ -167,11 +167,6 @@ def searched_numbers(conn, part_id: str) -> list[str]:
     return [row["mpn"] for row in rows]
 
 
-def list_numbers(conn, part_id: str) -> list[dict]:
-    rows = conn.execute("SELECT mpn, match_key, source FROM part_numbers WHERE part_id = %s ORDER BY mpn", (part_id,)).fetchall()
-    return [dict(row) for row in rows]
-
-
 def add_number(conn, part_id: str, mpn: str, actor: str, source: str = "person") -> bool:
     """Say the part is also sold as ``mpn``. Its listings then count. False when it already is, or is the part's own number."""
 
@@ -188,14 +183,6 @@ def add_number(conn, part_id: str, mpn: str, actor: str, source: str = "person")
         write_audit(conn, actor, "part.number_add", part_id, {"mpn": mpn.strip(), "source": source}, subject_kind="part")
         conn.execute("UPDATE discovery_runs SET family_done = FALSE WHERE part_id = %s", (part_id,))
     return added is not None
-
-
-def remove_number(conn, part_id: str, key: str, actor: str) -> bool:
-    actor = actor_text(actor)
-    gone = conn.execute("DELETE FROM part_numbers WHERE part_id = %s AND match_key = %s RETURNING match_key", (part_id, key)).fetchone()
-    if gone:
-        write_audit(conn, actor, "part.number_remove", part_id, {"match_key": key}, subject_kind="part")
-    return gone is not None
 
 
 def part_spelling_keys(conn, part_id: str) -> set[str]:

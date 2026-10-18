@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { SupplyPartDetail } from "@/types/supply";
 
 import { leadText, daysSince } from "./price-text";
-import { Hint } from "./hint";
+import { HoverDetails } from "./hover-details";
 import { PriceQuantity } from "./price-quantity";
 import { formatPrice } from "./supply-format";
 
@@ -14,6 +14,8 @@ interface PriceTrendProps {
   onChanged?: () => Promise<void> | void;
   /** The vendors legend and the price chart, shown under the figure like the stock section. */
   children?: ReactNode;
+  /** More for the info icon beside the price, such as how the distributors compare. */
+  details?: ReactNode;
 }
 
 /** What the list price means when nothing can be bought now. */
@@ -31,7 +33,7 @@ function kindLine(headline: NonNullable<SupplyPartDetail["price"]["headline"]>, 
 }
 
 /** The price at the part's quantity, how far it moved in the last 30 days, and the range over distributors. Nothing until the part has priced readings. */
-export function PriceTrend({ price, partId, canEdit = false, onChanged, children }: PriceTrendProps) {
+export function PriceTrend({ price, partId, canEdit = false, onChanged, children, details }: PriceTrendProps) {
   const { history, trend, currency, headline } = price;
   if (history.length === 0 && !headline?.unit_price) return null;
   const latest = headline?.unit_price ?? String(history[history.length - 1].price);
@@ -54,7 +56,10 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
         </p>
         <p className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
           {formatPrice(latest, currency)}
-          <Hint text={hints.join(" ")} />
+          <HoverDetails label="Show what the price is">
+            <p className="text-xs text-muted-foreground">{hints.join(" ")}</p>
+            {details}
+          </HoverDetails>
         </p>
       </div>
       {children}

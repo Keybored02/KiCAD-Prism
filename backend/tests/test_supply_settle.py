@@ -164,7 +164,7 @@ class SettleTests(unittest.TestCase):
         self.search(part, 0, ("LM358DR", "Texas Instruments"), ("LM358DR", "TI"))
         self.assertEqual(self.states(), {"S0-0": "exact", "S0-1": "exact"})
         with self.store.connection() as conn:
-            self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, part.id)], ["LM358DR"])
+            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM part_numbers WHERE part_id = %s ORDER BY mpn", (part.id,)).fetchall()], ["LM358DR"])
             self.assertEqual(self.settle.needs_choice(conn), [])
 
     def test_a_clone_with_the_exact_number_does_not_hide_the_makers_packing_code_and_grade(self) -> None:
@@ -178,12 +178,9 @@ class SettleTests(unittest.TestCase):
         )
         self.assertEqual(self.states(), {"S0-0": "near", "S0-1": "exact", "S0-2": "near"})
         with self.store.connection() as conn:
-            self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, part.id)], ["74AHC1G09GV,125"])
+            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM part_numbers WHERE part_id = %s ORDER BY mpn", (part.id,)).fetchall()], ["74AHC1G09GV,125"])
             self.assertEqual([q for q in self.settle.needs_choice(conn) if q["kind"] == "unlisted"], [], "one unrelated maker is a second source")
-            (grade,) = self.settle.sold_as(conn, part.id)
-            self.assertEqual((grade["mpn"], grade["kind"]), ("74AHC1G09GV-Q100H", "grade"))
-            self.assertEqual(self.settle.use_numbers(conn, part.id, [grade["key"]], ACTOR), 1)
-            self.assertEqual(self.settle.sold_as(conn, part.id), [])
+            self.assertEqual(self.settle.use_numbers(conn, part.id, ["74AHC1G09GVQ100H"], ACTOR), 1)
 
     def test_the_rename_question_is_asked_for_a_similar_name_and_not_for_a_stranger(self) -> None:
         with self.store.connection() as conn:
@@ -224,7 +221,7 @@ class SettleTests(unittest.TestCase):
             )
             found = usage.used_in(conn, part.id)
             self.assertEqual([row["project_id"] for row in found], ["p1"])
-            self.assertTrue(self.parts.remove_number(conn, part.id, "LM358DR", ACTOR))
+            conn.execute("DELETE FROM part_numbers WHERE part_id = %s AND match_key = 'LM358DR'", (part.id,))
             self.assertEqual(usage.used_in(conn, part.id), [])
 
     def test_a_listing_is_settled_the_same_after_the_migration_sorts_old_waiting_ones(self) -> None:

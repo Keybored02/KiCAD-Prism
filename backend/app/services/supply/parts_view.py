@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, settle, stock, usage
+from app.services.supply import facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, stock, usage
 from app.services.supply.assessment import settings_store
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
@@ -866,8 +866,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
                 for item in facts.for_part(conn, part_id) if item["name"] == "last_buy_date" for source in item["sources"]
             ],
         ),
-        "numbers": parts.list_numbers(conn, part_id),
-        "sold_as": settle.sold_as(conn, part_id),
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),

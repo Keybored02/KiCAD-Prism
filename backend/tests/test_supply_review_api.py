@@ -175,7 +175,7 @@ class SupplyReviewApiTests(unittest.TestCase):
         body = {"add_number": True}
         self.assertEqual(self.call("POST", f"/api/supply/review/listings/{self.listing_id('S2')}/pin", body=body).status, 204)
         with self.store.connection() as conn:
-            self.assertEqual([item["mpn"] for item in self.parts.list_numbers(conn, self.part.id)], ["LM358DR"])
+            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM part_numbers WHERE part_id = %s ORDER BY mpn", (self.part.id,)).fetchall()], ["LM358DR"])
         self.assertEqual(self.call("GET", "/api/supply/review").json["other_numbers"], [], "it is the part's number now")
 
     def test_a_part_whose_maker_the_answers_do_not_settle_is_a_question_a_designer_can_answer(self) -> None:

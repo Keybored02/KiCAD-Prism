@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserRole } from "@/types/auth";
-import type { SupplyAssessment, SupplyFinding } from "@/types/supply";
+import type { SupplyAssessment, SupplyFinding, SupplyOutlook } from "@/types/supply";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
@@ -12,7 +12,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   revokeWaiver: vi.fn(),
 }));
 
-import { AssessmentSection } from "./assessment-section";
+import { OutlookSection } from "./outlook-section";
 import * as api from "./supply-api";
 
 const mocked = vi.mocked(api);
@@ -37,13 +37,17 @@ function assessment(overrides: Partial<SupplyAssessment> = {}): SupplyAssessment
 
 const waiver = { id: "w1", state: "approved" as const, reason: "We hold stock", proposed_by: "a@example.com", decided_by: "qa@example.com", holds: true, outdated: false };
 
+const OUTLOOK: SupplyOutlook = {
+  band: "no_signs", label: "No signs of an end of life", method: "rule-based", signals: [],
+};
+
 function renderIt(role: UserRole = "designer") {
-  render(<AssessmentSection partId="p1" role={role} />);
+  render(<OutlookSection outlook={OUTLOOK} partId="p1" role={role} />);
 }
 
 /** The scores and findings open from the info icon; a click holds them open. */
 async function openDetails() {
-  fireEvent.click(await screen.findByRole("button", { name: "Show the scores and findings" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Show how the outlook and the health are worked out" }));
 }
 
 beforeEach(() => {
@@ -55,7 +59,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("the assessment section", () => {
+describe("the outlook and health line", () => {
   it("shows health, the five risk scores and the findings", async () => {
     renderIt();
     expect(await screen.findByText("6.4 of 10")).toBeTruthy();
@@ -67,9 +71,21 @@ describe("the assessment section", () => {
     expect(screen.getByText(/does not recommend this part/)).toBeTruthy();
   });
 
+  it("puts the health on the outlook's line under one title, with one info icon for both", async () => {
+    renderIt();
+    expect(await screen.findByText("6.4 of 10")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Health" })).toBeNull();
+    const section = screen.getByRole("region", { name: "Outlook" });
+    expect(within(section).getAllByRole("button", { name: /Show how the outlook/ })).toHaveLength(1);
+    expect(within(section).getByText("No signs of an end of life").className).toContain("success");
+    await openDetails();
+    expect(screen.getByText(/Nothing found points to an end/)).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Risk" })).toBeTruthy();
+  });
+
   it("opens the scores and findings when the info icon is hovered, and closes them again", async () => {
     renderIt();
-    const icon = await screen.findByRole("button", { name: "Show the scores and findings" });
+    const icon = await screen.findByRole("button", { name: "Show how the outlook and the health are worked out" });
     fireEvent.mouseEnter(icon);
     expect(await screen.findByRole("list", { name: "Risk" })).toBeTruthy();
     fireEvent.mouseLeave(icon);

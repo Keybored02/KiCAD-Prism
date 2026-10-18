@@ -240,10 +240,11 @@ describe("a part", () => {
     expect(at("Price")).toBeGreaterThan(at("Stock"));
     expect(at("Forecast")).toBeGreaterThan(at("Price"));
     // Listings follow the health, with the quantity try just above them.
-    expect(at("Health")).toBeGreaterThan(at("Forecast"));
-    expect(at("try-quantity")).toBeGreaterThan(at("Health"));
+    expect(at("Outlook")).toBeGreaterThan(at("Forecast"));
+    expect(at("try-quantity")).toBeGreaterThan(at("Outlook"));
     expect(at("Listings")).toBe(at("try-quantity") + 1);
-    expect(at("Compliance")).toBeGreaterThan(at("Listings"));
+    expect(at("Alternatives")).toBeGreaterThan(at("Listings"));
+    expect(at("Compliance")).toBeGreaterThan(at("Alternatives"));
     // Listings fold, and start open.
     expect(within(sheet).getByRole("heading", { name: /^Listings \(/ }).closest("[data-state]")?.getAttribute("data-state")).toBe("open");
     // The forecast is folded until its chevron is opened.
@@ -278,6 +279,26 @@ describe("a part", () => {
     expect(link.getAttribute("href")).toBe("https://example.invalid/p");
     expect(link.textContent).toBe("595-LM358D");
     expect(main.querySelector("svg.lucide-external-link")).toBeNull();
+  });
+
+  it("closes on one Escape, even with a hover popover open", async () => {
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.mouseEnter(await within(sheet).findByRole("button", { name: /Show how the outlook/ }));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(search()).not.toContain("part="));
+  });
+
+  it("puts the lifecycle tag left of the number and has no Numbers section", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ lifecycle: "last_time_buy" }));
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    const title = await within(sheet).findByRole("heading", { name: /LM358D/ });
+    const tag = within(title).getByText("Last time buy");
+    const number = within(title).getByText("LM358D");
+    expect(tag.compareDocumentPosition(number) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(sheet).queryByRole("region", { name: "Numbers" })).toBeNull();
+    expect(within(sheet).queryByRole("heading", { name: "Distributors compared" })).toBeNull();
   });
 
   it("closes by clearing the URL", async () => {
@@ -427,11 +448,14 @@ describe("the watch settings", () => {
       },
     }));
     renderView("designer", "/?part=p1");
-    const trend = await screen.findByRole("region", { name: "Trend" });
+    const sheet = await screen.findByRole("dialog");
+    const stock = await within(sheet).findByRole("region", { name: "Stock" });
+    expect(within(sheet).queryByRole("heading", { name: "Trend" })).toBeNull();
+    fireEvent.mouseEnter(within(stock).getByRole("button", { name: "Show the stock trend" }));
+    const trend = await screen.findByLabelText("Stock trend");
     expect(within(trend).getByText("High confidence")).toBeTruthy();
     expect(within(trend).getByText("Observed net decrease: 50 a day.")).toBeTruthy();
     expect(within(trend).getByText("At that rate it reaches zero in about 6 days.")).toBeTruthy();
-    expect(within(trend).getByText(/35 daily readings over 34 days/)).toBeTruthy();
   });
 
   it("shows no trend section while there is no insight to give", async () => {
@@ -475,11 +499,15 @@ describe("the watch settings", () => {
       ],
     }));
     renderView("designer", "/?part=p1");
-    const used = await screen.findByRole("region", { name: "Used in" });
+    const sheet = await screen.findByRole("dialog");
+    const used = await within(sheet).findByLabelText("Projects using this part");
     const link = within(used).getByRole("link", { name: "satnogs-comms-hardware" });
     expect(link.getAttribute("href")).toBe("/project/prj_1");
-    expect(within(used).getByText("44 per board")).toBeTruthy();
-    expect(within(used).getByText("Used in (2)")).toBeTruthy();
+    expect(link.className).not.toContain("text-primary");
+    expect(within(used).queryByText(/Used in/)).toBeNull();
+    // It sits under the title, before any section.
+    const title = within(sheet).getByRole("heading", { name: /LM358D/ });
+    expect(title.compareDocumentPosition(used) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("offers Read now to the people who can watch parts, and to nobody else", async () => {

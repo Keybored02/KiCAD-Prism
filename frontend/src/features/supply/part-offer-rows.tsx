@@ -9,6 +9,7 @@ import { formatPrice, packagingName } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
 
 const HEAD = "px-2 py-1 font-normal";
+const REEL_NOTE = "A re-reeled length. Farnell gives it the cut tape's prices; re-reeling may add a charge that its data does not include.";
 
 function OfferRow({ part, offer }: { part: SupplyPartRow; offer: SupplyRowOffer }) {
   return (
@@ -29,7 +30,10 @@ function OfferRow({ part, offer }: { part: SupplyPartRow; offer: SupplyRowOffer 
       </td>
       <td className={`px-2 py-1 text-right tabular-nums ${offer.stock > 0 ? "" : "text-muted-foreground"}`}>{offer.stock.toLocaleString()}</td>
       <td className="px-2 py-1 text-right tabular-nums">{offer.moq > 0 ? offer.moq.toLocaleString() : "–"}</td>
-      <td className="px-2 py-1"><PackagingChip packaging={offer.packaging} reelSize={offer.reel_size} inferred={offer.packaging_inferred} also={offer.also_packaging} />{packagingName(offer.packaging) ? null : <span className="text-muted-foreground">–</span>}</td>
+      <td className="px-2 py-1" title={offer.provider === "farnell" && offer.packaging === "custom_reel" ? REEL_NOTE : undefined}>
+        <PackagingChip packaging={offer.packaging} reelSize={offer.reel_size} inferred={offer.packaging_inferred} also={offer.also_packaging} />
+        {packagingName(offer.packaging) ? null : <span className="text-muted-foreground">–</span>}
+      </td>
       {PRICE_QUANTITIES.map((quantity) => {
         const price = priceAt(offer.price_breaks, quantity);
         return <td key={quantity} className="px-2 py-1 text-right tabular-nums">{price === null ? <span className="text-muted-foreground">–</span> : formatPrice(price, offer.currency)}</td>;

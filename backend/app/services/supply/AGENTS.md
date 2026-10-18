@@ -23,7 +23,7 @@ root first.
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
-| `parts.py` | Manufacturers, their spellings, parts and the other numbers a part is sold under. `ensure_part` refuses nobody (a maker nobody has checked is provisional). Functions on a connection; none commit. |
+| `parts.py` | Manufacturers, their spellings, parts and the other numbers a part is sold under (added by the packaging endings, or by a person in Review). `ensure_part` refuses nobody (a maker nobody has checked is provisional). Functions on a connection; none commit. |
 | `makers.py` | `same_maker`: whether two spellings name one maker (same key, seeded spelling, starts with, whole words inside, initials, one lost letter). Never looks at a part number. |
 | `settle.py` | Settling a provisional part's maker from the listings of its number, the questions a person answers (`needs_choice`, `choose`, `not_this_maker`, `use_numbers`), and learning spellings (`learn_aliases`, `undo_alias`). |
 | `number_suffixes.py` | The endings makers put on a base number (`number_suffixes` table, editable): packaging ones are added to a part by discovery, grades wait for a person (`kind_of`). A comma and three digits is always packaging. |

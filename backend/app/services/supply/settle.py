@@ -211,31 +211,6 @@ def _number_questions(conn, canon) -> list[dict[str, Any]]:
     return questions
 
 
-def sold_as(conn, part_id: str) -> list[dict[str, Any]]:
-    """Longer numbers the part's own maker lists that are not counted for it yet, with what each ending means (a grade such as
-    Q100 is a different orderable part; an unknown ending is a question). Shown on the part's sheet for one click."""
-
-    from app.services.supply import number_suffixes
-
-    part = conn.execute(
-        "SELECT p.id, p.match_key, m.name AS maker, m.provisional FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)
-    ).fetchone()
-    if part is None or part["provisional"]:
-        return []
-    have = parts.part_number_keys(conn, part_id)
-    canon = parts._known_keys(conn).get  # noqa: SLF001
-    seen: dict[str, dict[str, Any]] = {}
-    for listing in conn.execute(
-        "SELECT l.raw_mpn, l.raw_manufacturer, c.display_name AS connector FROM listings l JOIN connectors c ON c.id = l.connector_id "
-        "WHERE l.part_id = %s AND l.match_state = 'near'", (part_id,)
-    ).fetchall():
-        key = match_key(listing["raw_mpn"] or "")
-        if key and key not in have and key.startswith(part["match_key"]) and same_maker(listing["raw_manufacturer"] or "", part["maker"], canon):
-            item = seen.setdefault(key, {"key": key, "mpn": listing["raw_mpn"], "kind": number_suffixes.kind_of(key[len(part["match_key"]):]) or "other", "connectors": set()})
-            item["connectors"].add(listing["connector"])
-    return [{**item, "connectors": sorted(item["connectors"])} for item in sorted(seen.values(), key=lambda value: value["key"])]
-
-
 def use_numbers(conn, part_id: str, keys: list[str], actor: str) -> int:
     """A person says the part is also sold as these numbers: its listings of them count."""
 

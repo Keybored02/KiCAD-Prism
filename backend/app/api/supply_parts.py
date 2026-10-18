@@ -127,34 +127,6 @@ async def find_part(
     return await _run(read)
 
 
-class AddNumberRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mpn: str = Field(min_length=1, max_length=120)
-
-
-@router.post("/parts/{part_id}/numbers", status_code=201)
-async def add_part_number(part_id: str, body: AddNumberRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
-    """Say the part is also sold under this number: its listings of it count, and BOM lines naming it find the part."""
-
-    def run() -> dict[str, Any]:
-        with _store().connection() as conn:
-            parts.get_part(conn, part_id)
-            added = parts.add_number(conn, part_id, body.mpn, writer.email)
-            return {"added": added, "numbers": parts.list_numbers(conn, part_id)}
-
-    return await _run(run)
-
-
-@router.delete("/parts/{part_id}/numbers/{key}", status_code=204)
-async def remove_part_number(part_id: str, key: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> None:
-    def run() -> None:
-        with _store().connection() as conn:
-            parts.remove_number(conn, part_id, key, writer.email)
-
-    await _run(run)
-
-
 @router.get("/parts/{part_id}")
 async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
