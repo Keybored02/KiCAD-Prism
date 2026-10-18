@@ -259,13 +259,16 @@ def _folded(text: str) -> str:
 def _packaging(product: Mapping[str, Any]) -> Packaging:
     """Farnell words it in the unit, in the store's language. Other units say nothing, but ``reeling`` marks a re-reeled length."""
 
+    # Sold re-reeled (an "RL" number): a length of tape wound on a reel for a fee, which is what a custom reel is. Its unit still
+    # reads "cut tape", and its prices are the cut tape's; what sets it apart is the smallest order and the reel.
+    if product.get("reeling") is True:
+        return Packaging.CUSTOM_REEL
     unit = _folded(str(product.get("unitOfMeasure") or ""))
     if any(phrase in unit for phrase in _CUT_TAPE):
         return Packaging.CUT_TAPE
     if any(phrase in unit for phrase in _FULL_REEL):
         return Packaging.TAPE_REEL
-    # A unit with no words on it, but sold re-reeled: a length of tape wound on a reel.
-    return Packaging.CUSTOM_REEL if product.get("reeling") is True else Packaging.UNKNOWN
+    return Packaging.UNKNOWN
 
 
 def _rohs(code: object) -> bool | None:

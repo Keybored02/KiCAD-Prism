@@ -387,6 +387,19 @@ class SupplyPartsApiTests(unittest.TestCase):
         with mock.patch.object(catalog_read, "component_for", lambda maker, mpn: None):
             self.assertEqual(self.call("GET", f"/api/supply/parts/{part_id}/library-component").json, {"component_id": None})
 
+    def test_the_list_shows_every_way_of_buying_but_counts_the_followed_one_once(self) -> None:
+        cid = self.fake_connector()
+        self.watch_via_api("TWICE1")
+        part_id = self.part_row("TWICE1")["id"]
+        cut = self.insert_listing(part_id, cid, "TW-1-ND", stock=100, price="0.5")
+        self.insert_listing(part_id, cid, "TW-2-ND", stock=100, price="0.4")
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part_id, cid, cut))
+        row = self.part_row("TWICE1")
+        self.assertEqual(row["stock"], 100, "a distributor is counted once, through the followed listing")
+        self.assertEqual({line["sku"] for line in row["offers"]}, {"TW-1-ND", "TW-2-ND"}, "but the list shows both")
+
     def test_status_follows_what_the_market_says(self) -> None:
         cid = self.fake_connector()
         for mpn in ("OOS-1", "EOL-1", "NRND-1"):

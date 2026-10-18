@@ -75,12 +75,13 @@ class PackagingReadingTests(unittest.TestCase):
             self.assertEqual(farnell._packaging({"unitOfMeasure": unit}), Packaging.TAPE_REEL, unit)  # noqa: SLF001
         self.assertEqual(farnell._packaging({"unitOfMeasure": "UNITÀ"}), Packaging.UNKNOWN, "a bare unit says nothing and is not guessed")  # noqa: SLF001
 
-    def test_farnell_reads_a_re_reeled_length_when_the_unit_says_nothing(self) -> None:
+    def test_farnell_reads_a_re_reeled_length_as_a_custom_reel(self) -> None:
         from app.services.supply.providers import farnell
 
         self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH", "reeling": True}), Packaging.CUSTOM_REEL)  # noqa: SLF001
         self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH", "reeling": False}), Packaging.UNKNOWN)  # noqa: SLF001
-        self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH (SUPPLIED ON CUT TAPE)", "reeling": True}), Packaging.CUT_TAPE)  # noqa: SLF001
+        # The unit of an "RL" number still says cut tape; the reel it is wound on is what it is sold as.
+        self.assertEqual(farnell._packaging({"unitOfMeasure": "EACH (SUPPLIED ON CUT TAPE)", "reeling": True}), Packaging.CUSTOM_REEL)  # noqa: SLF001
 
 
 if __name__ == "__main__":

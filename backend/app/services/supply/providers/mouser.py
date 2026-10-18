@@ -283,6 +283,20 @@ def _incoming(part: Mapping[str, Any]) -> tuple[Incoming, ...]:
     return tuple(found)
 
 
+def _pack_size(part: Mapping[str, Any]) -> int | None:
+    """The standard pack quantity, a whole number among the attributes (its name follows the account's language, so it is read by value).
+
+    Mouser's attributes are the packaging and this quantity; the packaging values are words, so the one that is only digits is the pack.
+    For a reel it is the reel."""
+
+    for item in part.get("ProductAttributes") or []:
+        if isinstance(item, dict):
+            value = str(item.get("AttributeValue") or "").strip().replace(",", "").replace(".", "")
+            if value.isdigit() and int(value) > 1:
+                return int(value)
+    return None
+
+
 def _packaging(part: Mapping[str, Any]) -> Packaging:
     # Attribute names follow the account's language ("Confezione" for Packaging in Italian),
     # but the packaging values stay in English, so they are matched by value.
@@ -377,6 +391,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
     restricted = bool(str(part.get("RestrictionMessage") or "").strip())
     stock = 0 if restricted else on_hand
     moq = max(parse_count(part.get("Min")) or 1, 1)
+    packaging = _packaging(part)
     return Offer(
         provider=KEY,
         sku=sku,
@@ -387,7 +402,8 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
         incoming=_incoming(part),
         moq=moq,
         order_multiple=max(parse_count(part.get("Mult")) or 1, 1),
-        packaging=_packaging(part),
+        packaging=packaging,
+        reel_size=_pack_size(part) if packaging in (Packaging.TAPE_REEL, Packaging.SEVERAL) else None,
         price_breaks=breaks,
         currency=currency,
         lead_time_days=None if stock >= moq else parse_lead_time_days(part.get("LeadTime")),

@@ -19,8 +19,8 @@ from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
 from app.services.supply.tiers import SCHEDULES
-from app.services.supply.providers import packaging_hints
-from app.services.supply.vocabulary import Lifecycle, Packaging
+from app.services.supply.offer_lines import offer_lines
+from app.services.supply.vocabulary import Lifecycle
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
@@ -118,8 +118,11 @@ _ROW_SELECT = (
 )
 
 
-def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
-    """Counted offers per part (exact and manual listings), with what pricing and display need."""
+def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) -> dict[str, list[dict]]:
+    """Counted offers per part (exact and manual listings), with what pricing and display need.
+
+    A distributor with several listings of a part is counted once, through the one followed (``packaging_picks``). With
+    ``every_listing`` the others come too, for the lists that show each way of buying."""
 
     offers: dict[str, list[dict]] = defaultdict(list)
     if not part_ids:
@@ -134,9 +137,9 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
         JOIN connectors c ON c.id = l.connector_id
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
-          AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
+          AND (%s OR NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id))
         """,
-        (part_ids, list(_COUNTED)),
+        (part_ids, list(_COUNTED), every_listing),
     ).fetchall():
         offers[row["part_id"]].append(dict(row))
     return offers
@@ -482,34 +485,6 @@ def _parts_with_alternate(conn) -> set[str]:
     return found
 
 
-def _packaging_of(offer: dict[str, Any]) -> dict[str, Any]:
-    """The packaging as stated, or a guess from the number and the order terms (marked as one) where the distributor says nothing."""
-
-    stated = offer["packaging"] or Packaging.UNKNOWN.value
-    if stated != Packaging.UNKNOWN.value or offer["provider"] in packaging_hints.NO_GUESS:
-        return {"packaging": stated, "reel_size": offer["reel_size"], "packaging_inferred": bool(offer["packaging_inferred"])}
-    first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
-    guess = packaging_hints.infer(str(offer["sku"]), int(offer["moq"] or 0), int(offer["order_multiple"] or 0), first)
-    return {"packaging": guess.value, "reel_size": None, "packaging_inferred": guess is not Packaging.UNKNOWN}
-
-
-def _offer_lines(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Each distributor's offer as the detailed list shows it: stock, smallest order, packaging and price breaks, in its own currency."""
-
-    return sorted(
-        (
-            {
-                "connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "sku": offer["sku"],
-                "stock": int(offer["stock"] or 0), "moq": int(offer["moq"] or 0), **_packaging_of(offer),
-                "product_url": offer["product_url"] or "",
-                "currency": offer["currency"] or "", "price_breaks": [[int(quantity), str(price)] for quantity, price in offer["price_breaks"] or []],
-            }
-            for offer in offers
-        ),
-        key=lambda line: (line["name"].lower(), line["sku"]),
-    )
-
-
 def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> dict[str, dict[str, Any]]:
     """What a row shows beyond the summary: the first projects, the distributors that list the part, the price move, the lead time, flags."""
 
@@ -521,6 +496,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         names = {row["project_id"]: row["project_name"] for row in conn.execute(
             "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
     offers = offers_by_part(conn, ids)
+    shown = offers_by_part(conn, ids, every_listing=True)
     quantities = price_quantity.of_parts(conn, ids)
     waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
@@ -558,7 +534,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         extras[item["id"]] = {
             "project_names": projects_here[:2],
             "distributors": sorted(by_connector.values(), key=lambda entry: entry["name"].lower()),
-            "offers": _offer_lines(here),
+            "offers": offer_lines([offer for offer in shown.get(item["id"], []) if not offer["marketplace"]]),
             "preferred_connector_id": preferred.get(item["id"]),
             "price_change_percent": facts_here.get("price_change_percent"),
             "forecast": (facts_here.get("forecast") or None) if (facts_here.get("forecast") or {}).get("available") else None,

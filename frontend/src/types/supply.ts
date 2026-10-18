@@ -583,6 +583,10 @@ export interface SupplyRowOffer {
   provider: string;
   name: string;
   sku: string;
+  /** Every number this line stands for: two products with the same terms (cut tape and its custom reel) are one line. */
+  skus?: string[];
+  /** Other packagings the same line is sold in, with the same terms. */
+  also_packaging?: string[];
   stock: number;
   moq: number;
   packaging: string;
