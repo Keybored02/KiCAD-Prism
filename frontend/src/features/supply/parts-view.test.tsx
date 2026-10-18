@@ -235,11 +235,17 @@ describe("a part", () => {
     expect(within(stock).getAllByRole("list", { name: "Distributors drawn" })).toHaveLength(1);
     const legend = await within(stock).findByRole("button", { name: /Mouser EU/ });
     expect(legend.textContent).toContain("12,500");
-    const order = [...sheet.querySelectorAll("section[aria-label], [data-slot='section'], #try-quantity")].map((node) => node.getAttribute("aria-label") ?? node.id);
-    expect(order.indexOf("Price")).toBeGreaterThan(order.indexOf("Stock"));
-    expect(order.indexOf("Forecast")).toBeGreaterThan(order.indexOf("Price"));
-    expect(order.indexOf("try-quantity")).toBeLessThan(order.indexOf("Listings"));
-    expect(order.indexOf("try-quantity")).toBeGreaterThan(order.indexOf("Forecast"));
+    const order = [...sheet.querySelectorAll("section[aria-label], [data-slot='collapsible'][aria-label], #try-quantity")].map((node) => node.getAttribute("aria-label") ?? node.id);
+    const at = (name: string) => order.indexOf(name);
+    expect(at("Price")).toBeGreaterThan(at("Stock"));
+    expect(at("Forecast")).toBeGreaterThan(at("Price"));
+    // Listings follow the health, with the quantity try just above them.
+    expect(at("Health")).toBeGreaterThan(at("Forecast"));
+    expect(at("try-quantity")).toBeGreaterThan(at("Health"));
+    expect(at("Listings")).toBe(at("try-quantity") + 1);
+    expect(order.indexOf("Compliance")).toBeGreaterThan(at("Listings"));
+    // The forecast is folded until its chevron is opened.
+    expect(within(sheet).queryByRole("heading", { name: "Forecast" })?.closest("[data-state]")?.getAttribute("data-state")).toBe("closed");
   });
 
   it("gives the price its own heading, vendors legend and chart like the stock", async () => {

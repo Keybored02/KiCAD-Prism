@@ -14,7 +14,7 @@ import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
 import { behaviourLines } from "./market-behaviour-text";
 import { RestockRecordSection } from "./restock-record";
-import { CollapsibleSection } from "./collapsible-section";
+import { FoldSection } from "./fold-section";
 import { ForecastSection } from "./forecast-section";
 import { TryQuantity } from "./price-quantity";
 import { usePartForecast } from "./use-part-forecast";
@@ -56,11 +56,9 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
     <div className="space-y-6">
 
       <section aria-label="Stock" className="space-y-2">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
-            <p className="text-2xl font-semibold tabular-nums">{formatStock(detail.stock.total)}</p>
-          </div>
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-2xl font-semibold tabular-nums">{formatStock(detail.stock.total)}</p>
           <div className="flex items-center gap-2">
             <Badge variant={LIFECYCLE_BADGE[detail.lifecycle]}>
               {LIFECYCLE_LABEL[detail.lifecycle]}
@@ -78,14 +76,21 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       </PriceTrend>
 
       {forecast.data ? (
-        <CollapsibleSection id="part-forecast" title="Forecast" count={-1} startOpen={false}>
-          <div className="p-3"><ForecastSection titled={false} forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} /></div>
-        </CollapsibleSection>
+        <FoldSection title="Forecast">
+          <ForecastSection titled={false} forecast={forecast.data} currency={detail.price.currency} onQuantity={setForecastQuantity} />
+        </FoldSection>
       ) : null}
 
       <OutlookSection outlook={detail.outlook} />
 
       <AssessmentSection partId={detail.part.id} role={role} />
+
+      {detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
+
+      <section aria-label="Listings" className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
+        <ListingGroups detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
+      </section>
 
       <InsightPanel insight={detail.insight} />
       <RestockRecordSection record={detail.restock_record ?? []} />
@@ -140,12 +145,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <ParametersSection parameters={detail.parameters} />
 
-      {detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
-
-      <section aria-label="Listings" className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
-        <ListingGroups detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
-      </section>
     </div>
   );
 }
