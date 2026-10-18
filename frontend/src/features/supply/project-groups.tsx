@@ -64,6 +64,7 @@ export function PartGroups({ groups, ...shown }: ShownProps & { groups: readonly
           chips={<StatusChips group={group} />}
           summary={<ProjectRowSummary group={group} />}
           actions={group.project_id !== "none" ? <OpenProjectButton group={group} /> : null}
+          stickyHeader
           startOpen={searching}
           remembers={!searching}
         >

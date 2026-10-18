@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Ban, Clock, GitFork, Hourglass, PackageX, ShieldAlert, Star, Timer, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, GitFork, Hourglass, PackageX, ShieldAlert, Star, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -76,23 +76,6 @@ export function PriceMove({ percent }: { percent: number | null | undefined }) {
     <span className={`inline-flex items-center text-xs ${percent > 0 ? "text-warning" : "text-success"}`} title={`Cheapest price ${percent > 0 ? "up" : "down"} ${Math.abs(percent)}% over 30 days`}>
       <Icon className="h-4 w-4" />{Math.abs(percent)}%
     </span>
-  );
-}
-
-/** How fresh it is kept and how long waiting costs: the read rate, and the shortest lead time quoted. */
-export function RateAndLead({ part }: { part: SupplyPartRow }) {
-  const rate = part.tracking?.rate;
-  if (!rate && !part.lead_days) return null;
-  return (
-    // Two fixed rows: a part with no lead time leaves its row empty, so the read rate does not move.
-    <div className="flex flex-col items-start gap-0.5 whitespace-nowrap text-left text-xs text-muted-foreground">
-      <span className="inline-flex h-4 items-center gap-1" title={rate ? `Read ${rate}` : undefined}>
-        {rate ? <><Tip icon={Timer} label={`Read ${rate}`} />{rate.charAt(0).toUpperCase() + rate.slice(1)}</> : null}
-      </span>
-      <span className="inline-flex h-4 items-center gap-1" title={part.lead_days ? "Shortest quoted lead time" : undefined}>
-        {part.lead_days ? <><Tip icon={Clock} label="Shortest quoted lead time" />{Math.round(part.lead_days / 7)} w</> : null}
-      </span>
-    </div>
   );
 }
 

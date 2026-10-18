@@ -87,35 +87,19 @@ describe("the layouts", () => {
     expect(screen.getByRole("link", { name: "Open LM358 at Mouser" }).querySelector("svg")).toBeNull();
   });
 
-  it("puts the read rate and lead time left of the stock graph, and can leave the project names out", () => {
-    const row = { ...part, spark: [1, 2, 3], tracking: { tier: 1, rate: "daily" }, lead_days: 14, used_in: 2, project_names: ["Power board", "Radio"] };
+  it("can leave the project names out", () => {
+    const row = { ...part, used_in: 2, project_names: ["Power board", "Radio"] };
     render(<PartsTable items={[row]} selectedId={null} onOpen={vi.fn()} />);
-    const rate = screen.getByLabelText("Read daily");
-    const graph = screen.getByLabelText("Stock over the last 30 days");
-    expect(rate.compareDocumentPosition(graph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(rate.closest("td")).toBe(graph.closest("td"));
     expect(screen.getByText(/Power board/)).toBeTruthy();
     cleanup();
     render(<PartsTable showProjects={false} items={[row]} selectedId={null} onOpen={vi.fn()} />);
     expect(screen.queryByText(/Power board/)).toBeNull();
   });
 
-  it("stacks the read rate over the lead time and keeps each in its row", () => {
-    const both = { ...part, tracking: { tier: 1, rate: "daily" }, lead_days: 14 };
-    const rateOnly = { ...part, tracking: { tier: 1, rate: "daily" }, lead_days: null };
-    const leadOnly = { ...part, tracking: null, lead_days: 14 };
-    const top = (row: typeof part) => {
-      render(<PartsTable items={[row]} selectedId={null} onOpen={vi.fn()} />);
-      const rate = screen.queryByLabelText("Read daily");
-      const lead = screen.queryByLabelText("Shortest quoted lead time");
-      const rows = (rate ?? lead)!.closest("span")!.parentElement!.children;
-      const out = { rate: rate ? [...rows].indexOf(rate.closest("span")!) : -1, lead: lead ? [...rows].indexOf(lead.closest("span")!) : -1 };
-      cleanup();
-      return out;
-    };
-    expect(top(both)).toEqual({ rate: 0, lead: 1 });
-    expect(top(rateOnly).rate).toBe(0);
-    expect(top(leadOnly).lead).toBe(1);
+  it("shows no read rate or lead time icons", () => {
+    render(<PartsTable items={[{ ...part, tracking: { tier: 1, rate: "daily" }, lead_days: 14 }]} selectedId={null} onOpen={vi.fn()} />);
+    expect(screen.queryByLabelText("Read daily")).toBeNull();
+    expect(screen.queryByLabelText("Shortest quoted lead time")).toBeNull();
   });
 
   it("shows no eye for a tracked part", () => {

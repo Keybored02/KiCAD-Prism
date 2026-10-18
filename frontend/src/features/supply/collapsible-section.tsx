@@ -44,16 +44,18 @@ interface CollapsibleSectionProps {
   startOpen?: boolean;
   /** False: the viewer's earlier choice is neither used nor kept (an open group while searching). */
   remembers?: boolean;
+  /** The row stays at the top of the scrolling parent while its content scrolls under it. */
+  stickyHeader?: boolean;
   children: ReactNode;
 }
 
 /** A titled section that opens and closes, with its count in a chip. Closed at first when it is long; the choice is remembered. */
-export function CollapsibleSection({ id, title, count, note, chips, summary, actions, startOpen, remembers = true, children }: CollapsibleSectionProps) {
+export function CollapsibleSection({ id, title, count, note, chips, summary, actions, startOpen, remembers = true, stickyHeader = false, children }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(() => (remembers ? remembered(id) : undefined) ?? startOpen ?? count <= LONG);
   const change = (next: boolean) => { setOpen(next); if (remembers) remember(id, next); };
   return (
     <Collapsible open={open} onOpenChange={change} className="border" aria-label={title} data-slot="section">
-      <div className="flex items-start bg-muted/30 hover:bg-muted/50">
+      <div className={cn("flex items-start bg-muted/30 hover:bg-muted/50", stickyHeader && "sticky top-0 z-20 bg-muted")}>
         <CollapsibleTrigger className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left">
           <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
           <span className="flex min-w-0 flex-1 flex-col gap-1">

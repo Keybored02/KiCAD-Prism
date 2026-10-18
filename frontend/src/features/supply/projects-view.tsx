@@ -39,9 +39,9 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
   };
 
   return (
-    <div className="themed-scrollbar relative h-full overflow-y-auto p-4">
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="relative flex h-full min-h-0 flex-col p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-5">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
           <LifecycleSelect only={only} onChange={(next) => setParams({ projOnly: next })} />
           <VendorSelect vendor={vendor} onChange={(next) => setParams({ projVendor: next })} />
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ projQ: text })} label="Search projects" placeholder="Part number or manufacturer" />
@@ -49,6 +49,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
           <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ projLayout: next === "compact" ? null : next })} /></div>
         </div>
 
+        <div className="themed-scrollbar min-h-0 flex-1 space-y-5 overflow-auto">
         {loaded.status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading projects" /> : null}
         {loaded.status === "error" ? (
           <Alert variant="destructive">
@@ -78,6 +79,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
             />
           )
         ) : null}
+        </div>
       </div>
       <PartSheet partId={openPart} user={user} onClose={() => setParams({ part: null })} onWatchChanged={() => void loaded.refresh()} />
     </div>

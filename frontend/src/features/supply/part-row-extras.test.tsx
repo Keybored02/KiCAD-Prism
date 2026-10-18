@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DistributorSquares, PriceMove, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
+import { DistributorSquares, PriceMove, ProjectNames, RowFlags } from "./part-row-extras";
 import { partRowFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
@@ -28,16 +28,13 @@ describe("what a part row shows at a glance", () => {
     expect(await screen.findByText("None in stock")).toBeTruthy();
   });
 
-  it("shows the price move, the rate with the lead time, and the flags", () => {
+  it("shows the price move and the flags", () => {
     render(<>
       <PriceMove percent={4} />
       <PriceMove percent={null} />
-      <RateAndLead part={partRowFixture({ tracking: { tier: 1, rate: "daily" }, lead_days: 84 })} />
       <RowFlags flags={["waiting", "rohs"]} />
     </>);
     expect(screen.getByText("4%")).toBeTruthy();
-    expect(screen.getByText("Daily")).toBeTruthy();
-    expect(screen.getByText("12 w")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Waiting for room to be read" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "A distributor says it is not RoHS compliant" })).toBeTruthy();
   });

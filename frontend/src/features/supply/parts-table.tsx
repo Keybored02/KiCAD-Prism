@@ -5,7 +5,7 @@ import type { PartsLayout } from "./parts-layout";
 import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatStock, PROBLEM_LABEL } from "./supply-format";
-import { DistributorSquares, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
+import { DistributorSquares, ProjectNames, RowFlags } from "./part-row-extras";
 import { PriceCell } from "./price-cell";
 import { RowRunout } from "./part-row-forecast";
 import { JlcIcon, LifecycleIcon } from "./supply-icons";
@@ -64,17 +64,11 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 {showProjects ? <ProjectNames part={part} /> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
-                {/* The icons stand left of the figure and the graph, centred on the whole cell, so they sit as far from the top as from the bottom. */}
-                <div className="flex items-center justify-end gap-6">
-                  <RateAndLead part={part} />
-                  <div>
-                    {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
-                    {!detailed && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
-                    {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
-                      ? <RowRunout part={part} state={forecastState.runout} />
-                      : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
-                  </div>
-                </div>
+                {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
+                {!detailed && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
+                {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
+                  ? <RowRunout part={part} state={forecastState.runout} />
+                  : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{detailed ? null : <PriceCell part={part} />}</td>
               <td className="px-3 py-2"><div className="flex justify-end">{detailed ? null : <DistributorSquares part={part} />}</div></td>
