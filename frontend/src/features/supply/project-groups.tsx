@@ -11,6 +11,7 @@ interface ShownProps {
   scope: PartsScope;
   query: string;
   only: PartsFilter;
+  vendor: string;
   layout: PartsLayout;
   selectedId: string | null;
   onOpen: (partId: string) => void;
@@ -19,8 +20,8 @@ interface ShownProps {
 const WORST_FIRST: readonly SupplyStatus[] = ["fatal", "error", "warning", "ok", "unknown"];
 
 /** One group's parts, loaded as they scroll into view. Mounted only while its group is open. */
-function GroupParts({ projectId, scope, query, only, layout, selectedId, onOpen }: ShownProps & { projectId: string }) {
-  const { items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed(scope, query, only, projectId);
+function GroupParts({ projectId, scope, query, only, vendor, layout, selectedId, onOpen }: ShownProps & { projectId: string }) {
+  const { items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed(scope, query, only, projectId, vendor);
   return (
     <>
       <PartsTable layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} />

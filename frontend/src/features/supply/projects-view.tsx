@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { VendorSelect } from "./vendor-filter";
 import { LayoutToggle } from "./layout-toggle";
 import { layoutFromParam } from "./parts-layout";
 import { ActiveFilterChip, LifecycleSelect } from "./lifecycle-filter";
@@ -23,7 +24,8 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
   const openPart = active ? searchParams.get("part") : null;
   const only = filterFromParam(searchParams.get("projOnly"));
   const layout = layoutFromParam(searchParams.get("projLayout"));
-  const loaded = useSupplyPartGroups("in_use", query, only);
+  const vendor = searchParams.get("projVendor") ?? "";
+  const loaded = useSupplyPartGroups("in_use", query, only, vendor);
   const groups = (loaded.data?.groups ?? []).filter((group) => group.project_id !== "none");
   const setParams = (changes: Record<string, string | null>) => {
     setSearchParams((current) => {
@@ -41,6 +43,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
       <div className="space-y-5">
         <div className="flex flex-wrap items-center gap-3">
           <LifecycleSelect only={only} onChange={(next) => setParams({ projOnly: next })} />
+          <VendorSelect vendor={vendor} onChange={(next) => setParams({ projVendor: next })} />
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ projQ: text })} label="Search projects" placeholder="Part number or manufacturer" />
           <ActiveFilterChip only={only} onClear={() => setParams({ projOnly: null })} />
           <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ projLayout: next === "compact" ? null : next })} /></div>
@@ -59,8 +62,8 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
           groups.length === 0 ? (
             <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
               <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium">{query || only ? "No project matches" : "No project uses a part Prism knows yet"}</p>
-              {!query && !only && canEditSupply(user?.role) ? <ReadProjectBomsButton /> : null}
+              <p className="text-sm font-medium">{query || only || vendor ? "No project matches" : "No project uses a part Prism knows yet"}</p>
+              {!query && !only && !vendor && canEditSupply(user?.role) ? <ReadProjectBomsButton /> : null}
             </div>
           ) : (
             <PartGroups
@@ -68,6 +71,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
               scope="in_use"
               query={query}
               only={only}
+              vendor={vendor}
               layout={layout}
               selectedId={openPart}
               onOpen={(partId) => setParams({ part: partId })}

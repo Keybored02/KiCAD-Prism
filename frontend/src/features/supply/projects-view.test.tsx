@@ -3,13 +3,14 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/types/auth";
-import { partRowFixture } from "./supply-test-fixtures";
+import { connectorFixture, partRowFixture } from "./supply-test-fixtures";
 
 vi.mock("./part-sheet", () => ({ PartSheet: () => null }));
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listSupplyPartGroups: vi.fn(),
   listSupplyParts: vi.fn(),
+  listSupplyConnectors: vi.fn(),
 }));
 
 import * as api from "./supply-api";
@@ -20,6 +21,7 @@ const designer: User = { name: "Dee", email: "dee@example.com", role: "designer"
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.listSupplyConnectors.mockResolvedValue([connectorFixture({ id: "c-mouser", provider: "mouser", display_name: "Mouser EU", enabled: true })]);
   window.localStorage.clear();
 });
 afterEach(cleanup);
@@ -51,7 +53,7 @@ describe("the projects tab", () => {
     expect(mocked.listSupplyParts).not.toHaveBeenCalled();
     fireEvent.click(power);
     expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("in_use", "", expect.anything(), "", 0, 50, "prj_1");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("in_use", "", expect.anything(), "", 0, 50, "prj_1", "");
   });
 
   it("says so when no project uses a part", async () => {
@@ -62,6 +64,11 @@ describe("the projects tab", () => {
 
   it("narrows the projects' parts to one lifecycle", async () => {
     render(<MemoryRouter initialEntries={["/?projOnly=lifecycle_obsolete"]}><ProjectsView user={null} /></MemoryRouter>);
-    await waitFor(() => expect(mocked.listSupplyPartGroups).toHaveBeenCalledWith("in_use", "", expect.anything(), "lifecycle_obsolete"));
+    await waitFor(() => expect(mocked.listSupplyPartGroups).toHaveBeenCalledWith("in_use", "", expect.anything(), "lifecycle_obsolete", ""));
+  });
+
+  it("narrows the projects' parts to one vendor", async () => {
+    render(<MemoryRouter initialEntries={["/?projVendor=c-mouser"]}><ProjectsView user={null} /></MemoryRouter>);
+    await waitFor(() => expect(mocked.listSupplyPartGroups).toHaveBeenCalledWith("in_use", "", expect.anything(), "", "c-mouser"));
   });
 });

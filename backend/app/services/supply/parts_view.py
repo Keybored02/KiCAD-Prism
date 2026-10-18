@@ -323,7 +323,7 @@ def _projects_of(conn, part_ids: list[str], role: str | None) -> dict[str, set[s
 
 
 def part_groups(
-    conn, *, scope: Scope = "watched", query: str = "", role: str | None = None, only: Filter = "",
+    conn, *, scope: Scope = "watched", query: str = "", role: str | None = None, only: Filter = "", vendor: str = "",
 ) -> dict[str, Any]:
     """The parts that match, grouped by the projects that use them: tracked projects first, then by what needs a look.
 
@@ -333,6 +333,7 @@ def part_groups(
     items, _total = ranked_parts(conn, scope=scope, query=query, role=role)
     if only:
         items = _only(conn, items, only)
+    items = _at_vendor(conn, items, vendor)
     of = _projects_of(conn, [item["id"] for item in items], role)
     groups: dict[str, dict[str, Any]] = {}
     for item in items:
@@ -410,6 +411,18 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     return stats
 
 
+def _at_vendor(conn, items: list[dict[str, Any]], vendor: str) -> list[dict[str, Any]]:
+    """The parts a distributor lists (a counted listing at that connector)."""
+
+    if not vendor or not items:
+        return items
+    listed = {row["part_id"] for row in conn.execute(
+        "SELECT DISTINCT part_id FROM listings WHERE connector_id = %s AND match_state = ANY(%s) AND part_id = ANY(%s)",
+        (vendor, list(_COUNTED), [item["id"] for item in items]),
+    ).fetchall()}
+    return [item for item in items if item["id"] in listed]
+
+
 def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
     """The parts a group applies to: a status or stock group from the rows themselves, a finding from the kept insights."""
 
@@ -421,7 +434,7 @@ def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
 
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = "", offset: int = 0,
-    project_id: str = "",
+    project_id: str = "", vendor: str = "",
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
     one project (``none`` for those in no project)."""
@@ -431,6 +444,8 @@ def list_parts(
     if only:
         items = _only(conn, items, only)
         total = len(items)
+    items = _at_vendor(conn, items, vendor)
+    total = len(items) if vendor else total
     if project_id:
         of = _projects_of(conn, [item["id"] for item in items], role)
         items = [item for item in items if (project_id in of.get(item["id"], set()) if project_id != NO_PROJECT else not of.get(item["id"]))]
@@ -471,7 +486,7 @@ def _packaging_of(offer: dict[str, Any]) -> dict[str, Any]:
     """The packaging as stated, or a guess from the number and the order terms (marked as one) where the distributor says nothing."""
 
     stated = offer["packaging"] or Packaging.UNKNOWN.value
-    if stated != Packaging.UNKNOWN.value:
+    if stated != Packaging.UNKNOWN.value or offer["provider"] in packaging_hints.NO_GUESS:
         return {"packaging": stated, "reel_size": offer["reel_size"], "packaging_inferred": bool(offer["packaging_inferred"])}
     first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
     guess = packaging_hints.infer(str(offer["sku"]), int(offer["moq"] or 0), int(offer["order_multiple"] or 0), first)

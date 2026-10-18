@@ -76,6 +76,17 @@ describe("the layouts", () => {
     expect(name.parentElement?.textContent).toContain("Texas Instruments");
   });
 
+  it("keeps the vendor rows out of the part's click and hover, and says no listings count", () => {
+    const onOpen = vi.fn();
+    render(<PartsTable layout="detailed" items={[{ ...part, listings: 3 }]} selectedId={null} onOpen={onOpen} />);
+    const row = within(screen.getByRole("table", { name: "Vendors of LM358" })).getByText("1,200").closest("tr")!;
+    fireEvent.click(row);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("table", { name: "Vendors of LM358" }).closest("tr")!.className).not.toContain("hover");
+    expect(screen.queryByText(/3 listings/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open LM358 at Mouser" }).querySelector("svg")).toBeNull();
+  });
+
   it("switches by two icons", () => {
     const change = vi.fn();
     render(<LayoutToggle layout="compact" onChange={change} />);

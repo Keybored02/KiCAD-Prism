@@ -94,10 +94,10 @@ describe("the insights page", () => {
     expect(await screen.findByText("Scatter drawn")).toBeTruthy();
     expect(screen.getByText(/3 without a falling rate yet, 1 without a quoted lead time/)).toBeTruthy();
     expect(await screen.findByRole("button", { name: "LM358" })).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "draining", 0, 50, "");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "draining", 0, 50, "", "");
     fireEvent.click(within(screen.getByRole("group", { name: "Finding" })).getByRole("button", { name: /One distributor/ }));
     await screen.findByRole("button", { name: "LM358" });
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "one_distributor", 0, 50, "");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "one_distributor", 0, 50, "", "");
   });
 
   it("shows the market figures as cards and the groups as a table", async () => {

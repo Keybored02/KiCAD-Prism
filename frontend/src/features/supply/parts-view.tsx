@@ -15,6 +15,7 @@ import type { PartsFilter, PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
 import { refreshSupplyUsage } from "./supply-api";
+import { VendorSelect } from "./vendor-filter";
 import { LayoutToggle } from "./layout-toggle";
 import { LifecycleSelect, ActiveFilterChip } from "./lifecycle-filter";
 import { layoutFromParam } from "./parts-layout";
@@ -45,11 +46,12 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const query = searchParams.get("partsQ") ?? "";
   const only = filterFromParam(searchParams.get("partsOnly"));
   const layout = layoutFromParam(searchParams.get("partsLayout"));
+  const vendor = searchParams.get("partsVendor") ?? "";
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
   const openPart = active ? searchParams.get("part") : null;
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only);
+  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -103,6 +105,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
             ))}
           </div>
           <LifecycleSelect only={only} onChange={(next) => setParams({ partsOnly: next })} />
+          <VendorSelect vendor={vendor} onChange={(next) => setParams({ partsVendor: next })} />
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
           <ActiveFilterChip only={only} onClear={() => setParams({ partsOnly: null })} />
           <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ partsLayout: next === "compact" ? null : next })} /></div>
@@ -122,7 +125,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             {items.length === 0 ? (
-              <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
+              <EmptyState scope={scope} searching={query !== "" || only !== "" || vendor !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
                 <PartsTable stickyHead layout={layout} items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} />

@@ -1,5 +1,3 @@
-import { ExternalLink } from "lucide-react";
-
 import type { SupplyPartRow } from "@/types/supply";
 import { PackagingChip } from "./packaging-chip";
 import { priceAt, PRICE_QUANTITIES } from "./parts-layout";
@@ -31,11 +29,11 @@ export function PartOfferRows({ part }: { part: SupplyPartRow }) {
                 <span aria-hidden className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: vendorColor(offer.provider) ?? "#6b7280" }} />
                 {offer.product_url ? (
                   <a
-                    href={offer.product_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline"
+                    href={offer.product_url} target="_blank" rel="noopener noreferrer" className="hover:underline"
                     aria-label={`Open ${part.mpn} at ${offer.name}`} title={`Open ${offer.sku} at ${offer.name}`}
                     onClick={(event) => event.stopPropagation()}
                   >
-                    {offer.name}<ExternalLink className="h-3 w-3" />
+                    {offer.name}
                   </a>
                 ) : offer.name}
               </span>

@@ -69,7 +69,6 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
                   ? <RowRunout part={part} state={forecastState.runout} />
                   : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
-                {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {detailed ? null : (
@@ -85,7 +84,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
               </td>
             </tr>
             {detailed ? (
-              <tr className={cn("cursor-pointer hover:bg-muted/30", selectedId === part.id && "bg-muted/60")} onClick={() => onOpen(part.id)}>
+              <tr className={cn(selectedId === part.id && "bg-muted/60")}>
                 <td />
                 <td colSpan={5} className="px-3 pb-3"><PartOfferRows part={part} /></td>
               </tr>

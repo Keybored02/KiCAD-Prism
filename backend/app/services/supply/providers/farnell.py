@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 from urllib.parse import quote
@@ -236,15 +237,33 @@ def _price_breaks(product: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
     return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
 
 
-_SUPPLIED_ON = re.compile(r"SUPPLIED ON ([A-Z &]+)")
+# Each store words the unit in its own language ("EACH (SUPPLIED ON CUT TAPE)", "STÜCK (GURTABSCHNITT)", "UNITÀ, FORNITO SU
+# NASTRO TAGLIATO"). These are the phrases read live from the stores of the UK, Germany, France, Spain, the Netherlands,
+# Belgium, Sweden, Denmark, Finland, Portugal, Austria, Switzerland and Italy. A phrase not here says nothing.
+_CUT_TAPE = (
+    "CUT TAPE", "GURTABSCHNITT", "BANDE DECOUPEE", "CINTA CORTADA", "AFGESNEDEN", "KLIPPT REMSA", "KLIPPET BAND", "LEIKATTU NAUHA",
+    "NASTRO TAGLIATO", "FITA E ROLO CORTADOS",
+)
+_FULL_REEL = (
+    "FULL REEL", "GANZE ROLLE", "BOBINE COMPLETE", "ROLLO COMPLETO", "VOLLEDIG", "HEL RULLE", "TAYSI KELA", "BOBINA COMPLETA",
+    "ROLO COMPLETOS",
+)
+
+
+def _folded(text: str) -> str:
+    """Upper case with accents and the second letters of ligatures taken off, so "BANDE DÉCOUPÉE" reads "BANDE DECOUPEE"."""
+
+    return "".join(char for char in unicodedata.normalize("NFKD", text.upper()) if not unicodedata.combining(char))
 
 
 def _packaging(product: Mapping[str, Any]) -> Packaging:
-    """Farnell words it in the unit: "EACH (SUPPLIED ON CUT TAPE)", "EACH (SUPPLIED ON FULL REEL)". Other units say nothing, but ``reeling`` marks a re-reeled length."""
+    """Farnell words it in the unit, in the store's language. Other units say nothing, but ``reeling`` marks a re-reeled length."""
 
-    found = _SUPPLIED_ON.search(str(product.get("unitOfMeasure") or "").upper())
-    if found:
-        return packaging_hints.from_text(found.group(1))
+    unit = _folded(str(product.get("unitOfMeasure") or ""))
+    if any(phrase in unit for phrase in _CUT_TAPE):
+        return Packaging.CUT_TAPE
+    if any(phrase in unit for phrase in _FULL_REEL):
+        return Packaging.TAPE_REEL
     # A unit with no words on it, but sold re-reeled: a length of tape wound on a reel.
     return Packaging.CUSTOM_REEL if product.get("reeling") is True else Packaging.UNKNOWN
 

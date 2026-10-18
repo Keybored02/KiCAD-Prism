@@ -366,6 +366,15 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertIn("product_url", line)
         self.assertEqual(line["packaging"], expected.packaging.value)
 
+    def test_the_list_can_be_narrowed_to_one_distributor(self) -> None:
+        cid = self.fake_connector()
+        self.watch_via_api("ABC123")
+        self.collect(cid)
+        listed = self.call("GET", "/api/supply/parts", query=f"scope=all&vendor={cid}").json
+        self.assertEqual([item["mpn"] for item in listed["items"]], ["ABC123"])
+        none = self.call("GET", "/api/supply/parts", query="scope=all&vendor=no-such-connector").json
+        self.assertEqual((none["items"], none["total"]), ([], 0))
+
     def test_status_follows_what_the_market_says(self) -> None:
         cid = self.fake_connector()
         for mpn in ("OOS-1", "EOL-1", "NRND-1"):

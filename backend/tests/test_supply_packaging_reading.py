@@ -58,6 +58,23 @@ class PackagingReadingTests(unittest.TestCase):
         self.assertEqual(packaging_hints.infer("XYZ", 3000, 1, 3000), Packaging.TAPE_REEL, "priced only from a whole reel up")
         self.assertEqual(packaging_hints.infer("XYZ", 3000, 1, 1), Packaging.UNKNOWN)
 
+    def test_farnell_reads_the_unit_in_every_store_language(self) -> None:
+        """Units as the stores answered on 2026-10-18 for one diode sold as cut tape and as a full reel."""
+
+        from app.services.supply.providers import farnell
+
+        cut = ["EACH (SUPPLIED ON CUT TAPE)", "STÜCK (GURTABSCHNITT)", "PIÈCE (FOURNIE EN BANDE DÉCOUPÉE)", "CADA (EMPAQUETADO EN CINTA CORTADA)",
+               "TAPE EN REEL, AFGESNEDEN", "STYCK (LEVERERAS I KLIPPT REMSA)", "STYK (LEVERET PÅ KLIPPET BÅND)", "KAPPALE (LEIKATTU NAUHA)",
+               "CADA (FORNECIDO(A) EM FITA E ROLO CORTADOS)", "UNITÀ, FORNITO SU NASTRO TAGLIATO"]
+        full = ["EACH (SUPPLIED ON FULL REEL)", "STÜCK (GEGURTET AUF ROLLE - GANZE ROLLE)", "PIÈCE (FOURNIE EN BOBINE COMPLÈTE)",
+                "CADA (EMPAQUETADO EN ROLLO COMPLETO)", "TAPE EN REEL, VOLLEDIG", "STYCK (LEVERERAS I HEL RULLE)", "STYK (LEVERET PÅ HEL RULLE)",
+                "KAPPALE (TÄYSI KELA)", "CADA (FORNECIDO(A) EM FITA E ROLO COMPLETOS)", "UNITÀ, FORNITO IN BOBINA COMPLETA"]
+        for unit in cut:
+            self.assertEqual(farnell._packaging({"unitOfMeasure": unit}), Packaging.CUT_TAPE, unit)  # noqa: SLF001
+        for unit in full:
+            self.assertEqual(farnell._packaging({"unitOfMeasure": unit}), Packaging.TAPE_REEL, unit)  # noqa: SLF001
+        self.assertEqual(farnell._packaging({"unitOfMeasure": "UNITÀ"}), Packaging.UNKNOWN, "a bare unit says nothing and is not guessed")  # noqa: SLF001
+
     def test_farnell_reads_a_re_reeled_length_when_the_unit_says_nothing(self) -> None:
         from app.services.supply.providers import farnell
 

@@ -355,7 +355,7 @@ class Poller:
     def _record_offer(self, conn, row: DueListing, offer: Offer, now: datetime) -> None:
         if self._bom_link_is_wrong(conn, row, offer):
             return
-        if offer.packaging is Packaging.UNKNOWN:
+        if offer.packaging is Packaging.UNKNOWN and offer.provider not in packaging_hints.NO_GUESS:
             guess = packaging_hints.infer(
                 offer.sku, offer.moq, offer.order_multiple, offer.price_breaks[0].quantity if offer.price_breaks else None)
             if guess is not Packaging.UNKNOWN:

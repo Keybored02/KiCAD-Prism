@@ -20,6 +20,8 @@ _ENDINGS = (
     (re.compile(r"(?:^|[-_/])RL$"), Packaging.TAPE_REEL),
     (re.compile(r"(?:^|[-_/])DKR$"), Packaging.CUSTOM_REEL),
 )
+# Distributors whose own words are trusted: what they do not say stays unknown.
+NO_GUESS = frozenset({"farnell"})
 # A minimum order of at least this many, ordered in that multiple, is a reel.
 REEL_MOQ = 1000
 
