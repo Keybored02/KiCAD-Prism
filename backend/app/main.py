@@ -43,7 +43,6 @@ from app.api.supply_compliance import router as supply_compliance_router
 from app.api.supply_market import router as supply_market_router
 from app.api.supply_oauth import router as supply_oauth_router
 from app.api.supply_pcn import router as supply_pcn_router
-from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_bom_comments import router as supply_bom_comments_router
 from app.api.supply_checks import router as supply_checks_router
@@ -341,7 +340,6 @@ app.include_router(supply_compliance_router)
 app.include_router(supply_market_router)
 app.include_router(supply_oauth_router)
 app.include_router(supply_pcn_router)
-app.include_router(supply_seed_router)
 app.include_router(supply_assessment_router)
 app.include_router(supply_release_router)
 app.include_router(supply_bom_comments_router)

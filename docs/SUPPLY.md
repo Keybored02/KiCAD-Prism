@@ -8,8 +8,8 @@ and no purchase support.
 
 | Place | What it answers |
 | --- | --- |
-| **Supply > Dashboard** | What needs a person: counts with their change over seven days and a 30-day line (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then what is behind them: a grid of lifecycle against how many distributors hold stock (unknown is its own row and column), the last-time-buy and last-ship dates of the next year in days, when stock runs out, and a table of the tracked projects (parts at risk, parts held by one distributor, boards the stock covers, cost per board and its 30-day move). Each opens the parts or the project behind it and has a table view behind an icon. Then the alerts with a chip for each kind and how long each has been open, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
-| **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, upload a BOM, read catalog vendors. |
+| **Supply > Dashboard** | What needs a person: counts with their change over seven days and a 30-day line (at risk, out of stock, end of life, open alerts, waiting for room, what needs you), then what is behind them: a grid of lifecycle against how many distributors hold stock (unknown is its own row and column), the last-time-buy and last-ship dates of the next year in days, when stock runs out, and a table of the tracked projects (parts at risk, parts held by one distributor, boards the stock covers, cost per board and its 30-day move). Each opens the parts or the project behind it. Then the alerts with a chip for each kind and how long each has been open, then recent changes. Administrators also see a strip with what only they can fix: a paused connector, a DigiKey sign-in that ends within two weeks, a Candidate List older than six months, parts waiting for room. |
+| **Supply > Parts** | Every part that is tracked or in a project as one list, with the scopes below. Track a part, upload a BOM. |
 | **Supply > Projects** | The parts of each project, a project at a time (closed until opened, tracked projects first). A closed row has three lines: the designs and packaging followed, a bar of the parts by status with the counts that need a look (at risk, out, end of life, one distributor, running out within two weeks), and for a tracked project its cost per board and 30-day move, how many boards the stock covers, how old the BOM read is and its open alerts. An arrow button opens the project. |
 | **Supply > Review** | What needs a person: parts whose maker the distributors do not settle, listings pinned under another number, and, to look at or undo, what Prism matched by itself. |
 | **Supply > Insights** | One page, seven sections to jump between: Signals, Runway (stock left against lead time, and lists of draining parts, late restocks, single-distributor parts, growing lead times, parts often out of stock, unusual drops and moving prices), Sourcing (how many of your parts each distributor lists, holds and is cheapest for; how many distributors hold each part; and, folded away, how often each changes price, who moves first, who restocks first, arrivals on time), Lifecycle and compliance (lifecycle mix, when parts will end, RoHS and REACH), Lead times and prices (lead times in buckets, the biggest price rises and falls over 30 days), Market, Trade (country of origin, export controlled parts). Unknown is always its own grey bar. |
@@ -94,8 +94,7 @@ tracked project, someone's choice, a watched component or its approved alternate
 - **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening; the bar shows
   how many parts are read. The release check offers the same for the parts on a release BOM.
-- **Room to track:** the Parts page (Tracked) says how many more parts fit, daily and weekly, and which distributor fills
-  first; the Connectors page lists it per distributor. It is counted in parts like the ones already searched: how often each
+- **Room to track:** the Connectors page says how many more parts fit, daily and weekly, and lists it per distributor, with the one that fills first. It is counted in parts like the ones already searched: how often each
   distributor carries them and how many listings they have there, so a distributor that carries few of your parts is not the
   limit for the rest. Once tracking has spent for a week, the estimate is corrected by what it really spent. A distributor with
   fewer than 10 parts searched shows no figure, and one with parts already waiting shows none left.
@@ -137,8 +136,7 @@ A part is a manufacturer and a part number. Watched parts are read regularly; un
 - **Watch**: optionally set a stock threshold, or pin the part to the fastest reading.
 - **Read now**: asks the distributors for fresh figures. Once every 15 minutes per person and part; it uses a small
   reserve of the daily budget, never the polling budget.
-- **Read catalog vendors** (seeds listings from the catalog's vendor and vendor part number) and **Fill from distributor** (in a component's metadata) create listings and fill fields.
-  Fill only fills the form; the save is the normal revision.
+- **Fill from distributor** (in a component's metadata) fills fields. It only fills the form; the save is the normal revision.
 - Parts need a manufacturer part number. Components without one are not tracked.
 
 Calls are saved where the distributors allow it. TME reads 50 parts, Mouser 10 and Farnell 10 per call (Farnell searches by part number still go one at a time). DigiKey has no batch, but

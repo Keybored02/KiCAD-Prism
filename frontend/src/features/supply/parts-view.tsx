@@ -21,8 +21,6 @@ import { PartsTable } from "./parts-table";
 import { useSupplyPartsFeed } from "./use-supply-parts";
 import { SearchBox } from "./search-box";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
-import { SeedFromCatalogButton } from "./seed-from-catalog-button";
-import { TrackingRoomLine } from "./tracking-room";
 import { WatchPartDialog } from "./watch-part-dialog";
 
 const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
@@ -101,7 +99,6 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
 
   const actions = (
     <>
-      {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
       <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
         <Upload className="h-4 w-4" />Upload BOM
       </Button>
@@ -152,9 +149,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
             </Button>
           ) : null}
         </div>
-        {scope === "followed" || scope === "watched" ? <div className="shrink-0"><TrackingRoomLine /></div> : null}
-
-        <div className="min-h-0 flex-1 space-y-5 overflow-auto">
+        <div className="themed-scrollbar min-h-0 flex-1 space-y-5 overflow-auto">
 
         {status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading parts" /> : null}
         {status === "error" ? (

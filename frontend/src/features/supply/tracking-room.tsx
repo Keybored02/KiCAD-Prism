@@ -15,26 +15,9 @@ export function roughly(count: number): string {
   return (Math.round(count / step) * step).toLocaleString();
 }
 
-/** One sentence: how many more typical parts fit, and which distributor fills first. Empty when there is nothing to base it on. */
-export function roomSentence(room: TrackingRoom): string {
-  const daily = room.headline.daily;
-  const weekly = room.headline.weekly;
-  if (!daily || !weekly) return "";
-  if (daily.room === 0) return `No room for more parts at ${daily.limited_by}: parts already wait there.`;
-  return `Room for about ${roughly(daily.room)} more daily parts, or ${roughly(weekly.room)} weekly.`;
-}
-
 function useRoom() {
   const fetcher = useCallback((signal: AbortSignal) => getTrackingRoom(signal), []);
   return useLoaded<TrackingRoom>("tracking-room", fetcher, "Could not work out the room for tracking");
-}
-
-/** The headline for the Parts page. */
-export function TrackingRoomLine() {
-  const { data, status } = useRoom();
-  if (status !== "ready" || !data) return null;
-  const sentence = roomSentence(data);
-  return sentence ? <p className="text-xs text-muted-foreground">{sentence}</p> : null;
 }
 
 function basis(item: TrackingRoomAccount): string {

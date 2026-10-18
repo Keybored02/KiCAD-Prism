@@ -94,8 +94,6 @@ root first.
 | `backend/app/api/supply_fill.py` | Fill search and details (admin, designer). |
 | `sources.py` | The approved parts list (AVL): alternates for a catalog component, proposed by writers, approved and ranked by QA, audited. The component's own part is its primary source and is not stored. |
 | `backend/app/api/supply_sources.py` | AVL API: readers list; admin, designer and qa propose; admin and qa approve, reject and rank. |
-| `seeding.py` | Seeds listings from the catalog: a component naming a connected vendor and its part number gets a manual listing. Adds nothing else; safe to run again. |
-| `backend/app/api/supply_seed.py` | Seeding endpoint (admin, designer). |
 | `backend/app/services/supply/assessment/settings.py` | Check ids, default severities, weights and thresholds for the assessment. |
 | `backend/app/services/supply/assessment/checks.py` | Findings from a part's facts: lifecycle, stock, lead time, RoHS, age. Pure rules. |
 | `backend/app/services/supply/assessment/risk.py` | Five risk sub-scores, 1 good to 5 bad, each with its reasons. |

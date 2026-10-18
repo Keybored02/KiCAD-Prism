@@ -6,7 +6,7 @@ import type { TrackingRoom, TrackingRoomAccount } from "@/types/supply";
 vi.mock("./tracking-api", () => ({ getTrackingRoom: vi.fn() }));
 
 import * as api from "./tracking-api";
-import { TrackingRoomLine, TrackingRoomSection, roomSentence, roughly } from "./tracking-room";
+import { TrackingRoomSection, roughly } from "./tracking-room";
 
 const mocked = vi.mocked(api);
 
@@ -27,21 +27,6 @@ afterEach(cleanup);
 describe("room to track", () => {
   it("rounds to two significant figures", () => {
     expect([roughly(42), roughly(794), roughly(3146), roughly(32176)]).toEqual(["42", "790", "3,100", "32,000"]);
-  });
-
-  it("says how many more parts fit, and when parts already wait", () => {
-    const one = { room: 794, limited_by: "DigiKey" };
-    expect(roomSentence(room([], { daily: one, weekly: { room: 3146, limited_by: "DigiKey" } })))
-      .toBe("Room for about 790 more daily parts, or 3,100 weekly.");
-    expect(roomSentence(room([], { daily: { room: 0, limited_by: "LCSC" }, weekly: { room: 0, limited_by: "LCSC" } })))
-      .toBe("No room for more parts at LCSC: parts already wait there.");
-    expect(roomSentence(room([], { daily: null, weekly: null }))).toBe("");
-  });
-
-  it("shows the headline on the Parts page", async () => {
-    mocked.getTrackingRoom.mockResolvedValue(room([account()], { daily: { room: 794, limited_by: "DigiKey" }, weekly: { room: 3146, limited_by: "DigiKey" } }));
-    render(<TrackingRoomLine />);
-    expect(await screen.findByText(/Room for about 790 more daily parts/)).toBeTruthy();
   });
 
   it("shows a bar each for tier 1 and tier 2 without a distributor's name, and a table per distributor behind a toggle", async () => {
