@@ -22,7 +22,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import admission, budget, parts, pricing
+from app.services.supply import admission, budget, params, parts, pricing
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
@@ -90,6 +90,18 @@ def _saving(conn, part_id: str, connector_id: str, listings: int) -> float:
     return round(budget.pick_saving(spec, int(row["tier"]), row["rate"], listings), 3)
 
 
+def mechanical_package(conn, part_id: str, connector_id: str) -> str:
+    """The case the part comes in (QFN, SOT-23, 0402), as this distributor lists it, or as any other does."""
+
+    rows = conn.execute(
+        "SELECT pp.name, pp.raw, c.id AS connector_id FROM part_params pp LEFT JOIN connectors c ON c.provider = pp.provider WHERE pp.part_id = %s ORDER BY pp.name",
+        (part_id,),
+    ).fetchall()
+    found = [(row["connector_id"] == connector_id, row["raw"]) for row in rows if params.canonical_key(row["name"]) == "package" and row["raw"]]
+    found.sort(key=lambda item: not item[0])
+    return str(found[0][1]).strip() if found else ""
+
+
 def options(conn, part_id: str, connector_id: str) -> dict[str, Any]:
     """A part's counted listings at a distributor, side by side, with the pick and what picking would save."""
 
@@ -99,6 +111,7 @@ def options(conn, part_id: str, connector_id: str) -> dict[str, Any]:
     return {
         "part_id": part_id,
         "connector_id": connector_id,
+        "package": mechanical_package(conn, part_id, connector_id),
         "picked": chosen,
         # Who picked (a person, or "auto" for Prism) and the note when Prism fell back to a packaging next to the one asked for.
         "picked_by": picked_by(conn, part_id, connector_id) if chosen else "",

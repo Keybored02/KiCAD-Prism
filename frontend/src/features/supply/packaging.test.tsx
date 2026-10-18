@@ -8,14 +8,10 @@ vi.mock("./packaging-api", () => ({
   listPackagingWaiting: vi.fn(), getPackagingOptions: vi.fn(), pickPackaging: vi.fn(), clearPackagingPick: vi.fn(), applySimilarPicks: vi.fn(),
 }));
 
-vi.mock("./supply-api", () => ({ rejectSupplyListings: vi.fn() }));
-
 import * as api from "./packaging-api";
-import { rejectSupplyListings } from "./supply-api";
 import { PackagingPickDialog } from "./packaging-pick-dialog";
 
 const mocked = vi.mocked(api);
-const unpin = vi.mocked(rejectSupplyListings);
 
 const options: PackagingOptions = {
   part_id: "p1", connector_id: "c1", picked: null, saves_calls_a_day: 1,
@@ -42,7 +38,8 @@ describe("picking a packaging", () => {
     expect(screen.getByText(/saves 1.00 calls a day/)).toBeTruthy();
     expect(within(list).getAllByText("Different number")).toHaveLength(1);
     expect(within(list).getByText("9,000 in stock")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Pick C2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Follow C2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocked.pickPackaging).toHaveBeenCalledWith("p1", "c1", "l2"));
     await waitFor(() => expect(closed).toHaveBeenCalled());
     expect(changed).toHaveBeenCalled();
@@ -58,7 +55,8 @@ describe("picking a packaging", () => {
     });
     mocked.applySimilarPicks.mockResolvedValue({ picked: 1 });
     render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Pick C2" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Follow C2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     const list = await screen.findByRole("list", { name: "Similar parts" });
     fireEvent.click(within(list).getByLabelText(/^C, Acme/));
     fireEvent.click(screen.getByRole("button", { name: "Apply to 1" }));
@@ -66,21 +64,19 @@ describe("picking a packaging", () => {
   });
 });
 
-describe("a listing under another number", () => {
-  it("is taken off by unticking it and saving, and then leaves the list", async () => {
-    mocked.getPackagingOptions.mockResolvedValue(options);
-    unpin.mockResolvedValue({ rejected: 1 });
-    render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Track C2" }));
+describe("the packaging dialog", () => {
+  it("starts with only the picked listing ticked, shows the case, and unticking it follows every listing again", async () => {
+    mocked.getPackagingOptions.mockResolvedValue({ ...options, picked: "l1", package: "SOT-23" });
+    mocked.clearPackagingPick.mockResolvedValue(undefined as never);
+    const changed = vi.fn();
+    render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={changed} />);
+    const first = (await screen.findByRole("checkbox", { name: "Follow C1" })) as HTMLButtonElement;
+    expect(first.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("checkbox", { name: "Follow C2" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getAllByText("SOT-23")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /^Pick / })).toBeNull();
+    fireEvent.click(first);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(unpin).toHaveBeenCalledWith(["l2"]));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Pick C2" })).toBeNull());
-  });
-
-  it("is not offered to those who may only pick", async () => {
-    mocked.getPackagingOptions.mockResolvedValue({ ...options, can_unpin: false });
-    render(<PackagingPickDialog partId="p1" connectorId="c1" onClose={vi.fn()} onChanged={vi.fn()} />);
-    await screen.findByRole("button", { name: "Pick C2" });
-    expect(screen.queryByRole("checkbox", { name: "Track C2" })).toBeNull();
+    await waitFor(() => expect(mocked.clearPackagingPick).toHaveBeenCalledWith("p1", "c1"));
   });
 });

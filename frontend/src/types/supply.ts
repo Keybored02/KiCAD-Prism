@@ -1317,6 +1317,8 @@ export interface PackagingListing {
 export interface PackagingOptions {
   part_id: string;
   connector_id: string;
+  /** The case the part comes in (QFN, SOT-23, 0402); empty when no distributor lists it. */
+  package?: string;
   picked: string | null;
   /** Who picked: a person, or "auto" when Prism did. */
   picked_by?: string;

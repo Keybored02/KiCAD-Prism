@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { PackagingListing, PackagingOptions, PackagingSimilar } from "@/types/supply";
-import { rejectSupplyListings } from "./supply-api";
 import { PackagingChip } from "./packaging-chip";
 import { applySimilarPicks, clearPackagingPick, getPackagingOptions, pickPackaging } from "./packaging-api";
 
@@ -24,13 +23,13 @@ export function PackagingPickDialog({
   const [similar, setSimilar] = useState<{ packaging: string; items: PackagingSimilar[] } | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
-  // Listings the person no longer wants tracked for this part; Save takes them off.
-  const [unticked, setUnticked] = useState<Set<string>>(new Set());
+  // The listing ticked to be followed; only the one picked now to begin with.
+  const [ticked, setTicked] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     getPackagingOptions(partId, connectorId, controller.signal)
-      .then(setOptions)
+      .then((found) => { setOptions(found); setTicked(found.picked); })
       .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
     return () => controller.abort();
   }, [partId, connectorId]);
@@ -46,17 +45,9 @@ export function PackagingPickDialog({
       })
       .catch((caught: Error) => setError(caught.message));
   };
-  const dropped = options ? options.listings.filter((item) => unticked.has(item.id)) : [];
   const save = () => {
-    rejectSupplyListings(dropped.map((item) => item.id))
-      .then(() => {
-        onChanged();
-        const gone = new Set(dropped.map((item) => item.id));
-        setOptions((current) => (current ? { ...current, listings: current.listings.filter((item) => !gone.has(item.id)) } : current));
-        setUnticked(new Set());
-        toast.success(dropped.length === 1 ? `${dropped[0].sku} taken off the part` : `${dropped.length} listings taken off the part`);
-      })
-      .catch((caught: Error) => setError(caught.message));
+    const listing = options?.listings.find((item) => item.id === ticked);
+    if (listing) pick(listing); else clear();
   };
   const clear = () => {
     clearPackagingPick(partId, connectorId).then(() => { onChanged(); onClose(); }).catch((caught: Error) => setError(caught.message));
@@ -92,16 +83,10 @@ export function PackagingPickDialog({
             <ul className="max-h-[60vh] divide-y overflow-y-auto border" aria-label="Listings">
               {options.listings.map((item) => (
                 <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 hover:bg-muted/30">
-                  {options.can_unpin ? (
-                    <Checkbox
-                      checked={!unticked.has(item.id)} aria-label={`Track ${item.sku}`}
-                      onCheckedChange={(on) => setUnticked((current) => {
-                        const next = new Set(current);
-                        if (on === true) next.delete(item.id); else next.add(item.id);
-                        return next;
-                      })}
-                    />
-                  ) : null}
+                  <Checkbox
+                    checked={ticked === item.id} aria-label={`Follow ${item.sku}`}
+                    onCheckedChange={(on) => setTicked(on === true ? item.id : null)}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
                       {item.product_url ? <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{item.sku}</a> : item.sku}
@@ -109,6 +94,7 @@ export function PackagingPickDialog({
                     <p className="truncate text-xs text-muted-foreground">{item.raw_mpn || "No number listed"}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    {options.package ? <Chip>{options.package}</Chip> : null}
                     {item.other_number ? <Chip tone="warning">Different number</Chip> : null}
                     <Chip><PackagingChip packaging={item.packaging} reelSize={item.reel_size} inferred={item.packaging_inferred} />{item.packaging === "unknown" ? "Packaging unknown" : null}</Chip>
                     {item.stock !== null ? <Chip>{item.stock.toLocaleString()} in stock</Chip> : null}
@@ -116,11 +102,6 @@ export function PackagingPickDialog({
                     {item.moq !== null ? <Chip>min {item.moq}{(item.order_multiple ?? 1) > 1 ? ` in ${item.order_multiple}s` : ""}</Chip> : null}
                     {item.lead_time_days !== null ? <Chip>{item.lead_time_days} days</Chip> : null}
                     {item.marketplace ? <Chip>Marketplace</Chip> : null}
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button size="sm" variant={options.picked === item.id ? "default" : "outline"} aria-label={`Pick ${item.sku}`} onClick={() => pick(item)}>
-                      {options.picked === item.id ? "Picked" : "Pick"}
-                    </Button>
                   </div>
                 </li>
               ))}
@@ -138,9 +119,8 @@ export function PackagingPickDialog({
           </ul>
         ) : null}
         <DialogFooter>
-          {!similar && options?.picked ? <Button variant="outline" onClick={clear}>Follow all listings again</Button> : null}
-          <Button variant="outline" onClick={onClose}>{similar ? "Not these" : "Close"}</Button>
-          {!similar && options?.can_unpin ? <Button disabled={dropped.length === 0} onClick={save}>Save</Button> : null}
+                    <Button variant="outline" onClick={onClose}>{similar ? "Not these" : "Close"}</Button>
+          {!similar && options ? <Button disabled={ticked === options.picked} onClick={save}>Save</Button> : null}
           {similar ? <Button disabled={chosen.size === 0} onClick={apply}>Apply to {chosen.size}</Button> : null}
         </DialogFooter>
       </DialogContent>
