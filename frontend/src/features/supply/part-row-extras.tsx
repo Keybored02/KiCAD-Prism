@@ -84,7 +84,7 @@ export function RateAndLead({ part }: { part: SupplyPartRow }) {
   const rate = part.tracking?.rate;
   if (!rate && !part.lead_days) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+    <div className="flex items-center gap-x-2 whitespace-nowrap text-xs text-muted-foreground">
       {rate ? <span className="inline-flex items-center gap-1" title={`Read ${rate}`}><Tip icon={Timer} label={`Read ${rate}`} />{rate.charAt(0).toUpperCase() + rate.slice(1)}</span> : null}
       {part.lead_days ? <span className="inline-flex items-center gap-1" title="Shortest quoted lead time"><Tip icon={Clock} label="Shortest quoted lead time" />{Math.round(part.lead_days / 7)} w</span> : null}
     </div>

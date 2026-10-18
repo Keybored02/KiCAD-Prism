@@ -22,9 +22,11 @@ interface PartsTableProps {
   stickyHead?: boolean;
   /** Compact is one row a part; detailed adds a row for each vendor under it. */
   layout?: PartsLayout;
+  /** Name the projects using each part. Off where the list is already grouped by project. */
+  showProjects?: boolean;
 }
 
-export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact" }: PartsTableProps) {
+export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact", showProjects = true }: PartsTableProps) {
   // The detailed layout gives stock, price and vendors a row each below the part.
   const detailed = layout === "detailed";
   return (
@@ -60,12 +62,14 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                   <JlcIcon jlc={part.jlc} />
                 </div>
                 {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
-                <ProjectNames part={part} />
-                <RateAndLead part={part} />
+                {showProjects ? <ProjectNames part={part} /> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
-                {!detailed && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
+                <div className="flex items-center justify-end gap-3">
+                  <RateAndLead part={part} />
+                  {!detailed && part.spark && part.spark.length > 1 ? <Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /> : null}
+                </div>
                 {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
                   ? <RowRunout part={part} state={forecastState.runout} />
                   : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}

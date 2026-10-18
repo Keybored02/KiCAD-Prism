@@ -87,6 +87,19 @@ describe("the layouts", () => {
     expect(screen.getByRole("link", { name: "Open LM358 at Mouser" }).querySelector("svg")).toBeNull();
   });
 
+  it("puts the read rate and lead time left of the stock graph, and can leave the project names out", () => {
+    const row = { ...part, spark: [1, 2, 3], tracking: { tier: 1, rate: "daily" }, lead_days: 14, used_in: 2, project_names: ["Power board", "Radio"] };
+    render(<PartsTable items={[row]} selectedId={null} onOpen={vi.fn()} />);
+    const rate = screen.getByLabelText("Read daily");
+    const graph = screen.getByLabelText("Stock over the last 30 days");
+    expect(rate.compareDocumentPosition(graph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rate.closest("td")).toBe(graph.closest("td"));
+    expect(screen.getByText(/Power board/)).toBeTruthy();
+    cleanup();
+    render(<PartsTable showProjects={false} items={[row]} selectedId={null} onOpen={vi.fn()} />);
+    expect(screen.queryByText(/Power board/)).toBeNull();
+  });
+
   it("switches by two icons", () => {
     const change = vi.fn();
     render(<LayoutToggle layout="compact" onChange={change} />);

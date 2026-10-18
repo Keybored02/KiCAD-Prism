@@ -24,7 +24,7 @@ function GroupParts({ projectId, scope, query, only, vendor, layout, selectedId,
   const { items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed(scope, query, only, projectId, vendor);
   return (
     <>
-      <PartsTable layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} />
+      <PartsTable showProjects={false} layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} />
       <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
     </>
   );
