@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,16 +17,27 @@ const RunwaySection = lazy(() => import("./runway-section").then((module) => ({ 
 
 const SECTIONS = [
   { id: "signals", label: "Signals" },
-  { id: "runway", label: "Runway" },
   { id: "forecasts", label: "Forecasts" },
   { id: "sourcing", label: "Sourcing" },
-  { id: "lifecycle", label: "Lifecycle and compliance" },
   { id: "lead-times", label: "Lead times and prices" },
+  { id: "runway", label: "Runway" },
   { id: "market", label: "Market" },
   { id: "trade", label: "Trade" },
+  { id: "lifecycle", label: "Compliance" },
 ] as const;
 
 const jump = (id: string) => document.getElementById(`insights-${id}`)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+
+/** The section on screen: the last one whose top has scrolled to the top of the page. */
+function sectionOnScreen(scroller: HTMLElement, ids: readonly string[]): string {
+  const top = scroller.getBoundingClientRect().top + 72;
+  let current = ids[0];
+  for (const id of ids) {
+    const element = document.getElementById(`insights-${id}`);
+    if (element && element.getBoundingClientRect().top <= top) current = id;
+  }
+  return current;
+}
 
 /** What the readings add up to across every tracked part, in sections you can jump between. */
 export function InsightsView() {
@@ -35,10 +46,22 @@ export function InsightsView() {
   const loaded = useLoaded<SupplyInsightsPage>("insights", fetcher, "Could not load the insights", "supply");
   const { go, openPart } = useSupplyNavigation();
   const asked = searchParams.get("insightsView");
+  const scroller = useRef<HTMLDivElement>(null);
+  const [current, setCurrent] = useState("");
   const ready = loaded.status === "ready";
   useEffect(() => {
     if (asked && ready) jump(asked);
   }, [asked, ready]);
+  const signalsShown = (loaded.data?.market.signals ?? []).length > 0;
+  useEffect(() => {
+    const element = scroller.current;
+    if (!ready || !element) return undefined;
+    const ids = SECTIONS.filter((item) => item.id !== "signals" || signalsShown).map((item) => item.id);
+    const update = () => setCurrent(sectionOnScreen(element, ids));
+    update();
+    element.addEventListener("scroll", update, { passive: true });
+    return () => element.removeEventListener("scroll", update);
+  }, [ready, signalsShown]);
 
   if (loaded.status === "loading") return <Skeleton className="m-4 h-48" aria-label="Loading the insights" />;
   if (loaded.status === "error" || !loaded.data) {
@@ -57,10 +80,15 @@ export function InsightsView() {
   const openFilter = (filter: PartsFilter) => go("parts", filter ? { partsOnly: filter } : {});
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div ref={scroller} className="themed-scrollbar h-full overflow-y-auto">
       <nav aria-label="Insights" className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-background px-4 py-2">
         {SECTIONS.filter((item) => item.id !== "signals" || signals.length > 0).map((item) => (
-          <Button key={item.id} size="sm" variant="ghost" onClick={() => jump(item.id)}>{item.label}</Button>
+          <Button
+            key={item.id} size="sm" variant={current === item.id ? "secondary" : "ghost"} aria-current={current === item.id ? "location" : undefined}
+            onClick={() => { setCurrent(item.id); jump(item.id); }}
+          >
+            {item.label}
+          </Button>
         ))}
       </nav>
       <div className="space-y-4 p-4">
@@ -76,39 +104,41 @@ export function InsightsView() {
             </div>
           </section>
         ) : null}
-        <div id="insights-runway" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-runway" title="Runway" count={page.tracked} startOpen>
-            <div className="p-3"><Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwaySection page={page} onOpen={openPart} /></Suspense></div>
-          </CollapsibleSection>
-        </div>
-        <div id="insights-forecasts" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen>
-            <div className="p-3"><ForecastInsightsSection onOpenPart={openPart} /></div>
-          </CollapsibleSection>
-        </div>
-        <div id="insights-sourcing" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={page.sourcing.coverage.length} startOpen>
-            <div className="p-3"><SourcingSection page={page} onOpen={openFilter} /></div>
-          </CollapsibleSection>
-        </div>
-        <div id="insights-lifecycle" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-lifecycle" title="Lifecycle and compliance" count={-1} startOpen>
-            <div className="p-3"><LifecycleSection page={page} onOpen={openFilter} /></div>
-          </CollapsibleSection>
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div id="insights-forecasts" className="scroll-mt-14">
+            <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen>
+              <div className="p-3"><ForecastInsightsSection onOpenPart={openPart} /></div>
+            </CollapsibleSection>
+          </div>
+          <div id="insights-sourcing" className="scroll-mt-14">
+            <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={page.sourcing.coverage.length} startOpen>
+              <div className="p-3"><SourcingSection page={page} onOpen={openFilter} /></div>
+            </CollapsibleSection>
+          </div>
         </div>
         <div id="insights-lead-times" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-lead-times" title="Lead times and prices" count={-1} startOpen>
             <div className="p-3"><LeadAndPricesSection page={page} onOpenPart={openPart} /></div>
           </CollapsibleSection>
         </div>
+        <div id="insights-runway" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-runway" title="Runway" count={page.scatter.filter((point) => point.days_to_zero < point.lead_days).length} startOpen>
+            <div className="p-3"><Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwaySection page={page} onOpen={openPart} /></Suspense></div>
+          </CollapsibleSection>
+        </div>
         <div id="insights-market" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-market" title="Market, your parts" count={page.market.scopes.length} startOpen>
+          <CollapsibleSection id="insights-section-market" title="Market" count={page.market.scopes.length} startOpen>
             <div className="p-3"><MarketSection market={page.market} trends={page.market_trends} onOpenGroup={openGroup} /></div>
           </CollapsibleSection>
         </div>
         <div id="insights-trade" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-trade" title="Trade" count={-1} startOpen>
             <div className="p-3"><TradeSection page={page} onOpenPart={openPart} /></div>
+          </CollapsibleSection>
+        </div>
+        <div id="insights-lifecycle" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-lifecycle" title="Compliance" count={-1} startOpen>
+            <div className="p-3"><LifecycleSection page={page} onOpen={openFilter} /></div>
           </CollapsibleSection>
         </div>
       </div>
