@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { PartHistory } from "@/types/supply";
+import type { PartForecast, PartHistory } from "@/types/supply";
 
 vi.mock("./supply-api", () => ({ getPartHistory: vi.fn() }));
 
-import { historyRows } from "./part-history-model";
+import { forecastKeyOf, historyRows, withDistributorForecasts } from "./part-history-model";
 import { PartHistoryPanel } from "./part-history";
 import * as api from "./supply-api";
 
@@ -42,6 +42,34 @@ describe("the history rows", () => {
   it("leaves out a line switched off, and a distributor without prices from the price chart", () => {
     expect(historyRows(HISTORY, "stock", new Set(["c2", "total"])).keys.map((item) => item.key)).toEqual(["c1"]);
     expect(historyRows(HISTORY, "price", new Set()).keys.map((item) => item.key)).toEqual(["c1"]);
+  });
+});
+
+describe("a forecast for each distributor", () => {
+  const forecast = {
+    available: true, today: "2026-03-01", models: {},
+    by_distributor: {
+      stock: [{ connector_id: "c1", path: [{ day: "2026-03-01", median: 40 }, { day: "2026-03-15", median: 30 }] }, { connector_id: "c2", path: [{ day: "2026-03-15", median: 5 }] }],
+      price: [{ connector_id: "c1", now: 0.5, h30: { date: "2026-03-31", median: 0.55 }, h90: { date: "2026-05-30", median: 0.6 } }],
+    },
+  } as unknown as PartForecast;
+
+  it("continues each line from its last reading, on its own key", () => {
+    const rows = historyRows(HISTORY, "stock", new Set()).rows;
+    const drawn = withDistributorForecasts(HISTORY, "stock", rows, forecast, new Set());
+    expect(drawn).toEqual(["c1", "c2"]);
+    const find = (day: string) => rows.find((row) => row.day === day);
+    expect(find("2026-03-01")?.[forecastKeyOf("c1")]).toBe(40);
+    expect(find("2026-03-15")?.[forecastKeyOf("c1")]).toBe(30);
+    expect(find("2026-02-28")?.[forecastKeyOf("c2")]).toBe(10);
+    expect(find("2026-03-15")?.[forecastKeyOf("c2")]).toBe(5);
+  });
+
+  it("draws the price ahead for the distributors that have one, and none for a switched-off line", () => {
+    const rows = historyRows(HISTORY, "price", new Set()).rows;
+    expect(withDistributorForecasts(HISTORY, "price", rows, forecast, new Set())).toEqual(["c1"]);
+    expect(rows.find((row) => row.day === "2026-05-30")?.[forecastKeyOf("c1")]).toBe(0.6);
+    expect(withDistributorForecasts(HISTORY, "price", historyRows(HISTORY, "price", new Set()).rows, forecast, new Set(["c1"]))).toEqual([]);
   });
 });
 

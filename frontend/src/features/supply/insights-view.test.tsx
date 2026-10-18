@@ -84,7 +84,7 @@ describe("the insights page", () => {
   it("has a section for each question, with a way to jump to it", async () => {
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });
-    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Sourcing", "Lead times and prices", "Runway", "Market", "Forecasts", "Trade", "Compliance"]);
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Sourcing", "Lead times and prices", "Stock risk", "Market", "Forecasts", "Trade", "Compliance"]);
     expect(screen.getByText("TI: 50% of the parts you follow are out of stock, up from 10%.")).toBeTruthy();
   });
 
@@ -95,9 +95,9 @@ describe("the insights page", () => {
     expect(screen.getByText(/3 without a falling rate yet, 1 without a quoted lead time/)).toBeTruthy();
     expect(await screen.findByRole("button", { name: "LM358" })).toBeTruthy();
     expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "draining", 0, 50, "", "");
-    fireEvent.click(within(screen.getByRole("group", { name: "Finding" })).getByRole("button", { name: /One distributor/ }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Finding" })).getByRole("button", { name: /Lead time up/ }));
     await screen.findByRole("button", { name: "LM358" });
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "one_distributor", 0, 50, "", "");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), "lead_up", 0, 50, "", "");
   });
 
   it("shows the market figures as cards and the groups as a table", async () => {
@@ -133,7 +133,6 @@ describe("the insights sections added with the rework", () => {
     expect(screen.getByRole("region", { name: "Lifecycle" })).toBeTruthy();
     expect(screen.getByText("1 part is quoted over 16 weeks")).toBeTruthy();
     expect(screen.getByRole("button", { name: "NE5532" })).toBeTruthy();
-    expect(screen.getByText("1 part is export controlled")).toBeTruthy();
     expect(screen.getByText("3A991")).toBeTruthy();
   });
 });

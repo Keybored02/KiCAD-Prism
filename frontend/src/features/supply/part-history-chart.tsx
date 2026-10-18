@@ -4,7 +4,7 @@ import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { PartForecast, PartHistory } from "@/types/supply";
 import { formatDay } from "./chart-format";
-import { BAND_KEY, FORECAST_KEY, historyRows, TOTAL_KEY, withForecast, type HistoryKind } from "./part-history-model";
+import { BAND_KEY, FORECAST_KEY, forecastKeyOf, historyRows, TOTAL_KEY, withDistributorForecasts, withForecast, type HistoryKind } from "./part-history-model";
 import { formatPrice } from "./supply-format";
 
 interface Props {
@@ -28,7 +28,7 @@ interface TipProps {
 function makeTip(format: (value: number) => string) {
   return function Tip({ active, label, payload }: TipProps) {
     if (!active || !payload?.length) return null;
-    const rows = payload.filter((item) => item.value !== null && item.value !== undefined && !Array.isArray(item.value) && !String(item.dataKey).endsWith("~"));
+    const rows = payload.filter((item) => item.value !== null && item.value !== undefined && !Array.isArray(item.value) && !String(item.dataKey).includes("~"));
     if (rows.length === 0) return null;
     // The total always closes the list.
     const ordered = [...rows].sort((a, b) => Number(a.dataKey === TOTAL_KEY) - Number(b.dataKey === TOTAL_KEY));
@@ -54,6 +54,9 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
   const base = historyRows(history, kind, hidden);
   const { keys } = base;
   const { rows, overlay } = withForecast(history, kind, base, forecast, hidden);
+  const forecastLines = withDistributorForecasts(history, kind, rows, forecast, hidden);
+  // A price forecast is drawn per distributor; the stock one keeps its range for the total beside them.
+  const ownLines = kind === "price" && forecastLines.length > 0;
   const config: ChartConfig = Object.fromEntries(keys.map((item) => [item.key, { label: item.name, color: item.color }]));
   const format = kind === "stock" ? (value: number) => value.toLocaleString() : (value: number) => formatPrice(String(value), history.currency);
   const Tip = makeTip(format);
@@ -80,13 +83,13 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
           {overlay ? (
             <ReferenceLine x={overlay.from} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 2" label={{ value: "Today", position: "insideTopRight", fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
           ) : null}
-          {overlay ? (
+          {overlay && !ownLines ? (
             <Area
               dataKey={BAND_KEY} name="Forecast range" type="monotone" stroke={tone} strokeDasharray={overlay.grey ? "3 3" : undefined} strokeOpacity={overlay.grey ? 0.6 : 0.3}
               fill={overlay.grey ? "none" : tone} fillOpacity={overlay.grey ? 0 : 0.12} isAnimationActive={false} connectNulls
             />
           ) : null}
-          {overlay ? (
+          {overlay && !ownLines ? (
             <Line dataKey={FORECAST_KEY} name={overlay.grey ? "Forecast (learning)" : "Forecast"} type="monotone" stroke={tone} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />
           ) : null}
           {keys.map((item) => (
@@ -95,6 +98,9 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
               dot={false} connectNulls isAnimationActive={false}
             />
           ))}
+          {keys.flatMap((item) => (forecastLines.includes(item.key)
+            ? [<Line key={forecastKeyOf(item.key)} dataKey={forecastKeyOf(item.key)} name={item.name} type="monotone" stroke={item.color} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />]
+            : []))}
           {keys.flatMap((item) => (item.dashed
             ? [<Line key={item.dashed} dataKey={item.dashed} name={item.name} type="stepAfter" stroke={item.color} strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls isAnimationActive={false} />]
             : []))}

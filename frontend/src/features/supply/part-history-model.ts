@@ -95,6 +95,46 @@ function put(rows: HistoryRows["rows"], day: string, median: number, low: number
   rows.push({ day, [FORECAST_KEY]: median, [BAND_KEY]: [low, high] as unknown as number });
 }
 
+/** The row key of a distributor's forecast line; it carries a "~" so the tooltip lists the distributor once. */
+export const forecastKeyOf = (connectorId: string) => `${connectorId}~f`;
+
+function setValue(rows: HistoryRows["rows"], day: string, key: string, value: number): void {
+  const found = rows.find((row) => row.day === day);
+  if (found) found[key] = value;
+  else rows.push({ day, [key]: value });
+}
+
+/**
+ * Each distributor's forecast as a line of its own, in its colour: from its last reading onward, on the days the forecast has.
+ * Adds to `rows` and returns the keys of the lines to draw. A distributor switched off in the legend has none.
+ */
+export function withDistributorForecasts(
+  history: PartHistory, kind: HistoryKind, rows: HistoryRows["rows"], forecast: PartForecast | null | undefined, hidden: ReadonlySet<string>,
+): string[] {
+  const by = forecast?.available ? forecast.by_distributor : undefined;
+  if (!by) return [];
+  const drawn: string[] = [];
+  const points = (kind === "stock" ? by.stock : by.price).flatMap((item) => {
+    if (hidden.has(item.connector_id)) return [];
+    const line = history.connectors.find((entry) => entry.connector_id === item.connector_id);
+    const readings = line ? (kind === "stock" ? line.stock : line.price) : [];
+    const lastReading = readings[readings.length - 1];
+    if (!lastReading) return [];
+    const future: Array<[string, number]> = "path" in item
+      ? item.path.filter((point) => point.day > lastReading[0]).map((point) => [point.day, point.median])
+      : [[item.h30.date, item.h30.median], [item.h90.date, item.h90.median]];
+    return future.length > 0 ? [{ id: item.connector_id, from: lastReading, future }] : [];
+  });
+  for (const item of points) {
+    const key = forecastKeyOf(item.id);
+    setValue(rows, item.from[0], key, item.from[1]);
+    for (const [day, value] of item.future) setValue(rows, day, key, value);
+    drawn.push(item.id);
+  }
+  rows.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  return drawn;
+}
+
 /**
  * Rows continued into the future with a forecast: stock from its simulated path (the total line), price from the ranges at 30 and 90 days.
  * Returns the overlay to draw, or null when there is nothing to add (no forecast, the total switched off, no readings).

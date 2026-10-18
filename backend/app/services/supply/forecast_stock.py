@@ -262,8 +262,13 @@ def forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None]
             })
     steps = list(range(0, RUNOUT_HORIZON + 1, 2))
     path = [[day, *(float(v) for v in np.percentile(total[:, day], [10, 50, 90]))] for day in steps]
+    # Each distributor's most likely stock on the same days, for a line of its own on the chart.
+    holder_paths = [
+        {"connector_id": holder.connector_id, "path": [[day, float(np.percentile(sim.stock[index][:, day], 50))] for day in steps]}
+        for index, holder in enumerate(live)
+    ]
     return {
-        "available": True, "quantity": quantity, "path": path, "out_now": out_now, "runout": runout, "p_out_total": p_out,
+        "available": True, "quantity": quantity, "path": path, "holder_paths": holder_paths, "out_now": out_now, "runout": runout, "p_out_total": p_out,
         "out_everywhere": out_everywhere, "weeks": weeks, "back": back,
         "inputs": {
             "span_days": span, "holders": len(live), "drain_known": sum(sim.drain_known), "outages_modelled": sum(1 for m in outage.values() if m),

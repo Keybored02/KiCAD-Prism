@@ -50,6 +50,13 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
             ],
             "path": [{"day": _day(today, offset), "low": low, "median": mid, "high": high} for offset, low, mid, high in stock["path"]],
             "inputs": stock["inputs"],
+            "by_distributor": {
+                "stock": [
+                    {"connector_id": item["connector_id"], "path": [{"day": _day(today, offset), "median": median} for offset, median in item["path"]]}
+                    for item in stock["holder_paths"]
+                ],
+                "price": [],
+            },
         }
     price = forecast_run.price_forecast(conn, part_id, now)
     if price.get("available"):
@@ -58,6 +65,11 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
             "h30": {**price["h30"], "date": _day(today, 30), "state": state("price_30")},
             "h90": {**price["h90"], "date": _day(today, 90), "state": state("price_90")},
         }
+        out.setdefault("by_distributor", {"stock": [], "price": []})["price"] = [
+            {"connector_id": item["connector_id"], "now": item["now"],
+             "h30": {"date": _day(today, 30), "median": item["h30"]["median"]}, "h90": {"date": _day(today, 90), "median": item["h90"]["median"]}}
+            for item in forecast_run.price_by_distributor(conn, part_id, now)
+        ]
     items = _lifecycle_of(conn, part_id)
     if items is not None:
         found = forecast_lifecycle.part_chance(conn, part_id, items, today)

@@ -33,6 +33,22 @@ def price_forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
     return forecast_price.forecast(series, forecast_price.pooled_moves(conn, _tracked(conn), now))
 
 
+def price_by_distributor(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
+    """Each distributor's price in 30 and 90 days, from its own readings, in the currency of the part's history."""
+
+    history = part_history.build(conn, part_id, now, 90)
+    pool = forecast_price.pooled_moves(conn, _tracked(conn), now)
+    found: list[dict[str, Any]] = []
+    for line in history["connectors"]:
+        series = [(date.fromisoformat(day), float(price)) for day, price in line["price"]]
+        if not series:
+            continue
+        result = forecast_price.forecast(series, pool)
+        if result.get("available"):
+            found.append({"connector_id": line["connector_id"], "now": result["now"], "h30": result["h30"], "h90": result["h90"]})
+    return found
+
+
 def _tracked(conn) -> list[str]:
     return [row["part_id"] for row in conn.execute("SELECT part_id FROM part_tiers").fetchall()]
 

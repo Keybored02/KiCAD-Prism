@@ -738,6 +738,11 @@ export interface PartForecast {
   runout?: (ForecastDates & ForecastChance & { state: ForecastModelState }) | null;
   back?: Array<ForecastDates & { connector_id: string; name: string; provider: string; quote_days: number | null; ratio: number | null; beyond_share: number; state: ForecastModelState }>;
   path?: Array<{ day: string; low: number; median: number; high: number }>;
+  /** Each distributor's own forecast: its most likely stock by day, and its price in 30 and 90 days. */
+  by_distributor?: {
+    stock: Array<{ connector_id: string; path: Array<{ day: string; median: number }> }>;
+    price: Array<{ connector_id: string; now: number; h30: { date: string; median: number }; h90: { date: string; median: number } }>;
+  };
   inputs?: { span_days: number; holders: number; drain_known: number; outages_modelled: number; weekly: boolean };
   price?: {
     now: number;

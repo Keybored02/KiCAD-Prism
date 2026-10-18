@@ -19,7 +19,7 @@ const SECTIONS = [
   { id: "signals", label: "Signals" },
   { id: "sourcing", label: "Sourcing" },
   { id: "lead-times", label: "Lead times and prices" },
-  { id: "runway", label: "Runway" },
+  { id: "runway", label: "Stock risk" },
   { id: "market", label: "Market" },
   { id: "forecasts", label: "Forecasts" },
   { id: "trade", label: "Trade" },
@@ -121,12 +121,12 @@ export function InsightsView() {
           </CollapsibleSection>
         </div>
         <div id="insights-runway" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-runway" title="Runway" count={-1} startOpen>
+          <CollapsibleSection id="insights-section-runway" title="Stock risk" count={-1} startOpen>
             <div className="p-3"><Suspense fallback={<Skeleton className="h-64 w-full" />}><RunwaySection page={page} onOpen={openPart} /></Suspense></div>
           </CollapsibleSection>
         </div>
         <div id="insights-market" className="scroll-mt-14">
-          <CollapsibleSection id="insights-section-market" title="Market" count={page.market.scopes.length} startOpen>
+          <CollapsibleSection id="insights-section-market" title="Market" count={-1} startOpen>
             <div className="p-3"><MarketSection market={page.market} trends={page.market_trends} onOpenGroup={openGroup} /></div>
           </CollapsibleSection>
         </div>

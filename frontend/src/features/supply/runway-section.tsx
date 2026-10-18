@@ -13,7 +13,6 @@ const RunwayScatter = lazy(() => import("./runway-scatter"));
 const KINDS: Array<{ key: Exclude<PartsFilter, "">; label: string }> = [
   { key: "draining", label: "Draining" },
   { key: "restock_late", label: "Restock overdue" },
-  { key: "one_distributor", label: "One distributor" },
   { key: "lead_up", label: "Lead time up" },
   { key: "often_out", label: "Often out" },
   { key: "unusual_drop", label: "Unusual drop" },

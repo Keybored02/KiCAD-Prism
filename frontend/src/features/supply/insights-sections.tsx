@@ -176,7 +176,6 @@ export function TradeSection({ page, onOpenPart }: { page: SupplyInsightsPage; o
       <ChartCard
         title="Export control"
         info="The ECCN distributors give; EAR99 is no control. A mark set on a part's sheet wins."
-        answer={control.controlled === 0 ? "No part is export controlled" : `${control.controlled.toLocaleString()} ${control.controlled === 1 ? "part is" : "parts are"} export controlled`}
       >
         <BarList labelWidth="9rem" rows={[
           { key: "controlled", label: "Controlled", value: control.controlled, tone: "bg-destructive/70" },
