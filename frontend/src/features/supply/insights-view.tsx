@@ -17,16 +17,22 @@ const RunwaySection = lazy(() => import("./runway-section").then((module) => ({ 
 
 const SECTIONS = [
   { id: "signals", label: "Signals" },
-  { id: "forecasts", label: "Forecasts" },
   { id: "sourcing", label: "Sourcing" },
   { id: "lead-times", label: "Lead times and prices" },
   { id: "runway", label: "Runway" },
   { id: "market", label: "Market" },
+  { id: "forecasts", label: "Forecasts" },
   { id: "trade", label: "Trade" },
   { id: "lifecycle", label: "Compliance" },
 ] as const;
 
-const jump = (id: string) => document.getElementById(`insights-${id}`)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+/** Scrolls the page's own container, not every ancestor: scrollIntoView would also move the app behind it. */
+function jump(scroller: HTMLElement | null, id: string) {
+  const target = document.getElementById(`insights-${id}`);
+  if (!scroller || !target) return;
+  const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 56;
+  scroller.scrollTo?.({ top: Math.max(0, top), behavior: "smooth" });
+}
 
 /** The section on screen: the last one whose top has scrolled to the top of the page. */
 function sectionOnScreen(scroller: HTMLElement, ids: readonly string[]): string {
@@ -50,7 +56,7 @@ export function InsightsView() {
   const [current, setCurrent] = useState("");
   const ready = loaded.status === "ready";
   useEffect(() => {
-    if (asked && ready) jump(asked);
+    if (asked && ready) jump(scroller.current, asked);
   }, [asked, ready]);
   const signalsShown = (loaded.data?.market.signals ?? []).length > 0;
   useEffect(() => {
@@ -85,7 +91,7 @@ export function InsightsView() {
         {SECTIONS.filter((item) => item.id !== "signals" || signals.length > 0).map((item) => (
           <Button
             key={item.id} size="sm" variant={current === item.id ? "secondary" : "ghost"} aria-current={current === item.id ? "location" : undefined}
-            onClick={() => { setCurrent(item.id); jump(item.id); }}
+            onClick={() => { setCurrent(item.id); jump(scroller.current, item.id); }}
           >
             {item.label}
           </Button>
@@ -104,17 +110,10 @@ export function InsightsView() {
             </div>
           </section>
         ) : null}
-        <div className="grid gap-4 lg:grid-cols-2 [&>div]:flex [&>div>[data-slot=section]]:flex-1">
-          <div id="insights-forecasts" className="scroll-mt-14">
-            <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen className="h-full">
-              <div className="p-3"><ForecastInsightsSection onOpenPart={openPart} /></div>
-            </CollapsibleSection>
-          </div>
-          <div id="insights-sourcing" className="scroll-mt-14">
-            <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={-1} startOpen className="h-full">
-              <div className="p-3"><SourcingSection page={page} onOpen={openFilter} /></div>
-            </CollapsibleSection>
-          </div>
+        <div id="insights-sourcing" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-sourcing" title="Sourcing" count={-1} startOpen>
+            <div className="p-3"><SourcingSection page={page} onOpen={openFilter} /></div>
+          </CollapsibleSection>
         </div>
         <div id="insights-lead-times" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-lead-times" title="Lead times and prices" count={-1} startOpen>
@@ -129,6 +128,11 @@ export function InsightsView() {
         <div id="insights-market" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-market" title="Market" count={page.market.scopes.length} startOpen>
             <div className="p-3"><MarketSection market={page.market} trends={page.market_trends} onOpenGroup={openGroup} /></div>
+          </CollapsibleSection>
+        </div>
+        <div id="insights-forecasts" className="scroll-mt-14">
+          <CollapsibleSection id="insights-section-forecasts" title="Forecasts" count={-1} startOpen>
+            <div className="p-3"><ForecastInsightsSection onOpenPart={openPart} /></div>
           </CollapsibleSection>
         </div>
         <div id="insights-trade" className="scroll-mt-14">

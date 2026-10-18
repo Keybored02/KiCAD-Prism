@@ -22,7 +22,7 @@ export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; on
   const largest = Math.max(1, ...coverage.flatMap((item) => [item.listed, item.in_stock, item.cheapest]));
   return (
     <div className="space-y-3">
-      <div className="space-y-3">
+      <div className="grid gap-3 lg:grid-cols-2">
         <ChartCard
           title="Distributor coverage"
           info="Of the parts you track: how many each distributor lists, how many it holds in stock, and how many it is the cheapest for at 100 pieces."
