@@ -585,6 +585,8 @@ export interface SupplyRowOffer {
   sku: string;
   /** Every number this line stands for: two products with the same terms (cut tape and its custom reel) are one line. */
   skus?: string[];
+  /** The listing Prism follows at this distributor: the preferred one, else the smallest order in stock. */
+  followed?: boolean;
   /** Other packagings the same line is sold in, with the same terms. */
   also_packaging?: string[];
   stock: number;

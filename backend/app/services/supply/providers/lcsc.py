@@ -225,6 +225,11 @@ def _offer(product: Mapping[str, Any], now: datetime, asked: str = "") -> Offer:
     breaks, currency = _price_breaks(product, asked)
     rohs = product.get("isRohsCert")
     packaging = packaging_hints.from_text(product.get("productArrange"))
+    moq = max(parse_count(product.get("minBuyNumber")) or 1, 1)
+    # "Tape & Reel" is how the maker packs it; what LCSC sells is told by where its price breaks start.
+    packaging, reel, inferred = packaging_hints.sold_as(
+        packaging, parse_count(product.get("minPacketNumber")) if packaging is Packaging.TAPE_REEL else None, breaks[0].quantity if breaks else moq,
+    )
     return Offer(
         provider=KEY,
         sku=sku,
@@ -232,11 +237,12 @@ def _offer(product: Mapping[str, Any], now: datetime, asked: str = "") -> Offer:
         manufacturer=str(product.get("brandNameEn") or ""),
         stock=max(parse_count(product.get("stockNumber")) or 0, 0),
         fetched_at=now,
-        moq=max(parse_count(product.get("minBuyNumber")) or 1, 1),
+        moq=moq,
         order_multiple=max(parse_count(product.get("split")) or 1, 1),
         packaging=packaging,
+        packaging_inferred=inferred,
         # minPacketNumber is the pieces in a packet; for a reel it is the reel.
-        reel_size=parse_count(product.get("minPacketNumber")) if packaging is Packaging.TAPE_REEL else None,
+        reel_size=reel,
         price_breaks=breaks,
         currency=currency if breaks else "",
         lifecycle=Lifecycle.UNKNOWN,

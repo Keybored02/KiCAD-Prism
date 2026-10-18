@@ -18,6 +18,7 @@ Functions on a connection; none commit.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from app.services.supply import admission, packaging_picks, usage
@@ -61,8 +62,15 @@ def _moq(listing: dict[str, Any]) -> int:
     return int(listing["moq"] or 1)
 
 
+def _first_price(listing: dict[str, Any]) -> Decimal:
+    breaks = listing.get("price_breaks") or []
+    return Decimal(str(breaks[0][1])) if breaks else Decimal("Infinity")
+
+
 def _smallest(listings: list[dict[str, Any]]) -> dict[str, Any]:
-    return min(listings, key=lambda item: (_moq(item), item["sku"]))
+    """In stock before out of stock, then the smallest order, then the lowest price at it."""
+
+    return min(listings, key=lambda item: (not (item.get("stock") or 0) > 0, _moq(item), _first_price(item), item["sku"]))
 
 
 def choose_with_note(listings: list[dict[str, Any]], policy: str) -> tuple[dict[str, Any], str]:

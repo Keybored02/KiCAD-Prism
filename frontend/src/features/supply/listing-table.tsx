@@ -3,11 +3,10 @@ import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
-import { collapseSameTerms } from "./listing-same-terms";
 import { PackagingChip } from "./packaging-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { formatAgo, formatPrice, formatStock, matchLabel, packagingName, tierLabel } from "./supply-format";
+import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
 import { VendorName } from "./vendor-name";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
@@ -23,7 +22,6 @@ export function ListingTable({
   listings, canDecide = false, onChanged, follow,
 }: { listings: SupplyListing[]; canDecide?: boolean; onChanged?: () => void; follow?: FollowChoice }) {
   const { busy, error, run } = useConnectorSubmit();
-  const { shown, also } = collapseSameTerms(listings);
   if (listings.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -34,9 +32,8 @@ export function ListingTable({
   return (
     <div className="space-y-2">
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
-      {shown.map((listing) => {
+      {listings.map((listing) => {
         const offer = listing.offer;
-        const sameTerms = also.get(listing.id) ?? [];
         const firstBreak = offer?.price_breaks[0];
         return (
           <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="border p-3 text-sm">
@@ -45,9 +42,9 @@ export function ListingTable({
                 <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />
                 <span className="text-xs text-muted-foreground">{listing.sku}</span>
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
-                {follow?.followed === listing.id || sameTerms.some((item) => item.id === follow?.followed) ? <Badge variant="secondary">Followed</Badge> : null}
-                {follow?.followed && follow.followed !== listing.id && !sameTerms.some((item) => item.id === follow.followed) && listing.counted ? <Badge variant="outline">Not counted</Badge> : null}
-                {follow?.followed && follow.followed !== listing.id && !sameTerms.some((item) => item.id === follow.followed) && listing.counted && follow.canFollow ? (
+                {follow?.followed === listing.id ? <Badge variant="secondary">Followed</Badge> : null}
+                {follow?.followed && follow.followed !== listing.id && listing.counted ? <Badge variant="outline">Not counted</Badge> : null}
+                {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (
                   <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => follow.onFollow(listing)}>Follow this instead</Button>
                 ) : null}
                 {!listing.counted ? (
@@ -70,11 +67,6 @@ export function ListingTable({
                 </a>
               ) : null}
             </div>
-            {sameTerms.length > 0 ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Also sold as {sameTerms.map((item) => `${item.sku} (${packagingName(item.packaging)})`).join(", ")}, with the same stock and prices.
-              </p>
-            ) : null}
             {offer ? (
               <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
                 <Fact label="Stock" value={formatStock(offer.stock)} />

@@ -30,14 +30,43 @@ def _row(offer, connector_id: str, name: str, order_multiple: int | None = None)
 
 
 class OfferLineTests(unittest.TestCase):
-    def test_digikey_cut_tape_and_digi_reel_are_one_way_of_buying_and_the_reel_is_another(self) -> None:
+    def test_digikey_reports_three_products_and_three_show_smallest_order_first(self) -> None:
         answer = next(a for a in _answers("digikey") if "Product" in a)
         rows = [_row(digikey._offer(sku, answer, NOW), "dk", "DigiKey") for sku in ("535-9543-1-ND", "535-9543-2-ND", "535-9543-6-ND")]  # noqa: SLF001
         lines = offer_lines(rows)
-        self.assertEqual([(line["packaging"], line["moq"]) for line in lines], [("cut_tape", 1), ("tape_reel", 3000)])
-        self.assertEqual(lines[0]["skus"], ["535-9543-1-ND", "535-9543-6-ND"], "both numbers are kept")
-        self.assertEqual(lines[0]["also_packaging"], ["custom_reel"])
-        self.assertEqual(lines[1]["skus"], ["535-9543-2-ND"])
+        self.assertEqual([(line["sku"], line["packaging"], line["moq"]) for line in lines], [
+            ("535-9543-1-ND", "cut_tape", 1), ("535-9543-6-ND", "custom_reel", 1), ("535-9543-2-ND", "tape_reel", 3000),
+        ])
+        # Cut tape and Digi-Reel share their prices, and both are shown.
+        self.assertEqual(lines[0]["price_breaks"], lines[1]["price_breaks"])
+
+    def test_the_followed_listing_comes_first_even_with_a_larger_order(self) -> None:
+        answer = next(a for a in _answers("digikey") if "Product" in a)
+        rows = [_row(digikey._offer(sku, answer, NOW), "dk", "DigiKey") for sku in ("535-9543-1-ND", "535-9543-2-ND")]  # noqa: SLF001
+        rows[1]["followed"] = True
+        self.assertEqual([line["sku"] for line in offer_lines(rows)], ["535-9543-2-ND", "535-9543-1-ND"])
+
+    def test_the_lower_price_comes_first_at_the_same_smallest_order(self) -> None:
+        base = {
+            "connector_id": "c", "provider": "digikey", "connector_name": "DigiKey", "stock": 5, "marketplace": False, "reel_size": None,
+            "packaging_inferred": False, "moq": 1, "order_multiple": 1, "currency": "EUR", "product_url": "", "packaging": "cut_tape",
+        }
+        rows = [{**base, "sku": "B", "price_breaks": [[1, "0.60"]]}, {**base, "sku": "A", "price_breaks": [[1, "0.70"]]}]
+        self.assertEqual([line["sku"] for line in offer_lines(rows)], ["B", "A"])
+
+    def test_lcsc_and_tme_sell_cut_tape_from_one_piece_whatever_the_standard_packaging_is(self) -> None:
+        base = {
+            "connector_id": "c", "connector_name": "LCSC", "stock": 5, "marketplace": False, "reel_size": 3000, "packaging_inferred": False,
+            "moq": 1, "order_multiple": 1, "currency": "USD", "product_url": "", "packaging": "tape_reel", "sku": "C1",
+        }
+        for provider in ("lcsc", "tme"):
+            from_one = offer_lines([{**base, "provider": provider, "price_breaks": [[1, "0.6"], [3000, "0.4"]]}])[0]
+            self.assertEqual((from_one["packaging"], from_one["reel_size"], from_one["packaging_inferred"]), ("cut_tape", None, True), provider)
+            by_reel = offer_lines([{**base, "provider": provider, "moq": 3000, "price_breaks": [[3000, "0.4"]]}])[0]
+            self.assertEqual((by_reel["packaging"], by_reel["reel_size"]), ("tape_reel", 3000), provider)
+        # Another distributor's reel is left alone.
+        other = offer_lines([{**base, "provider": "mouser", "price_breaks": [[1, "0.6"]]}])[0]
+        self.assertEqual(other["packaging"], "tape_reel")
 
     def test_mouser_one_number_with_a_reel_in_its_price_table_is_cut_tape_and_a_reel(self) -> None:
         answer = _answers("mouser")[0]
@@ -46,6 +75,7 @@ class OfferLineTests(unittest.TestCase):
         self.assertEqual((offer.packaging.value, offer.reel_size), ("several", 3000))
         lines = offer_lines([_row(offer, "mo", "Mouser")])
         self.assertEqual([(line["packaging"], line["moq"], line["reel_size"]) for line in lines], [("cut_tape", 1, None), ("tape_reel", 3000, 3000)])
+        self.assertEqual([line["followed"] for line in lines], [False, False])
         self.assertEqual(lines[0]["also_packaging"], ["custom_reel"])
         self.assertTrue(all(item[0] < 3000 for item in lines[0]["price_breaks"]))
         self.assertTrue(all(item[0] >= 3000 for item in lines[1]["price_breaks"]))
@@ -60,18 +90,6 @@ class OfferLineTests(unittest.TestCase):
         ])
         # The distributor answers the same prices for the cut length and the re-reeled one; nothing is invented to tell them apart.
         self.assertEqual(lines[0]["price_breaks"], lines[1]["price_breaks"])
-
-    def test_different_prices_or_stock_are_never_merged(self) -> None:
-        base = {
-            "connector_id": "c", "provider": "digikey", "connector_name": "DigiKey", "stock": 5, "marketplace": False, "reel_size": None,
-            "packaging_inferred": False, "moq": 1, "order_multiple": 1, "currency": "EUR", "product_url": "", "price_breaks": [[1, "0.5"]],
-        }
-        rows = [{**base, "sku": "A-1-ND", "packaging": "cut_tape"}, {**base, "sku": "A-6-ND", "packaging": "custom_reel", "price_breaks": [[1, "0.6"]]}]
-        self.assertEqual(len(offer_lines(rows)), 2)
-        rows = [{**base, "sku": "A-1-ND", "packaging": "cut_tape"}, {**base, "sku": "A-6-ND", "packaging": "custom_reel", "stock": 4}]
-        self.assertEqual(len(offer_lines(rows)), 2)
-        rows = [{**base, "sku": "T-1", "packaging": "tube"}, {**base, "sku": "T-2", "packaging": "tube"}]
-        self.assertEqual(len(offer_lines(rows)), 2, "only a length of tape is one way of buying under two numbers")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ _ENDINGS = (
 )
 # Distributors whose own words are trusted: what they do not say stays unknown.
 NO_GUESS = frozenset({"farnell"})
+# Distributors whose packaging is the standard one of the product, and what is sold is read from the price breaks (``sold_as``).
+STANDARD_PACKAGING = frozenset({"lcsc", "tme"})
 # A minimum order of at least this many, ordered in that multiple, is a reel.
 REEL_MOQ = 1000
 
@@ -52,6 +54,19 @@ def from_text(text: object) -> Packaging:
         if needle in value:
             return packaging
     return Packaging.OTHER
+
+
+def sold_as(packaging: Packaging, reel_size: int | None, first_break: int | None) -> tuple[Packaging, int | None, bool]:
+    """How a listing is sold, from its price breaks, when its distributor names the product's standard packaging, not the sale.
+
+    LCSC's ``productArrange`` and TME's packing say how the maker ships the part ("Reel", 3,000), yet both sell from one piece up:
+    the pieces come off a reel as cut tape. What is sold is told by the first price break: from the reel size up it is a
+    whole reel; below it, cut tape (marked as a reading, not a statement). Returns the packaging, the reel size and whether
+    it was worked out."""
+
+    if packaging is Packaging.TAPE_REEL and reel_size and first_break is not None and first_break < reel_size:
+        return Packaging.CUT_TAPE, None, True
+    return packaging, reel_size, False
 
 
 def infer(sku: str, moq: int, order_multiple: int, first_break: int | None = None) -> Packaging:

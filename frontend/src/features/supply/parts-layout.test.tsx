@@ -116,6 +116,24 @@ describe("the layouts", () => {
     expect(swatch).not.toBe(price);
   });
 
+  it("shows each vendor's first line and keeps its other lines a chevron away", () => {
+    const line = (sku: string, moq: number, packaging: string) => ({
+      connector_id: "dk", provider: "digikey", name: "DigiKey", sku, stock: 10, moq, packaging, currency: "EUR", price_breaks: [[moq, "0.5"]] as Array<[number, string]>,
+    });
+    const row = { ...part, offers: [line("A-1-ND", 1, "cut_tape"), line("A-6-ND", 1, "custom_reel"), line("A-2-ND", 3000, "tape_reel"), { ...part.offers![1], connector_id: "lc", name: "LCSC" }] };
+    render(<PartsTable layout="detailed" items={[row]} selectedId={null} onOpen={vi.fn()} />);
+    const vendors = screen.getByRole("table", { name: "Vendors of LM358" });
+    expect(within(vendors).getAllByText("DigiKey")).toHaveLength(1);
+    expect(within(vendors).queryByText("Custom reel")).toBeNull();
+    fireEvent.click(within(vendors).getByRole("button", { name: /Show 2 more/ }));
+    expect(within(vendors).getAllByText("DigiKey")).toHaveLength(3);
+    expect(within(vendors).getByText("Custom reel")).toBeTruthy();
+    fireEvent.click(within(vendors).getByRole("button", { name: /Show less/ }));
+    expect(within(vendors).getAllByText("DigiKey")).toHaveLength(1);
+    // A vendor with a single line has nothing to expand.
+    expect(within(vendors).getAllByRole("button", { name: /more|less/ })).toHaveLength(1);
+  });
+
   it("switches by two icons", () => {
     const change = vi.fn();
     render(<LayoutToggle layout="compact" onChange={change} />);

@@ -319,6 +319,9 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
     breaks, currency = _net_prices(figures.get("prices") or {})
     numbers = [str(item) for item in product.get("manufacturer_symbols") or [] if item]
     packaging, reel = _packing(product)
+    moq = max(parse_count(product.get("minimal_amount")) or 1, 1)
+    # The packing is how the maker ships it ("Reel", 3,000); what TME sells is told by where its price breaks start.
+    packaging, reel, inferred = packaging_hints.sold_as(packaging, reel, breaks[0].quantity if breaks else moq)
     return Offer(
         provider=KEY,
         sku=sku,
@@ -327,9 +330,10 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
         stock=stock,
         fetched_at=now,
         incoming=_incoming(figures),
-        moq=max(parse_count(product.get("minimal_amount")) or 1, 1),
+        moq=moq,
         order_multiple=max(parse_count(product.get("multiples")) or 1, 1),
         packaging=packaging,
+        packaging_inferred=inferred,
         reel_size=reel,
         price_breaks=breaks,
         currency=currency,

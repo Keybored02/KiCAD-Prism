@@ -35,6 +35,16 @@ class ChooseTests(unittest.TestCase):
         self.assertEqual(packaging_auto.choose_with_note([listing("T", "tray", 10), listing("B", "bulk", 100)], "cut_tape")[0]["id"], "T")
         self.assertEqual(packaging_auto.choose([listing("T", "tray", 10), listing("U", "tube", 5)], "tube_tray")["id"], "U")
 
+    def test_the_followed_listing_is_in_stock_then_the_smallest_order_then_the_cheapest(self) -> None:
+        from app.services.supply import packaging_auto
+
+        def stocked(sku: str, moq: int, stock: int, price: str) -> dict:
+            return {**listing(sku, "cut_tape", moq), "stock": stock, "price_breaks": [[moq, price]]}
+
+        self.assertEqual(packaging_auto.choose([stocked("A", 1, 0, "0.5"), stocked("B", 5, 100, "0.7")], "cut_tape")["id"], "B", "in stock first")
+        self.assertEqual(packaging_auto.choose([stocked("A", 5, 100, "0.5"), stocked("B", 1, 100, "0.7")], "cut_tape")["id"], "B", "then the smallest order")
+        self.assertEqual(packaging_auto.choose([stocked("A", 1, 100, "0.7"), stocked("B", 1, 100, "0.5")], "cut_tape")["id"], "B", "then the lowest price")
+
     def test_a_guessed_packaging_loses_to_a_stated_one(self) -> None:
         from app.services.supply import packaging_auto
 

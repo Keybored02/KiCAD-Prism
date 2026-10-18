@@ -23,12 +23,18 @@ def recorded(name: str) -> dict:
 
 
 class PackagingReadingTests(unittest.TestCase):
-    def test_lcsc_names_a_reel_and_its_size(self) -> None:
+    def test_lcsc_calls_it_cut_tape_when_it_sells_from_one_piece_though_the_standard_packaging_is_a_reel(self) -> None:
         from app.services.supply.providers import lcsc
 
         detail = next(call["answer"] for call in recorded("lcsc_live_74ahc1g09gv.json")["calls"] if call["path"] == "/ftps/wm/product/detail")
         offer = lcsc._offer(detail["result"] if "result" in detail else detail, NOW)  # noqa: SLF001
-        self.assertEqual((offer.packaging, offer.reel_size), (Packaging.TAPE_REEL, 3000))
+        # "Tape & Reel" is how the maker packs it; the price breaks start at one piece, so what is sold is cut tape.
+        self.assertEqual((offer.packaging, offer.reel_size, offer.packaging_inferred), (Packaging.CUT_TAPE, None, True))
+
+    def test_a_reel_is_only_a_reel_where_the_first_price_break_reaches_it(self) -> None:
+        self.assertEqual(packaging_hints.sold_as(Packaging.TAPE_REEL, 3000, 1), (Packaging.CUT_TAPE, None, True))
+        self.assertEqual(packaging_hints.sold_as(Packaging.TAPE_REEL, 3000, 3000), (Packaging.TAPE_REEL, 3000, False))
+        self.assertEqual(packaging_hints.sold_as(Packaging.TUBE, None, 1), (Packaging.TUBE, None, False))
 
     def test_tme_names_a_reel_and_its_size(self) -> None:
         from app.services.supply.providers import tme
