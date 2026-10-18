@@ -2,7 +2,7 @@ import type { PartHistory } from "@/types/supply";
 import { TOTAL_KEY } from "./part-history-model";
 import { vendorColor } from "./vendor-colors";
 
-/** The distributors drawn, each a switch with its latest figure; the part's total is one more on the stock chart. */
+/** The distributors drawn, each picks that line alone (a second click brings the rest back), with its latest figure; the part's total is one more on the stock chart. */
 export function HistoryLegend({ history, hidden, onToggle, withTotal, values }: {
   history: PartHistory;
   hidden: ReadonlySet<string>;

@@ -6,6 +6,7 @@ import type { PartForecast, PartHistory } from "@/types/supply";
 import { HistoryEvents, HistoryLegend } from "./history-legend";
 import { TIMEFRAMES } from "./part-history-model";
 import { getPartHistory } from "./supply-api";
+import { TOTAL_KEY } from "./part-history-model";
 import { useHidden } from "./use-hidden";
 import { useLoaded } from "./use-loaded";
 
@@ -19,7 +20,7 @@ export function PartHistoryDialog({ partId, threshold, forecast = null, onClose 
   const days = TIMEFRAMES.find((item) => item.id === timeframe)?.days ?? 90;
   const fetcher = useCallback((signal: AbortSignal) => getPartHistory(partId, days, signal), [partId, days]);
   const { data, status, error } = useLoaded<PartHistory>(`part-history:${partId}:${days}`, fetcher, "Could not load the history");
-  const { hidden, toggle } = useHidden();
+  const { hidden, pick } = useHidden();
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="w-[min(95vw,64rem)] sm:max-w-none">
@@ -46,7 +47,7 @@ export function PartHistoryDialog({ partId, threshold, forecast = null, onClose 
         {status === "error" ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         {data && data.connectors.length > 0 ? (
           <div className="space-y-3">
-            <HistoryLegend history={data} hidden={hidden} onToggle={toggle} withTotal />
+            <HistoryLegend history={data} hidden={hidden} onToggle={(key) => pick(key, [...data.connectors.map((line) => line.connector_id), TOTAL_KEY])} withTotal />
             <Suspense fallback={<div className="h-56" />}>
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Stock</p>
               <PartHistoryChart history={data} kind="stock" hidden={hidden} threshold={threshold} height="h-56" forecast={shownForecast} />

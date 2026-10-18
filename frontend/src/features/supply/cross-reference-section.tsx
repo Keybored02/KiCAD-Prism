@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
 import { addComponentSource, askSubstitutes, getCrossReference } from "./supply-api";
+import { FoldSection } from "./fold-section";
 import { SuggestionsList } from "./suggestions-list";
 import { formatStock } from "./supply-format";
 
@@ -27,10 +28,12 @@ async function propose(componentId: string, manufacturer: string, mpn: string) {
 export function CrossReferenceSection({ partId, canEdit }: { partId: string; canEdit: boolean }) {
   const [found, setFound] = useState<CrossReference | null>(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const look = async () => {
     setBusy(true);
     try {
       setFound(await getCrossReference(partId));
+      setOpen(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not look for alternatives");
     } finally {
@@ -44,6 +47,7 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
       if (reply.problems.length > 0) toast.error(reply.problems.map((problem) => problem.reason).join(" "));
       else toast.success(`${reply.found === 0 ? "DigiKey names no substitutes." : `DigiKey names ${reply.found} ${reply.found === 1 ? "substitute" : "substitutes"}.`}${reply.resolved ? ` ${reply.resolved} Mouser ${reply.resolved === 1 ? "number" : "numbers"} named.` : ""}`);
       setFound(await getCrossReference(partId));
+      setOpen(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not ask for substitutes");
     } finally {
@@ -51,14 +55,15 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
     }
   };
   return (
-    <section aria-label="Alternatives" className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alternatives</h3>
-        <span className="flex gap-1">
+    <FoldSection
+      title="Alternatives" open={open} onOpenChange={setOpen}
+      actions={(
+        <span className="ml-auto flex gap-1">
           {canEdit ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}
           <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void look()}>Find alternatives</Button>
         </span>
-      </div>
+      )}
+    >
       {found ? (
         <>
           <SuggestionsList suggestions={found.suggestions ?? []} componentId={found.component_id} canEdit={canEdit} onTracked={() => void look()} />
@@ -88,7 +93,7 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
           )}
           <p className="text-xs text-muted-foreground">Compared on {found.judged_on.map(label).join(", ") || "nothing"} as distributors list them. Footprint and pins are not compared: check them before approving.</p>
         </>
-      ) : null}
-    </section>
+      ) : <p className="text-xs text-muted-foreground">Nothing looked up yet.</p>}
+    </FoldSection>
   );
 }

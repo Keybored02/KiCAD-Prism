@@ -22,6 +22,15 @@ describe("the price section", () => {
     expect(screen.getByText(/Up 30% over 28 days, from/)).toBeTruthy();
   });
 
+  it("says which currency a price was converted from, not the price", () => {
+    render(<PriceTrend price={{
+      currency: "EUR", history, trend: null, quantity: 100, default: 100, own: false,
+      headline: { unit_price: "0.41", currency: "EUR", price_quantity: 100, price_kind: "orderable", price_lead_days: null, price_range: null, price_native: { price: "0.4491", currency: "USD" }, price_seen_day: null, price_unrated: [] },
+    }} />);
+    expect(screen.getByText("Converted from USD.")).toBeTruthy();
+    expect(screen.queryByText(/0[.,]4491/)).toBeNull();
+  });
+
   it("says nothing when the price has not moved", () => {
     render(<PriceTrend price={{ currency: "EUR", history, trend: { currency: "EUR", was: "1.3", now: "1.3", change_percent: 0, days: 7 } }} />);
     expect(screen.queryByText(/Unchanged/)).toBeNull();

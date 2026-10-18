@@ -329,6 +329,21 @@ describe("a part", () => {
     expect(within(sheet).queryByRole("heading", { name: "Parameters" })).toBeNull();
   });
 
+  it("puts the alert rules behind a bell, only for a watched part, and keeps the alternatives closed", async () => {
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    expect(await within(sheet).findByRole("button", { name: "Alert rules for this part" })).toBeTruthy();
+    expect(within(sheet).queryByRole("region", { name: "Alert rules" })).toBeNull();
+    const alternatives = within(sheet).getByRole("heading", { name: "Alternatives" }).closest("[data-slot='collapsible']")!;
+    expect(alternatives.getAttribute("data-state")).toBe("closed");
+    expect(within(alternatives as HTMLElement).getByRole("button", { name: "Find alternatives" })).toBeTruthy();
+    cleanup();
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ watch: null }));
+    renderView("designer", "/?part=p1");
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Alert rules for this part" })).toBeNull());
+  });
+
   it("closes on one Escape, even with a hover popover open", async () => {
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");

@@ -46,14 +46,19 @@ describe("the history rows", () => {
 });
 
 describe("the history on the part sheet", () => {
-  it("shows a legend that switches a distributor off, and opens the chart larger", async () => {
+  it("shows a legend where a click isolates a distributor and a second click brings the rest back, and opens the chart larger", async () => {
     vi.mocked(api.getPartHistory).mockResolvedValue(HISTORY);
     render(<PartHistoryPanel kind="stock" partId="p1" history={HISTORY} threshold={null} />);
     const digikey = await screen.findByRole("button", { name: /DigiKey/ });
     expect(digikey.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(digikey);
-    expect(digikey.getAttribute("aria-pressed")).toBe("false");
     const mouser = screen.getByRole("button", { name: /Mouser/ });
+    const total = screen.getByRole("button", { name: /Counted in total/ });
+    fireEvent.click(digikey);
+    expect([digikey, mouser, total].map((item) => item.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+    fireEvent.click(mouser);
+    expect([digikey, mouser, total].map((item) => item.getAttribute("aria-pressed"))).toEqual(["false", "true", "false"]);
+    fireEvent.click(mouser);
+    expect([digikey, mouser, total].map((item) => item.getAttribute("aria-pressed"))).toEqual(["true", "true", "true"]);
     expect(mouser.textContent).not.toContain("not read lately");
     expect(mouser.textContent).toContain("10");
     expect(mouser.getAttribute("title")).toContain("Not read for longer");

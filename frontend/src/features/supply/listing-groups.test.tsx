@@ -55,6 +55,16 @@ describe("the part's listings by distributor", () => {
     expect(within(digikey).getAllByText("DigiKey")).toHaveLength(1);
   });
 
+  it("makes the followed listing blue and the ones that could be followed grey", () => {
+    renderGroups();
+    const digikey = screen.getByRole("region", { name: "DigiKey listings" });
+    expect(within(digikey).getByRole("img", { name: "Followed" }).className).toContain("bg-primary");
+    fireEvent.click(within(digikey).getByRole("button", { name: /Show 1 more/ }));
+    const follow = within(digikey).getByRole("button", { name: "Follow this instead" });
+    expect(follow.className).toContain("text-muted-foreground");
+    expect(follow.className).not.toContain("bg-primary");
+  });
+
   it("shows a distributor's first listing and keeps the others behind Show more", () => {
     renderGroups();
     const digikey = screen.getByRole("region", { name: "DigiKey listings" });

@@ -26,7 +26,7 @@ export function ReadNowButton({ partId, onRead }: { partId: string; onRead: () =
   };
 
   return (
-    <Button size="sm" variant="outline" disabled={busy} onClick={() => void run()} title="Ask the distributors for this part's stock and price now">
+    <Button size="default" variant="outline" disabled={busy} onClick={() => void run()} title="Ask the distributors for this part's stock and price now">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
       Read now
     </Button>

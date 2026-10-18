@@ -2,7 +2,6 @@ import { canReviewSupply } from "@/lib/roles";
 
 import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
-import { AlertRulesSection } from "./alert-rules-section";
 import { CoverageSummary } from "./coverage-note";
 import { CrossReferenceSection } from "./cross-reference-section";
 import { ReadNowButton } from "./read-now-button";
@@ -46,7 +45,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       <section aria-label="Stock" className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
+          <p className="flex h-8 items-center gap-1.5 text-2xl font-semibold leading-none tabular-nums">
             {formatStock(detail.stock.total)}
             {trend || restock ? (
               <HoverDetails label="Show the stock trend and restock promises">
@@ -88,8 +87,6 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       </FoldSection>
 
       <CrossReferenceSection partId={detail.part.id} canEdit={canEdit} />
-
-      {detail.watch ? <AlertRulesSection partId={detail.part.id} canEdit={canEdit} /> : null}
 
       {detail.alternate_for && detail.alternate_for.length > 0 ? (
         <section aria-label="Approved alternate for" className="space-y-1">

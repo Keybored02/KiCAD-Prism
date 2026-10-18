@@ -25,6 +25,11 @@ function ChartButton({ kind, label, onOpen, children }: { kind: HistoryKind; lab
   );
 }
 
+/** Every key the legend lists: the distributors drawn, and the total on the stock chart. */
+function legendKeys(history: PartHistory, withTotal: boolean): string[] {
+  return [...history.connectors.map((line) => line.connector_id), ...(withTotal ? [TOTAL_KEY] : [])];
+}
+
 /** The latest figure of each line: its stock, or its price in the base currency. */
 function latest(history: PartHistory, kind: "stock" | "price"): Record<string, string> {
   const out: Record<string, string> = {};
@@ -48,7 +53,7 @@ export function PartHistoryPanel({ partId, history, kind, threshold = null, fore
   threshold?: number | null;
   forecast?: PartForecast | null;
 }) {
-  const { hidden, toggle } = useHidden();
+  const { hidden, pick } = useHidden();
   const [opened, setOpened] = useState<HistoryKind | null>(null);
   const drawn = history ? { ...history, connectors: history.connectors.filter((line) => kind === "stock" || line.price.length > 0) } : null;
   if (!history || !drawn || drawn.connectors.length === 0) {
@@ -56,7 +61,7 @@ export function PartHistoryPanel({ partId, history, kind, threshold = null, fore
   }
   return (
     <div className="space-y-2">
-      <HistoryLegend history={drawn} hidden={hidden} onToggle={toggle} withTotal={kind === "stock"} values={latest(drawn, kind)} />
+      <HistoryLegend history={drawn} hidden={hidden} onToggle={(key) => pick(key, legendKeys(drawn, kind === "stock"))} withTotal={kind === "stock"} values={latest(drawn, kind)} />
       <ChartButton kind={kind} label={`Open the ${kind} history larger`} onOpen={setOpened}>
         <Suspense fallback={<div className={kind === "stock" ? "h-44" : "h-36"} />}>
           <PartHistoryChart history={history} kind={kind} hidden={hidden} threshold={kind === "stock" ? threshold : undefined} height={kind === "stock" ? undefined : "h-36"} forecast={forecast} />
