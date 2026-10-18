@@ -25,6 +25,8 @@ interface PartsTableProps {
 }
 
 export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact" }: PartsTableProps) {
+  // The detailed layout gives stock, price and vendors a row each below the part.
+  const detailed = layout === "detailed";
   return (
     <div className={cn("border", !stickyHead && "overflow-x-auto")}>
       <table className="w-full text-sm">
@@ -60,7 +62,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 <RateAndLead part={part} />
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
-                {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
+                {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
                 {part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
                 {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
                   ? <RowRunout part={part} state={forecastState.runout} />
@@ -68,15 +70,19 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
-                <PriceCell part={part} />
-                <div className="flex justify-end pt-0.5"><DistributorSquares part={part} /></div>
+                {detailed ? null : (
+                  <>
+                    <PriceCell part={part} />
+                    <div className="flex justify-end pt-0.5"><DistributorSquares part={part} /></div>
+                  </>
+                )}
               </td>
               <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
               <td className="px-3 py-2">
                 <span className="flex items-center gap-2">{part.watch || part.tier ? <TrackedIcon tier={part.tier ? TIER_NUMBER[part.tier] : null} /> : null}<RowFlags flags={part.flags} /></span>
               </td>
             </tr>
-            {layout === "detailed" ? (
+            {detailed ? (
               <tr className={cn("cursor-pointer hover:bg-muted/30", selectedId === part.id && "bg-muted/60")} onClick={() => onOpen(part.id)}>
                 <td />
                 <td colSpan={5} className="px-3 pb-3"><PartOfferRows part={part} /></td>

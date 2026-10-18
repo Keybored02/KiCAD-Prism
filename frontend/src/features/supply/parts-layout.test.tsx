@@ -37,6 +37,17 @@ describe("the layouts", () => {
     expect(screen.queryByRole("table", { name: "Vendors of LM358" })).toBeNull();
   });
 
+  it("leaves the part's own row without stock, price and vendor swatches when detailed", () => {
+    const withSwatch = partRowFixture({ mpn: "LM358", stock: 777, distributors: [{ connector_id: "c1", provider: "mouser", name: "Mouser", stock: 5 }] });
+    render(<PartsTable layout="detailed" items={[withSwatch]} selectedId={null} onOpen={vi.fn()} />);
+    expect(screen.queryByText("777")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mouser: 5 in stock/ })).toBeNull();
+    cleanup();
+    render(<PartsTable items={[withSwatch]} selectedId={null} onOpen={vi.fn()} />);
+    expect(screen.getByText("777")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Mouser: 5 in stock/ })).toBeTruthy();
+  });
+
   it("shows a row for each vendor with stock, minimum order, packaging and prices when detailed", () => {
     render(<PartsTable layout="detailed" items={[part]} selectedId={null} onOpen={vi.fn()} />);
     const vendors = screen.getByRole("table", { name: "Vendors of LM358" });
