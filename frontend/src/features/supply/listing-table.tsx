@@ -1,4 +1,4 @@
-import { Eye } from "lucide-react";
+import { Check, Eye } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,8 +57,8 @@ export function ListingTable({
                   </Badge>
                 ) : null}
                 {listing.match_state === "near" && canDecide ? (
-                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy} onClick={() => void run(async () => { await pinSupplyListing(listing.id); onChanged?.(); })}>
-                    This is the same part
+                  <Button size="sm" className="h-6 gap-1 px-2 text-xs" disabled={busy} onClick={() => void run(async () => { await pinSupplyListing(listing.id); onChanged?.(); })}>
+                    <Check className="h-3 w-3" />This is the same part
                   </Button>
                 ) : null}
                 {offer?.marketplace ? <Badge variant="outline">{listing.provider === "jlcpcb" ? "Assembly stock" : "Marketplace"}</Badge> : null}
@@ -95,10 +95,9 @@ export function ListingTable({
 /** Why a listing is not counted, in the words of what differs: the maker, or the number the distributor lists it under. */
 function notCountedText(listing: SupplyListing): string {
   if (listing.match_state !== "near") return `${matchLabel(listing.match_state)}, not counted`;
-  const number = listing.raw_mpn ? ` (${listing.raw_mpn})` : "";
   const reason = listing.match_reason ?? "";
-  if (reason === "different part number") return `Different part number${number}, not counted`;
-  if (reason === "longer number") return `Longer number${number}, not counted`;
+  if (reason === "different part number") return "Different part number, not counted";
+  if (reason === "longer number") return "Longer number, not counted";
   return listing.raw_manufacturer ? `Other maker: ${listing.raw_manufacturer}` : `${matchLabel(listing.match_state)}, not counted`;
 }
 

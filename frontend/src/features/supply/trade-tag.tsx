@@ -81,7 +81,7 @@ export function TradeTag({ partId, trade, canEdit, onChanged, show = "both" }: {
   return (
     <>
       {words ? (
-        <Badge variant={trade.control === "controlled" ? "warning" : "info"} title={trade.mark ? `Set by ${trade.mark.set_by}` : "What distributors state"}>
+        <Badge variant={trade.control === "controlled" ? "warning" : "info"} title={trade.mark ? `Set by ${trade.mark.set_by}` : trade.control === "disputed" ? `Distributors give different export control classes${trade.eccn.length > 0 ? ` (${trade.eccn.join(", ")})` : ""}. Set the right one with the export control button.` : "What distributors state"}>
           {words}{trade.mark ? " (set by a person)" : ""}
         </Badge>
       ) : null}

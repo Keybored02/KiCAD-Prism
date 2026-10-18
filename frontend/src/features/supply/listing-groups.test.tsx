@@ -52,7 +52,7 @@ describe("the part's listings by distributor", () => {
       page_url: "https://www.lcsc.com/product-detail/C42411.html",
     };
     render(<MemoryRouter><ListingGroups detail={partDetailFixture({ listings: [near] })} canDecide canTrack onChanged={vi.fn()} /></MemoryRouter>);
-    expect(screen.getByText("Different part number (912-121A1027D10200), not counted")).toBeTruthy();
+    expect(screen.getByText("Different part number, not counted")).toBeTruthy();
     expect(screen.queryByText(/Other maker/)).toBeNull();
     expect(screen.getByRole("link", { name: "Open LCSC product page" }).getAttribute("href")).toBe("https://www.lcsc.com/product-detail/C42411.html");
   });
