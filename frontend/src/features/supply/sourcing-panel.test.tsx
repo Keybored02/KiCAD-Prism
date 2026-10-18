@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("the Sourcing tab", () => {
+describe("the Supply tab", () => {
   it("shows the tracked part the way the part sheet does, with a link into Supply", async () => {
     renderPanel();
     expect(await screen.findByRole("region", { name: "Stock" })).toBeTruthy();

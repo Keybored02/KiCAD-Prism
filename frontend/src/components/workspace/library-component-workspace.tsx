@@ -134,7 +134,7 @@ const COMPONENT_TABS: Array<{ id: ComponentTab; label: string; icon: typeof Boxe
   { id: "revisions", label: "Revisions / Compare", icon: GitCompareArrows },
   { id: "review", label: "Release Review", icon: UserRoundCheck },
   { id: "usage", label: "Where Used", icon: Link2 },
-  { id: "sourcing", label: "Sourcing", icon: SupplyNavIcon },
+  { id: "sourcing", label: "Supply", icon: SupplyNavIcon },
   { id: "audit", label: "Audit", icon: ShieldCheck },
 ];
 
@@ -1115,7 +1115,7 @@ export function LibraryComponentWorkspace({
             </EvidenceBoundary>
           ) : null}
           {activeTab === "sourcing" ? (
-            <Suspense fallback={<Skeleton className="h-40 w-full" aria-label="Loading sourcing" />}>
+            <Suspense fallback={<Skeleton className="h-40 w-full" aria-label="Loading supply" />}>
               <SourcingPanel componentId={activeComponent.id} manufacturer={activeComponent.manufacturer} mpn={activeComponent.mpn} user={user} />
             </Suspense>
           ) : null}

@@ -30,9 +30,11 @@ interface PartDetailSectionsProps {
   canEdit: boolean;
   role: UserRole | null | undefined;
   onChanged: () => Promise<void>;
+  /** Room for two columns: stock beside price, and the listings side by side. */
+  wide?: boolean;
 }
 
-export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDetailSectionsProps) {
+export function PartDetailSections({ detail, canEdit, role, onChanged, wide = false }: PartDetailSectionsProps) {
   // The forecast is made at the part's price quantity.
   const forecast = usePartForecast(detail.part.id, null, detail.price.quantity);
   const history = usePartHistory(detail.part.id);
@@ -42,6 +44,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
   return (
     <div className="space-y-6">
 
+      <div className={wide ? "grid items-start gap-6 md:grid-cols-2" : "space-y-6"}>
       <section aria-label="Stock" className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -68,6 +71,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       >
         <PartHistoryPanel kind="price" partId={detail.part.id} history={history.data} forecast={forecast.data} />
       </PriceTrend>
+      </div>
 
       {forecast.data ? (
         <FoldSection title="Forecast">
@@ -83,7 +87,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         title={`Listings (${detail.listings.length})`} startOpen
         actions={detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
       >
-        <ListingGroups detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
+        <ListingGroups wide={wide} detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
       </FoldSection>
 
       <CrossReferenceSection partId={detail.part.id} canEdit={canEdit} />

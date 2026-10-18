@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -7,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { AvlSection } from "./avl-section";
+import { PartActions } from "./part-actions";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
@@ -21,7 +23,7 @@ interface SourcingPanelProps {
 }
 
 /**
- * The Sourcing tab of a catalog component: what the distributors hold for its manufacturer part.
+ * The Supply tab of a catalog component: what the distributors hold for its manufacturer part.
  * A component without a manufacturer part number has nothing to look up.
  */
 export default function SourcingPanel({ componentId, manufacturer, mpn, user }: SourcingPanelProps) {
@@ -97,6 +99,7 @@ function Tracked({ partId, user }: { partId: string; user: User | null }) {
   if (part.status === "loading") return <Skeleton className="h-40 w-full" aria-label="Loading the part" />;
   if (part.status === "error" || !part.data) return <Failure message={part.error} onRetry={part.retry} />;
   const detail = part.data;
+  const canEdit = canEditSupply(user?.role);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -104,11 +107,16 @@ function Tracked({ partId, user }: { partId: string; user: User | null }) {
           <StatusDot status={detail.status} />
           <span className="font-medium">{STATUS_LABEL[detail.status]}</span>
         </div>
-        <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(partId)}`} className="text-xs text-primary hover:underline">
-          Open in Supply
-        </Link>
+        <span className="flex items-center gap-1">
+          <PartActions detail={detail} canEdit={canEdit} onChanged={part.refresh} />
+          <Button asChild size="icon" variant="outline" className="h-8 w-8 shrink-0">
+            <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(partId)}`} aria-label="Open in Supply" title="Open in Supply">
+              <ExternalLink className="h-4 w-4" />
+            </Link>
+          </Button>
+        </span>
       </div>
-      <PartDetailSections detail={detail} canEdit={canEditSupply(user?.role)} role={user?.role} onChanged={part.refresh} />
+      <PartDetailSections detail={detail} canEdit={canEdit} role={user?.role} onChanged={part.refresh} wide />
     </div>
   );
 }

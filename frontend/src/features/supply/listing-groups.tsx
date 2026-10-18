@@ -46,8 +46,8 @@ function groupsOf(listings: SupplyListing[], preferred: string | null | undefine
 
 /** The part's listings grouped by distributor. Each group can be made the preferred one; one with several listings says which is followed. */
 export function ListingGroups({
-  detail, canDecide, canTrack, onChanged,
-}: { detail: SupplyPartDetail; canDecide: boolean; canTrack: boolean; onChanged: () => Promise<void> | void }) {
+  detail, canDecide, canTrack, onChanged, wide = false,
+}: { detail: SupplyPartDetail; canDecide: boolean; canTrack: boolean; onChanged: () => Promise<void> | void; wide?: boolean }) {
   const { busy, error, run } = useConnectorSubmit();
   const [asking, setAsking] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -75,6 +75,7 @@ export function ListingGroups({
           <Button size="sm" variant="outline" disabled={busy} onClick={() => setAsking(true)}>One per distributor</Button>
         </div>
       ) : null}
+      <div className={wide ? "grid items-start gap-2 md:grid-cols-2" : "space-y-2"}>
       {groups.map((group) => {
         const isPreferred = group.connectorId === preferred;
         const followedId = detail.packaging?.picks[group.connectorId] ?? null;
@@ -112,6 +113,7 @@ export function ListingGroups({
           </section>
         );
       })}
+      </div>
       {asking ? <OnePerDistributor partId={partId} onClose={() => setAsking(false)} onDone={onChanged} /> : null}
     </div>
   );

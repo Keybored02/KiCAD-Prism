@@ -10,9 +10,7 @@ import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
-import { AlertPopover } from "./alert-popover";
-import { DatasheetLink } from "./datasheet-link";
-import { WatchPopover } from "./watch-popover";
+import { PartActions } from "./part-actions";
 import { LibraryComponentLink } from "./library-component-link";
 import { LIFECYCLE_BADGE } from "./lifecycle-tone";
 import { JlcIcon } from "./supply-icons";
@@ -99,9 +97,7 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
             <UsedInLinks uses={detail.used_in} />
           </div>
           <span className="flex shrink-0 items-center gap-1">
-            {detail.watch && canEdit ? <AlertPopover partId={detail.part.id} canEdit={canEdit} /> : null}
-            <WatchPopover detail={detail} canEdit={canEdit} onChanged={onChanged} />
-            <DatasheetLink partId={detail.part.id} />
+            <PartActions detail={detail} canEdit={canEdit} onChanged={onChanged} />
             <LibraryComponentLink partId={detail.part.id} />
           </span>
         </div>
