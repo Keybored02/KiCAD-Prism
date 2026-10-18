@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,8 +42,9 @@ describe("the projects tab", () => {
     mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM324" })], total: 3, limit: 50 });
     render(<MemoryRouter><ProjectsView user={designer} /></MemoryRouter>);
     const power = await screen.findByRole("button", { name: /Power board/ });
-    expect(within(power).getByText("Tracked · base + 2 variants · cut tape")).toBeTruthy();
-    expect(within(power).getByText("3 parts · 1 at risk · 2 one distributor · 1 run out < 2 w")).toBeTruthy();
+    expect(within(power).queryByText(/Tracked ·/)).toBeNull();
+    expect(within(power).queryByText(/3 parts ·/)).toBeNull();
+    expect(within(power).getByRole("img", { name: "Parts by status" })).toBeTruthy();
     expect(within(power).getByText(/a board ▲ 3% in 30 d · can build 120 · BOM read .* · 2 open alerts/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open Power board's supply" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
     expect(screen.queryByRole("button", { name: /Not in a project/ }), "parts in no project belong to the Parts tab").toBeNull();
@@ -57,5 +58,10 @@ describe("the projects tab", () => {
     mocked.listSupplyPartGroups.mockResolvedValue({ groups: [], total: 0 });
     render(<MemoryRouter><ProjectsView user={designer} /></MemoryRouter>);
     expect(await screen.findByText("No project uses a part Prism knows yet")).toBeTruthy();
+  });
+
+  it("narrows the projects' parts to one lifecycle", async () => {
+    render(<MemoryRouter initialEntries={["/?projOnly=lifecycle_obsolete"]}><ProjectsView user={null} /></MemoryRouter>);
+    await waitFor(() => expect(mocked.listSupplyPartGroups).toHaveBeenCalledWith("in_use", "", expect.anything(), "lifecycle_obsolete"));
   });
 });

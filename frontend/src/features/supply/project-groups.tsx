@@ -2,8 +2,7 @@ import type { SupplyPartGroup, SupplyStatus, PartsFilter, PartsScope } from "@/t
 import { CollapsibleSection } from "./collapsible-section";
 import { LoadMore } from "./load-more";
 import { PartsTable } from "./parts-table";
-import { OpenProjectButton, ProjectRowSummary } from "./project-row-summary";
-import { trackedLine } from "./project-row-text";
+import { OpenProjectButton, ProjectRowSummary, StatusBar } from "./project-row-summary";
 import { StatusDot } from "./status-dot";
 import { useSupplyPartsFeed } from "./use-supply-parts";
 
@@ -31,7 +30,7 @@ function GroupParts({ projectId, scope, query, only, selectedId, onOpen }: Shown
 function StatusChips({ group }: { group: SupplyPartGroup }) {
   return (
     <span className="flex items-center gap-2">
-      {group.tracked ? <span className="bg-secondary px-2 py-0.5 text-xs">{trackedLine(group)}</span> : null}
+      <StatusBar group={group} />
       {WORST_FIRST.filter((status) => (group.statuses[status] ?? 0) > 0).map((status) => (
         <span key={status} className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
           <StatusDot status={status} className="h-2 w-2" />{group.statuses[status]}

@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { Eye, PackageSearch, Upload, X } from "lucide-react";
+import { Eye, PackageSearch, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
@@ -16,42 +15,14 @@ import type { PartsFilter, PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
 import { refreshSupplyUsage } from "./supply-api";
+import { LifecycleSelect, ActiveFilterChip } from "./lifecycle-filter";
 import { LoadMore } from "./load-more";
+import { filterFromParam } from "./parts-filters";
 import { PartsTable } from "./parts-table";
 import { useSupplyPartsFeed } from "./use-supply-parts";
 import { SearchBox } from "./search-box";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { WatchPartDialog } from "./watch-part-dialog";
-
-const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
-  at_risk: "At risk",
-  out_of_stock: "Out of stock",
-  lifecycle: "End of life",
-  runs_out_2w: "Runs out within 2 weeks",
-  runs_out_8w: "Runs out in 2 to 8 weeks",
-  runs_out_later: "Runs out later",
-  steady: "Steady or rising",
-  few_readings: "Too few readings",
-  draining: "Draining",
-  restock_late: "Restock overdue",
-  often_out: "Often out of stock",
-  one_distributor: "One distributor holds it",
-  lead_up: "Lead time growing",
-  unusual_drop: "Unusual drop",
-  price_moving: "Price moving",
-  likely_out_4w: "Likely out within 4 weeks",
-  likely_out_8w: "Likely out within 8 weeks",
-  lifecycle_active: "Active",
-  lifecycle_nrnd: "Not recommended for new designs",
-  lifecycle_last_time_buy: "Last time buy",
-  lifecycle_obsolete: "Obsolete",
-  lifecycle_unknown: "Lifecycle unknown",
-};
-
-/** The lifecycle menu: any ending part first, then each state on its own. */
-const LIFECYCLE_FILTERS = ["lifecycle", "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown"] as const;
-const ANY = "any";
-
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "followed", label: "Tracked and in projects" },
@@ -70,8 +41,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const requestedScope = searchParams.get("partsScope");
   const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "followed";
   const query = searchParams.get("partsQ") ?? "";
-  const requestedOnly = searchParams.get("partsOnly");
-  const only: PartsFilter = requestedOnly && requestedOnly in FILTER_LABEL ? (requestedOnly as PartsFilter) : "";
+  const only = filterFromParam(searchParams.get("partsOnly"));
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
   const openPart = active ? searchParams.get("part") : null;
   const canEdit = canEditSupply(user?.role);
@@ -129,25 +99,9 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               </Button>
             ))}
           </div>
-          <Select
-            value={LIFECYCLE_FILTERS.some((item) => item === only) ? only : ANY}
-            onValueChange={(next) => setParams({ partsOnly: next === ANY ? null : next })}
-          >
-            <SelectTrigger size="sm" className="w-56" aria-label="Lifecycle">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY}>Any lifecycle</SelectItem>
-              <SelectItem value="lifecycle">Ending (not active)</SelectItem>
-              {LIFECYCLE_FILTERS.filter((item) => item !== "lifecycle").map((item) => <SelectItem key={item} value={item}>{FILTER_LABEL[item]}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <LifecycleSelect only={only} onChange={(next) => setParams({ partsOnly: next })} />
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
-          {only && !LIFECYCLE_FILTERS.some((item) => item === only) ? (
-            <Button size="sm" variant="secondary" onClick={() => setParams({ partsOnly: null })} aria-label={`Showing only ${FILTER_LABEL[only]}. Show all`}>
-              {FILTER_LABEL[only]}<X className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
+          <ActiveFilterChip only={only} onClear={() => setParams({ partsOnly: null })} />
         </div>
         <div className="themed-scrollbar min-h-0 flex-1 space-y-5 overflow-auto">
 

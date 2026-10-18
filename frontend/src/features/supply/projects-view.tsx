@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { ActiveFilterChip, LifecycleSelect } from "./lifecycle-filter";
+import { filterFromParam } from "./parts-filters";
 import { PartSheet } from "./part-sheet";
 import { PartGroups } from "./project-groups";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
@@ -17,7 +19,8 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("projQ") ?? "";
   const openPart = active ? searchParams.get("part") : null;
-  const loaded = useSupplyPartGroups("in_use", query, "");
+  const only = filterFromParam(searchParams.get("projOnly"));
+  const loaded = useSupplyPartGroups("in_use", query, only);
   const groups = (loaded.data?.groups ?? []).filter((group) => group.project_id !== "none");
   const setParams = (changes: Record<string, string | null>) => {
     setSearchParams((current) => {
@@ -31,9 +34,13 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
   };
 
   return (
-    <div className="relative h-full overflow-y-auto p-4">
+    <div className="themed-scrollbar relative h-full overflow-y-auto p-4">
       <div className="space-y-5">
-        <SearchBox key={query} initial={query} onSearch={(text) => setParams({ projQ: text })} label="Search projects" placeholder="Part number or manufacturer" />
+        <div className="flex flex-wrap items-center gap-3">
+          <LifecycleSelect only={only} onChange={(next) => setParams({ projOnly: next })} />
+          <SearchBox key={query} initial={query} onSearch={(text) => setParams({ projQ: text })} label="Search projects" placeholder="Part number or manufacturer" />
+          <ActiveFilterChip only={only} onClear={() => setParams({ projOnly: null })} />
+        </div>
 
         {loaded.status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading projects" /> : null}
         {loaded.status === "error" ? (
@@ -48,15 +55,15 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
           groups.length === 0 ? (
             <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
               <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium">{query ? "No project matches" : "No project uses a part Prism knows yet"}</p>
-              {!query && canEditSupply(user?.role) ? <ReadProjectBomsButton /> : null}
+              <p className="text-sm font-medium">{query || only ? "No project matches" : "No project uses a part Prism knows yet"}</p>
+              {!query && !only && canEditSupply(user?.role) ? <ReadProjectBomsButton /> : null}
             </div>
           ) : (
             <PartGroups
               groups={groups}
               scope="in_use"
               query={query}
-              only=""
+              only={only}
               selectedId={openPart}
               onOpen={(partId) => setParams({ part: partId })}
             />

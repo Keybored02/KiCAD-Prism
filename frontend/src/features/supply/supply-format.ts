@@ -8,6 +8,15 @@ export const STATUS_LABEL: Record<SupplyStatus, string> = {
   unknown: "No data",
 };
 
+/** The fill of a status dot or bar: critical red, at risk orange, needs attention yellow. */
+export const STATUS_FILL: Record<SupplyStatus, string> = {
+  ok: "bg-success",
+  warning: "bg-yellow-400",
+  error: "bg-orange-500",
+  fatal: "bg-destructive",
+  unknown: "bg-muted-foreground/40",
+};
+
 export const LIFECYCLE_LABEL: Record<SupplyLifecycle, string> = {
   active: "Active",
   nrnd: "Not recommended for new designs",
