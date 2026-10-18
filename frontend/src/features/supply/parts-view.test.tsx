@@ -81,6 +81,14 @@ describe("the parts list", () => {
     expect(search()).not.toContain("partsOnly");
   });
 
+  it("filters by one lifecycle from the menu", async () => {
+    renderView("designer", "/?section=supply");
+    fireEvent.click(await screen.findByRole("combobox", { name: "Lifecycle" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Obsolete" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.anything(), "lifecycle_obsolete", 0, 50, ""));
+    expect(search()).toContain("partsOnly=lifecycle_obsolete");
+  });
+
   it("shows each part with its status, stock, price and lifecycle", async () => {
     renderView();
     const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;
@@ -90,7 +98,7 @@ describe("the parts list", () => {
     expect(within(row).getByText(/0\.52/)).toBeTruthy();
     expect(within(row).queryByRole("img", { name: "Active" })).toBeNull();
     expect(within(row).queryByRole("img", { name: "Read 2 h ago" })).toBeNull();
-    expect(within(row).getByRole("img", { name: "Tracked" })).toBeTruthy();
+    expect(within(row).getByRole("img", { name: "Tracked, tier 1" })).toBeTruthy();
     expect(screen.getByText("1 part")).toBeTruthy();
     expect(mocked.listSupplyParts).toHaveBeenCalledWith("followed", "", expect.anything(), "", 0, 50, "");
   });
@@ -434,7 +442,9 @@ describe("the watch settings", () => {
     );
     fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
     await waitFor(() => expect(mocked.listSupplyManufacturers).toHaveBeenCalled());
-    await waitFor(() => expect(document.querySelector("#watch-manufacturer-options option[value='Texas Instruments']")).not.toBeNull());
+    fireEvent.change(await screen.findByLabelText("Manufacturer (optional)"), { target: { value: "texas" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Texas Instruments" }));
+    expect((screen.getByLabelText("Manufacturer (optional)") as HTMLInputElement).value).toBe("Texas Instruments");
     expect(container).toBeTruthy();
   });
 

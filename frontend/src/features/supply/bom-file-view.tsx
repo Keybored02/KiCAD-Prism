@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type DragEvent } from "react";
+import { FileSpreadsheet, Upload } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import type { SupplyBomLookup } from "@/types/supply";
 import { rollupSentences } from "./bom-rollup-text";
 import {
@@ -32,6 +35,7 @@ export function BomFileView() {
   const [build, setBuild] = useState(1);
   const [lookup, setLookup] = useState<SupplyBomLookup | null>(null);
   const { busy, error, run } = useConnectorSubmit();
+  const [dragging, setDragging] = useState(false);
 
   const columns = rows[0]?.map((name, index) => ({ id: `column-${index}`, index, name: header ? name.trim() || `Column ${index + 1}` : `Column ${index + 1}` })) ?? [];
   const body = header ? rows.slice(1) : rows;
@@ -50,19 +54,41 @@ export function BomFileView() {
     if (parsed.length > 0) setMapping(guessMapping(parsed[0]));
   };
 
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (file) void choose(file);
+  };
+
   const check = () => run(async () => {
     setLookup(await lookupSupplyBom(built.lines.map(lineInput), build));
   });
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <Label htmlFor="bom-file">BOM file (CSV, semicolon or tab separated)</Label>
-        <input id="bom-file" type="file" accept=".csv,.tsv,.txt,text/csv" className="block text-sm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void choose(file); }} />
+      <div
+        data-testid="bom-drop-zone"
+        className={cn(
+          "flex flex-col items-center gap-2 border border-dashed px-6 py-8 text-center transition-colors",
+          dragging ? "border-primary bg-primary/5" : "bg-muted/20",
+        )}
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={drop}
+      >
+        <Upload className="h-8 w-8 text-muted-foreground" />
+        <p className="text-sm font-medium">{dragging ? "Drop the file to read it" : "Drop a BOM file here"}</p>
+        <p className="text-xs text-muted-foreground">CSV, semicolon or tab separated, up to 2 MB.</p>
+        <input id="bom-file" type="file" accept=".csv,.tsv,.txt,text/csv" className="sr-only" aria-label="BOM file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void choose(file); event.target.value = ""; }} />
+        <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById("bom-file")?.click()}>
+          <FileSpreadsheet className="h-4 w-4" />Choose file
+        </Button>
+        {fileName ? <p className="text-xs text-muted-foreground">{fileName}</p> : null}
       </div>
       {rows.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">{fileName}: {body.length.toLocaleString()} rows{rows.length > MAX_FILE_ROWS ? ` (only the first ${MAX_FILE_ROWS.toLocaleString()} are read)` : ""}.</p>
+          <p className="text-xs text-muted-foreground">{body.length.toLocaleString()} rows{rows.length > MAX_FILE_ROWS ? ` (only the first ${MAX_FILE_ROWS.toLocaleString()} are read)` : ""}.</p>
           <div className="flex items-center gap-2">
             <Checkbox id="bom-header" checked={header} onCheckedChange={(value) => { setHeader(value === true); setLookup(null); }} />
             <Label htmlFor="bom-header" className="font-normal">The first row is a header</Label>

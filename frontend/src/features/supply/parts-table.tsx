@@ -8,6 +8,8 @@ import { PriceCell } from "./price-cell";
 import { RowRunout } from "./part-row-forecast";
 import { JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
 
+const TIER_NUMBER = { daily: 1, weekly: 2, monthly: 2 } as const;
+
 interface PartsTableProps {
   items: SupplyPartRow[];
   selectedId: string | null;
@@ -66,7 +68,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState }: PartsTa
               </td>
               <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
               <td className="px-3 py-2">
-                <span className="flex items-center gap-2">{part.watch ? <TrackedIcon /> : null}<RowFlags flags={part.flags} /></span>
+                <span className="flex items-center gap-2">{part.watch || part.tier ? <TrackedIcon tier={part.tier ? TIER_NUMBER[part.tier] : null} /> : null}<RowFlags flags={part.flags} /></span>
               </td>
             </tr>
           ))}

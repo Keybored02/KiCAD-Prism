@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { Eye, FileSpreadsheet, PackageSearch, X } from "lucide-react";
+import { Eye, PackageSearch, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
@@ -42,7 +43,17 @@ const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
   price_moving: "Price moving",
   likely_out_4w: "Likely out within 4 weeks",
   likely_out_8w: "Likely out within 8 weeks",
+  lifecycle_active: "Active",
+  lifecycle_nrnd: "Not recommended for new designs",
+  lifecycle_last_time_buy: "Last time buy",
+  lifecycle_obsolete: "Obsolete",
+  lifecycle_unknown: "Lifecycle unknown",
 };
+
+/** The lifecycle menu: any ending part first, then each state on its own. */
+const LIFECYCLE_FILTERS = ["lifecycle", "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown"] as const;
+const ANY = "any";
+
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "followed", label: "Tracked and in projects" },
@@ -92,7 +103,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
     <>
       {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
       <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
-        <FileSpreadsheet className="h-4 w-4" />Check a BOM file
+        <Upload className="h-4 w-4" />Upload BOM
       </Button>
       <PermissionHint blocked={!canEdit} action="track parts" allowedRoles={["designer", "admin"]}>
         <Button disabled={!canEdit} onClick={() => setWatching(true)}>
@@ -122,7 +133,20 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
             ))}
           </div>
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
-          {only ? (
+          <Select
+            value={LIFECYCLE_FILTERS.some((item) => item === only) ? only : ANY}
+            onValueChange={(next) => setParams({ partsOnly: next === ANY ? null : next })}
+          >
+            <SelectTrigger size="sm" className="w-56" aria-label="Lifecycle">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>Any lifecycle</SelectItem>
+              <SelectItem value="lifecycle">Ending (not active)</SelectItem>
+              {LIFECYCLE_FILTERS.filter((item) => item !== "lifecycle").map((item) => <SelectItem key={item} value={item}>{FILTER_LABEL[item]}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {only && !LIFECYCLE_FILTERS.some((item) => item === only) ? (
             <Button size="sm" variant="secondary" onClick={() => setParams({ partsOnly: null })} aria-label={`Showing only ${FILTER_LABEL[only]}. Show all`}>
               {FILTER_LABEL[only]}<X className="h-3.5 w-3.5" />
             </Button>
@@ -158,7 +182,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
       <Dialog open={searchParams.get("tool") === "bom-file"} onOpenChange={(next) => { if (!next) setParams({ tool: null }); }}>
         <DialogContent className="w-[min(95vw,72rem)] sm:max-w-none">
           <DialogHeader>
-            <DialogTitle>Check a BOM File</DialogTitle>
+            <DialogTitle>Upload BOM</DialogTitle>
             <DialogDescription>A CSV with a part number or LCSC number column. Nothing is saved.</DialogDescription>
           </DialogHeader>
           <div className="max-h-[75vh] overflow-y-auto"><BomFileView /></div>

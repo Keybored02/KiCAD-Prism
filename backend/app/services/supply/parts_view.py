@@ -27,6 +27,7 @@ Scope = Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiti
 Filter = Literal[
     "", "at_risk", "out_of_stock", "lifecycle", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings", "draining",
     "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving", "likely_out_4w", "likely_out_8w",
+    "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown",
 ]
 _NEEDS_A_LOOK = ("fatal", "error", "warning")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
@@ -35,6 +36,7 @@ FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "at_risk": lambda item: item["status"] in _NEEDS_A_LOOK,
     "out_of_stock": lambda item: item["stock"] == 0,
     "lifecycle": lambda item: item["lifecycle"] in _LIFECYCLE_RISK,
+    **{f"lifecycle_{state.value}": (lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
 }
 MAX_LIMIT = 200
 # Parts are ordered by how much they need a look, which needs every candidate's

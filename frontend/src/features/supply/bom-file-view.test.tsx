@@ -62,7 +62,8 @@ describe("the BOM file view", () => {
     const file = new File([CSV], "bom.csv", { type: "text/csv" });
     Object.defineProperty(file, "text", { value: () => Promise.resolve(CSV) });
     fireEvent.change(screen.getByLabelText(/BOM file/), { target: { files: [file] } });
-    expect(await screen.findByText(/bom\.csv: 4 rows/)).toBeTruthy();
+    expect(await screen.findByText(/4 rows/)).toBeTruthy();
+    expect(screen.getByText("bom.csv")).toBeTruthy();
     expect((screen.getByLabelText("Manufacturer part number") as HTMLSelectElement).value).toBe("3");
     fireEvent.change(screen.getByLabelText("Boards to build"), { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: "Check 2 distinct parts" }));
@@ -74,5 +75,14 @@ describe("the BOM file view", () => {
     expect(mocked.lookupSupplyBom.mock.calls[0][1]).toBe(5);
     expect(await screen.findByText("Stock covers 5 boards")).toBeTruthy();
     expect(screen.getByText("R-10K")).toBeTruthy();
+  });
+
+  it("reads a file dropped on the zone", async () => {
+    render(<BomFileView />);
+    const file = new File([CSV], "dropped.csv", { type: "text/csv" });
+    Object.defineProperty(file, "text", { value: () => Promise.resolve(CSV) });
+    fireEvent.drop(screen.getByTestId("bom-drop-zone"), { dataTransfer: { files: [file] } });
+    expect(await screen.findByText("dropped.csv")).toBeTruthy();
+    expect(screen.getByLabelText("Manufacturer part number")).toBeTruthy();
   });
 });

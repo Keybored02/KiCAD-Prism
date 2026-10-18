@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyWatch } from "@/types/supply";
+import { MakerCombobox } from "./maker-combobox";
 import { addSupplyWatch } from "./supply-api";
 import { parseThreshold } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -84,15 +85,12 @@ function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (wa
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="watch-manufacturer">Manufacturer (optional)</Label>
-          <Input
+          <MakerCombobox
             id="watch-manufacturer"
-            list="watch-manufacturer-options"
             value={form.manufacturer}
-            onChange={(event) => update({ manufacturer: event.target.value })}
+            options={manufacturers.map((item) => item.name)}
+            onChange={(manufacturer) => update({ manufacturer })}
           />
-          <datalist id="watch-manufacturer-options">
-            {manufacturers.map((item) => <option key={item.id} value={item.name} />)}
-          </datalist>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="watch-mpn">Part number</Label>

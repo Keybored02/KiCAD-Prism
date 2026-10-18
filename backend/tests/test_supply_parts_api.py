@@ -939,3 +939,12 @@ class SupplyPartsApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_each_lifecycle_is_a_filter():
+    from app.services.supply import parts_view
+
+    for state in ("active", "nrnd", "last_time_buy", "obsolete", "unknown"):
+        keep = parts_view.FILTERS[f"lifecycle_{state}"]
+        assert keep({"lifecycle": state})
+        assert not keep({"lifecycle": "other"})
