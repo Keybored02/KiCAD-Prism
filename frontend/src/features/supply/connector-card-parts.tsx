@@ -9,7 +9,7 @@ import { budgetUsedPercent, formatWhen } from "./connector-status";
 export function NoticeBar({ notices }: { notices: BudgetNotices }) {
   const used = notices.limit > 0 ? Math.min(100, Math.round((notices.used / notices.limit) * 100)) : 0;
   const pace = notices.parts > 0
-    ? `${notices.parts.toLocaleString()} parts, ${notices.interval_days === 7 ? "weekly" : `every ${notices.interval_days} days`}, about ${notices.per_day.toLocaleString()} a day`
+    ? `${notices.parts.toLocaleString()} parts, ${notices.interval_days === 1 ? "daily" : notices.interval_days === 7 ? "weekly" : `every ${notices.interval_days} days`}, about ${notices.per_day.toLocaleString()} a day`
     : "No parts to read notices for";
   return (
     <div className="space-y-1 pt-2">

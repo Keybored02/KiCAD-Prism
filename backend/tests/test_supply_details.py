@@ -192,14 +192,15 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(charged, 0, "DigiKey's notice API has its own 50 a day")
         self.assertEqual((plan.used, plan.limit), (2, 50))
 
-    def test_the_interval_stretches_when_the_quota_cannot_read_every_part_weekly(self) -> None:
+    def test_the_interval_stretches_when_the_quota_cannot_read_every_part_daily(self) -> None:
         from app.services.supply import notice_budget
 
-        self.assertEqual(notice_budget.interval_days(141, 50), 7)
-        self.assertEqual(notice_budget.interval_days(450, 50), 10, "45 a day leave a tenth day to read 450 parts")
-        self.assertEqual(notice_budget.interval_days(0, 50), 7)
+        self.assertEqual(notice_budget.interval_days(40, 50), 1, "all 50 a day cover 40 parts every day")
+        self.assertEqual(notice_budget.interval_days(141, 50), 3)
+        self.assertEqual(notice_budget.interval_days(450, 50), 9, "450 parts at 50 a day take nine days")
+        self.assertEqual(notice_budget.interval_days(0, 50), 1)
 
-    def test_people_keep_five_calls_of_the_fifty_and_untracked_parts_wait_for_the_end_of_the_day(self) -> None:
+    def test_all_fifty_calls_may_be_spent_and_untracked_parts_wait_for_the_end_of_the_day(self) -> None:
         from app.services.supply import notice_budget
 
         with self.store.connection() as conn:
@@ -207,10 +208,12 @@ class DetailsTests(unittest.TestCase):
             self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds))
             self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"spare": True})), "not at the start of the day")
             conn.execute(
-                "INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 9, 'notices', 'tier2', 46)",
+                "INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 9, 'notices', 'tier2', 49)",
                 (self.digikey, NOW.date()))
-            self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds), "45 are for scheduled reads at most")
-            self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"interactive": True})))
+            self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"news": True})), "the fiftieth is still allowed")
+            conn.execute("UPDATE call_counts SET calls = 50 WHERE kind = 'notices'")
+            self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds), "50 is the whole day")
+            self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"interactive": True})))
 
     def test_notice_calls_stop_when_digikey_says_its_count_is_zero_and_start_again_in_the_next_day(self) -> None:
         from app.services.supply import details

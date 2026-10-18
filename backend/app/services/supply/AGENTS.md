@@ -59,7 +59,7 @@ root first.
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
-| `notice_budget.py` | The change-notice allowance of a provider with a quota of its own (DigiKey, 50 a day): counted in `call_counts`, not in the product budget; five kept for people, scheduled reads spread over the interval that fits, untracked parts last. |
+| `notice_budget.py` | The change-notice allowance of a provider with a quota of its own (DigiKey, 50 a day): counted in `call_counts`, not in the product budget; all 50 may be spent, tracked parts read over the shortest interval that fits, untracked parts last. |
 | `part_history.py` | A part's stock and price per distributor over a number of days, carried to each listing's last read, for the part sheet's lines and its larger dialog. |
 | `headline_price.py` | The price a part shows in lists: every counted listing priced at the part's quantity and converted to the base currency, as orderable, backorder (with its lead time), last seen or list price, with the range and median over distributors and the price before conversion. A currency without a rate is left out and named. |
 | `price_quantity.py` | The quantity prices are read at: the workspace default (a Supply setting, 100) and a part's own (`part_price_quantity`). A change drops the kept summaries and insights of the parts it touches; no distributor is asked. |

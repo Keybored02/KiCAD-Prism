@@ -1,10 +1,9 @@
 """The change-notice allowance of a provider that gives notices a quota of its own (DigiKey: 50 a day, apart from its 1,000).
 
-Notice calls are counted in ``call_counts`` as kind ``notices`` and are not charged to the product budget. Five of the
-day's calls are kept for people's "Check notices". Scheduled reads are spread: the tracked parts are read over the interval
-that fits (a week, or longer when 50 a day cannot read them all weekly), so each day takes about its share, and a part
-with news may go ahead of it. Notices of parts nobody tracks are read only in the last hours of the provider's day, from
-what is left.
+Notice calls are counted in ``call_counts`` as kind ``notices`` and are not charged to the product budget. All of the
+day's calls may be spent. The tracked parts are read over the shortest interval the quota allows (every day when it
+covers them all, otherwise every few days), so each day takes up to the whole allowance. Notices of parts nobody tracks
+are read only in the last hours of the provider's day, from what is left.
 """
 
 from __future__ import annotations
@@ -16,12 +15,9 @@ from typing import Any
 
 from app.services.supply import accounts, ledger, quota
 
-PEOPLE_RESERVE = 5
-BASE_INTERVAL_DAYS = 7
+BASE_INTERVAL_DAYS = 1
 # Notices of untracked parts wait for the end of the provider's day.
 SPARE_HOURS_BEFORE_RESET = 3
-# A day always takes at least this many, so a small set of parts is read at once and not one a day.
-MIN_PER_DAY = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,16 +60,15 @@ def used_today(conn, connector_id: str, now: datetime) -> int:
 
 
 def interval_days(parts: int, limit: int) -> int:
-    """Days between reads of one part: a week, or longer when the quota cannot read every part that often."""
+    """Days between reads of one part: every day when the quota covers all of them, otherwise as many days as it takes."""
 
-    room = max(1, limit - PEOPLE_RESERVE)
-    return max(BASE_INTERVAL_DAYS, math.ceil(parts / room))
+    return max(BASE_INTERVAL_DAYS, math.ceil(parts / max(1, limit)))
 
 
 def plan(conn, connector_id: str, limit: int, now: datetime) -> Plan:
     parts = tracked_parts(conn, connector_id)
     days = interval_days(parts, limit)
-    return Plan(limit, used_today(conn, connector_id, now), parts, days, max(MIN_PER_DAY, math.ceil(parts / days)) if parts else 0)
+    return Plan(limit, used_today(conn, connector_id, now), parts, days, min(limit, parts))
 
 
 def allowed(conn, connector_id: str, limit: int, now: datetime, *, interactive: bool, spare: bool, news: bool) -> bool:
@@ -82,7 +77,7 @@ def allowed(conn, connector_id: str, limit: int, now: datetime, *, interactive: 
     current = plan(conn, connector_id, limit, now)
     if interactive:
         return current.used < limit
-    if current.used >= limit - PEOPLE_RESERVE:
+    if current.used >= limit:
         return False
     if spare:
         account = accounts.resolve(conn, connector_id)

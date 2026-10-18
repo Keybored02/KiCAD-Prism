@@ -48,7 +48,7 @@ function Group({ group, canDecide, onDecided }: { group: SupplyOtherNumberGroup;
 /** Listings pinned as a part although numbered otherwise: their stock counts as the part's. Ticked ones stay tracked; Save takes the others off. */
 export function OtherNumberPins({ groups, canDecide, onDecided }: { groups: readonly SupplyOtherNumberGroup[]; canDecide: boolean; onDecided: () => Promise<void> }) {
   if (groups.length === 0) return null;
-  const total = groups.reduce((count, group) => count + group.listings.length, 0);
+  const total = groups.length;
   return (
     <CollapsibleSection id="review-other-numbers" title="Pinned under another number" count={total} note="their stock counts as the part's">
       <ul className="divide-y">
