@@ -1,8 +1,9 @@
-import { Star } from "lucide-react";
+import { ChevronRight, Star } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { SupplyListing, SupplyPartDetail } from "@/types/supply";
 import { ListingTable } from "./listing-table";
 import { OnePerDistributor } from "./one-per-distributor";
@@ -46,6 +47,12 @@ export function ListingGroups({
 }: { detail: SupplyPartDetail; canDecide: boolean; canTrack: boolean; onChanged: () => Promise<void> | void }) {
   const { busy, error, run } = useConnectorSubmit();
   const [asking, setAsking] = useState(false);
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const fold = (id: string, open: boolean) => setClosed((current) => {
+    const next = new Set(current);
+    if (open) next.delete(id); else next.add(id);
+    return next;
+  });
   const groups = useMemo(() => groupsOf(detail.listings, detail.preferred_connector_id), [detail.listings, detail.preferred_connector_id]);
   const partId = detail.part.id;
   const preferred = detail.preferred_connector_id ?? null;
@@ -69,8 +76,16 @@ export function ListingGroups({
         const line = followLine(group, detail);
         const isPreferred = group.connectorId === preferred;
         return (
-          <section key={group.connectorId} aria-label={`${group.name} listings`} className={`space-y-2 p-2 ${isPreferred ? "bg-primary/5" : ""}`}>
+          <Collapsible
+            key={group.connectorId} asChild open={!closed.has(group.connectorId)} onOpenChange={(next) => fold(group.connectorId, next)}
+          >
+          <section aria-label={`${group.name} listings`} className={`space-y-2 p-2 ${isPreferred ? "bg-primary/5" : ""}`}>
             <div className="flex flex-wrap items-center gap-2">
+              <CollapsibleTrigger asChild>
+                <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label={`${closed.has(group.connectorId) ? "Show" : "Hide"} ${group.name} listings`}>
+                  <ChevronRight className={`h-4 w-4 transition-transform ${closed.has(group.connectorId) ? "" : "rotate-90"}`} />
+                </Button>
+              </CollapsibleTrigger>
               {canTrack ? (
                 <Button
                   type="button" size="icon" variant="ghost" className="h-6 w-6" disabled={busy} aria-pressed={isPreferred}
@@ -84,11 +99,14 @@ export function ListingGroups({
               {isPreferred ? <Badge variant="secondary">Preferred</Badge> : null}
               {line ? <span className="text-xs text-muted-foreground">{line}</span> : null}
             </div>
-            <ListingTable
-              listings={group.listings} canDecide={canDecide} onChanged={() => void onChanged()}
-              follow={{ followed: detail.packaging?.picks[group.connectorId] ?? null, canFollow: canTrack, onFollow: (listing) => follow(group, listing) }}
-            />
+            <CollapsibleContent>
+              <ListingTable
+                listings={group.listings} canDecide={canDecide} onChanged={() => void onChanged()}
+                follow={{ followed: detail.packaging?.picks[group.connectorId] ?? null, canFollow: canTrack, onFollow: (listing) => follow(group, listing) }}
+              />
+            </CollapsibleContent>
           </section>
+          </Collapsible>
         );
       })}
       {asking ? <OnePerDistributor partId={partId} onClose={() => setAsking(false)} onDone={onChanged} /> : null}

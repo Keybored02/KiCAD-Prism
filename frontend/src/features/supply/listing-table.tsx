@@ -7,7 +7,6 @@ import { PackagingChip } from "./packaging-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
-import { VendorName } from "./vendor-name";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
 export interface FollowChoice {
@@ -39,13 +38,11 @@ export function ListingTable({
           <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="border p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />
-                <span className="text-xs text-muted-foreground">{listing.sku}</span>
+                <span className="font-medium">{listing.sku}</span>
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
                 {follow?.followed === listing.id ? <Badge variant="secondary">Followed</Badge> : null}
-                {follow?.followed && follow.followed !== listing.id && listing.counted ? <Badge variant="outline">Not counted</Badge> : null}
                 {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (
-                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => follow.onFollow(listing)}>Follow this instead</Button>
+                  <Button size="sm" className="h-6 px-2 text-xs" onClick={() => follow.onFollow(listing)}>Follow this instead</Button>
                 ) : null}
                 {!listing.counted ? (
                   <Badge variant="warning">
@@ -68,15 +65,15 @@ export function ListingTable({
               ) : null}
             </div>
             {offer ? (
-              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-5">
                 <Fact label="Stock" value={formatStock(offer.stock)} />
                 <Fact label={`Price at ${firstBreak?.[0] ?? 1}`} value={firstBreak ? formatPrice(firstBreak[1], offer.currency) : "None"} />
                 <Fact label="Order" value={`Min ${offer.moq.toLocaleString()}${offer.order_multiple > 1 ? `, multiples of ${offer.order_multiple.toLocaleString()}` : ""}`} />
                 <Fact label="Lead time" value={offer.lead_time_days === null ? (offer.stock > 0 ? "In stock" : "Not given") : `${offer.lead_time_days} days`} />
+                <Fact label="Read" value={formatAgo(offer.fetched_at)} />
                 {offer.incoming.length > 0 ? (
                   <Fact label="On order" value={offer.incoming.map(([quantity, date]) => `${quantity.toLocaleString()}${date ? ` due ${date}` : ""}`).join(", ")} />
                 ) : null}
-                <Fact label="Read" value={formatAgo(offer.fetched_at)} />
               </dl>
             ) : (
               <p className="mt-2 text-xs text-muted-foreground">Not read yet.</p>

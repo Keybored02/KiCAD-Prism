@@ -50,8 +50,20 @@ describe("the part's listings by distributor", () => {
     const digikey = screen.getByRole("region", { name: "DigiKey listings" });
     expect(within(digikey).getByText("Following CT-1, picked by Prism")).toBeTruthy();
     expect(within(digikey).getByText("Followed")).toBeTruthy();
-    expect(within(digikey).getByText("Not counted")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Mouser listings" })).queryByText("Not counted")).toBeNull();
+    expect(within(digikey).queryByText("Not counted")).toBeNull();
+    // The vendor is named once, by its group, not on each listing.
+    expect(within(digikey).getAllByText("DigiKey")).toHaveLength(1);
+  });
+
+  it("folds a distributor's listings behind a chevron", () => {
+    renderGroups();
+    const digikey = screen.getByRole("region", { name: "DigiKey listings" });
+    expect(within(digikey).getAllByRole("article").length).toBeGreaterThan(0);
+    fireEvent.click(within(digikey).getByRole("button", { name: "Hide DigiKey listings" }));
+    expect(within(digikey).queryAllByRole("article")).toHaveLength(0);
+    expect(within(screen.getByRole("region", { name: "Mouser listings" })).getAllByRole("article").length).toBeGreaterThan(0);
+    fireEvent.click(within(digikey).getByRole("button", { name: "Show DigiKey listings" }));
+    expect(within(digikey).getAllByRole("article").length).toBeGreaterThan(0);
   });
 
   it("follows another listing on request", async () => {
