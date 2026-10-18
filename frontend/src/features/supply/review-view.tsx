@@ -21,7 +21,7 @@ export function ReviewView({ user }: { user: User | null }) {
   const canDecide = canReviewSupply(user?.role);
 
   return (
-    <div className="relative h-full overflow-y-auto p-4">
+    <div className="themed-scrollbar relative h-full overflow-y-auto p-4">
       <div className="space-y-6">
         {canDecide ? null : <p className="text-sm text-muted-foreground">QA and administrators decide.</p>}
 

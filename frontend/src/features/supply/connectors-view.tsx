@@ -111,7 +111,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
   );
 
   return (
-    <div className="relative h-full overflow-y-auto p-6">
+    <div className="themed-scrollbar relative h-full overflow-y-auto p-6">
       <div className="space-y-5">
         {headerSlot === undefined ? <div className="flex justify-end gap-2">{actions}</div> : headerSlot ? createPortal(actions, headerSlot) : null}
 

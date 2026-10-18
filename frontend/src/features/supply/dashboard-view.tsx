@@ -55,7 +55,7 @@ export function DashboardView({ user }: { user: User | null }) {
   ];
 
   return (
-    <div className="relative h-full overflow-y-auto px-4 pb-4 pt-2">
+    <div className="themed-scrollbar relative h-full overflow-y-auto px-4 pb-4 pt-2">
       <div className="space-y-4">
         {user?.role === "admin" ? <AdminStrip waiting={data?.figures.waiting ?? 0} /> : null}
         {dashboard.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
