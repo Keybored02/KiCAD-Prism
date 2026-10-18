@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Ban, BellRing, Eye, Hourglass, ListChecks, PackageX } from "lucide-react";
+import { AlertTriangle, Ban, BellRing, Eye, Hourglass, PackageX } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenLibraryManager } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { PartsFilter, SupplyDashboard, SupplyReviewQueue } from "@/types/supply";
+import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
 import { RunwayCard } from "./dashboard-charts";
@@ -15,7 +15,7 @@ import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
 import { TileButton, type Tile } from "./dashboard-tiles";
 import { RecentChanges } from "./recent-changes";
-import { getSupplyDashboard, getSupplyReviewQueue } from "./supply-api";
+import { getSupplyDashboard } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 import { useSupplyNavigation } from "./use-supply-navigation";
 import { useSupplyOverview } from "./use-supply-parts";
@@ -24,34 +24,30 @@ const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
   out_now: "out_of_stock", runs_out_2w: "runs_out_2w", runs_out_8w: "runs_out_8w", runs_out_later: "runs_out_later", steady: "steady", few_readings: "few_readings",
 };
 
-function reviewCountOf(review: SupplyReviewQueue | null | undefined): number | undefined {
-  if (!review) return undefined;
-  const approve = review.to_approve ? review.to_approve.waivers.length + review.to_approve.alternates.length : 0;
-  return review.counts.unresolved + review.counts.near + review.counts.aliases + (review.choices?.length ?? 0) + approve;
-}
-
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
 export function DashboardView({ user }: { user: User | null }) {
   const overview = useSupplyOverview();
   const dashboardFetcher = useCallback((signal: AbortSignal) => getSupplyDashboard(signal), []);
   const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard", "supply");
-  const reviewFetcher = useCallback((signal: AbortSignal) => getSupplyReviewQueue(signal), []);
-  const review = useLoaded<SupplyReviewQueue>("dashboard-review", reviewFetcher, "Could not load the review queue", "supply");
   const { go, openPart } = useSupplyNavigation();
   const navigate = useNavigate();
   const [alertKind, setAlertKind] = useState("");
   const data = dashboard.data;
   const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
   const history = (name: string) => data?.figure_history[name];
+  const showAlerts = () => {
+    const section = document.getElementById("dashboard-alerts");
+    if (section instanceof HTMLDetailsElement) section.open = true;
+    section?.scrollIntoView?.();
+  };
   const likely = likelyOutTile(data?.forecast);
   const tiles: Tile[] = [
     { label: "Tracked", value: data?.figures.watched, icon: Eye, history: history("watched"), onClick: parts("") },
     { label: "At risk", value: data?.figures.at_risk, icon: AlertTriangle, bad: true, history: history("at_risk"), onClick: parts("at_risk") },
     { label: "Out of stock", value: data?.figures.out_of_stock, icon: PackageX, bad: true, history: history("out_of_stock"), onClick: parts("out_of_stock") },
     { label: "End of life", value: data?.figures.lifecycle, icon: Ban, bad: true, history: history("lifecycle"), onClick: parts("lifecycle") },
-    { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: () => document.getElementById("dashboard-alerts")?.scrollIntoView?.() },
+    { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: showAlerts },
     { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
-    { label: "Needs you", value: reviewCountOf(review.data), icon: ListChecks, onClick: () => go("review") },
     ...(likely ? [{ ...likely, icon: Hourglass, bad: true, onClick: parts("likely_out_4w") }] : []),
     ...(canOpenLibraryManager(user?.role) && data?.ending_components
       ? [{ label: "Ending in library", value: data.ending_components, icon: Hourglass, bad: true, onClick: () => navigate("/?section=library-manager&libraryView=ending") }]
@@ -87,13 +83,15 @@ export function DashboardView({ user }: { user: User | null }) {
             </div>
           </>
         ) : null}
-        <AlertList user={user} overview={overview.data} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
-        {overview.data && overview.data.recent_changes.length > 0 ? (
-          <details>
-            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</summary>
-            <div className="mt-2"><RecentChanges changes={overview.data.recent_changes} onOpenPart={openPart} /></div>
-          </details>
-        ) : null}
+        <div className="grid items-start gap-3 lg:grid-cols-2">
+          <AlertList user={user} overview={overview.data} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
+          {overview.data && overview.data.recent_changes.length > 0 ? (
+            <details open>
+              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</summary>
+              <div className="mt-2"><RecentChanges changes={overview.data.recent_changes} onOpenPart={openPart} /></div>
+            </details>
+          ) : null}
+        </div>
       </div>
     </div>
   );

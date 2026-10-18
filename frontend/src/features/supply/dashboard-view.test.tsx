@@ -57,7 +57,6 @@ describe("the dashboard", () => {
     const tile = await atRiskTile();
     expect(within(tile).getByText("2")).toBeTruthy();
     expect(screen.getByText("Waiting for room").closest("button")!.textContent).toContain("3");
-    await waitFor(() => expect(screen.getByText("Needs you").closest("button")!.textContent).toContain("4"));
     expect(await screen.findByText("OOS-1")).toBeTruthy();
   });
 
@@ -69,8 +68,6 @@ describe("the dashboard", () => {
     expect(search()).not.toContain("partsQ");
     fireEvent.click(screen.getByText("Waiting for room").closest("button")!);
     expect(search()).toContain("partsScope=waiting");
-    fireEvent.click(screen.getByText("Needs you").closest("button")!);
-    expect(search()).toContain("supplyView=review");
   });
 
   it("shows how each figure moved and draws the charts, each opening the parts behind it", async () => {

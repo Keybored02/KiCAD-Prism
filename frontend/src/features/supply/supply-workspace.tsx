@@ -5,6 +5,7 @@ import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, Plug, Shie
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { useReviewCount } from "./review-count";
 import { resolvePlace, type SupplyTab } from "./supply-views";
 import { useSigninResult } from "./use-signin-result";
 
@@ -39,6 +40,8 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
   useSigninResult();
+  // The Review tab shows how many items wait; it is counted again whenever the tab changes.
+  const reviewCount = useReviewCount(canOpenSupply(user?.role), view);
   // A tab stays mounted once opened, so switching back shows it as it was instead of loading it again.
   const [opened, setOpened] = useState<SupplyTab[]>([view]);
   useEffect(() => { setOpened((current) => (current.includes(view) ? current : [...current, view])); }, [view]);
@@ -79,6 +82,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
             <TabsTrigger key={id} value={id} className="gap-2 px-2 text-sm">
               <Icon className="h-4 w-4" />
               {label}
+              {id === "review" && reviewCount ? <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground" aria-label={`${reviewCount} waiting`}>{reviewCount}</span> : null}
             </TabsTrigger>
           ))}
         </TabsList>
