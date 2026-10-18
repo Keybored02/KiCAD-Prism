@@ -63,6 +63,9 @@ def classify(
     """
 
     key = match_key(match.mpn)
+    # The part number is this distributor's own order number (an LCSC C-number in the number field): that names the listing outright.
+    if match.sku and match_key(match.sku) == part.match_key:
+        return EXACT, "the part number is this distributor's own number"
     if key != part.match_key and key not in numbers:
         return NEAR, (LONGER if key.startswith(part.match_key) else "different part number")
     if resolution.status == "confirmed" and resolution.manufacturer_id == part.manufacturer_id:
