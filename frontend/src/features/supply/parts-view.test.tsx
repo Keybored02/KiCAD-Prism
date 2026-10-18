@@ -110,7 +110,7 @@ describe("the parts list", () => {
     expect(within(row).getByText(/0\.52/)).toBeTruthy();
     expect(within(row).queryByRole("img", { name: "Active" })).toBeNull();
     expect(within(row).queryByRole("img", { name: "Read 2 h ago" })).toBeNull();
-    expect(within(row).getByRole("img", { name: "Tracked, tier 1" })).toBeTruthy();
+    expect(within(row).queryByRole("img", { name: /^Tracked/ })).toBeNull();
     expect(screen.getByText("1 part")).toBeTruthy();
     expect(mocked.listSupplyParts).toHaveBeenCalledWith("followed", "", expect.anything(), "", 0, 50, "", "");
   });

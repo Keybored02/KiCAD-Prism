@@ -8,9 +8,7 @@ import { formatStock, PROBLEM_LABEL } from "./supply-format";
 import { DistributorSquares, ProjectNames, RateAndLead, RowFlags } from "./part-row-extras";
 import { PriceCell } from "./price-cell";
 import { RowRunout } from "./part-row-forecast";
-import { JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
-
-const TIER_NUMBER = { daily: 1, weekly: 2, monthly: 2 } as const;
+import { JlcIcon, LifecycleIcon } from "./supply-icons";
 
 interface PartsTableProps {
   items: SupplyPartRow[];
@@ -66,7 +64,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
-                <div className="flex items-center justify-end gap-3">
+                <div className="flex items-center justify-end gap-6">
                   <RateAndLead part={part} />
                   {!detailed && part.spark && part.spark.length > 1 ? <Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /> : null}
                 </div>
@@ -84,7 +82,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
               </td>
               <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
               <td className="px-3 py-2">
-                <span className="flex items-center gap-2">{part.watch || part.tier ? <TrackedIcon tier={part.tier ? TIER_NUMBER[part.tier] : null} /> : null}<RowFlags flags={part.flags} /></span>
+                <span className="flex items-center gap-2"><RowFlags flags={part.flags} /></span>
               </td>
             </tr>
             {detailed ? (

@@ -100,6 +100,29 @@ describe("the layouts", () => {
     expect(screen.queryByText(/Power board/)).toBeNull();
   });
 
+  it("stacks the read rate over the lead time and keeps each in its row", () => {
+    const both = { ...part, tracking: { tier: 1, rate: "daily" }, lead_days: 14 };
+    const rateOnly = { ...part, tracking: { tier: 1, rate: "daily" }, lead_days: null };
+    const leadOnly = { ...part, tracking: null, lead_days: 14 };
+    const top = (row: typeof part) => {
+      render(<PartsTable items={[row]} selectedId={null} onOpen={vi.fn()} />);
+      const rate = screen.queryByLabelText("Read daily");
+      const lead = screen.queryByLabelText("Shortest quoted lead time");
+      const rows = (rate ?? lead)!.closest("span")!.parentElement!.children;
+      const out = { rate: rate ? [...rows].indexOf(rate.closest("span")!) : -1, lead: lead ? [...rows].indexOf(lead.closest("span")!) : -1 };
+      cleanup();
+      return out;
+    };
+    expect(top(both)).toEqual({ rate: 0, lead: 1 });
+    expect(top(rateOnly).rate).toBe(0);
+    expect(top(leadOnly).lead).toBe(1);
+  });
+
+  it("shows no eye for a tracked part", () => {
+    render(<PartsTable items={[{ ...part, tier: "daily", watch: { id: "w", threshold: null, pinned: false, owner: "x", packaging: "any" } }]} selectedId={null} onOpen={vi.fn()} />);
+    expect(screen.queryByRole("img", { name: /^Tracked/ })).toBeNull();
+  });
+
   it("switches by two icons", () => {
     const change = vi.fn();
     render(<LayoutToggle layout="compact" onChange={change} />);

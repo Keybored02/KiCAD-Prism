@@ -84,9 +84,14 @@ export function RateAndLead({ part }: { part: SupplyPartRow }) {
   const rate = part.tracking?.rate;
   if (!rate && !part.lead_days) return null;
   return (
-    <div className="flex items-center gap-x-2 whitespace-nowrap text-xs text-muted-foreground">
-      {rate ? <span className="inline-flex items-center gap-1" title={`Read ${rate}`}><Tip icon={Timer} label={`Read ${rate}`} />{rate.charAt(0).toUpperCase() + rate.slice(1)}</span> : null}
-      {part.lead_days ? <span className="inline-flex items-center gap-1" title="Shortest quoted lead time"><Tip icon={Clock} label="Shortest quoted lead time" />{Math.round(part.lead_days / 7)} w</span> : null}
+    // Two fixed rows: a part with no lead time leaves its row empty, so the read rate does not move.
+    <div className="flex flex-col items-start gap-0.5 whitespace-nowrap text-left text-xs text-muted-foreground">
+      <span className="inline-flex h-4 items-center gap-1" title={rate ? `Read ${rate}` : undefined}>
+        {rate ? <><Tip icon={Timer} label={`Read ${rate}`} />{rate.charAt(0).toUpperCase() + rate.slice(1)}</> : null}
+      </span>
+      <span className="inline-flex h-4 items-center gap-1" title={part.lead_days ? "Shortest quoted lead time" : undefined}>
+        {part.lead_days ? <><Tip icon={Clock} label="Shortest quoted lead time" />{Math.round(part.lead_days / 7)} w</> : null}
+      </span>
     </div>
   );
 }
