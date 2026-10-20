@@ -18,6 +18,9 @@ from app.core.config import settings
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 
+# SIGKILL does not exist on Windows; the stop that cannot be ignored is then a tree kill (see ``_signal_group``).
+FORCE = getattr(signal, "SIGKILL", signal.SIGABRT)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -284,7 +287,11 @@ class PrismWorker:
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 cwd=str(Path(__file__).resolve().parents[1]),
-                start_new_session=True,
+                # Its own process group, so the worker can stop the job and anything the job started.
+                **(
+                    {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                    if os.name == "nt" else {"start_new_session": True}
+                ),
             )
         except Exception as error:
             log_handle.close()
@@ -322,6 +329,13 @@ class PrismWorker:
     @staticmethod
     def _signal_group(process: subprocess.Popen[bytes], sig: signal.Signals) -> None:
         if process.poll() is not None:
+            return
+        if os.name == "nt":
+            # No process groups to signal: a polite stop ends the job itself, a forced one ends it and its children.
+            if sig is FORCE:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
+            else:
+                process.terminate()
             return
         try:
             os.killpg(process.pid, sig)
@@ -464,7 +478,7 @@ class PrismWorker:
                 and now - running.termination_started
                 >= settings.PRISM_JOB_CANCEL_GRACE_SECONDS
             ):
-                self._signal_group(running.process, signal.SIGKILL)
+                self._signal_group(running.process, FORCE)
                 continue
 
             if now - running.last_heartbeat < self.heartbeat_seconds:
@@ -625,7 +639,7 @@ class PrismWorker:
         kill_deadline = time.monotonic() + 5
         while self.running and time.monotonic() < kill_deadline:
             for running in self.running.values():
-                self._signal_group(running.process, signal.SIGKILL)
+                self._signal_group(running.process, FORCE)
             self.supervise()
             if self.running:
                 time.sleep(0.05)
