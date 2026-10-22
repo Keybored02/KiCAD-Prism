@@ -50,6 +50,11 @@ function Form({ partId, initial, mutable }: { partId: string; initial: AlertRule
             onChange={(event) => setDraft({ ...draft, price_rise_percent: event.target.value === "" ? null : Number(event.target.value) })} />
         </div>
         <div className="space-y-1">
+          <Label htmlFor="rule-likely" className="text-xs">Likely to run out at a chance of (%)</Label>
+          <Input id="rule-likely" type="number" min={50} max={99} className="h-8 w-24" placeholder="70" value={draft.likely_out_percent ?? ""}
+            onChange={(event) => setDraft({ ...draft, likely_out_percent: event.target.value === "" ? null : Number(event.target.value) })} />
+        </div>
+        <div className="space-y-1">
           <Label htmlFor="rule-target" className="text-xs">Target price</Label>
           <Input id="rule-target" inputMode="decimal" className="h-8 w-28" value={draft.target_price ?? ""}
             onChange={(event) => setDraft({ ...draft, target_price: event.target.value === "" ? null : event.target.value })} />
@@ -74,7 +79,7 @@ export function AlertRulesSection({ partId, canEdit }: { partId: string; canEdit
   return (
     <section aria-label="Alert rules" className="space-y-2">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alert rules</h3>
-      <Form partId={partId} initial={{ muted: data.muted, price_rise_percent: data.price_rise_percent, target_price: data.target_price, target_currency: data.target_currency }} mutable={data.mutable} />
+      <Form partId={partId} initial={{ muted: data.muted, price_rise_percent: data.price_rise_percent, likely_out_percent: data.likely_out_percent ?? null, target_price: data.target_price, target_currency: data.target_currency }} mutable={data.mutable} />
     </section>
   );
 }

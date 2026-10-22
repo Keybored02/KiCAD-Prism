@@ -109,6 +109,6 @@ export function getAlertRules(partId: string, signal?: AbortSignal): Promise<Ale
 }
 
 export function saveAlertRules(partId: string, rules: AlertRules): Promise<AlertRules> {
-  const { muted, price_rise_percent, target_price, target_currency } = rules;
-  return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, put({ muted, price_rise_percent, target_price, target_currency }), "Could not save the alert rules");
+  const { muted, price_rise_percent, likely_out_percent, target_price, target_currency } = rules;
+  return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, put({ muted, price_rise_percent, likely_out_percent: likely_out_percent ?? null, target_price, target_currency }), "Could not save the alert rules");
 }

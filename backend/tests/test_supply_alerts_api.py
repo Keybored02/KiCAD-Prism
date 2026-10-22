@@ -334,6 +334,28 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(self.call("PUT", path, body={"muted": [], "target_price": "1.5"}).status, 400, "a price needs its currency")
         self.assertEqual(self.call("PUT", path, body={}, role="qa").status, 403)
 
+    def test_a_part_can_ask_for_its_own_chance_before_it_is_called_likely_to_run_out(self) -> None:
+        from datetime import date
+
+        from app.services.supply import alerts
+
+        watch = self.watch()
+        path = f"/api/supply/parts/{watch['part_id']}/alert-rules"
+        for bad in (10, 100, "x"):
+            self.assertEqual(self.call("PUT", path, body={"muted": [], "likely_out_percent": bad}).status, 422 if bad == "x" else 400, bad)
+        self.assertEqual(self.call("PUT", path, body={"muted": [], "likely_out_percent": 85}).json["likely_out_percent"], 85)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE part_tiers SET rate = 'daily' WHERE part_id = %s", (watch["part_id"],))
+            conn.execute("INSERT INTO forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
+            for day in (date(2026, 3, 1), date(2026, 3, 2)):
+                conn.execute(
+                    "INSERT INTO forecasts (subject_kind, subject_id, scope, target, made_on, horizon_days, probability, model) VALUES ('part', %s, '', 'out_4w', %s, 28, 0.8, 'm')",
+                    (watch["part_id"], day),
+                )
+            self.assertEqual(alerts._likely_out(conn, [watch["part_id"]])[watch["part_id"]]["chance"], 0.8, "at the default 70%")  # noqa: SLF001
+            self.assertIsNone(alerts._likely_out(conn, [watch["part_id"]], {watch["part_id"]: 85})[watch["part_id"]]["chance"], "not at 85%")  # noqa: SLF001
+            self.assertEqual(alerts._likely_out(conn, [watch["part_id"]], {watch["part_id"]: 75})[watch["part_id"]]["chance"], 0.8)  # noqa: SLF001
+
     def test_a_price_over_the_target_is_an_alert_until_it_comes_down(self) -> None:
         watch = self.watch()
         listing = self.listing(watch["part_id"], "A", stock=500)

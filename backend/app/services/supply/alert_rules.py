@@ -16,6 +16,8 @@ from app.services.supply.audit import actor_text, write_audit
 # Kinds a person may switch off. A lost part, a change notice and an obsolete part are facts and stay on.
 MUTABLE = ("out_of_stock", "below_threshold", "rupture_soon", "likely_out", "price_up", "target_price_missed", "assessment_worse")
 PRICE_RISE_RANGE = (1, 500)
+# The chance of being out within four weeks that raises the "likely to run out" alert, in whole percent. Default 70.
+LIKELY_OUT_RANGE = (50, 99)
 
 
 class RuleError(ValueError):
@@ -28,10 +30,11 @@ class Rules:
     price_rise_percent: int | None = None
     target_price: Decimal | None = None
     target_currency: str = ""
+    likely_out_percent: int | None = None
 
     def to_dto(self) -> dict[str, Any]:
         return {
-            "muted": sorted(self.muted), "price_rise_percent": self.price_rise_percent,
+            "muted": sorted(self.muted), "price_rise_percent": self.price_rise_percent, "likely_out_percent": self.likely_out_percent,
             "target_price": format(self.target_price.normalize(), "f") if self.target_price is not None else None,
             "target_currency": self.target_currency,
         }
@@ -41,7 +44,7 @@ NONE = Rules()
 
 
 def _row_rules(row: Mapping[str, Any]) -> Rules:
-    return Rules(frozenset(row["muted"]), row["price_rise_percent"], row["target_price"], row["target_currency"])
+    return Rules(frozenset(row["muted"]), row["price_rise_percent"], row["target_price"], row["target_currency"], row["likely_out_percent"])
 
 
 def for_parts(conn, part_ids: Iterable[str]) -> dict[str, Rules]:
@@ -49,7 +52,7 @@ def for_parts(conn, part_ids: Iterable[str]) -> dict[str, Rules]:
     if not ids:
         return {}
     rows = conn.execute(
-        "SELECT part_id, muted, price_rise_percent, target_price, target_currency FROM alert_rules WHERE part_id = ANY(%s)", (ids,)
+        "SELECT part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent FROM alert_rules WHERE part_id = ANY(%s)", (ids,)
     ).fetchall()
     return {row["part_id"]: _row_rules(row) for row in rows}
 
@@ -65,6 +68,9 @@ def check(payload: Mapping[str, Any]) -> Rules:
     rise = payload.get("price_rise_percent")
     if rise is not None and (isinstance(rise, bool) or not isinstance(rise, int) or not PRICE_RISE_RANGE[0] <= rise <= PRICE_RISE_RANGE[1]):
         raise RuleError(f"A price rise is a whole percent from {PRICE_RISE_RANGE[0]} to {PRICE_RISE_RANGE[1]}.")
+    likely = payload.get("likely_out_percent")
+    if likely is not None and (isinstance(likely, bool) or not isinstance(likely, int) or not LIKELY_OUT_RANGE[0] <= likely <= LIKELY_OUT_RANGE[1]):
+        raise RuleError(f"The chance that raises the alert is a whole percent from {LIKELY_OUT_RANGE[0]} to {LIKELY_OUT_RANGE[1]}.")
     target, currency = payload.get("target_price"), str(payload.get("target_currency") or "").upper()
     value: Decimal | None = None
     if target not in (None, ""):
@@ -78,7 +84,7 @@ def check(payload: Mapping[str, Any]) -> Rules:
             raise RuleError("Give the target price a three letter currency, such as EUR.")
     else:
         currency = ""
-    return Rules(frozenset(muted), rise, value, currency)
+    return Rules(frozenset(muted), rise, value, currency, likely)
 
 
 def save(conn, part_id: str, payload: Mapping[str, Any], actor: str) -> Rules:
@@ -94,13 +100,13 @@ def save(conn, part_id: str, payload: Mapping[str, Any], actor: str) -> Rules:
     else:
         conn.execute(
             """
-            INSERT INTO alert_rules (part_id, muted, price_rise_percent, target_price, target_currency, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO alert_rules (part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (part_id) DO UPDATE SET muted = EXCLUDED.muted, price_rise_percent = EXCLUDED.price_rise_percent,
                 target_price = EXCLUDED.target_price, target_currency = EXCLUDED.target_currency,
-                updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                likely_out_percent = EXCLUDED.likely_out_percent, updated_by = EXCLUDED.updated_by, updated_at = NOW()
             """,
-            (part_id, sorted(rules.muted), rules.price_rise_percent, rules.target_price, rules.target_currency, actor),
+            (part_id, sorted(rules.muted), rules.price_rise_percent, rules.target_price, rules.target_currency, rules.likely_out_percent, actor),
         )
     write_audit(conn, actor, "alert_rules.save", part_id, rules.to_dto(), subject_kind="part")
     alerts.evaluate_parts(conn, [part_id], datetime.now(timezone.utc))

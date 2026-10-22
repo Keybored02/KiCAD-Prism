@@ -147,7 +147,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
     current = {}
     rules = alert_rules.for_parts(conn, ids)
     assessed, marks = _assessment_states(conn, ids, now)
-    likely = _likely_out(conn, ids)
+    likely = _likely_out(conn, ids, {part_id: rule.likely_out_percent for part_id, rule in rules.items() if rule.likely_out_percent})
     for item in parts_view.summaries_for(conn, ids):
         tracked = item["tracking"] is not None
         # A projection needs history, which costs queries: only for tracked parts with stock to lose.
@@ -182,9 +182,10 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
                 _update(conn, row, kind, condition, now)
 
 
-def _likely_out(conn, ids: list[str]) -> dict[str, dict[str, Any]]:
+def _likely_out(conn, ids: list[str], percent: dict[str, int] | None = None) -> dict[str, dict[str, Any]]:
     """For tracked daily parts, once the four-week model is shown: the chance they are out everywhere within four weeks, if the last two
-    runs both said at least ``LIKELY_OUT_CHANCE`` (else None, which clears the alert). Empty while the model is learning."""
+    runs both said at least the part's own chance (``percent``, else ``LIKELY_OUT_CHANCE``); else None, which clears the alert. Empty
+    while the model is learning."""
 
     from app.services.supply import forecasting
 
@@ -201,7 +202,8 @@ def _likely_out(conn, ids: list[str]) -> dict[str, dict[str, Any]]:
         (ids,),
     ).fetchall():
         lately = [float(value) for value in row["lately"]]
-        found[row["subject_id"]] = {"chance": min(lately) if len(lately) == 2 and min(lately) >= LIKELY_OUT_CHANCE else None}
+        needed = (percent or {}).get(row["subject_id"], 0) / 100 or LIKELY_OUT_CHANCE
+        found[row["subject_id"]] = {"chance": min(lately) if len(lately) == 2 and min(lately) >= needed else None}
     return found
 
 

@@ -1922,6 +1922,12 @@ def _m088_recompute_health(conn) -> None:
     conn.execute("DELETE FROM part_summaries", prepare=False)
 
 
+def _m089_likely_out_percent(conn) -> None:
+    """A part's own chance of running out within four weeks that raises its "likely to run out" alert (empty: the default)."""
+
+    conn.execute("ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS likely_out_percent INTEGER", prepare=False)
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2071,6 +2077,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (86, "free_budget", _m086_free_budget),
     (87, "restart_price_forecasts", _m087_restart_price_forecasts),
     (88, "recompute_health", _m088_recompute_health),
+    (89, "likely_out_percent", _m089_likely_out_percent),
 ]
 
 

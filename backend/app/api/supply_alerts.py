@@ -93,6 +93,7 @@ class RulesRequest(BaseModel):
 
     muted: list[str] = Field(default_factory=list, max_length=20)
     price_rise_percent: int | None = None
+    likely_out_percent: int | None = None
     target_price: str | None = Field(default=None, max_length=24)
     target_currency: str = Field(default="", max_length=3)
 

@@ -24,11 +24,12 @@ describe("the alert rules of a part", () => {
     render(<AlertRulesSection partId="p1" canEdit />);
     fireEvent.click(await screen.findByLabelText("Price rises"));
     fireEvent.change(screen.getByLabelText("A price rise of at least (%)"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("Likely to run out at a chance of (%)"), { target: { value: "85" } });
     fireEvent.change(screen.getByLabelText("Target price"), { target: { value: "0.5" } });
     fireEvent.change(screen.getByLabelText("Currency"), { target: { value: "eur" } });
     fireEvent.click(screen.getByRole("button", { name: "Save alert rules" }));
     await waitFor(() => expect(mocked.saveAlertRules).toHaveBeenCalledWith("p1", {
-      muted: ["price_up"], price_rise_percent: 40, target_price: "0.5", target_currency: "EUR",
+      muted: ["price_up"], price_rise_percent: 40, likely_out_percent: 85, target_price: "0.5", target_currency: "EUR",
     }));
   });
 

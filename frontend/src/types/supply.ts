@@ -1416,6 +1416,8 @@ export interface ScheduleSettings {
 export interface AlertRules {
   muted: string[];
   price_rise_percent: number | null;
+  /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
+  likely_out_percent?: number | null;
   target_price: string | null;
   target_currency: string;
 }
