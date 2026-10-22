@@ -121,6 +121,19 @@ class ForecastDbTests(unittest.TestCase):
         self.assertGreater(cheapest.count, own.count, "the cheapest price also jumped when the cheaper listing joined")
         self.assertLessEqual(max(abs(size) for size in own.sizes), forecast_price.MAX_MOVE)
 
+    def test_a_reel_repricing_does_not_set_the_moves_of_a_cut_tape_part(self) -> None:
+        from app.services.supply import forecast_price
+
+        cut, reel = self.listing(self.cid, "A"), self.listing(self.other, "B")
+        self.readings(cut, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.50")
+        self.readings(reel, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.30")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE samples SET moq = 3000 WHERE listing_id = %s", (reel,))
+            conn.execute("UPDATE samples SET unit_price = 0.40 WHERE listing_id = %s AND sampled_at > %s", (reel, START - timedelta(days=9)))
+            self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 0, "the reel changed its price, the cut tape did not")
+            conn.execute("DELETE FROM samples WHERE listing_id = %s", (cut,))
+            self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 1, "with nothing else pricing the part the reel counts")
+
     # --- making and keeping -------------------------------------------------
 
     def test_a_falling_part_gets_its_forecasts_kept_and_the_little_a_list_needs(self) -> None:

@@ -53,10 +53,12 @@ def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[l
 
 
 def listing_series(conn, part_id: str, now: datetime, days: int = CHART_DAYS) -> dict[str, list[tuple[date, Decimal]]]:
-    """Each counted listing's own price per day in the base currency, oldest first. Converted at one rate (the latest), so a currency
+    """Each counted listing's own price per day in the base currency, oldest first, orderable listings only when any are. Converted at one rate (the latest), so a currency
     a listing is quoted in changing is not a price change, and a listing that joins later is its own series, not a move of the part."""
 
     points, _meta = _points(conn, part_id, now, days)
+    # As in `daily`: a reel sold from more pieces than the part needs does not set the part's price moves, unless nothing else prices it.
+    points = [point for point in points if point[3]] or points
     found: dict[str, list[tuple[date, Decimal]]] = {}
     for listing, day, price, _orderable in points:
         found.setdefault(listing, []).append((day, price))
