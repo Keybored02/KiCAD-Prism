@@ -48,8 +48,8 @@ SEARCH_URL = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/
 PAGE_URL = "https://jlcpcb.com/partdetail/{}"
 ALLOWED_HOSTS = ("jlcpcb.com",)
 PAGE_SIZE = 10
-# The same pace as LCSC, with no published limit either: the pacer draws each gap between 0.75 and 1.5 times this (see pacing.py).
-PACE_SECONDS = 1.5
+# Slow on purpose: these two have no credentials and answer a stray burst with a block. 8 s keeps 300 JLCPCB calls under an hour and 2000 LCSC calls under 5 hours.
+PACE_SECONDS = 8.0
 CURRENCY = "USD"
 DEFAULT_DAILY_BUDGET = 300
 LIBRARY = {"base": "Basic", "expand": "Extended"}

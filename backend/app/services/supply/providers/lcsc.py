@@ -53,7 +53,8 @@ PAGE_URL = "https://www.lcsc.com/product-detail/{}.html"
 ALLOWED_HOSTS = ("wmsc.lcsc.com", "easyeda.com")
 SEARCH_PAGE_SIZE = 20
 # No limit is known for this service: an assumed, polite pace, drawn at random from 0.75 to 1.5 times this (see pacing.py). Change it when a limit is learned.
-PACE_SECONDS = 1.5
+# Slow on purpose: no credentials, and a burst is answered with a block (see JLCPCB).
+PACE_SECONDS = 8.0
 CURRENCY = "USD"
 
 _SKU = re.compile(r"^C\d{1,12}$")
