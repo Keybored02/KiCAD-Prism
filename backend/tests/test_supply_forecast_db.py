@@ -350,6 +350,8 @@ class ForecastDbTests(unittest.TestCase):
         self.assertGreater(small["weeks"][1], 0.9, "200 pieces of the falling part are there next week")
         self.assertLess(small["weeks"][8], 0.1, "but not in two months")
         self.assertEqual(small["holding_back"][0]["mpn"], "FALL-1")
+        self.assertTrue(small["by_line"], "every forecast line has its chance of being short at 8 weeks")
+        self.assertTrue(all(0.0 <= share <= 1.0 for share in small["by_line"].values()))
         self.assertLess(big["weeks"][2], small["weeks"][2] + 1e-9, "more boards are never easier")
         self.assertEqual(big["boards"], 600)
 

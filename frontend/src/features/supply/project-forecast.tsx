@@ -75,11 +75,16 @@ function costLine(forecast: ProjectForecast, currency: string): string | null {
  * Can this project be built: the chance every part can be bought for a number of boards, week by week, what holds it back, and what a board
  * may cost. The board count is a question; nothing is saved. Greyed and labelled while the forecast is still learning.
  */
+/** The forecast of a project's parts: shared by the forecast section and the parts table, which are given the same address. */
+export function useProjectForecast(projectId: string, variant: string, boards: number, enabled = true) {
+  const fetcher = useCallback((signal: AbortSignal) => getProjectForecast(projectId, boards, variant, signal), [projectId, boards, variant]);
+  return useLoaded<ProjectForecast>(enabled ? `project-forecast:${projectId}:${variant}:${boards}` : null, fetcher, "Could not load the forecast");
+}
+
 export function ProjectForecastSection({ projectId, variant, boards, currency, onOpenPart }: {
   projectId: string; variant: string; boards: number; currency: string; onOpenPart: (partId: string) => void;
 }) {
-  const fetcher = useCallback((signal: AbortSignal) => getProjectForecast(projectId, boards, variant, signal), [projectId, boards, variant]);
-  const loaded = useLoaded<ProjectForecast>(`project-forecast:${projectId}:${variant}:${boards}`, fetcher, "Could not load the forecast");
+  const loaded = useProjectForecast(projectId, variant, boards);
   if (loaded.status === "loading") return <Skeleton className="h-32 w-full" aria-label="Loading the forecast" />;
   if (loaded.status === "error" || !loaded.data) return <p role="alert" className="text-sm text-destructive">{loaded.error}</p>;
   const forecast = loaded.data;

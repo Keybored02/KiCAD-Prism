@@ -774,6 +774,8 @@ export interface ProjectForecast {
   unknown_lines: number;
   /** The chance every forecast line can be bought, now (0) and at the end of each of 12 weeks. */
   weeks: number[];
+  /** The chance each forecast line is short at 8 weeks, by BOM line key. */
+  by_line?: Record<string, number>;
   holding_back: Array<{ key: string; part_id: string; mpn: string; manufacturer: string; per_board: number; need: number; short_share: number; short_ever: number; reason: string }>;
   cost?: { now: number; lines_priced: number; h30: { low: number; median: number; high: number }; h90: { low: number; median: number; high: number } };
   models: Record<string, { state: ForecastState; checks: number; needs: number }>;

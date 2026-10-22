@@ -8,7 +8,7 @@ import { DataAgeIcon, JlcIcon, LifecycleIcon, TrackedIcon, WaitingIcon } from ".
 const partLink = (partId: string) => `/?section=supply&supplyView=parts&part=${encodeURIComponent(partId)}`;
 
 /** The project's parts, worst first. A row with a part Prism knows opens its sheet in Supply. */
-export function ProjectSupplyParts({ parts }: { parts: ProjectSupplyPart[] }) {
+export function ProjectSupplyParts({ parts, shortAt8Weeks = {}, chance = 0.5 }: { parts: ProjectSupplyPart[]; shortAt8Weeks?: Record<string, number>; chance?: number }) {
   return (
     <div className="overflow-x-auto border">
       <table className="w-full text-sm">
@@ -36,6 +36,9 @@ export function ProjectSupplyParts({ parts }: { parts: ProjectSupplyPart[] }) {
                   <span className="font-medium">{part.mpn || "No part number"}</span>
                 )}
                 <div className="text-xs text-muted-foreground">{part.manufacturer} <JlcIcon jlc={part.jlc} /></div>
+                {(shortAt8Weeks[part.key] ?? 0) >= chance ? (
+                  <span className="mt-0.5 inline-block border border-warning/50 px-1 text-[11px] text-warning" title={`${Math.round(shortAt8Weeks[part.key] * 100)}% chance it cannot be bought for one board in 8 weeks`}>Out within 8 weeks</span>
+                ) : null}
               </td>
               <td className="p-2 text-right tabular-nums">{part.quantity}</td>
               <td className={`p-2 text-right tabular-nums ${part.short ? "text-destructive" : ""}`}>{part.part_id ? formatStock(part.stock) : ""}</td>

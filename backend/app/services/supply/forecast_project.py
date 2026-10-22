@@ -93,6 +93,8 @@ def forecast(conn, project_id: str, variant: str, boards: int, now: datetime | N
     if availability:
         every = np.logical_and.reduce(availability)  # (draws, weeks + 1)
         out["weeks"] = [float(every[:, week].mean()) for week in range(WEEKS + 1)]
+        # Each forecast line's chance of being short at 8 weeks, for the project's parts table.
+        out["by_line"] = {item["key"]: item["short_share"] for item in details}
         out["holding_back"] = sorted(details, key=lambda item: (-item["short_share"], -item["short_ever"]))[:HOLDING_BACK]
         out["holding_back"] = [item for item in out["holding_back"] if item["short_ever"] > 0]
         out["inputs"] = {"lines_forecast": len(availability), "draws": DRAWS}

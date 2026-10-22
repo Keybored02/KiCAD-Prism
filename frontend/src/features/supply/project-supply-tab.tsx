@@ -13,7 +13,7 @@ import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
-import { BoardCount, ProjectForecastSection } from "./project-forecast";
+import { BoardCount, ProjectForecastSection, useProjectForecast } from "./project-forecast";
 import { supplyPartPath } from "@/components/command-palette-supply";
 import { getProjectSupply } from "./supply-api";
 import { formatAgo, formatPrice } from "./supply-format";
@@ -89,6 +89,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
   const navigate = useNavigate();
   const fetcher = useCallback((signal: AbortSignal) => getProjectSupply(projectId, variant, signal), [projectId, variant]);
   const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}` : null, fetcher, "Could not load the project's supply");
+  const forecast = useProjectForecast(projectId, variant, boards, allowed && loaded.data?.available === true);
   if (!allowed) return <p className="text-sm text-muted-foreground">Supply data is not available to your role.</p>;
   if (loaded.status === "loading") return <Skeleton className="h-48 w-full" aria-label="Loading the project's supply" />;
   if (loaded.status === "error" || !loaded.data) {
@@ -124,7 +125,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
           <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={(partId) => navigate(supplyPartPath(partId))} />
           <section aria-label="Parts" className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
-            <ProjectSupplyParts parts={supply.parts ?? []} />
+            <ProjectSupplyParts parts={supply.parts ?? []} shortAt8Weeks={forecast.data?.by_line} />
           </section>
         </>
       ) : (
