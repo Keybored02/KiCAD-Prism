@@ -27,6 +27,7 @@ from app.services.supply.identity import match_key
 from app.services.supply.models import Offer
 from app.services.supply.providers import packaging_hints, registry
 from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited, SupplyProvider
+from app.services.supply import quota
 from app.services.supply.store import SupplyStore, supply_store
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -37,6 +38,9 @@ EARLY_GAP = timedelta(days=1)
 # usually has two or three packagings).
 GROUP_LISTINGS = 3
 MISSES_BEFORE_GONE = 3
+# A scheduled batch that is not full waits for company this long (counted from when its oldest listing came due), unless the
+# provider's day is about to end or a listing in it is urgent.
+HOLD_PART_BATCH = timedelta(hours=2)
 # A listing's reading is kept at least this often, changed or not, so a flat line is still a line.
 SAMPLE_EVERY = timedelta(days=1)
 
@@ -58,6 +62,9 @@ class DueListing:
     tier: int = 2
     # What the last failed read said ("" when it did not fail).
     last_error_code: str = ""
+    # When the listing came due (None: never read) and how urgent it is (``tiers.Urgency``).
+    due_at: datetime | None = None
+    urgency: int = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +74,8 @@ class PollSummary:
     polled: int = 0
     gone: int = 0
     stopped: str | None = None
+    # Listings due but kept back to fill a batch; for spare work this counts as nothing due.
+    holding: int = 0
 
 
 # When the budget cannot serve everything, tier 1 comes before tier 2; within a tier a listing never read goes first, then
@@ -80,7 +89,7 @@ _SERVICE_ORDER = (
 def _due(r) -> DueListing:
     return DueListing(
         r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]),
-        r.get("last_error_code") or "",
+        r.get("last_error_code") or "", r.get("due_at"), int(r.get("urgency", 2)),
     )
 
 
@@ -116,7 +125,7 @@ def due_listings(
         f"""
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier,
-               COALESCE(ps.last_error_code, '') AS last_error_code
+               COALESCE(ps.last_error_code, '') AS last_error_code, ps.next_poll_at AS due_at, COALESCE(ps.urgency, 2) AS urgency
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
@@ -184,6 +193,17 @@ def _chunks(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing]
 
 
 MAX_SPLIT = 6
+
+
+def _worth_sending(batch: Sequence[DueListing], now: datetime, reset: tuple[str, str]) -> bool:
+    """Whether a batch that is not full goes out now: a listing in it never read, urgent, or due for two hours, or the provider's
+    day ending within two hours (so what is left of its budget is not lost), or listings that failed or went missing (they are retried on their own clock)."""
+
+    if any(row.due_at is None or row.urgency <= tiers.Urgency.HOT or row.error_streak > 0 or row.missing_streak > 0 for row in batch):
+        return True
+    if now - min(row.due_at for row in batch) >= HOLD_PART_BATCH:
+        return True
+    return quota.seconds_to_reset(now, reset[0], reset[1]) < HOLD_PART_BATCH.total_seconds()
 
 
 def _batches(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing]]:
@@ -290,10 +310,18 @@ class Poller:
         if not due:
             return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE)
 
+        batches = _by_part(due) if spec.groups_by_part else _batches(due, spec.max_batch)
+        holding = 0
+        if spec.max_batch > 1 and not spec.groups_by_part and not (interactive or oneoff or spare or only_part is not None):
+            if len(batches[-1]) < spec.max_batch and not _worth_sending(batches[-1], now, self._reset):
+                holding = len(batches.pop())
+            if not batches:
+                return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE, holding=holding)
+
         provider = self._provider_for(connector_id)
         calls = polled = gone = 0
         stopped: str | None = None
-        for batch in _by_part(due) if spec.groups_by_part else _batches(due, spec.max_batch):
+        for batch in batches:
             purpose = (
                 ledger.PURPOSE_ONE_OFF if oneoff else ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare
                 else f"tier{min(row.tier for row in batch)}"
@@ -331,7 +359,7 @@ class Poller:
                 alerts.evaluate_parts(conn, (row.part_id for row in batch), now)
             polled += len(batch)
             self._connectors.record_result(connector_id)
-        return PollSummary(connector_id, calls=calls, polled=polled, gone=gone, stopped=stopped)
+        return PollSummary(connector_id, calls=calls, polled=polled, gone=gone, stopped=stopped, holding=holding)
 
     # --- recording --------------------------------------------------------
 

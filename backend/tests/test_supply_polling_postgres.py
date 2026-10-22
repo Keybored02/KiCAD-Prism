@@ -399,6 +399,26 @@ class PollingTests(unittest.TestCase):
         self.clock.advance(days=3)
         self.assertEqual(poller.poll_connector(cid).polled, 1, "a gone listing is no longer asked about")
 
+    def test_a_batch_that_is_not_full_waits_for_company_unless_it_is_old_urgent_or_the_day_is_ending(self) -> None:
+        cid = self.connector()
+        self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
+        poller = self.poller()
+        self.assertEqual(poller.poll_connector(cid).polled, 1, "a listing never read goes out at once")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
+        held = poller.poll_connector(cid)
+        self.assertEqual((held.polled, held.holding, held.stopped), (0, 1, "nothing_due"), "due for ten minutes, a batch of one waits")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET urgency = 0")
+        self.assertEqual(poller.poll_connector(cid).polled, 1, "an urgent listing does not wait")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s, urgency = 2", (self.clock.now - timedelta(hours=2, minutes=1),))
+        self.assertEqual(poller.poll_connector(cid).polled, 1, "nor one that has been due two hours")
+        self.clock.now = START.replace(hour=22, minute=30)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
+        self.assertEqual(poller.poll_connector(cid).polled, 1, "nor in the last two hours of the day")
+
     def test_a_returning_listing_clears_its_misses(self) -> None:
         cid = self.connector()
         self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
