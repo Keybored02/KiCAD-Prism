@@ -25,9 +25,17 @@ _LIFECYCLE_SCORE = {
 }
 
 
+# What the outlook band adds to the lifecycle score: a notice or last date to buy is as serious as a last time buy.
+_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "under_2_years": (4, "Signals say it ends within 2 years."), "2_to_5_years": (2, "Signals say it may end within 5 years.")}
+
+
 def lifecycle(facts: Facts) -> SubScore:
     score = _LIFECYCLE_SCORE[facts.lifecycle]
     reasons = [] if facts.lifecycle in (Lifecycle.ACTIVE, Lifecycle.UNKNOWN) else [f"Manufacturer lifecycle: {facts.lifecycle.value.replace('_', ' ')}."]
+    ahead = _OUTLOOK_SCORE.get(facts.outlook)
+    if ahead and ahead[0] > score:
+        score = ahead[0]
+        reasons.append(ahead[1])
     if facts.offers and all(o["discontinued"] for o in facts.offers):
         score = min(score + 1, 5)
         reasons.append("Every distributor has stopped selling it.")

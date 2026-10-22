@@ -33,6 +33,8 @@ PARAMETER_MISMATCH = "parameter_mismatch"
 PACKAGE_MISMATCH = "package_mismatch"
 LIFECYCLE_DISAGREEMENT = "lifecycle_disagreement"
 PRICE_OUTLIER = "price_outlier"
+OUTLOOK_ENDED = "outlook_ended"
+ENDING_WITHIN_2_YEARS = "ending_within_2_years"
 
 DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     PART_NOT_FOUND: Status.ERROR,
@@ -56,6 +58,9 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     LIFECYCLE_DISAGREEMENT: Status.WARNING,
     # Prices differ for many reasons; it starts as a note that does not count against health.
     PRICE_OUTLIER: Status.OK,
+    # The lifecycle outlook (``outlook.py``) reads more than the lifecycle word: notices, last dates to buy, distributors dropping it.
+    OUTLOOK_ENDED: Status.ERROR,
+    ENDING_WITHIN_2_YEARS: Status.WARNING,
 })
 
 SUB_SCORES = ("lifecycle", "sourcing", "inventory", "market", "compliance")
@@ -111,6 +116,8 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     PACKAGE_MISMATCH: "The footprint size differs from the distributor's package",
     LIFECYCLE_DISAGREEMENT: "Distributors disagree on the lifecycle",
     PRICE_OUTLIER: "A distributor's price is far from the others'",
+    OUTLOOK_ENDED: "The signals say the part has ended",
+    ENDING_WITHIN_2_YEARS: "The signals say the part ends within 2 years",
 })
 
 # What a workspace may set. "ok" turns a check into a note that does not count against health.

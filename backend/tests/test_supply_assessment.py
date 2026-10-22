@@ -144,9 +144,41 @@ class RiskTests(unittest.TestCase):
         self.assertEqual(self.scores(lifecycle=Lifecycle.NRND)["lifecycle"], 3)
         self.assertEqual(self.scores([offer(discontinued=True)], lifecycle=Lifecycle.NRND)["lifecycle"], 4)
 
+    def test_lifecycle_rises_with_the_outlook(self) -> None:
+        self.assertEqual(self.scores(outlook="no_signs")["lifecycle"], 1)
+        self.assertEqual(self.scores(outlook="2_to_5_years")["lifecycle"], 2)
+        self.assertEqual(self.scores(outlook="under_2_years")["lifecycle"], 4)
+        self.assertEqual(self.scores(outlook="ended")["lifecycle"], 5)
+        self.assertEqual(self.scores(lifecycle=Lifecycle.LAST_TIME_BUY, outlook="2_to_5_years")["lifecycle"], 4, "the outlook never lowers the score")
+
     def test_market_follows_lead_time(self) -> None:
         for days, score in ((20, 1), (50, 2), (80, 3), (150, 4), (400, 5)):
             self.assertEqual(self.scores([offer(lead_time_days=days)])["market"], score, days)
+
+
+class OutlookFindingTests(unittest.TestCase):
+    def test_a_part_ending_within_two_years_is_a_warning_and_an_ended_one_an_error(self) -> None:
+        soon = [f for f in checks.evaluate(facts(outlook="under_2_years"), DEFAULTS) if f.check == "ending_within_2_years"]
+        self.assertEqual([f.severity for f in soon], [Status.WARNING])
+        ended = [f for f in checks.evaluate(facts(outlook="ended"), DEFAULTS) if f.check == "outlook_ended"]
+        self.assertEqual([f.severity for f in ended], [Status.ERROR])
+        for quiet in ("", "no_signs", "2_to_5_years", "unknown"):
+            self.assertFalse({"ending_within_2_years", "outlook_ended"} & set(ids(checks.evaluate(facts(outlook=quiet), DEFAULTS))), quiet)
+
+    def test_it_is_not_said_twice_when_the_lifecycle_or_the_distributors_already_say_it(self) -> None:
+        found = ids(checks.evaluate(facts(lifecycle=Lifecycle.OBSOLETE, outlook="ended"), DEFAULTS))
+        self.assertIn("obsolete", found)
+        self.assertNotIn("outlook_ended", found)
+        dropped = ids(checks.evaluate(facts([offer(discontinued=True)], outlook="under_2_years"), DEFAULTS))
+        self.assertNotIn("ending_within_2_years", dropped)
+
+    def test_a_part_with_a_last_date_to_buy_no_longer_scores_near_ten(self) -> None:
+        sub_scores = risk.sub_scores(facts(outlook="under_2_years"))
+        found = checks.evaluate(facts(outlook="under_2_years"), DEFAULTS)
+        result = health.health(found, sub_scores, DEFAULTS, has_data=True)
+        quiet = health.health(checks.evaluate(facts(), DEFAULTS), risk.sub_scores(facts()), DEFAULTS, has_data=True)
+        self.assertLess(result.score, quiet.score - 1)
+        self.assertEqual(result.status, Status.WARNING)
 
 
 class HealthTests(unittest.TestCase):

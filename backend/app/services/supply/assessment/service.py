@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import compliance, fx, parts_view, pricing
+from app.services.supply import compliance, fx, part_insights, parts_view, pricing
 from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
@@ -55,11 +55,12 @@ def assess_one(
     extras: Sequence[checks.Finding] = (),
     svhc_listed: Sequence[str] = (),
     rates: fx.Rates | None = None,
+    outlook: str = "",
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
-        svhc_listed=svhc_listed, prices=_quotes(offers, settings.base_currency, rates),
+        svhc_listed=svhc_listed, prices=_quotes(offers, settings.base_currency, rates), outlook=outlook,
     )
     # Findings from outside the part (a component's) are waived like the part's own.
     findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
@@ -97,8 +98,13 @@ def assess_summaries(
     distributors = distributor_count(conn)
     listed = compliance.listed_substances(conn, [item["id"] for item in items])
     rates = fx.latest(conn)
+    # The outlook band is kept by housekeeping with the part's other insights, so a read here costs one query.
+    bands = {part_id: data.get("outlook_band") or "" for part_id, data in part_insights.of_parts(conn, [item["id"] for item in items]).items()}
     return {
-        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()), listed.get(item["id"], ()), rates)
+        item["id"]: assess_one(
+            item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors,
+            (extras or {}).get(item["id"], ()), listed.get(item["id"], ()), rates, bands.get(item["id"], ""),
+        )
         for item in items
     }
 

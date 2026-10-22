@@ -37,6 +37,8 @@ class Facts:
     svhc_listed: Sequence[str] = ()
     # What each distributor quotes per piece at the reference quantity, in the base currency: (distributor name, price).
     prices: Sequence[tuple[str, Decimal]] = ()
+    # Where the part stands on the way to its end (``outlook.py``): "ended", "under_2_years", "2_to_5_years", "no_signs", "unknown", or "" when not known.
+    outlook: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +101,12 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
         add(ids.NRND, "The manufacturer does not recommend this part for new designs.", "nrnd")
 
     offers = list(facts.offers)
+    # A lifecycle word or every distributor dropping the part already says it; the outlook adds what notices and last dates to buy say.
+    said = facts.lifecycle in (Lifecycle.OBSOLETE, Lifecycle.LAST_TIME_BUY) or (bool(offers) and all(o["discontinued"] for o in offers))
+    if facts.outlook == "ended" and not said:
+        add(ids.OUTLOOK_ENDED, "The signals Prism holds say this part has reached its end of life.", "outlook_ended")
+    elif facts.outlook == "under_2_years" and not said:
+        add(ids.ENDING_WITHIN_2_YEARS, "A notice or a last date to buy says this part ends within 2 years.", "ending_within_2_years")
     if not offers:
         return found
     stock = stock_of(offers) or 0
