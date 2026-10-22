@@ -6,6 +6,10 @@ stay "learning" for a long time (about 30 changes needed); the rule-based outloo
 
 * P8: a monthly rate of changes into not-recommended, last time buy or obsolete, per part-month watched. Over ``m`` months the chance is
   ``1 - exp(-rate * m)``. A part already ending has no such chance.
+  The maker's rate is multiplied by what the part itself shows: an open end-of-life, not-recommended or last-time-buy notice (x3), and
+  distributors dropping it (up to x2, by the share of the distributors that list it that have dropped it). These are fixed priors:
+  too few lifecycle changes are seen to measure them, and they are measured from the changes when there are ``MIN_CASES`` of them.
+  The chance stays under 95% a year however many signs there are. (Factory stock is not a figure Prism reads, so it is no factor.)
 * P9: from notices that name a first sign (end of life, not recommended) and a last time buy date, the observed months between.
 """
 
@@ -24,6 +28,11 @@ MAKER_SHRINK_MONTHS = 60.0
 PRIOR_EVENTS = 0.5
 MIN_CASES = 5
 MIN_CHANGES_TO_SHOW = 30
+# What each sign multiplies the rate by when the data cannot say: an open notice, and every distributor that lists the part having dropped it.
+NOTICE_FACTOR = 3.0
+DROPPED_FACTOR = 2.0
+# A year's chance never reaches this.
+MAX_P12 = 0.95
 
 
 def chance(rate_per_month: float, months: int) -> float:
@@ -63,16 +72,43 @@ def rates(conn, today: date | None = None) -> dict[str, Any]:
     return {"pooled": pooled, "makers": makers, "changes": changes["__all__"], "part_months": exposure["__all__"], "exposure": dict(exposure)}
 
 
+def signs(conn, part_id: str) -> dict[str, Any]:
+    """What the part itself shows: whether an end-of-life, not-recommended or last-time-buy notice is open, and the share of the
+    distributors that list it that have dropped it."""
+
+    notice = conn.execute(
+        "SELECT 1 FROM pcn_parts pp JOIN pcns n ON n.id = pp.pcn_id WHERE pp.part_id = %s AND n.state = 'open' "
+        "AND n.kind IN ('end_of_life', 'nrnd', 'last_time_buy') LIMIT 1",
+        (part_id,),
+    ).fetchone()
+    rows = conn.execute(
+        """
+        SELECT l.connector_id, bool_and(o.discontinued) AS dropped FROM listings l JOIN offers o ON o.listing_id = l.id
+        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND NOT o.marketplace GROUP BY l.connector_id
+        """,
+        (part_id,),
+    ).fetchall()
+    return {"notice": notice is not None, "dropped_share": (sum(1 for row in rows if row["dropped"]) / len(rows)) if rows else 0.0}
+
+
+def factor(found: dict[str, Any]) -> float:
+    """What the part's own signs multiply the maker's rate by."""
+
+    return (NOTICE_FACTOR if found["notice"] else 1.0) * (1.0 + (DROPPED_FACTOR - 1.0) * found["dropped_share"])
+
+
 def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None) -> dict[str, Any]:
-    """The chance a part turns ending within 12 and 24 months. None for a part that already is."""
+    """The chance a part turns ending within 12 and 24 months, from its maker's rate and its own signs. None for a part that already is."""
 
     if lifecycle in _ENDING:
         return {"available": False, "reason": "already_ending"}
     found = rates(conn, today)
     maker = conn.execute("SELECT m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)).fetchone()
     rate = found["makers"].get(maker["name"], found["pooled"]) if maker else found["pooled"]
+    shown = signs(conn, part_id)
+    rate = min(rate * factor(shown), -math.log(1.0 - MAX_P12) / 12)
     return {
-        "available": True, "rate": rate, "p12": chance(rate, 12), "p24": chance(rate, 24),
+        "available": True, "rate": rate, "p12": chance(rate, 12), "p24": chance(rate, 24), "signs": shown,
         "changes": found["changes"], "needs": MIN_CHANGES_TO_SHOW, "part_months": round(found["part_months"]),
     }
 

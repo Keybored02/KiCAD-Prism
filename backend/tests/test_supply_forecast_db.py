@@ -295,6 +295,28 @@ class ForecastDbTests(unittest.TestCase):
         self.assertTrue(found["price"]["h90"]["flat"])
         self.assertEqual(found["path"][0]["day"], START.date().isoformat())
 
+    def test_a_part_with_an_open_notice_and_distributors_dropping_it_is_likelier_to_end_but_never_certain(self) -> None:
+        from app.services.supply import forecast_lifecycle
+
+        listing = self.listing(self.cid, "EOL-SKU")
+        self.readings(listing, [100] * 10, START - timedelta(days=9), fetched_at=START)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE parts SET created_at = %s", (START - timedelta(days=1080),))  # three years watched: a small pooled rate
+            plain = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
+            conn.execute("INSERT INTO pcns (id, title, kind, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', 'open', 'a')")
+            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
+            noticed = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
+            conn.execute("UPDATE offers SET discontinued = TRUE WHERE listing_id = %s", (listing,))
+            dropped = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
+            self.assertEqual(plain["signs"], {"notice": False, "dropped_share": 0.0})
+            self.assertEqual(dropped["signs"], {"notice": True, "dropped_share": 1.0})
+            self.assertAlmostEqual(noticed["rate"] / plain["rate"], 3.0, places=6)
+            self.assertAlmostEqual(dropped["rate"] / plain["rate"], 6.0, places=6, msg="the notice x3 and every distributor dropping it x2")
+            self.assertLess(dropped["p12"], 0.95)
+            self.assertGreater(dropped["p12"], noticed["p12"])
+            conn.execute("UPDATE pcns SET state = 'closed'")
+            self.assertFalse(forecast_lifecycle.signs(conn, self.part_id)["notice"], "a closed notice is no sign")
+
     def test_the_forecast_endpoint_and_the_track_record(self) -> None:
         self.falling(self.listing(self.cid, "FALL-SKU"), end=datetime.now(timezone.utc))
         reply = self.get(f"/api/supply/parts/{self.part_id}/forecast", "quantity=50")

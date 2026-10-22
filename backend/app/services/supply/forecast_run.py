@@ -106,7 +106,7 @@ def _store_end_of_life(conn, part_id: str, day: date) -> None:
         return
     found = forecast_lifecycle.part_chance(conn, part_id, items[0]["lifecycle"], day)
     if found["available"]:
-        forecasting.store(conn, "part", part_id, "eol_12", day, 365, model="pooled-hazard", probability=found["p12"], inputs={"rate": found["rate"], "changes": found["changes"]})
+        forecasting.store(conn, "part", part_id, "eol_12", day, 365, model="pooled-hazard", probability=found["p12"], inputs={"rate": found["rate"], "changes": found["changes"], "signs": found["signs"]})
 
 
 # --- checking ---------------------------------------------------------------
