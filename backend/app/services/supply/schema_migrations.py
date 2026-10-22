@@ -1928,6 +1928,13 @@ def _m089_likely_out_percent(conn) -> None:
     conn.execute("ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS likely_out_percent INTEGER", prepare=False)
 
 
+def _m090_jlcpcb_budget(conn) -> None:
+    """JLCPCB's refusals were its request-forgery check on cookies Prism kept, not a limit, so its budget is no longer 300: connectors of
+    that provider still on the old default get 1000 (one a person changed is left)."""
+
+    conn.execute("UPDATE connectors SET daily_budget = 1000 WHERE provider = 'jlcpcb' AND daily_budget = 300", prepare=False)
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2078,6 +2085,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (87, "restart_price_forecasts", _m087_restart_price_forecasts),
     (88, "recompute_health", _m088_recompute_health),
     (89, "likely_out_percent", _m089_likely_out_percent),
+    (90, "jlcpcb_budget", _m090_jlcpcb_budget),
 ]
 
 

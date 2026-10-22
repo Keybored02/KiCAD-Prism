@@ -33,7 +33,7 @@ class JlcpcbTests(unittest.TestCase):
     def test_the_spec_is_assembly_only_needs_no_key_and_waits_for_the_terms(self) -> None:
         spec = registry.get_spec("jlcpcb")
         self.assertEqual((spec.required_credentials, spec.max_batch, spec.assembly_only), ((), 1, True))
-        self.assertEqual(spec.default_daily_budget, 300)
+        self.assertEqual(spec.default_daily_budget, 1000)
 
     def test_an_offer_keeps_assembly_stock_apart_with_prices_and_the_part_class(self) -> None:
         client = FakeClient({PATH: [recorded("c25804")]})
@@ -70,6 +70,24 @@ class JlcpcbTests(unittest.TestCase):
 
         with self.assertRaises(Blocked):
             provider(Refusing()).lookup_mpn("LM358DR")
+
+    def test_a_json_refusal_is_tried_once_more_and_only_a_second_one_is_a_block(self) -> None:
+        client = FakeClient({PATH: [AuthError("rejected (HTTP 403)"), recorded("lm358dr")]})
+        self.assertTrue(provider(client).lookup_mpn("LM358DR"), "the retry answered")
+        self.assertEqual(len(client.calls), 2)
+        twice = FakeClient({PATH: [AuthError("rejected (HTTP 403)"), AuthError("rejected (HTTP 403)")]})
+        with self.assertRaises(Blocked):
+            provider(twice).lookup_mpn("LM358DR")
+        self.assertEqual(len(twice.calls), 2)
+
+    def test_a_web_page_is_a_block_at_once_and_the_client_keeps_no_cookies(self) -> None:
+        page = FakeClient({PATH: [Blocked("answered a web page (HTTP 403)")]})
+        with self.assertRaises(Blocked):
+            provider(page).lookup_mpn("LM358DR")
+        self.assertEqual(len(page.calls), 1, "no retry")
+        from app.services.supply.http_client import SafeHttpClient
+
+        self.assertFalse(SafeHttpClient(("jlcpcb.com",), transport=object(), keep_cookies=False)._keep_cookies)  # noqa: SLF001
 
     def test_each_call_waits_between_three_quarters_and_one_and_a_half_times_the_pace(self) -> None:
         sleeps = []

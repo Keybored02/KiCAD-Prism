@@ -15,9 +15,11 @@ showed (see ``_source`` in each file for how they were made).
 * The stock is JLCPCB's assembly stock. It is not sold to anyone, so every offer is marked as marketplace stock: shown
   on its own line, never added to a part's total, its status or the checks. Basic, Extended and Preferred are facts.
 * Prices are US dollars on the site.
-* No limit is published, and the service sits behind a bot filter that answers 403 now and then. It is asked at the
-  same pace as LCSC (a call about every 1.5 seconds, 300 a day), and a refusal is a block, not a bad key: the connector
-  rests for hours instead of retrying.
+* No limit is published. The first answer sets a session cookie and a request-forgery token cookie (``XSRF-TOKEN``, 30 minutes), and
+  the next request that carries them is refused with a JSON 403 unless it echoes the token in ``X-XSRF-TOKEN``. Found on
+  2026-10-22: it is not a bot filter and not the pace. So no cookie is ever kept (``keep_cookies=False``), and a JSON 403 is tried
+  once more at once; only a web page, or a refusal that survives the retry, is a block (a rest, longer each time).
+* Asked every 8 seconds or so, 1000 calls a day.
 """
 
 from __future__ import annotations
@@ -48,10 +50,11 @@ SEARCH_URL = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/
 PAGE_URL = "https://jlcpcb.com/partdetail/{}"
 ALLOWED_HOSTS = ("jlcpcb.com",)
 PAGE_SIZE = 10
-# Slow on purpose: these two have no credentials and answer a stray burst with a block. 8 s keeps 300 JLCPCB calls under an hour and 2000 LCSC calls under 5 hours.
+# Slow on purpose: no credentials and no published limit. At 8 s (6 to 12 between calls) 1000 calls take about 2.5 hours of calling a day.
 PACE_SECONDS = 8.0
 CURRENCY = "USD"
-DEFAULT_DAILY_BUDGET = 300
+# The budget was 300 while refusals looked like a bot filter; they were the cookies (see above). Migration 90 raises it where it is still 300.
+DEFAULT_DAILY_BUDGET = 1000
 LIBRARY = {"base": "Basic", "expand": "Extended"}
 
 
@@ -65,17 +68,21 @@ class JlcpcbProvider:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
+        self._client = client or SafeHttpClient(ALLOWED_HOSTS, keep_cookies=False)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
     def _search(self, keyword: str) -> list[dict[str, Any]]:
         self._pacer.wait()
-        try:
-            answer = self._client.request_json("POST", SEARCH_URL, json={"keyword": keyword, "currentPage": 1, "pageSize": PAGE_SIZE})
-        except AuthError as exc:
-            # The service takes no key, so a refusal is its bot filter, not a rejected credential.
-            raise Blocked("JLCPCB refused the request") from exc
+        for attempt in range(2):
+            try:
+                answer = self._client.request_json("POST", SEARCH_URL, json={"keyword": keyword, "currentPage": 1, "pageSize": PAGE_SIZE})
+                break
+            except AuthError as exc:
+                # The service takes no key, so a JSON 403 is not a rejected credential. Once more at once, with no cookies; a refusal that
+                # survives that is a block. (A web page is a block at once: the client raises ``Blocked`` for it.)
+                if attempt == 1:
+                    raise Blocked("JLCPCB refused the request") from exc
         if not isinstance(answer, dict) or answer.get("code") != 200:
             raise ProviderError("JLCPCB did not answer the part search")
         page = (answer.get("data") or {}).get("componentPageInfo") or {}

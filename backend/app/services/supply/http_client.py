@@ -124,6 +124,10 @@ class RequestsTransport:
             self._sessions[(host, address)] = session
         return session
 
+    def clear_cookies(self) -> None:
+        for session in self._sessions.values():
+            session.cookies.clear()
+
     def close(self) -> None:
         for session in self._sessions.values():
             session.close()
@@ -243,7 +247,11 @@ class SafeHttpClient:
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
         max_redirects: int = MAX_REDIRECTS,
         host_denied: Callable[[str], bool] | None = None,
+        keep_cookies: bool = True,
     ) -> None:
+        # With ``keep_cookies`` False every request goes with an empty cookie jar: a service that ties a request-forgery token to its
+        # session cookie (JLCPCB) then never sees a session it would want the token for.
+        self._keep_cookies = keep_cookies
         self._host_denied = host_denied
         self._allowed = None if allowed_hosts is None else tuple(allowed_hosts)
         if transport is None:
@@ -320,6 +328,10 @@ class SafeHttpClient:
         return self.request(method, url, **kwargs).json()
 
     def _send_once(self, method: str, url: str, headers: Mapping[str, str], body: bytes | None) -> HttpResponse:
+        if not self._keep_cookies:
+            clear = getattr(self._transport, "clear_cookies", None)
+            if clear is not None:
+                clear()
         try:
             target = validate_url(
                 url, allowed_hosts=self._allowed, resolve=self._resolve,

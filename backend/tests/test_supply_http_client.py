@@ -141,6 +141,40 @@ class RequestShapeTests(unittest.TestCase):
             client.request_json("GET", "https://api.example.com/x")
 
 
+class CookieTests(unittest.TestCase):
+    class Jar(ScriptedTransport):
+        """Sets a cookie on the first answer and refuses any request that comes while it is held, as JLCPCB's check does."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.cookie = False
+            self.cleared = 0
+
+        def clear_cookies(self) -> None:
+            self.cookie = False
+            self.cleared += 1
+
+        def send(self, *, method, target, headers, body, timeout, max_bytes):
+            refused = self.cookie
+            self.cookie = True
+            return _response(403, {"status": 403}, content_type="application/json") if refused else _response(200, {"ok": True})
+
+    def test_with_no_cookies_kept_every_request_goes_with_an_empty_jar(self) -> None:
+        transport = self.Jar()
+        client = SafeHttpClient(("api.example.com",), transport=transport, resolve=_resolver(), keep_cookies=False)
+        for _ in range(3):
+            self.assertEqual(client.request_json("GET", "https://api.example.com/x"), {"ok": True})
+        self.assertEqual(transport.cleared, 3)
+
+    def test_by_default_cookies_are_kept_and_the_second_request_is_refused(self) -> None:
+        transport = self.Jar()
+        client = SafeHttpClient(("api.example.com",), transport=transport, resolve=_resolver())
+        client.request_json("GET", "https://api.example.com/x")
+        with self.assertRaises(AuthError):
+            client.request_json("GET", "https://api.example.com/x")
+        self.assertEqual(transport.cleared, 0)
+
+
 class ErrorMappingTests(unittest.TestCase):
     def _error(self, response_or_error, **kwargs):
         client, _ = _client(response_or_error, **kwargs)

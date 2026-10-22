@@ -78,6 +78,23 @@ class SupplyDatabaseTests(unittest.TestCase):
             self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "versions are consecutive")
             self.assertEqual(self.schema_migrations.apply_supply_migrations(conn), [])
 
+    def test_migration_90_raises_a_jlcpcb_budget_left_at_the_old_default_and_leaves_a_chosen_one(self) -> None:
+        jlc = self.service.create(actor="a@example.com", provider="jlcpcb", display_name="JLCPCB")["id"]
+        other = self.service.create(actor="a@example.com", provider="fake", currency="EUR", daily_budget=300)["id"]
+
+        def budgets():
+            with self.store.connection() as conn:
+                self.schema_migrations._m090_jlcpcb_budget(conn)  # noqa: SLF001
+                return {row["id"]: row["daily_budget"] for row in conn.execute("SELECT id, daily_budget FROM connectors").fetchall()}
+
+        with self.store.connection() as conn:
+            conn.execute("UPDATE connectors SET daily_budget = 300 WHERE id = %s", (jlc,))
+        found = budgets()
+        self.assertEqual((found[jlc], found[other]), (1000, 300), "the old default is raised, another provider's budget is not")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE connectors SET daily_budget = 250 WHERE id = %s", (jlc,))
+        self.assertEqual(budgets()[jlc], 250, "a budget a person chose is left")
+
     # --- connectors -------------------------------------------------------
 
     def _keyed(self, **overrides):
