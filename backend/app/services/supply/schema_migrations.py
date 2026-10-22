@@ -1833,6 +1833,22 @@ def _m081_reschedule_raised_parts(conn) -> None:
     )
 
 
+def _m082_reschedule_raised_weekly_parts(conn) -> None:
+    """The same repair for the parts raised to weekly (from monthly) before a read was brought forward with the rate, and to monthly from
+    nothing slower: a listing is due one rate's interval after its last read at the latest."""
+
+    for rate, days in (("weekly", 7), ("monthly", 30)):
+        conn.execute(
+            """
+            UPDATE poll_state ps SET tier = %s, next_poll_at = LEAST(ps.next_poll_at, ps.last_polled_at + make_interval(days => %s))
+            FROM listings l JOIN part_tiers pt ON pt.part_id = l.part_id
+            WHERE l.id = ps.listing_id AND pt.rate = %s AND ps.last_polled_at IS NOT NULL
+              AND ps.next_poll_at > ps.last_polled_at + make_interval(days => %s)
+            """,
+            (rate, days, rate, days),
+        )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -1975,6 +1991,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (78, "forget_cached_prices", _m078_forget_cached_prices),
     (79, "forecasts", _m079_forecasts),
     (81, "reschedule_raised_parts", _m081_reschedule_raised_parts),
+    (82, "reschedule_raised_weekly_parts", _m082_reschedule_raised_weekly_parts),
 ]
 
 
