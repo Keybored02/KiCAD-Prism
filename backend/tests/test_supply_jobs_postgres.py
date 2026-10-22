@@ -348,6 +348,33 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual((call["worker_pool"], call["requested_by"], call["max_attempts"]), ("prism", "system:supply-scheduler", 2))
         self.assertNotEqual(first, second)
 
+    def test_a_connector_with_due_notices_is_work_when_its_product_budget_is_spent(self) -> None:
+        from app.services.supply import oauth
+        from app.services.supply.providers.base import ProviderSpec
+
+        self.registry.register(ProviderSpec(
+            key="demo_notices", label="Notices", capabilities=frozenset({"offers", "pcn"}), max_batch=10, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config), default_daily_budget=100, notice_daily_limit=50,
+        ), replace=True)
+        self.addCleanup(self.registry.unregister, "demo_notices")
+        cid = self.connector("demo_notices", daily_budget=0)
+        record = self.watch()
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('ln', %s, 'S1', %s, 'x', 'Acme', 'exact')",
+                (cid, record.part_id),
+            )
+            conn.execute("INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at) VALUES ('ln', 'daily', 2, %s, %s)",
+                         (self.clock.now + timedelta(days=1), self.clock.now))
+            conn.execute("UPDATE admissions SET state = 'admitted' WHERE connector_id = %s", (cid,))
+            with mock.patch.object(oauth, "status", return_value={"signed_in": False}):
+                self.assertNotIn(cid, self.jobs.connectors_with_work(conn, self.clock.now), "nobody signed in: nothing to read")
+            with mock.patch.object(oauth, "status", return_value={"signed_in": True}):
+                self.assertIn(cid, self.jobs.connectors_with_work(conn, self.clock.now), "notices have their own quota")
+            conn.execute("INSERT INTO detail_checks (listing_id, kind, checked_at, tried_at, status) VALUES ('ln', 'notices', %s, %s, 'ok')", (self.clock.now, self.clock.now))
+            with mock.patch.object(oauth, "status", return_value={"signed_in": True}):
+                self.assertNotIn(cid, self.jobs.connectors_with_work(conn, self.clock.now), "read today: not due")
+
     def test_connectors_on_one_account_share_one_job(self) -> None:
         def keyed(storefront: str, key: str) -> str:
             return self.connectors.create(

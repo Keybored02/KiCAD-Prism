@@ -15,14 +15,14 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, dashboard, details, forecast_run, fx, ledger, market, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
+    accounts, dashboard, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
 from app.services.supply.poller import Poller
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import CAP_SEARCH
+from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANCES
 from app.services.supply.store import SupplyStore, supply_store
 
 POLL_JOB_KIND = "supply_poll"
@@ -167,6 +167,8 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         {"now": now, "known": sorted(result)},
     ).fetchall()
     result |= {row["id"] for row in spare if _has_spare(conn, row, now)}
+    # Notices and substances come due on their own: a connector with some is work whatever its reads are doing.
+    result |= _connectors_with_details(conn, now, result)
     # Checks someone asked for once: served from the pool, then from spare budget.
     wanted = [cid for cid in oneoff.pending_connectors(conn) if cid not in result]
     if wanted:
@@ -177,6 +179,37 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
             if _has_pool_or_spare(conn, row, now):
                 result.add(row["id"])
     return sorted(result)
+
+
+def _connectors_with_details(conn, now: datetime, known: set[str]) -> set[str]:
+    """Active connectors not already queued that have notices or substances due. A provider with a quota of its own for notices
+    (DigiKey) is gated by that quota and a person's sign-in; one without is gated by the product budget."""
+
+    found: set[str] = set()
+    rows = conn.execute(
+        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM connectors c "
+        "WHERE c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %s)", (now,)
+    ).fetchall()
+    for row in rows:
+        if row["id"] in known:
+            continue
+        try:
+            spec = registry.get_spec(row["provider"])
+        except registry.UnknownProvider:
+            continue
+        kinds = [kind for capability, kind in ((CAP_PCN, "notices"), (CAP_SUBSTANCES, "substances")) if capability in spec.capabilities]
+        if not kinds:
+            continue
+        if spec.notice_daily_limit and spec.metered:
+            if not oauth.status(conn, row["id"], now)["signed_in"]:
+                continue
+            if not notice_budget.allowed(conn, row["id"], spec.notice_daily_limit, now, interactive=False, spare=False, news=False):
+                continue
+        elif not _has_budget(conn, row, now):
+            continue
+        if any(details.due(conn, row["id"], kind, now, 1) for kind in kinds):
+            found.add(row["id"])
+    return found
 
 
 def housekeeping(store: SupplyStore) -> int:
