@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyInsightsPage } from "@/types/supply";
@@ -67,8 +67,13 @@ function page(overrides: Partial<SupplyInsightsPage> = {}): SupplyInsightsPage {
   };
 }
 
+function Location() {
+  const where = useLocation();
+  return <p aria-label="location">{where.search}</p>;
+}
+
 function renderView(initial = "/") {
-  render(<MemoryRouter initialEntries={[initial]}><InsightsView /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={[initial]}><InsightsView /><Location /></MemoryRouter>);
 }
 
 beforeEach(() => {
@@ -134,6 +139,15 @@ describe("the insights sections added with the rework", () => {
     expect(screen.getByText("1 part is quoted over 16 weeks")).toBeTruthy();
     expect(screen.getByRole("button", { name: "NE5532" })).toBeTruthy();
     expect(screen.getByText("3A991")).toBeTruthy();
+  });
+
+  it("opens the parts a bar counts in the tracked scope, not the followed one that adds untracked BOM parts", async () => {
+    renderView();
+    await screen.findByText("DigiKey lists 5 of 6 parts");
+    fireEvent.click(screen.getAllByRole("button", { name: /^Malaysia: \d/ })[0]);
+    const search = screen.getByLabelText("location").textContent ?? "";
+    expect(search).toContain("partsOnly=origin%3AMalaysia");
+    expect(search).toContain("partsScope=watched");
   });
 
   it("makes every bar of the lifecycle, compliance, lead time and export control charts open its parts", async () => {
