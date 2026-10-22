@@ -16,7 +16,7 @@ const WHY: Record<string, string> = {
 };
 
 /**
- * The drawer for one BOM row and the part sheet it opens. `open` takes the row's components;
+ * The part sheet for one BOM row, or the drawer when the row is several parts or an untracked one. `open` takes the row's components;
  * `element` goes anywhere in the table's tree.
  */
 export function useBomRowDetail(supply: BomSupply, user: User | null) {
@@ -24,7 +24,14 @@ export function useBomRowDetail(supply: BomSupply, user: User | null) {
   const [partId, setPartId] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  const open = useCallback((components: readonly SemanticComponent[]) => setRow(rowLines(components, supply.lines)), [supply.lines]);
+  // A row of one tracked part opens its supply sheet straight away; a row of several, or of a part nobody tracks yet, opens the drawer.
+  const results = supply.lookup?.lines ?? null;
+  const open = useCallback((components: readonly SemanticComponent[]) => {
+    const lines = rowLines(components, supply.lines);
+    const only = lines.length === 1 ? results?.[lines[0].key]?.part_id : null;
+    if (only) setPartId(only);
+    else setRow(lines);
+  }, [supply.lines, results]);
 
   const watch = useCallback(async (line: BomLineDetail) => {
     setBusyKey(line.key);
@@ -43,7 +50,7 @@ export function useBomRowDetail(supply: BomSupply, user: User | null) {
     <>
       <BomRowDrawer
         lines={partId === null ? row : null}
-        results={supply.lookup?.lines ?? null}
+        results={results}
         canWatch={supply.canWatch}
         busyKey={busyKey}
         onClose={() => setRow(null)}

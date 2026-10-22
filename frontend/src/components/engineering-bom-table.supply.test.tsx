@@ -258,24 +258,18 @@ describe("the part drawer", () => {
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(2));
   });
 
-  it("says what is known about a tracked part and where to buy it", async () => {
-    renderTable("designer");
-    const drawer = await openDetails("10k");
-    expect(within(drawer).getByText("R-10K")).toBeTruthy();
-    expect(within(drawer).getByText("2 per board:", { exact: false })).toBeTruthy();
-    expect(within(drawer).getByText(/5,000 in stock, 2 needed\./)).toBeTruthy();
-    const link = within(drawer).getByRole("link", { name: /R-10K-TME/ });
-    expect(link.getAttribute("href")).toBe("https://shop.example/r");
-    expect(within(drawer).queryByRole("button", { name: /Watch this part/ })).toBeNull();
-  });
-
-  it("opens the full part sheet from a tracked part", async () => {
+  it("opens the part's supply sheet straight away for a row of one tracked part, with no drawer between", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
     renderTable("designer");
-    const drawer = await openDetails("10k");
-    fireEvent.click(within(drawer).getByRole("button", { name: "Open part" }));
+    const row = await waitFor(() => {
+      const found = rowOf("10k");
+      expect(within(found).getByRole("button", { name: "Show part details" })).toBeTruthy();
+      return found;
+    });
+    fireEvent.click(within(row).getByRole("button", { name: "Show part details" }));
     await waitFor(() => expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything()));
     expect(await screen.findByRole("region", { name: "Stock" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open part" })).toBeNull();
   });
 
   it("gives a reader the facts without the watch buttons", async () => {
