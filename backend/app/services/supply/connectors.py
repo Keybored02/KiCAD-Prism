@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
 
-from app.services.supply import accounts, admission, limits, quota
+from app.services.supply import accounts, admission, limits, pacing, quota
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
@@ -389,6 +389,7 @@ class ConnectorService:
         creds: dict[str, str] = {}
         if row["credential_envelope"]:
             creds = sealed.unseal(self._keyring(), connector_id, row["credential_envelope"])
+        pacing.use_store(self._store)
         provider = spec.factory(ProviderConfig(
             connector_id=connector_id,
             storefront=row["storefront"],

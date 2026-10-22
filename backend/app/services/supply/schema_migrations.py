@@ -1870,6 +1870,21 @@ def _m084_block_streak(conn) -> None:
     conn.execute("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS block_streak INTEGER NOT NULL DEFAULT 0", prepare=False)
 
 
+def _m085_pace_state(conn) -> None:
+    """When an account may next call its provider, and until when it is slowed, kept where every process sees it."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pace_state (
+            pace_key TEXT PRIMARY KEY,
+            next_at TIMESTAMPTZ NOT NULL,
+            slow_until TIMESTAMPTZ
+        )
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2015,6 +2030,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (82, "reschedule_raised_weekly_parts", _m082_reschedule_raised_weekly_parts),
     (83, "detail_tried_at", _m083_detail_tried_at),
     (84, "block_streak", _m084_block_streak),
+    (85, "pace_state", _m085_pace_state),
 ]
 
 

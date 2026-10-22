@@ -390,6 +390,35 @@ class AccountingTests(unittest.TestCase):
             last = rest()
         self.assertEqual(last, timedelta(hours=12), "never longer than the old fixed rest")
 
+    def test_two_pacers_on_one_key_share_the_next_call_and_a_slowdown_reaches_both(self) -> None:
+        from app.services.supply import pacing
+
+        wall = {"t": START}
+        sleeps: list[float] = []
+        pacing.use_store(self.store)
+        self.addCleanup(pacing.use_store, None)
+        self.addCleanup(pacing._registry.clear)
+
+        def pacer() -> "pacing.Pacer":
+            return pacing.Pacer(2.0, key="shared-key", rng=lambda: 0.0, sleep=sleeps.append, wall=lambda: wall["t"])
+
+        first, second = pacer(), pacer()  # two processes
+        first.wait()
+        second.wait()
+        self.assertEqual(sleeps, [1.5], "the second process waits for the gap the first reserved")
+        wall["t"] += timedelta(seconds=10)
+        pacing._registry["shared-key"] = first
+        pacing.slow_down("shared-key")
+        sleeps.clear()
+        second.wait()
+        second.wait()
+        self.assertEqual(sleeps, [3.0], "a slowdown noted by one process doubles the other's gaps")
+        wall["t"] += timedelta(days=1, seconds=1)
+        sleeps.clear()
+        second.wait()
+        second.wait()
+        self.assertEqual(sleeps, [1.5], "and ends after a day")
+
     def test_a_person_is_told_how_long_a_connector_rests_after_a_refusal(self) -> None:
         from app.services.supply.providers.base import Blocked, Unavailable
 
