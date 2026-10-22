@@ -258,13 +258,14 @@ class Discoverer:
         return searched, None
 
     def _spend(self, connector, first: bool, purpose: str, *, spare_only: bool = False) -> bool:
-        """A first search is paid from the pool and, when that is empty, from spare budget; a repeat from the committed share."""
+        """A first search is scheduled work, so it is paid from the background allowance while that has room, then from the pool (half of
+        which stays for people), then from free calls; a repeat from the committed share."""
 
         now = self._clock()
         if spare_only:
             return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)
         if first:
-            return ledger.spend_call(
+            return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose) or ledger.spend_call(
                 self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=purpose,
                 keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
             ) or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose, spare=True)

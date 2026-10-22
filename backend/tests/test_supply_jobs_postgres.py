@@ -188,14 +188,27 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT found FROM discovery_runs")[0]["found"], 0)
         self.assertEqual(self.discoverer_().run(cid).searched, 0)
 
-    def test_searches_spend_the_budget_and_stop_with_it(self) -> None:
-        cid = self.connector(daily_budget=20)  # a pool of 2 calls, half of it kept for people: 1 for first searches
+    def test_first_searches_are_scheduled_work_paid_from_the_background_allowance_and_leave_the_pool_alone(self) -> None:
+        cid = self.connector(daily_budget=20)  # a committed share of 18 calls, a pool of 2
         for n in range(4):
             self.watch(f"P{n}")
         summary = self.discoverer_().run(cid)
+        self.assertEqual((summary.searched, summary.stopped), (4, None))
+        (row,) = self.rows("SELECT spent, interactive_spent FROM quota_ledger")
+        self.assertEqual((row["spent"], row["interactive_spent"]), (4, 0), "nothing was taken from the pool")
+
+    def test_with_the_background_allowance_spent_first_searches_fall_back_to_the_pool_and_stop_with_it(self) -> None:
+        from app.services.supply import quota
+
+        cid = self.connector(daily_budget=20)  # a pool of 2 calls, half of it kept for people: 1 for first searches
+        for n in range(4):
+            self.watch(f"P{n}")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO quota_ledger (connector_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
+        summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.stopped), (1, "budget"))
         self.assertEqual(len(self.rows("SELECT * FROM discovery_runs")), 1)
-        self.assertEqual(self.rows("SELECT spent FROM quota_ledger")[0]["spent"], 1)
+        self.assertEqual(self.rows("SELECT spent FROM quota_ledger")[0]["spent"], 19)
 
     def test_free_connectors_search_without_spending(self) -> None:
         cid = self.connector("csv")
