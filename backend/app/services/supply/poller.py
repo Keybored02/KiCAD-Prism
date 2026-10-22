@@ -299,6 +299,7 @@ class Poller:
                 return ledger.spend_call(
                     self._store, connector, now=now, interactive=interactive or (oneoff and not from_spare), units=spec.calls_per_offers_batch,
                     kind=ledger.KIND_OFFERS, purpose=purpose, spare=bool(spare) or from_spare,
+                    keep_pool_pct=ledger.POOL_KEPT_FOR_PEOPLE_PCT if oneoff and not from_spare else 0,
                 )
 
             if spec.metered and not (spend(False) or (oneoff and spend(True))):

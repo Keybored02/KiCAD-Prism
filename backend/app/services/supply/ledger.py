@@ -25,6 +25,10 @@ KINDS = (KIND_SEARCH, KIND_OFFERS, KIND_NOTICES, KIND_SUBSTANCES, KIND_TEST, KIN
 PURPOSE_TIER1 = "tier1"
 PURPOSE_TIER2 = "tier2"
 PURPOSE_COMMITTED = "committed"  # committed work whose tier is not known
+# First searches and checks someone asked for once never take more than this share of the pool; the rest stays for people (Read now,
+# Check notices, Fill).
+POOL_KEPT_FOR_PEOPLE_PCT = 50
+
 PURPOSE_INTERACTIVE = "interactive"
 PURPOSE_ONE_OFF = "oneoff"
 PURPOSE_SPARE = "spare"

@@ -120,6 +120,16 @@ class OneOffTests(unittest.TestCase):
         self.assertTrue(self.progress(made["id"])["finished"])
         self.assertIn("oneoff", {r["purpose"] for r in self.rows("SELECT purpose FROM call_counts")})
 
+    def test_a_large_check_stops_at_half_the_pool_and_leaves_the_rest_to_people(self) -> None:
+        cid = self.connector(daily_budget=100)  # a pool of 10 calls
+        self.ask([("Acme", f"P{n}") for n in range(20)])
+        self.now = SUNDAY.replace(day=2, hour=10)  # Monday morning: working hours, no spare
+        for _ in range(4):
+            self.served(cid)
+        spent = self.rows("SELECT interactive_spent AS n FROM quota_ledger")[0]["n"]
+        self.assertLessEqual(spent, 5, "Read now and Fill still have the other half")
+        self.assertGreater(spent, 0)
+
     def test_progress_for_an_unknown_request_is_a_key_error(self) -> None:
         with self.store.connection() as conn, self.assertRaises(KeyError):
             self.oneoff.progress(conn, "nope")

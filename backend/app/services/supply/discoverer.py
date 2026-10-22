@@ -33,8 +33,7 @@ STOPPED_INACTIVE = "inactive"
 STOPPED_COOLING_DOWN = "cooling_down"
 STOPPED_UNSUPPORTED = "unsupported"
 STOPPED_BUDGET = "budget"
-# First searches never take more than this share of the pool; the rest stays for people (Read now, Check notices, Fill).
-POOL_KEPT_FOR_PEOPLE_PCT = 50
+POOL_KEPT_FOR_PEOPLE_PCT = ledger.POOL_KEPT_FOR_PEOPLE_PCT
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,7 +228,10 @@ class Discoverer:
             groups = cut_groups(conn, todo, size)
         for group in groups:
             if spec.metered and not (
-                ledger.spend_call(self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF)
+                ledger.spend_call(
+                    self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF,
+                    keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
+                )
                 or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF, spare=True)
             ):
                 return searched, STOPPED_BUDGET
