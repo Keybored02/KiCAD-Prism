@@ -73,7 +73,7 @@ class PollSummary:
 # the most urgent (low stock, near the threshold, ending life, projected to run out), then the one waiting longest.
 _SERVICE_ORDER = (
     "pt.tier, (ps.listing_id IS NOT NULL), COALESCE(ps.urgency, 0), "
-    "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
+    "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.part_id, l.sku"
 )
 
 
