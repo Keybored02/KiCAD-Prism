@@ -245,6 +245,27 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual(len(self.rows("SELECT 1 FROM discovery_runs")), 5)
         self.assertEqual(len(self.rows("SELECT 1 FROM listings WHERE match_state = 'exact'")), 4)
 
+    def test_groups_are_cut_by_numbers_asked_and_a_call_over_the_batch_is_still_charged(self) -> None:
+        from app.services.supply import parts
+
+        records = [self.watch(mpn) for mpn in ("AAA", "BBB", "CCC")]
+        with self.store.connection() as conn:
+            for record, other in zip(records, ("AAA-2", "BBB-2", "CCC-2")):
+                parts.add_number(conn, record.part_id, other, "a@example.com")
+        discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)
+        summary = discoverer.run(self.cid)
+        self.assertEqual([len(asked) for asked in self.asked], [2, 2, 2], "two numbers a part, three to a call: one part to a call")
+        self.assertEqual((summary.searched, self.spent()), (3, 3))
+        # A part with more numbers than one call takes is alone and pays for the calls the provider makes.
+        self.asked.clear()
+        with self.store.connection() as conn:
+            lone = self.watch("DDD")
+            for other in ("DDD-2", "DDD-3", "DDD-4"):
+                parts.add_number(conn, lone.part_id, other, "a@example.com")
+            before = self.spent()
+        discoverer.run(self.cid)
+        self.assertEqual(self.spent() - before, 2, "four numbers at three to a call")
+
     def test_a_part_with_nothing_counted_gets_one_looser_search_for_its_longer_numbers(self) -> None:
         self.watch("AAA")
         self.watch("NONE-1")

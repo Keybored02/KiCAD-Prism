@@ -106,6 +106,26 @@ def pending_parts(conn, connector_id: str, now: datetime, limit: int) -> list[Pe
     return [PendingPart(row["part_id"], int(row["tier"]), bool(row["first"])) for row in rows]
 
 
+def cut_groups(conn, part_ids: list[str], size: int) -> list[list[str]]:
+    """Groups of parts whose numbers (each part's own and the others it is searched as) fit one call of ``size`` numbers, in order.
+    A part with more numbers than that is a group of its own and the search charges its further calls."""
+
+    if size <= 1:
+        return [[part_id] for part_id in part_ids]
+    groups: list[list[str]] = []
+    asked: set[str] = set()
+    for part_id in part_ids:
+        part = parts.get_part(conn, part_id)
+        numbers = set(dict.fromkeys([part.mpn, *parts.searched_numbers(conn, part_id)]))
+        if groups and len(asked | numbers) <= size:
+            groups[-1].append(part_id)
+            asked |= numbers
+        else:
+            groups.append([part_id])
+            asked = numbers
+    return groups
+
+
 class Discoverer:
     def __init__(
         self,
@@ -148,14 +168,19 @@ class Discoverer:
         # A first search is a one-off cost of taking a part on, paid from the pool; a repeat comes from the committed share.
         for first in (True, False):
             todo = [item for item in pending if item.first is first]
-            for start in range(0, len(todo), group_size):
-                group = todo[start:start + group_size]
+            with self._store.connection() as conn:
+                by_id = {item.part_id: item for item in todo}
+                groups = [[by_id[part_id] for part_id in ids] for ids in cut_groups(conn, list(by_id), group_size)]
+            for group in groups:
                 purpose = ledger.PURPOSE_ONE_OFF if first else f"tier{min(item.tier for item in group)}"
                 if spec.metered and not self._spend(connector, first, purpose, spare_only=waiting):
                     stopped = STOPPED_BUDGET
                     break
                 try:
-                    results = self._search(service, provider, [item.part_id for item in group], connector_id, batched=group_size > 1)
+                    results = self._search(
+                        service, provider, [item.part_id for item in group], connector_id, batched=group_size > 1,
+                        charge=lambda extra, purpose=purpose, first=first: self._charge_extra(connector_id, extra, purpose, interactive=first),
+                    )
                 except ProviderError as exc:
                     return DiscoverySummary(
                         connector_id, searched=searched, listings=listings, stopped=trouble.react(self._connectors, self._store, connector_id, exc, now)
@@ -200,15 +225,19 @@ class Discoverer:
         service = DiscoveryService(lambda _id: provider, self._store)
         size = max(spec.search_batch, 1)
         searched = 0
-        for start in range(0, len(todo), size):
-            group = todo[start:start + size]
+        with self._store.connection() as conn:
+            groups = cut_groups(conn, todo, size)
+        for group in groups:
             if spec.metered and not (
                 ledger.spend_call(self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF)
                 or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF, spare=True)
             ):
                 return searched, STOPPED_BUDGET
             try:
-                results = self._search(service, provider, group, connector_id, batched=size > 1)
+                results = self._search(
+                    service, provider, group, connector_id, batched=size > 1,
+                    charge=lambda extra: self._charge_extra(connector_id, extra, ledger.PURPOSE_ONE_OFF, interactive=True),
+                )
             except ProviderError as exc:
                 return searched, trouble.react(self._connectors, self._store, connector_id, exc, now)
             for part_id, result in results.items():
@@ -234,8 +263,19 @@ class Discoverer:
             ) or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose, spare=True)
         return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose)
 
-    def _search(self, service: DiscoveryService, provider: SupplyProvider, group: list[str], connector_id: str, *, batched: bool):
-        """One search call for ``group``; the result for each part, keyed by part id."""
+    def _charge_extra(self, connector_id: str, extra: int, purpose: str, *, interactive: bool) -> None:
+        """Calls a search made beyond the one it paid for are counted, so the day's figure stays the provider's."""
+
+        connector = self._connectors.get(connector_id)
+        if registry.get_spec(connector["provider"]).metered:
+            ledger.record_calls(self._store, connector_id, extra, now=self._clock(), interactive=interactive, kind=ledger.KIND_SEARCH, purpose=purpose)
+
+    def _search(
+        self, service: DiscoveryService, provider: SupplyProvider, group: list[str], connector_id: str, *, batched: bool,
+        charge: Callable[[int], None] | None = None,
+    ):
+        """One search call for ``group``; the result for each part, keyed by part id. A group that asks more numbers than one call
+        takes (a part with several numbers, alone) makes more calls, which ``charge`` counts."""
 
         if not batched:
             return {group[0]: service.discover(group[0], connector_id, spend=lambda: self._spend_extra(connector_id))}
@@ -244,6 +284,9 @@ class Discoverer:
             extra = {part.id: parts.searched_numbers(conn, part.id) for part in found}
         asked = list(dict.fromkeys([part.mpn for part in found] + [number for numbers in extra.values() for number in numbers]))
         answers = provider.lookup_mpns(asked)  # type: ignore[attr-defined]
+        calls = -(-len(asked) // max(registry.get_spec(self._connectors.get(connector_id)["provider"]).search_batch, 1))
+        if charge and calls > 1:
+            charge(calls - 1)
         results = {}
         for part in found:
             matches = list(answers.get(match_key(part.mpn), []))
