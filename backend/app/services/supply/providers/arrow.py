@@ -252,8 +252,9 @@ def _match(item: Mapping[str, Any], source: Mapping[str, Any], part: Mapping[str
 _LIFECYCLE = (
     (("nrnd", "not recommended", "not for new"), Lifecycle.NRND),
     (("last time", "last buy", "ltb"), Lifecycle.LAST_TIME_BUY),
-    (("obsolete", "eol", "end of life", "discontinued", "inactive"), Lifecycle.OBSOLETE),
-    (("active", "in production", "production"), Lifecycle.ACTIVE),
+    (("obsolete", "eol", "end of life", "end of production", "not in production", "no longer", "discontinued", "inactive", "not active"), Lifecycle.OBSOLETE),
+    # Not a bare "production": "end of production" would read as active.
+    (("active", "in production"), Lifecycle.ACTIVE),
 )
 
 
@@ -371,7 +372,8 @@ def _packaging(part: Mapping[str, Any], moq: int, multiple: int, first_break: in
         packaging = packaging_hints.from_text(text)
         if packaging is Packaging.OTHER:
             note(KEY, "container type", text)
-        return packaging, (pack if packaging is Packaging.TAPE_REEL and pack and pack > 1 else None), False
+        # A line that says reel but sells from fewer pieces than the reel is cut from it.
+        return packaging_hints.sold_as(packaging, pack if packaging is Packaging.TAPE_REEL and pack and pack > 1 else None, first_break)
     guess = packaging_hints.infer("", moq, multiple, first_break)
     if guess is Packaging.UNKNOWN:
         return Packaging.UNKNOWN, None, False

@@ -179,7 +179,8 @@ class ArrowTests(unittest.TestCase):
 
     def test_lifecycle_wording_is_read_and_unknown_words_stay_unknown(self) -> None:
         cases = (("Active", Lifecycle.ACTIVE), ("NRND", Lifecycle.NRND), ("Not Recommended for New Designs", Lifecycle.NRND), ("Last Time Buy", Lifecycle.LAST_TIME_BUY),
-                 ("Obsolete", Lifecycle.OBSOLETE), ("EOL", Lifecycle.OBSOLETE), ("Z9", Lifecycle.UNKNOWN), ("", Lifecycle.UNKNOWN))
+                 ("Obsolete", Lifecycle.OBSOLETE), ("EOL", Lifecycle.OBSOLETE), ("End of Production", Lifecycle.OBSOLETE), ("Not in Production", Lifecycle.OBSOLETE),
+                 ("In Production", Lifecycle.ACTIVE), ("Z9", Lifecycle.UNKNOWN), ("", Lifecycle.UNKNOWN))
         for status, expected in cases:
             client = FakeClient({PATH: [answer(item(status=status))]})
             self.assertEqual(provider(client).get_offers(["BAV99|V72:1"])[0].lifecycle, expected, status)

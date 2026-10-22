@@ -101,7 +101,7 @@ class AvnetTests(unittest.TestCase):
         self.assertEqual(dict(offer.facts)["suggested_replacement"], "Product is OBSO or LTB and replacement part is XYZ-9")
 
     def test_material_statuses_are_read_and_unknown_ones_are_noted(self) -> None:
-        for status, expected in (("Obsolete", Lifecycle.OBSOLETE), ("LTB", Lifecycle.LAST_TIME_BUY), ("NRND", Lifecycle.NRND), ("Active", Lifecycle.ACTIVE), ("Z9", Lifecycle.UNKNOWN), ("", Lifecycle.UNKNOWN)):
+        for status, expected in (("Obsolete", Lifecycle.OBSOLETE), ("Inactive", Lifecycle.OBSOLETE), ("Not Active", Lifecycle.OBSOLETE), ("LTB", Lifecycle.LAST_TIME_BUY), ("NRND", Lifecycle.NRND), ("Active", Lifecycle.ACTIVE), ("Z9", Lifecycle.UNKNOWN), ("", Lifecycle.UNKNOWN)):
             client = FakeClient({TOKEN_PATH: [TOKEN], PRICE_PATH: [[line(MATERIAL_STATUS=status)]]})
             (offer,) = provider(client).get_offers(["CR0402-FX-1003GLF"])
             self.assertEqual(offer.lifecycle, expected, status)

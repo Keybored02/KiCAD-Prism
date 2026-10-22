@@ -173,7 +173,8 @@ class AvnetProvider:
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers: list[Offer] = []
         now = self._clock()
-        for asked, rows in self._ask(skus, results=1).items():
+        # A few results are asked for, not one: the line for this very number is picked out below, and a different first result must not hide it.
+        for asked, rows in self._ask(skus, results=MAX_MATCHES).items():
             for row in rows:
                 number = str(row.get("PART_NUMBER_OUT") or "")
                 sku = next((s for s in skus if match_key(s) == asked), number)
@@ -256,7 +257,8 @@ def _lifecycle(row: Mapping[str, Any]) -> Lifecycle:
     status = str(row.get("MATERIAL_STATUS") or "").strip().lower()
     if not status:
         return Lifecycle.UNKNOWN
-    if "obso" in status or "eol" in status or "end of life" in status:
+    # "Inactive" and "not active" contain "active", so they are read before it.
+    if any(word in status for word in ("obso", "eol", "end of life", "end of production", "discontinued", "inactive", "not active")):
         return Lifecycle.OBSOLETE
     if "ltb" in status or "last" in status:
         return Lifecycle.LAST_TIME_BUY
