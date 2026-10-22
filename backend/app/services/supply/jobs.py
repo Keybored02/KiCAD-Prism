@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, dashboard, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
+    accounts, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
@@ -61,8 +61,18 @@ def _has_budget(conn, row, now: datetime) -> bool:
     ) > 0
 
 
+def refresh_scheduled(conn, connector_id: str, now: datetime) -> None:
+    """Work out what the account's scheduled work still needs today and keep it for spare spending to leave alone."""
+
+    account = accounts.resolve(conn, connector_id)
+    ledger.store_scheduled(
+        conn, account.ledger_id, now, demand.scheduled_rest(conn, account, now), reset_time=account.reset_time, reset_tz=account.reset_tz
+    )
+
+
 def _has_spare(conn, row, now: datetime) -> bool:
-    """Whether a connector has spare budget to spend right now (see ``quota.spare_allowance``)."""
+    """Whether a connector has free calls to spend right now (see ``quota.free_allowance``). The figure for scheduled work is
+    worked out again when it is more than 5 minutes old."""
 
     try:
         if not registry.get_spec(row["provider"]).metered:
@@ -74,8 +84,15 @@ def _has_spare(conn, row, now: datetime) -> bool:
         conn, account.ledger_id, daily_budget=account.daily_budget, reserve_pct=account.reserve_pct, now=now,
         reset_time=account.reset_time, reset_tz=account.reset_tz,
     )
-    week = schedule_settings.work_week(schedule_settings.load(conn))
-    return quota.spare_allowance(state, now, week, reset_time=account.reset_time, tz=account.reset_tz) > 0
+    day = quota.provider_day(now, account.reset_time, account.reset_tz)
+    kept = conn.execute("SELECT scheduled_at FROM quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
+    if kept is None or kept["scheduled_at"] is None or now - kept["scheduled_at"] > timedelta(minutes=5):
+        refresh_scheduled(conn, row["id"], now)
+    ledger_row = conn.execute(
+        "SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger WHERE connector_id = %s AND day = %s",
+        (account.ledger_id, day),
+    ).fetchone()
+    return ledger.free_calls(conn, account.ledger_id, state, ledger_row, now, reset_time=account.reset_time, reset_tz=account.reset_tz) > 0
 
 
 def _has_pool_or_spare(conn, row, now: datetime) -> bool:
@@ -438,6 +455,11 @@ def run_supply_poll_job(context: Any) -> Any:
     searched = listings = calls = polled_count = gone = 0
     discovery_stopped = poll_stopped = None
     for connector_id in connector_ids:
+        try:
+            with connectors.store.connection() as conn:
+                refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
+        except Exception:  # noqa: BLE001 - without the figure no call counts as free; the job's own work goes on
+            logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
         context.progress(stage="supply-discover", message="Searching for listings", percent=10, force=True)
         found = Discoverer(connectors).run(connector_id)
         context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
@@ -447,6 +469,11 @@ def run_supply_poll_job(context: Any) -> Any:
         except Exception:  # noqa: BLE001 - a check that fails is tried again; it never fails the job
             logging.getLogger(__name__).info("Check once not served", exc_info=True)
         if polled.stopped in (None, "nothing_due", "budget"):
+            try:
+                with connectors.store.connection() as conn:
+                    refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
             _spend_spare(connectors, connector_id)
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone

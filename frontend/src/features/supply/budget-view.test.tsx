@@ -13,7 +13,7 @@ afterEach(cleanup);
 const item: BudgetConnector = {
   connector_id: "c1", name: "DigiKey", provider: "digikey", enabled: true, shares_account: false, day: "2026-03-02",
   reset_in_seconds: 3 * 3600 + 120, daily_budget: 1000, committed: { capacity: 900, spent: 300 }, pool: { capacity: 100, spent: 20 },
-  spare_spent: 5, spent: 325, refused_today: 2,
+  spare_spent: 5, free: { scheduled: 120, kept_for_people: 50, free: 40 }, spent: 325, refused_today: 2,
   tracking: { connector_id: "c1", name: "DigiKey", capacity: 900, committed: 450, free: 450, admitted: 380, waiting: 12 },
   hourly: [{ hour: 1, kind: "offers", purpose: "tier1", calls: 40 }, { hour: 2, kind: "search", purpose: "interactive", calls: 20 }],
   days: [{ day: "2026-03-01", purpose: "tier1", calls: 500 }, { day: "2026-03-02", purpose: "tier1", calls: 300 }],
@@ -29,6 +29,7 @@ describe("the call budget", () => {
     expect(within(card).getByText(/Day resets in 3 h 2 min/)).toBeTruthy();
     expect(within(card).getByText(/380 parts read, costing 450 of 900 calls a day. 12 wait for room./)).toBeTruthy();
     expect(within(card).getByText("2 calls turned away today.")).toBeTruthy();
+    expect(within(card).getByText("Until the reset: 120 calls kept for scheduled work, 50 for people, 40 free now.")).toBeTruthy();
     expect(within(card).getByLabelText("Calls a day for the last two weeks")).toBeTruthy();
     expect(within(card).getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
     expect(within(card).getByRole("link", { name: "LM358DR" }).getAttribute("href")).toBe("/?section=supply&supplyView=parts&part=p1");

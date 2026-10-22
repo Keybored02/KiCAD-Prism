@@ -428,10 +428,52 @@ class PollingTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
         before = self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM quota_ledger")[0]["n"]
+        from app.services.supply import jobs
+
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
+            jobs.refresh_scheduled(conn, cid, self.clock.now)
         summary = poller.poll_connector(cid, spare="overdue")
         self.assertEqual(summary.polled, 2, "both late listings are read")
         self.assertGreater(self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM quota_ledger")[0]["n"], before)
         self.assertEqual(poller.poll_connector(cid, spare="overdue").stopped, "nothing_due", "nothing is late any more")
+
+    def test_scheduled_work_left_in_the_day_is_counted_in_calls_the_way_the_provider_batches(self) -> None:
+        from app.services.supply import accounts, demand
+
+        cid = self.connector("demo_small", daily_budget=100)
+        for mpn in ("AAA", "BBB", "CCC"):
+            self.add_listing(self.watch(mpn).part_id, cid, f"FAKE-{mpn}-CT")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE admissions SET state = 'admitted'")
+            account = accounts.resolve(conn, cid)
+            self.assertEqual(demand.scheduled_rest(conn, account, self.clock.now), 2, "three never-read listings, two to a call")
+        self.assertEqual(self.poller().poll_connector(cid).polled, 3)
+        with self.store.connection() as conn:
+            self.assertEqual(demand.scheduled_rest(conn, account, self.clock.now), 0, "the next reads are tomorrow's")
+            conn.execute("UPDATE poll_state SET next_poll_at = %s WHERE listing_id = (SELECT id FROM listings WHERE sku = 'FAKE-AAA-CT')", (self.clock.now + timedelta(hours=1),))
+            self.assertEqual(demand.scheduled_rest(conn, account, self.clock.now), 1, "one comes due before the reset")
+
+    def test_no_calls_are_free_until_the_scheduled_work_has_been_counted_and_not_when_the_count_is_old(self) -> None:
+        from app.services.supply import accounts, jobs, ledger, quota
+
+        cid = self.connector("demo_small", daily_budget=1000, interactive_reserve_pct=10)
+
+        def free() -> int:
+            with self.store.connection() as conn:
+                account = accounts.resolve(conn, cid)
+                state = ledger.get_state(conn, account.ledger_id, daily_budget=1000, reserve_pct=10, now=self.clock.now)
+                day = quota.provider_day(self.clock.now)
+                conn.execute("INSERT INTO quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING", (account.ledger_id, day))
+                row = conn.execute("SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
+                return ledger.free_calls(conn, account.ledger_id, state, row, self.clock.now, reset_time=account.reset_time, reset_tz=account.reset_tz)
+
+        self.assertEqual(free(), 0, "nothing counted yet")
+        with self.store.connection() as conn:
+            jobs.refresh_scheduled(conn, cid, self.clock.now)
+        self.assertGreater(free(), 0)
+        self.clock.advance(minutes=16)
+        self.assertEqual(free(), 0, "a count older than 15 minutes is not trusted")
 
     def test_a_returning_listing_clears_its_misses(self) -> None:
         cid = self.connector()

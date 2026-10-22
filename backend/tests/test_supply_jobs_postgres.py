@@ -408,8 +408,11 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM admissions WHERE state = 'waiting'")[0]["n"], 1)
         self.assertEqual(self.clock.now.weekday(), 6, "a Sunday: no working hours")
         self.assertEqual(self.work(), [cid], "spare budget is open, and a part waits for room")
-        self.clock.advance(days=1, hours=-1)  # Monday 11:00, working hours: nothing is spare
-        self.assertEqual(self.work(), [])
+        self.clock.advance(days=1, hours=-1)  # Monday 11:00, working hours: free calls are spare whatever the hour
+        self.assertEqual(self.work(), [cid])
+        with self.store.connection() as conn:
+            conn.execute("UPDATE quota_ledger SET spent = 4")
+        self.assertEqual(self.work(), [], "nothing is free once the day is spent")
 
     def test_the_scan_does_its_housekeeping_even_when_no_connector_has_work_and_not_every_time(self) -> None:
         queue = RecordingJobs()

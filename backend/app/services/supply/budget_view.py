@@ -4,6 +4,7 @@ Everything here is read, nothing is changed. Per metered connector:
 
 * the shares of its account's day: committed (what tracking may use) and the pool (people's reads, first searches and
   one-off checks), with what each has spent, and the time to the provider's reset
+* what scheduled work still needs today, what is kept for people, and what is free to spend now (``demand.py``)
 * what was spent, by kind and by purpose, hour by hour today and by day for 14 days (``call_counts``)
 * what tracking has admitted and what waits for room (``admission.status``)
 * the projects and parts that cost most, from the cost model (``budget.py``), a part two projects share split between them
@@ -15,7 +16,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.services.supply import accounts, admission, budget, ledger, notice_budget, quota
+from app.services.supply import accounts, admission, budget, demand, ledger, notice_budget, quota
 from app.services.supply.providers import registry
 
 DAYS = 14
@@ -99,6 +100,10 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
             reset_time=account.reset_time, reset_tz=account.reset_tz,
         )
         committed = budget.committed_calls(account.daily_budget, account.reserve_pct)
+        hour_row = conn.execute(
+            "SELECT spare_hour, spare_hour_spent FROM quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)
+        ).fetchone()
+        spare_hour = int(hour_row["spare_hour_spent"]) if hour_row and hour_row["spare_hour"] == quota.day_hour(now, account.reset_time, account.reset_tz) else 0
         reset_in = quota.seconds_to_reset(now, account.reset_time, account.reset_tz)
         result.append({
             "connector_id": row["id"],
@@ -113,6 +118,7 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
             "committed": {"capacity": committed, "spent": state.spent_today - state.interactive_spent_today - state.spare_spent_today},
             "pool": {"capacity": account.daily_budget - committed, "spent": state.interactive_spent_today},
             "spare_spent": state.spare_spent_today,
+            "free": demand.summary(conn, account, state, now, demand.scheduled_rest(conn, account, now), spare_hour),
             "spent": state.spent_today,
             "refused_today": _refused(conn, row["id"], day),
             "tracking": standing.get(row["id"]),

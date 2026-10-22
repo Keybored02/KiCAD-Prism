@@ -67,6 +67,11 @@ export function BudgetDetail({ item }: { item: BudgetConnector }) {
       </p>
       <Bar label="Tracking (committed)" spent={item.committed.spent} capacity={item.committed.capacity} />
       <Bar label="Pool (people, first searches, one-off)" spent={item.pool.spent} capacity={item.pool.capacity} />
+      {item.free ? (
+        <p className="text-xs text-muted-foreground">
+          Until the reset: {item.free.scheduled} calls kept for scheduled work, {item.free.kept_for_people} for people, {item.free.free} free now.
+        </p>
+      ) : null}
       {item.spare_spent > 0 ? (
         <p className="text-xs text-muted-foreground">{item.spare_spent} calls today from budget left over (in the total, not in the two shares).</p>
       ) : null}

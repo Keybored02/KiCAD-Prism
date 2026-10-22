@@ -1885,6 +1885,21 @@ def _m085_pace_state(conn) -> None:
     )
 
 
+def _m086_free_budget(conn) -> None:
+    """What scheduled work still needs today (written by the poll job, trusted for 15 minutes) and the spare calls of the current
+    hour, which together say how many calls are free to spend."""
+
+    conn.execute(
+        """
+        ALTER TABLE quota_ledger ADD COLUMN IF NOT EXISTS scheduled_rest INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE quota_ledger ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
+        ALTER TABLE quota_ledger ADD COLUMN IF NOT EXISTS spare_hour INTEGER;
+        ALTER TABLE quota_ledger ADD COLUMN IF NOT EXISTS spare_hour_spent INTEGER NOT NULL DEFAULT 0;
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2031,6 +2046,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (83, "detail_tried_at", _m083_detail_tried_at),
     (84, "block_streak", _m084_block_streak),
     (85, "pace_state", _m085_pace_state),
+    (86, "free_budget", _m086_free_budget),
 ]
 
 

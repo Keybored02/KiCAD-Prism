@@ -114,7 +114,9 @@ class SchedulerSimulationTests(unittest.TestCase):
         hours = 7 * 24
         for _hour in range(hours):
             summary = poller.poll_connector(connector)
-            if summary.stopped in (None, "nothing_due"):
+            if summary.stopped in (None, "nothing_due", "budget"):
+                with self.store.connection() as conn:
+                    self.jobs.refresh_scheduled(conn, connector, now["t"])
                 self.jobs._spend_spare(self.connectors, connector, poller=poller, discoverer=discoverer)
             now["t"] += timedelta(hours=1)
 
@@ -200,7 +202,9 @@ class SchedulerSimulationTests(unittest.TestCase):
         discoverer = self.Discoverer(self.connectors, store=self.store, provider_for=provider_for, clock=clock)
         for _run in range(12 * 6):  # every 5 minutes, 20:00 to 02:00, across the reset
             summary = poller.poll_connector(connector)
-            if summary.stopped in (None, "nothing_due"):
+            if summary.stopped in (None, "nothing_due", "budget"):
+                with self.store.connection() as conn:
+                    self.jobs.refresh_scheduled(conn, connector, now["t"])
                 self.jobs._spend_spare(self.connectors, connector, poller=poller, discoverer=discoverer)
             now["t"] += timedelta(minutes=5)
         self.assertEqual(len(reads), 5)

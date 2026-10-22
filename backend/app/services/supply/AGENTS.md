@@ -53,13 +53,14 @@ root first.
 | `cross_reference.py` | Alternatives graded direct, form-fit-function or functional from canonical parameters and the distributor category; `grade` is pure. No footprint or pin comparison. |
 | `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
-| `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
+| `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account (and between processes through `pace_state`), doubled for a day after a rate limit. |
 | `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
 | `discoverer.py` | Searches for listings of followed parts at the connectors they are admitted at: the first time from the pool (then spare), again every month at tier 1 and quarter at tier 2, found or not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
+| `demand.py` | What scheduled work (reads due before the reset, searches, budget-sharing notices) still needs of an account today, in calls the way each provider batches. The poll job stores it on the ledger; `quota.free_allowance` leaves it, what is kept for people and a margin alone, and the rest is free for spare work at any hour. |
 | `notice_budget.py` | The change-notice allowance of a provider with a quota of its own (DigiKey, 50 a day): counted in `call_counts`, not in the product budget; all 50 may be spent, tracked parts read over the shortest interval that fits, untracked parts last. |
 | `part_history.py` | A part's stock and price per distributor over a number of days, carried to each listing's last read, for the part sheet's lines and its larger dialog. |
 | `headline_price.py` | The price a part shows in lists: every counted listing priced at the part's quantity and converted to the base currency, as orderable, backorder (with its lead time), last seen or list price, with the range and median over distributors and the price before conversion. A currency without a rate is left out and named. |

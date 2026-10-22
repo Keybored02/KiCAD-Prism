@@ -227,7 +227,7 @@ class SupplyAlertsTests(unittest.TestCase):
         poller = self.poller.Poller(self.connectors, store=self.store, provider_for=provider, clock=clock)
         poller.poll_connector(self.cid)
         self.assertEqual(self.listed(), [], "first reading")
-        clock_now["t"] = START + td(days=8)  # a part watched without a tier is read weekly
+        clock_now["t"] = START + td(days=11)  # a part watched without a tier is read weekly, on its day slot: 4 to 10 days later
         poller.poll_connector(self.cid)
         (alert,) = self.listed()
         self.assertEqual((alert["part_id"], alert["kind"]), (watch["part_id"], "out_of_stock"))
@@ -433,7 +433,7 @@ class SupplyAlertsTests(unittest.TestCase):
             self.evaluate(pid)
             self.evaluate(pid, after=timedelta(hours=1))
         data = self.call("GET", "/api/supply/overview").json
-        self.assertEqual(data["figures"], {"watched": 4, "at_risk": 2, "out_of_stock": 1, "lifecycle": 1, "no_data": 1})
+        self.assertEqual(data["figures"], {"watched": 4, "at_risk": 2, "out_of_stock": 1, "lifecycle": 1, "no_data": 1, "lifecycle_active": 2, "lifecycle_nrnd": 0, "lifecycle_last_time_buy": 0, "lifecycle_obsolete": 1, "lifecycle_unknown": 1})
         self.assertEqual(data["open_alerts"], 2)
         self.assertEqual(data["connectors"], 1)
         self.assertIsNotNone(data["data_age"]["oldest"])
@@ -460,7 +460,7 @@ class SupplyAlertsTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("DELETE FROM connectors")
         data = self.call("GET", "/api/supply/overview").json
-        self.assertEqual(data["figures"], {"watched": 0, "at_risk": 0, "out_of_stock": 0, "lifecycle": 0, "no_data": 0})
+        self.assertEqual(data["figures"], {"watched": 0, "at_risk": 0, "out_of_stock": 0, "lifecycle": 0, "no_data": 0, "lifecycle_active": 0, "lifecycle_nrnd": 0, "lifecycle_last_time_buy": 0, "lifecycle_obsolete": 0, "lifecycle_unknown": 0})
         self.assertEqual((data["connectors"], data["data_age"]), (0, {"oldest": None, "newest": None}))
 
     def test_acknowledged_alerts_do_not_count_as_open(self) -> None:

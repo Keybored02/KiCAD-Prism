@@ -147,12 +147,13 @@ def background_allowance(
     return max(0, min(target - background_spent, left_in_day))
 
 
-def interactive_allowance(state: QuotaState) -> int:
-    """Calls a person-triggered lookup may spend right now."""
+def interactive_allowance(state: QuotaState, free: int = 0) -> int:
+    """Calls a person-triggered lookup may spend right now: what is left of the pool, and free calls too. Spare work takes only free
+    calls, never the pool, so the day is not promised twice."""
 
     reserve = interactive_reserve(state.daily_budget, state.reserve_pct)
     left_in_day = state.daily_budget - state.spent_today
-    return max(0, min(reserve - state.interactive_spent_today, left_in_day))
+    return max(0, min(reserve - state.interactive_spent_today + free, left_in_day))
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,26 +187,44 @@ def is_working_time(now: datetime, week: WorkWeek) -> bool:
     return _minutes(week.start) <= local.hour * 60 + local.minute < _minutes(week.end)
 
 
-def spare_allowance(
-    state: QuotaState, now: datetime, week: WorkWeek, *, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ,
-) -> int:
-    """Calls that may be spent on spare work right now.
+# What the committed work still needs is an estimate; this much of the day's budget is held back from free calls for its error.
+FREE_MARGIN_PCT = 2
+# Outside the last hours, free calls are spent at most this share of the day's budget in one hour, so they are not one burst.
+FREE_HOURLY_PCT = 5
+# A scheduled-work figure older than this is not trusted: no calls count as free.
+SCHEDULED_FRESH_MINUTES = 15
 
-    * In the last hours before the provider's reset: everything left but the interactive floor, since it is lost otherwise.
-    * Outside working hours and on non-working days: the pool's unused part but its floor, since nobody is asking.
-    * During working hours: nothing.
-    """
+
+def kept_for_people(state: QuotaState, expected_rest: int | None) -> int:
+    """Calls held back for people (Read now, Fill, Check notices) for the rest of the day: what they usually spend from now to the
+    reset (``expected_rest``, from history; half the pool when there is none), never below the pool's floor nor above what is left
+    of the pool."""
 
     reserve = interactive_reserve(state.daily_budget, state.reserve_pct)
+    pool_left = max(0, reserve - state.interactive_spent_today)
     floor = math.ceil(reserve * INTERACTIVE_FLOOR_SHARE)
-    left_in_day = max(0, state.daily_budget - state.spent_today)
+    wanted = math.ceil(reserve / 2) if expected_rest is None else expected_rest
+    return min(pool_left, max(floor, wanted))
+
+
+def free_allowance(
+    state: QuotaState, now: datetime, *, scheduled_rest: int, kept_for_people: int, spare_this_hour: int = 0,
+    reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ,
+) -> int:
+    """Calls that are free to spend right now on spare work: what is left of the day's budget less what scheduled work still needs
+    before the reset, what is kept for people, and a margin. Outside the last ``SPARE_FINAL_HOURS`` hours no more than
+    ``FREE_HOURLY_PCT`` of the budget goes in one hour; in them there is no margin and no cap, since what is left is lost."""
+
+    left = max(0, state.daily_budget - state.spent_today)
     final = seconds_to_reset(now, reset_time, tz) <= SPARE_FINAL_HOURS * 3600
-    if final:
-        return max(0, left_in_day - floor)
-    if is_working_time(now, week):
+    margin = 0 if final else math.ceil(state.daily_budget * FREE_MARGIN_PCT / 100)
+    free = left - scheduled_rest - kept_for_people - margin
+    if free <= 0:
         return 0
-    pool_unused = max(0, reserve - state.interactive_spent_today - state.spare_spent_today)
-    return max(0, min(pool_unused - floor, left_in_day))
+    if not final:
+        hourly = max(1, math.ceil(state.daily_budget * FREE_HOURLY_PCT / 100))
+        free = min(free, max(0, hourly - spare_this_hour))
+    return free
 
 
 @dataclass(frozen=True, slots=True)

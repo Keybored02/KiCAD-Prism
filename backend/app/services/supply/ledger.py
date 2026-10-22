@@ -7,10 +7,14 @@ always add up (refusals are counted apart: they were already paid for when the c
 
 from __future__ import annotations
 
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 from typing import Mapping
 
-from app.services.supply import accounts, quota, schedule_settings
+from app.services.supply import accounts, quota
+
+HISTORY_DAYS = 28
+PEOPLE_PURPOSES = ("interactive", "oneoff")
 
 # What a call asks for.
 KIND_SEARCH = "search"
@@ -78,6 +82,60 @@ def get_state(
     )
 
 
+def expected_people_calls(conn, account: accounts.Account, now: datetime) -> int | None:
+    """What people use of the pool from this hour of the provider's day to its reset, on the 9th-in-10 day of the last four weeks.
+    None when there is no history to go on."""
+
+    hour = quota.day_hour(now, account.reset_time, account.reset_tz)
+    today = quota.provider_day(now, account.reset_time, account.reset_tz)
+    since = today - timedelta(days=HISTORY_DAYS)
+    days = conn.execute(
+        "SELECT COUNT(DISTINCT day) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s",
+        (list(account.members), since, today),
+    ).fetchone()["n"]
+    if not days:
+        return None
+    rows = conn.execute(
+        """
+        SELECT SUM(calls) AS n FROM call_counts
+        WHERE connector_id = ANY(%s) AND day >= %s AND day < %s AND hour >= %s AND purpose = ANY(%s) AND kind <> 'refused'
+        GROUP BY day
+        """,
+        (list(account.members), since, today, hour, list(PEOPLE_PURPOSES)),
+    ).fetchall()
+    totals = sorted([int(row["n"]) for row in rows] + [0] * (int(days) - len(rows)))
+    return totals[min(len(totals) - 1, math.ceil(0.9 * len(totals)) - 1)]
+
+
+def store_scheduled(conn, ledger_id: str, now: datetime, rest: int, *, reset_time: str, reset_tz: str) -> None:
+    """Keep what scheduled work still needs today, for spare spending to leave alone."""
+
+    day = quota.provider_day(now, reset_time, reset_tz)
+    conn.execute(
+        """
+        INSERT INTO quota_ledger (connector_id, day, scheduled_rest, scheduled_at) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (connector_id, day) DO UPDATE SET scheduled_rest = EXCLUDED.scheduled_rest, scheduled_at = EXCLUDED.scheduled_at
+        """,
+        (ledger_id, day, rest, now),
+    )
+
+
+def free_calls(conn, ledger_id: str, state: quota.QuotaState, row, now: datetime, *, reset_time: str, reset_tz: str) -> int:
+    """Calls free to spend now (``quota.free_allowance``). None are free when the scheduled-work figure is missing or older than
+    ``quota.SCHEDULED_FRESH_MINUTES``, since what it left alone may have changed."""
+
+    at = row["scheduled_at"]
+    if at is None or now - at > timedelta(minutes=quota.SCHEDULED_FRESH_MINUTES):
+        return 0
+    account = accounts.resolve(conn, ledger_id)
+    hour = quota.day_hour(now, reset_time, reset_tz)
+    kept = quota.kept_for_people(state, expected_people_calls(conn, account, now))
+    return quota.free_allowance(
+        state, now, scheduled_rest=int(row["scheduled_rest"]), kept_for_people=kept,
+        spare_this_hour=int(row["spare_hour_spent"]) if row["spare_hour"] == hour else 0, reset_time=reset_time, tz=reset_tz,
+    )
+
+
 def try_spend(
     conn,
     connector_id: str,
@@ -99,7 +157,8 @@ def try_spend(
     """Spend ``units`` calls if the budget allows. Returns whether it did.
 
     ``delay_seconds`` holds background spending back after the provider's reset (``quota.start_delay_seconds``).
-    ``spare`` spends budget that would otherwise go unused (``quota.spare_allowance``), by the workspace's working week.
+    ``spare`` spends free calls (``quota.free_allowance``): what scheduled work and people do not need. People spend the rest of the
+    pool and free calls too.
     ``keep_pool_pct`` (pool spending only) refuses the call once less than that share of the pool would be left for people.
 
     ``connector_id`` is the ledger's owner (the account's first connector); ``counted_for`` is the connector the calls
@@ -115,7 +174,7 @@ def try_spend(
         (connector_id, day),
     )
     row = conn.execute(
-        "SELECT spent, interactive_spent, spare_spent FROM quota_ledger "
+        "SELECT spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger "
         "WHERE connector_id = %s AND day = %s FOR UPDATE",
         (connector_id, day),
     ).fetchone()
@@ -127,19 +186,20 @@ def try_spend(
         spare_spent_today=int(row["spare_spent"]),
     )
     if spare:
-        week = schedule_settings.work_week(schedule_settings.load(conn))
-        allowance = quota.spare_allowance(state, now, week, reset_time=reset_time, tz=reset_tz)
+        allowance = free_calls(conn, connector_id, state, row, now, reset_time=reset_time, reset_tz=reset_tz)
     elif interactive:
-        allowance = quota.interactive_allowance(state)
+        allowance = quota.interactive_allowance(state, free_calls(conn, connector_id, state, row, now, reset_time=reset_time, reset_tz=reset_tz))
         allowance -= quota.interactive_reserve(daily_budget, reserve_pct) * keep_pool_pct // 100
     else:
         allowance = quota.background_allowance(state, now, reset_time=reset_time, tz=reset_tz, delay_seconds=delay_seconds)
     if units > allowance:
         return False
+    hour = quota.day_hour(now, reset_time, reset_tz)
     conn.execute(
-        "UPDATE quota_ledger SET spent = spent + %s, interactive_spent = interactive_spent + %s, "
-        "spare_spent = spare_spent + %s WHERE connector_id = %s AND day = %s",
-        (units, units if interactive else 0, units if spare else 0, connector_id, day),
+        "UPDATE quota_ledger SET spent = spent + %s, interactive_spent = interactive_spent + %s, spare_spent = spare_spent + %s, "
+        "spare_hour_spent = CASE WHEN NOT %s THEN spare_hour_spent WHEN spare_hour = %s THEN spare_hour_spent + %s ELSE %s END, "
+        "spare_hour = CASE WHEN %s THEN %s ELSE spare_hour END WHERE connector_id = %s AND day = %s",
+        (units, units if interactive else 0, units if spare else 0, spare, hour, units, units, spare, hour, connector_id, day),
     )
     purpose = PURPOSE_SPARE if spare and purpose is None else purpose
     _count(conn, counted_for or connector_id, day, quota.day_hour(now, reset_time, reset_tz), kind, _purpose(purpose, interactive), units)

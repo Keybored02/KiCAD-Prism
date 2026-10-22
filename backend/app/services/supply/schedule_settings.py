@@ -1,7 +1,7 @@
 """The workspace's working week and which spare work may run, kept in the supply ``settings`` table.
 
-Spare budget (see ``quota.spare_allowance``) is released outside working hours and in the last hours of a provider's day.
-These settings say when those are, and which kinds of spare work are on. Absent means the defaults here.
+Spare budget is the calls nothing else needs (see ``quota.free_allowance``), at any hour; the working week no longer decides it.
+These settings say which kinds of spare work are on (the week is kept for the people who set it). Absent means the defaults here.
 """
 
 from __future__ import annotations

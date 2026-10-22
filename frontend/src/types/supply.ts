@@ -1283,6 +1283,8 @@ export interface BudgetConnector {
   committed: { capacity: number; spent: number };
   pool: { capacity: number; spent: number };
   spare_spent: number;
+  /** What scheduled work still needs before the reset, what is kept for people, and what is free to spend now. */
+  free?: { scheduled: number; kept_for_people: number; free: number };
   spent: number;
   refused_today: number;
   tracking: BudgetShare | null;

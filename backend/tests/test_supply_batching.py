@@ -326,6 +326,10 @@ class SchedulingTests(unittest.TestCase):
                 return [outer.PartMatch(provider="demo_grouped", sku=f"F-{mpn}", mpn=f"{mpn},125", manufacturer="Acme")]
 
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: WithFamily(), clock=self.clock)
+        from app.services.supply import jobs
+
+        with self.store.connection() as conn:
+            jobs.refresh_scheduled(conn, self.cid, self.clock.now)  # the extra search is spare work: it needs free calls
         discoverer.run(self.cid)
         self.assertEqual(asked_family, ["NONE-1"], "AAA was found, so it needs no second search")
         self.assertEqual(self.rows("SELECT part_id IS NOT NULL AS has FROM listings WHERE sku = 'F-NONE-1'"), [{"has": True}])

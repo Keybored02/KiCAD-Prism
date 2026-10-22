@@ -148,29 +148,46 @@ class SpareTests(unittest.TestCase):
     def at(self, weekday_date, hour, minute=0):
         return datetime(2026, 3, weekday_date, hour, minute, tzinfo=timezone.utc)  # 2 = Monday, 7 = Saturday
 
-    def test_nothing_is_spare_during_working_hours(self) -> None:
-        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(2, 11), self.week), 0)
+    def free(self, state, now, rest=0, kept=None, hour=0, **kwargs):
+        kept = self.quota.kept_for_people(state, None) if kept is None else kept
+        return self.quota.free_allowance(state, now, scheduled_rest=rest, kept_for_people=kept, spare_this_hour=hour, **kwargs)
 
-    def test_the_pools_unused_part_is_spare_after_hours_but_its_floor_stays(self) -> None:
-        # A pool of 100; a quarter, 25, stays for people.
-        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(2, 20), self.week), 75)
-        self.assertEqual(self.quota.spare_allowance(self.state(interactive=40), self.at(2, 20), self.week), 35)
-        self.assertEqual(self.quota.spare_allowance(self.state(interactive=90), self.at(2, 20), self.week), 0)
-        self.assertEqual(self.quota.spare_allowance(self.state(spare=75), self.at(2, 20), self.week), 0, "spare already spent counts")
+    def test_calls_scheduled_work_and_people_do_not_need_are_free_at_any_hour(self) -> None:
+        # 1000 a day, a pool of 100 (50 kept for people), a margin of 20, 300 still needed by scheduled work, and 5% an hour.
+        state = self.state(spent=400)
+        self.assertEqual(self.free(state, self.at(2, 11), rest=300), 50, "working hours: the hourly cap, 5% of 1000")
+        self.assertEqual(self.free(state, self.at(2, 11), rest=300, hour=30), 20)
+        self.assertEqual(self.free(state, self.at(2, 11), rest=300, hour=50), 0)
+        self.assertEqual(self.free(self.state(spent=400), self.at(7, 3), rest=300), 50, "a weekend is no different")
 
-    def test_a_non_working_day_is_spare_all_day(self) -> None:
-        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(7, 11), self.week), 75)
-        self.assertEqual(self.quota.spare_allowance(self.state(), self.at(8, 3), self.week), 75)
+    def test_nothing_is_free_when_scheduled_work_and_people_need_what_is_left(self) -> None:
+        self.assertEqual(self.free(self.state(spent=900), self.at(2, 11), rest=40), 0)
+        self.assertEqual(self.free(self.state(), self.at(2, 11), rest=950), 0)
 
-    def test_everything_left_is_released_in_the_last_hours_before_the_reset_but_the_floor(self) -> None:
-        self.assertEqual(self.quota.spare_allowance(self.state(spent=400), self.at(2, 21, 30), self.week), 575)
-        self.assertEqual(self.quota.spare_allowance(self.state(spent=400), self.at(2, 20, 30), self.week), 75, "not yet the last hours")
-        self.assertEqual(self.quota.spare_allowance(self.state(spent=990), self.at(2, 22), self.week), 0)
+    def test_people_keep_what_they_usually_use_between_the_floor_and_the_rest_of_the_pool(self) -> None:
+        state = self.state()
+        self.assertEqual(self.quota.kept_for_people(state, None), 50, "no history: half the pool")
+        self.assertEqual(self.quota.kept_for_people(state, 10), 25, "at least the floor, a quarter of the pool")
+        self.assertEqual(self.quota.kept_for_people(state, 80), 80)
+        self.assertEqual(self.quota.kept_for_people(state, 500), 100, "never more than the pool")
+        self.assertEqual(self.quota.kept_for_people(self.state(interactive=90, spent=90), 80), 10, "what people already used is gone from it")
+
+    def test_everything_left_but_what_scheduled_work_and_people_need_is_free_in_the_last_hours(self) -> None:
+        state = self.state(spent=400)
+        self.assertEqual(self.free(state, self.at(2, 21, 30), rest=10), 600 - 10 - 50, "no margin and no cap")
+        self.assertEqual(self.free(state, self.at(2, 20, 30), rest=10), 50, "not yet the last hours: capped")
 
     def test_the_last_hours_follow_the_providers_reset(self) -> None:
         # A day that resets at 07:00 ends at 07:00, so 05:00 is inside its last three hours.
-        got = self.quota.spare_allowance(self.state(spent=400), self.at(2, 5), self.week, reset_time="07:00", tz="UTC")
-        self.assertEqual(got, 575)
+        self.assertEqual(self.free(self.state(spent=400), self.at(2, 5), reset_time="07:00", tz="UTC"), 550)
+
+    def test_spare_work_never_takes_what_is_kept_for_people_so_the_day_is_not_promised_twice(self) -> None:
+        state = self.state(spent=400)
+        spare = self.free(state, self.at(2, 21, 30), rest=0)
+        kept = self.quota.kept_for_people(state, None)
+        self.assertLessEqual(spare + kept, 600, "spare calls and what is kept for people fit what is left of the day")
+        self.assertEqual(self.quota.interactive_allowance(state, 0), 100)
+        self.assertEqual(self.quota.interactive_allowance(state, 30), 130, "people also spend free calls")
 
     def test_the_week_is_the_workspaces_in_its_time_zone(self) -> None:
         rome = self.quota.WorkWeek("Europe/Rome", (0, 1, 2, 3, 4), "08:00", "19:00")

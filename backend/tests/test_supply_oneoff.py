@@ -56,6 +56,10 @@ class OneOffTests(unittest.TestCase):
         provider = lambda cid: self.FakeProvider(self.ProviderConfig(connector_id=cid, currency="EUR"), clock=clock)  # noqa: E731
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=provider, clock=clock)
         poller = self.poller.Poller(self.connectors, store=self.store, provider_for=provider, clock=clock)
+        from app.services.supply import jobs
+
+        with self.store.connection() as conn:
+            jobs.refresh_scheduled(conn, connector_id, self.now)  # what the poll job does first
         return self.oneoff.run(discoverer, poller, self.store, connector_id, limit=limit)
 
     def ask(self, lines, kind="bom"):
@@ -124,8 +128,14 @@ class OneOffTests(unittest.TestCase):
         cid = self.connector(daily_budget=100)  # a pool of 10 calls
         self.ask([("Acme", f"P{n}") for n in range(20)])
         self.now = SUNDAY.replace(day=2, hour=10)  # Monday morning: working hours, no spare
-        for _ in range(4):
-            self.served(cid)
+        from unittest import mock
+
+        from app.services.supply import demand
+
+        # Scheduled work needs 95 of the 100 calls, so none are free: a check may only use the half of the pool it is allowed.
+        with mock.patch.object(demand, "scheduled_rest", return_value=95):
+            for _ in range(4):
+                self.served(cid)
         spent = self.rows("SELECT interactive_spent AS n FROM quota_ledger")[0]["n"]
         self.assertLessEqual(spent, 5, "Read now and Fill still have the other half")
         self.assertGreater(spent, 0)
