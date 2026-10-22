@@ -149,8 +149,9 @@ def due_listings(
 def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str) -> list[DueListing]:
     """Listings to read from spare budget.
 
-    ``overdue``: listings admitted here whose committed read is late (the budget for committed reads ran out first); spare budget
-    goes to these before any other spare work.
+    ``overdue``: listings admitted here whose committed read is due and was not made (the budget for committed reads ran out first,
+    or a batch was held for company); spare budget goes to these before any other spare work. They are still committed work: a
+    batch that is not full waits as the scheduled read does, and the calls are counted to the listings' tier.
     ``waiting``: counted listings of parts that wait for room here, not read since their rate asks.
     ``tier2_early``: tier-2 listings admitted here that are not yet due, the soonest due first, and not read in the last
     ``EARLY_GAP``: early reads make a tier-2 part fresher, never read more often than a tier-1 one.
@@ -174,7 +175,7 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
         f"""
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier,
-               COALESCE(ps.last_error_code, '') AS last_error_code
+               COALESCE(ps.last_error_code, '') AS last_error_code, ps.next_poll_at AS due_at, COALESCE(ps.urgency, 2) AS urgency
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
@@ -320,7 +321,9 @@ class Poller:
 
         batches = _by_part(due, spec.max_batch) if spec.groups_by_part else _batches(due, spec.max_batch)
         holding = 0
-        if spec.max_batch > 1 and not (interactive or oneoff or spare or only_part is not None):
+        # Late committed reads made from spare budget wait for company too, or a held batch would go out alone right after.
+        committed = spare in (None, "overdue")
+        if spec.max_batch > 1 and committed and not (interactive or oneoff or only_part is not None):
             full = len({row.part_id for row in batches[-1]}) >= spec.max_batch if spec.groups_by_part else len(batches[-1]) >= spec.max_batch
             if not full and not _worth_sending(batches[-1], now, self._reset):
                 holding = len(batches.pop())
@@ -332,7 +335,7 @@ class Poller:
         stopped: str | None = None
         for batch in batches:
             purpose = (
-                ledger.PURPOSE_ONE_OFF if oneoff else ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare
+                ledger.PURPOSE_ONE_OFF if oneoff else ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if not committed
                 else f"tier{min(row.tier for row in batch)}"
             )
 

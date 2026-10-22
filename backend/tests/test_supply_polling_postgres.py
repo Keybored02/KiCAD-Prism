@@ -419,6 +419,26 @@ class PollingTests(unittest.TestCase):
             conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
         self.assertEqual(poller.poll_connector(cid).polled, 1, "nor in the last two hours of the day")
 
+    def test_a_batch_held_for_company_is_not_sent_alone_by_spare_work_and_its_late_read_counts_to_its_tier(self) -> None:
+        from app.services.supply import jobs
+
+        cid = self.connector()
+        self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
+        poller = self.poller()
+        self.assertEqual(poller.poll_connector(cid).polled, 1)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
+            jobs.refresh_scheduled(conn, cid, self.clock.now)
+        self.assertEqual(poller.poll_connector(cid).holding, 1)
+        spare = poller.poll_connector(cid, spare="overdue")
+        self.assertEqual((spare.polled, spare.holding), (0, 1), "the held batch is not sent alone from spare budget either")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=2, minutes=1),))
+            jobs.refresh_scheduled(conn, cid, self.clock.now)
+        self.assertEqual(poller.poll_connector(cid, spare="overdue").polled, 1, "due two hours: it goes")
+        late = self.rows("SELECT purpose, SUM(calls) AS n FROM call_counts WHERE connector_id = %s GROUP BY purpose ORDER BY purpose", cid)
+        self.assertEqual([row["purpose"] for row in late], ["tier1"], "a late committed read is tracking spend, also from spare budget")
+
     def test_a_late_committed_read_is_read_from_spare_budget(self) -> None:
         cid = self.connector("demo_small", daily_budget=100, interactive_reserve_pct=20)
         for mpn in ("AAA", "BBB"):
