@@ -285,6 +285,31 @@ class SupplyPartsApiTests(unittest.TestCase):
         finally:
             registry.unregister("demo_sum")
 
+    def test_a_pick_prices_the_part_and_every_listing_counts_toward_its_stock(self) -> None:
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        registry.register(ProviderSpec(
+            key="demo_piles", label="Piles", capabilities=frozenset({"offers"}), max_batch=10, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config)), replace=True)
+        try:
+            cid = self.fake_connector()
+            self.watch_via_api("PILE-1")
+            part = self.part_row("PILE-1")["id"]
+            cut = self.insert_listing(part, cid, "PL-CUT", stock=1000, price="0.50")
+            custom = self.insert_listing(part, cid, "PL-CUSTOM", stock=1000, price="0.45")
+            reel = self.insert_listing(part, cid, "PL-REEL", stock=5000, price="0.30")
+            with self.store.connection() as conn:
+                for listing, packaging in ((cut, "cut_tape"), (custom, "custom_reel"), (reel, "tape_reel")):
+                    conn.execute("UPDATE offers SET packaging = %s, moq = %s WHERE listing_id = %s", (packaging, 3000 if packaging == "tape_reel" else 1, listing))
+                conn.execute("UPDATE connectors SET provider = 'demo_piles' WHERE id = %s", (cid,))
+                conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part, cid, cut))
+            row = self.part_row("PILE-1")
+            self.assertEqual(row["stock"], 6000, "cut tape and custom reel are one pile of 1,000; the full reel adds its 5,000")
+            self.assertEqual(self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"], 6000)
+        finally:
+            registry.unregister("demo_piles")
+
     def test_watching_twice_is_one_watch(self) -> None:
         first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)
         self.assertEqual(first["id"], second["id"])

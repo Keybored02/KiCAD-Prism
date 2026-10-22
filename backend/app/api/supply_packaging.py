@@ -52,7 +52,8 @@ async def _run(call: Callable[[], T]) -> T:
 async def waiting(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            items = packaging_picks.waiting(conn)
+            # Review asks for a pick only where it saves calls (LCSC, JLCPCB); elsewhere Prism makes the pick and a person may change it.
+            items = [item for item in packaging_picks.waiting(conn) if item["saves_calls_a_day"] > 0]
             return {"items": items, "saves_calls_a_day": round(sum(item["saves_calls_a_day"] for item in items), 3)}
 
     return await _run(read)

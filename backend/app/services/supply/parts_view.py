@@ -143,12 +143,33 @@ def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) ->
         JOIN connectors c ON c.id = l.connector_id
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
-          AND (%s OR NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id))
-        """,
+          AND (%s OR {counted})
+        """.replace("{counted}", stock.counted_listing_sql()),
         (part_ids, list(_COUNTED), every_listing),
     ).fetchall():
         offers[row["part_id"]].append(dict(row))
+    if not every_listing:
+        _one_offer_per_pick(offers)
     return offers
+
+
+def _one_offer_per_pick(offers: dict[str, list[dict]]) -> None:
+    """A distributor with a pick is one offer: the followed listing, which prices the part, carrying the stock of every listing the
+    distributor has (``stock.connector_stock``: cut tape and custom reel are one pile, a full reel adds)."""
+
+    for part_id, rows in offers.items():
+        by_connector: dict[str, list[dict]] = defaultdict(list)
+        for row in rows:
+            by_connector[row["connector_id"]].append(row)
+        kept: list[dict] = []
+        for held in by_connector.values():
+            followed = next((row for row in held if row["followed"]), None)
+            if followed is None or len(held) == 1:
+                kept.extend(held)
+                continue
+            counted = [row for row in held if not row["marketplace"]]
+            kept.append({**followed, "stock": stock.connector_stock(followed["provider"], counted) if counted and not followed["marketplace"] else followed["stock"]})
+        offers[part_id] = kept
 
 
 def _offer_summary(offers_here: list[dict], policy: str, problem: str | None, price: dict[str, Any]) -> dict[str, Any]:
