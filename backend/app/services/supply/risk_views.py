@@ -11,14 +11,14 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import facts, fx, headline_price, parts_view, price_quantity, trade
+from app.services.supply import facts, fx, headline_price, part_insights, parts_view, price_quantity, trade
 from app.services.supply.assessment import settings_store
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
 AVAILABILITY = ("two_plus", "one", "out", "not_read")
 DEADLINE_DAYS = 365
 DEADLINE_LIMIT = 40
-LEAD_BUCKETS = (("under_2w", 14), ("2_to_8w", 56), ("8_to_16w", 112), ("16_to_26w", 182))
+LEAD_BUCKETS = part_insights.LEAD_BUCKETS
 MOVERS = 50
 ORIGINS = 12
 CONTROLLED_LIMIT = 200
@@ -140,8 +140,8 @@ def outlook_bands(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     return {name: counts.get(name, 0) for name in (outlook.ENDED, outlook.UNDER_TWO, outlook.TWO_TO_FIVE, outlook.NO_SIGNS, outlook.UNKNOWN)}
 
 
-def compliance(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
-    """RoHS and REACH by what distributors state: any one saying no wins, then a yes, else unknown."""
+def compliance_verdicts(conn, tracked: Sequence[str]) -> tuple[dict[str, str], dict[str, str]]:
+    """RoHS and REACH verdict of each tracked part by what distributors state: any one saying no wins, then a yes, else unknown."""
 
     rohs: dict[str, set[str]] = defaultdict(set)
     reach: dict[str, set[str]] = defaultdict(set)
@@ -159,8 +159,17 @@ def compliance(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
                 return "compliant" if name.startswith("compliant") or name == "unaffected" else name
         return "unknown"
 
-    rohs_counts = Counter(verdict(rohs.get(part_id, set()), "not_compliant", ("compliant", "compliant_exemption", "not_applicable")) for part_id in tracked)
-    reach_counts = Counter(verdict(reach.get(part_id, set()), "affected", ("unaffected", "not_applicable")) for part_id in tracked)
+    return (
+        {part_id: verdict(rohs.get(part_id, set()), "not_compliant", ("compliant", "compliant_exemption", "not_applicable")) for part_id in tracked},
+        {part_id: verdict(reach.get(part_id, set()), "affected", ("unaffected", "not_applicable")) for part_id in tracked},
+    )
+
+
+def compliance(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
+    """RoHS and REACH counts by what distributors state (see ``compliance_verdicts``)."""
+
+    rohs, reach = compliance_verdicts(conn, tracked)
+    rohs_counts, reach_counts = Counter(rohs.values()), Counter(reach.values())
     return {
         "rohs": {name: rohs_counts.get(name, 0) for name in ("compliant", "not_compliant", "not_applicable", "unknown")},
         "reach": {name: reach_counts.get(name, 0) for name in ("compliant", "affected", "not_applicable", "unknown")},
@@ -170,13 +179,7 @@ def compliance(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
 def lead_histogram(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """The shortest quoted lead time of each part in buckets of weeks; parts that give none are counted apart."""
 
-    counts: Counter[str] = Counter()
-    for row in rows:
-        days = row.get("lead_days")
-        if not days:
-            counts["none"] += 1
-            continue
-        counts[next((name for name, limit in LEAD_BUCKETS if days <= limit), "over_26w")] += 1
+    counts = Counter(part_insights.lead_bucket(row.get("lead_days")) for row in rows)
     return [{"bucket": name, "parts": counts.get(name, 0)} for name in [*(name for name, _ in LEAD_BUCKETS), "over_26w", "none"]]
 
 
@@ -191,6 +194,50 @@ def price_movers(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, 
     up = sorted((row for row in moved if row["price_change_percent"] > 0), key=lambda row: -row["price_change_percent"])
     down = sorted((row for row in moved if row["price_change_percent"] < 0), key=lambda row: row["price_change_percent"])
     return {"up": [pick(row) for row in up[:MOVERS]], "down": [pick(row) for row in down[:MOVERS]]}
+
+
+def _control(part_id: str, eccn: Mapping[str, set[str]], marks: Mapping[str, Any]) -> tuple[str, str]:
+    """A part's export control state and the class to show: a person's mark wins over what distributors state."""
+
+    mark = marks.get(part_id)
+    if mark:
+        return ("controlled", mark["eccn"]) if mark["control"] == "controlled" else ("none", "")
+    classes = {value for value in eccn.get(part_id, set()) if value}
+    state = trade.control_of(sorted(classes))
+    return state, ", ".join(sorted(classes)) if state in ("controlled", "disputed") else ""
+
+
+def control_states(conn, tracked: Sequence[str]) -> dict[str, str]:
+    """Export control state of each tracked part (controlled, disputed, none, unknown)."""
+
+    eccn: dict[str, set[str]] = defaultdict(set)
+    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'eccn' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+        eccn[row["part_id"]].add(row["value"].strip())
+    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
+    return {part_id: _control(part_id, eccn, marks)[0] for part_id in tracked}
+
+
+# The Insights charts whose bars open the parts behind them: name, then how to tell which tracked parts belong.
+GROUPS = (
+    *(f"rohs_{name}" for name in ("compliant", "not_compliant", "not_applicable", "unknown")),
+    *(f"reach_{name}" for name in ("compliant", "affected", "not_applicable", "unknown")),
+    *(f"control_{name}" for name in ("controlled", "disputed", "none", "unknown")),
+)
+
+
+def group_members(conn, group: str, tracked: Sequence[str]) -> set[str]:
+    """The tracked parts one bar of the compliance and export control charts counts."""
+
+    kind, _, value = group.partition("_")
+    if kind == "rohs":
+        verdicts = compliance_verdicts(conn, tracked)[0]
+    elif kind == "reach":
+        verdicts = compliance_verdicts(conn, tracked)[1]
+    elif kind == "control":
+        verdicts = control_states(conn, tracked)
+    else:
+        raise KeyError(group)
+    return {part_id for part_id, verdict in verdicts.items() if verdict == value}
 
 
 def trade_overview(conn, tracked: Sequence[str]) -> dict[str, Any]:
@@ -211,13 +258,7 @@ def trade_overview(conn, tracked: Sequence[str]) -> dict[str, Any]:
     for part_id in tracked:
         found = {value for value in origins.get(part_id, set()) if value}
         country[sorted(found)[0] if len(found) == 1 else ("Several" if found else "Unknown")] += 1
-        mark = marks.get(part_id)
-        if mark:
-            state, code = ("controlled", mark["eccn"]) if mark["control"] == "controlled" else ("none", "")
-        else:
-            classes = {value for value in eccn.get(part_id, set()) if value}
-            state = trade.control_of(sorted(classes))
-            code = ", ".join(sorted(classes)) if state in ("controlled", "disputed") else ""
+        state, code = _control(part_id, eccn, marks)
         control[state] += 1
         if state in ("controlled", "disputed") and len(controlled) < CONTROLLED_LIMIT:
             controlled.append({"part_id": part_id, "mpn": names.get(part_id, ("", ""))[0], "manufacturer": names.get(part_id, ("", ""))[1], "eccn": code, "state": state, "by_person": part_id in marks})

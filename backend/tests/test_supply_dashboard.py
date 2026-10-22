@@ -139,6 +139,35 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(page["trade"]["control"]["unknown"], 3)
         self.assertTrue(gone)
 
+    def test_a_bar_of_the_compliance_trade_lead_time_and_outlook_charts_opens_the_parts_it_counts(self) -> None:
+        bad = self.follow("BAD-1", [500] * 3)
+        good = self.follow("GOOD-1", [500] * 3)
+        quiet = self.follow("QUIET-1", [500] * 3)
+        with self.store.connection() as conn:
+            for part, rohs, reach, eccn in ((bad, "Non-compliant", "REACH Affected", "3A991"), (good, "Compliant", "Unaffected", "EAR99")):
+                for name, value in (("rohs_status", rohs), ("reach_status", reach), ("eccn", eccn)):
+                    conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', %s, %s, %s)", (part, name, value, NOW))
+            self.part_insights.renew(conn, NOW)
+            page = self.insights_page.build(conn)
+
+            def ids(only: str) -> set[str]:
+                return {item["id"] for item in self.parts_view.list_parts(conn, scope="watched", only=only)["items"]}
+
+            self.assertEqual(ids("rohs_not_compliant"), {bad})
+            self.assertEqual(ids("rohs_compliant"), {good})
+            self.assertEqual(ids("rohs_unknown"), {quiet})
+            self.assertEqual(ids("reach_affected"), {bad})
+            self.assertEqual(ids("control_controlled"), {bad})
+            self.assertEqual(ids("control_none"), {good})
+            self.assertEqual(ids("control_unknown"), {quiet})
+            self.assertEqual(ids("lead_2_to_8w"), {bad, good, quiet})
+            self.assertEqual(ids("lead_none"), set())
+            for band, count in page["lifecycle"]["outlook"].items():
+                self.assertEqual(len(ids(f"outlook_{band}")), count)
+            # Every list is as long as the count of its bar.
+            for group, count in (("rohs_not_compliant", page["lifecycle"]["compliance"]["rohs"]["not_compliant"]), ("control_unknown", page["trade"]["control"]["unknown"])):
+                self.assertEqual(len(ids(group)), count)
+
     def test_a_persons_export_control_mark_wins_over_what_distributors_state(self) -> None:
         from app.services.supply import trade_marks
 

@@ -84,13 +84,13 @@ export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; o
         title="Lifecycle"
         answer={ending === 0 ? "No tracked part is ending" : `${ending.toLocaleString()} ${ending === 1 ? "part is" : "parts are"} not recommended for new designs, in last-time-buy or obsolete`}
       >
-        <BarList rows={LIFECYCLE.map((item) => ({ key: item.key, label: item.label, value: mix[item.key], tone: item.tone, onClick: item.key === "active" || item.key === "unknown" ? undefined : () => onOpen("lifecycle") }))} labelWidth="11rem" />
+        <BarList rows={LIFECYCLE.map((item) => ({ key: item.key, label: item.label, value: mix[item.key], tone: item.tone, onClick: () => onOpen(`lifecycle_${item.key}`) }))} labelWidth="11rem" />
       </ChartCard>
       <ChartCard
         title="When parts will end"
         info="From each part's lifecycle, open notices, last dates to buy and distributors dropping it. Rule-based; parts without data are unknown."
       >
-        <BarList rows={OUTLOOK.map((item) => ({ key: item.key, label: item.label, value: outlook[item.key], tone: item.tone }))} labelWidth="11rem" />
+        <BarList rows={OUTLOOK.map((item) => ({ key: item.key, label: item.label, value: outlook[item.key], tone: item.tone, onClick: () => onOpen(`outlook_${item.key}`) }))} labelWidth="11rem" />
       </ChartCard>
       <ChartCard
         title="Compliance"
@@ -101,19 +101,19 @@ export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; o
           <div>
             <p className="mb-1 text-xs font-medium text-muted-foreground">RoHS</p>
             <BarList rows={[
-              { key: "ok", label: "Compliant", value: compliance.rohs.compliant, tone: "bg-success" },
-              { key: "bad", label: "Not compliant", value: compliance.rohs.not_compliant, tone: "bg-destructive" },
-              { key: "na", label: "Not applicable", value: compliance.rohs.not_applicable, tone: GREY },
-              { key: "unknown", label: "Unknown", value: compliance.rohs.unknown, tone: GREY },
+              { key: "ok", label: "Compliant", value: compliance.rohs.compliant, tone: "bg-success", onClick: () => onOpen("rohs_compliant") },
+              { key: "bad", label: "Not compliant", value: compliance.rohs.not_compliant, tone: "bg-destructive", onClick: () => onOpen("rohs_not_compliant") },
+              { key: "na", label: "Not applicable", value: compliance.rohs.not_applicable, tone: GREY, onClick: () => onOpen("rohs_not_applicable") },
+              { key: "unknown", label: "Unknown", value: compliance.rohs.unknown, tone: GREY, onClick: () => onOpen("rohs_unknown") },
             ]} />
           </div>
           <div>
             <p className="mb-1 text-xs font-medium text-muted-foreground">REACH</p>
             <BarList rows={[
-              { key: "ok", label: "Unaffected", value: compliance.reach.compliant, tone: "bg-success" },
-              { key: "bad", label: "Affected", value: compliance.reach.affected, tone: "bg-destructive" },
-              { key: "na", label: "Not applicable", value: compliance.reach.not_applicable, tone: GREY },
-              { key: "unknown", label: "Unknown", value: compliance.reach.unknown, tone: GREY },
+              { key: "ok", label: "Unaffected", value: compliance.reach.compliant, tone: "bg-success", onClick: () => onOpen("reach_compliant") },
+              { key: "bad", label: "Affected", value: compliance.reach.affected, tone: "bg-destructive", onClick: () => onOpen("reach_affected") },
+              { key: "na", label: "Not applicable", value: compliance.reach.not_applicable, tone: GREY, onClick: () => onOpen("reach_not_applicable") },
+              { key: "unknown", label: "Unknown", value: compliance.reach.unknown, tone: GREY, onClick: () => onOpen("reach_unknown") },
             ]} />
           </div>
         </div>
@@ -127,7 +127,7 @@ const BUCKETS: Record<SupplyInsightsPage["lead_times"][number]["bucket"], string
 };
 
 /** How long waiting takes, and what got dearer or cheaper. */
-export function LeadAndPricesSection({ page, onOpenPart }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void }) {
+export function LeadAndPricesSection({ page, onOpenPart, onOpen }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
   const long = page.lead_times.filter((item) => item.bucket === "16_to_26w" || item.bucket === "over_26w").reduce((sum, item) => sum + item.parts, 0);
   const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"], empty: string) => (
     <ChartCard title={title}>
@@ -151,7 +151,7 @@ export function LeadAndPricesSection({ page, onOpenPart }: { page: SupplyInsight
         info="The shortest lead time any distributor quotes for each part."
         answer={long === 0 ? "No part is quoted over 16 weeks" : `${long.toLocaleString()} ${long === 1 ? "part is" : "parts are"} quoted over 16 weeks`}
       >
-        <BarList rows={page.lead_times.map((item) => ({ key: item.bucket, label: BUCKETS[item.bucket], value: item.parts, tone: item.bucket === "none" ? GREY : undefined }))} labelWidth="8rem" />
+        <BarList rows={page.lead_times.map((item) => ({ key: item.bucket, label: BUCKETS[item.bucket], value: item.parts, tone: item.bucket === "none" ? GREY : undefined, onClick: () => onOpen(`lead_${item.bucket}`) }))} labelWidth="8rem" />
       </ChartCard>
       {movers("Prices up, 30 days", page.price_movers.up, "No price went up by 5% or more.")}
       {movers("Prices down, 30 days", page.price_movers.down, "No price went down by 5% or more.")}
@@ -160,7 +160,7 @@ export function LeadAndPricesSection({ page, onOpenPart }: { page: SupplyInsight
 }
 
 /** Where the tracked parts come from and which are export controlled. */
-export function TradeSection({ page, onOpenPart }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void }) {
+export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
   const { origins, other_origins: other, control, controlled } = page.trade;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
@@ -178,10 +178,10 @@ export function TradeSection({ page, onOpenPart }: { page: SupplyInsightsPage; o
         info="The ECCN distributors give; EAR99 is no control. A mark set on a part's sheet wins."
       >
         <BarList labelWidth="9rem" rows={[
-          { key: "controlled", label: "Controlled", value: control.controlled, tone: "bg-destructive/70" },
-          { key: "disputed", label: "Disputed", value: control.disputed, tone: "bg-warning" },
-          { key: "none", label: "Not controlled", value: control.none, tone: "bg-success" },
-          { key: "unknown", label: "No class given", value: control.unknown, tone: GREY },
+          { key: "controlled", label: "Controlled", value: control.controlled, tone: "bg-destructive/70", onClick: () => onOpen("control_controlled") },
+          { key: "disputed", label: "Disputed", value: control.disputed, tone: "bg-warning", onClick: () => onOpen("control_disputed") },
+          { key: "none", label: "Not controlled", value: control.none, tone: "bg-success", onClick: () => onOpen("control_none") },
+          { key: "unknown", label: "No class given", value: control.unknown, tone: GREY, onClick: () => onOpen("control_unknown") },
         ]} />
         {controlled.length > 0 ? (
           <ul className="mt-2 max-h-64 divide-y overflow-y-auto border-t text-sm">

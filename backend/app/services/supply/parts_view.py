@@ -29,6 +29,11 @@ Filter = Literal[
     "", "at_risk", "out_of_stock", "lifecycle", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings", "draining",
     "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving", "likely_out_4w", "likely_out_8w",
     "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown",
+    "outlook_ended", "outlook_under_2_years", "outlook_2_to_5_years", "outlook_no_signs", "outlook_unknown",
+    "lead_under_2w", "lead_2_to_8w", "lead_8_to_16w", "lead_16_to_26w", "lead_over_26w", "lead_none",
+    "rohs_compliant", "rohs_not_compliant", "rohs_not_applicable", "rohs_unknown",
+    "reach_compliant", "reach_affected", "reach_not_applicable", "reach_unknown",
+    "control_controlled", "control_disputed", "control_none", "control_unknown",
 ]
 _NEEDS_A_LOOK = ("fatal", "error", "warning")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
@@ -432,7 +437,12 @@ def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
 
     if only in FILTERS:
         return [item for item in items if FILTERS[only](item)]
-    keep = part_insights.matching(conn, only)
+    from app.services.supply import risk_views  # risk_views reads this module, so it is imported here
+
+    if only in risk_views.GROUPS:
+        keep = risk_views.group_members(conn, only, [item["id"] for item in items])
+    else:
+        keep = part_insights.matching(conn, only)
     return [item for item in items if item["id"] in keep]
 
 

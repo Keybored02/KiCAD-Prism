@@ -117,7 +117,7 @@ export function InsightsView() {
         </div>
         <div id="insights-lead-times" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-lead-times" title="Lead times and prices" count={-1} startOpen>
-            <div className="p-3"><LeadAndPricesSection page={page} onOpenPart={openPart} /></div>
+            <div className="p-3"><LeadAndPricesSection page={page} onOpenPart={openPart} onOpen={openFilter} /></div>
           </CollapsibleSection>
         </div>
         <div id="insights-runway" className="scroll-mt-14">
@@ -137,7 +137,7 @@ export function InsightsView() {
         </div>
         <div id="insights-trade" className="scroll-mt-14">
           <CollapsibleSection id="insights-section-trade" title="Trade" count={-1} startOpen>
-            <div className="p-3"><TradeSection page={page} onOpenPart={openPart} /></div>
+            <div className="p-3"><TradeSection page={page} onOpenPart={openPart} onOpen={openFilter} /></div>
           </CollapsibleSection>
         </div>
         <div id="insights-lifecycle" className="scroll-mt-14">

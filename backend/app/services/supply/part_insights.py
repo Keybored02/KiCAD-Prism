@@ -17,6 +17,17 @@ OFTEN_OUT_SHARE = 0.2
 
 # The groups the Insights lists and the Dashboard bars count, each a test on one part's facts. ``runs_out_*`` are buckets of
 # the projected days until zero stock; the others are findings.
+OUTLOOK_BANDS = ("ended", "under_2_years", "2_to_5_years", "no_signs", "unknown")
+# The shortest quoted lead time in buckets of weeks.
+LEAD_BUCKETS = (("under_2w", 14), ("2_to_8w", 56), ("8_to_16w", 112), ("16_to_26w", 182))
+
+
+def lead_bucket(days: int | None) -> str:
+    if not days:
+        return "none"
+    return next((name for name, limit in LEAD_BUCKETS if days <= limit), "over_26w")
+
+
 KINDS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "runs_out_2w": lambda d: d["days_to_zero"] is not None and d["days_to_zero"] <= 14,
     "runs_out_8w": lambda d: d["days_to_zero"] is not None and 14 < d["days_to_zero"] <= 56,
@@ -32,6 +43,9 @@ KINDS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "likely_out_4w": lambda d: _likely_out(d, "p_out_4w"),
     "likely_out_8w": lambda d: _likely_out(d, "p_out_8w"),
     "price_moving": lambda d: d["price_change_percent"] is not None and abs(d["price_change_percent"]) >= PRICE_MOVE_PERCENT,
+    # The groups of the Insights charts "When parts will end" and "Lead times", so a bar and the list behind it agree.
+    **{f"outlook_{band}": (lambda d, band=band: (d.get("outlook_band") or "unknown") == band) for band in OUTLOOK_BANDS},
+    **{f"lead_{bucket}": (lambda d, bucket=bucket: lead_bucket(d.get("lead_days")) == bucket) for bucket in (*(name for name, _ in LEAD_BUCKETS), "over_26w", "none")},
 }
 LIKELY = 0.5
 
