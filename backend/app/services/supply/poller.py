@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, alternates, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
+from app.services.supply import accounts, alerts, alternates, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -254,6 +254,8 @@ class Poller:
         self._rupture: dict[str, int | None] = {}
         # The provider's day for the connector being polled, which sets when a daily listing is next due.
         self._reset: tuple[str, str] = ("00:00", "UTC")
+        # What shares the connector's budget (its account), which sets when its reads open.
+        self._account = ""
 
     def poll_connector(
         self, connector_id: str, *, interactive: bool = False, only_part: str | Sequence[str] | None = None, spare: str | None = None,
@@ -272,6 +274,8 @@ class Poller:
             return PollSummary(connector_id, stopped=STOPPED_INACTIVE)
         spec = registry.get_spec(connector["provider"])
         self._reset = (connector["reset_time"], connector["reset_tz"])
+        with self._store.connection() as conn:
+            self._account = accounts.resolve(conn, connector_id).ledger_id
 
         if trouble.cooling_down(self._store, connector_id, now):
             return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
@@ -462,7 +466,7 @@ class Poller:
 
         last_change = now if changed else row.last_change_at
         urgency = self._urgency_for(conn, row, offer.lifecycle, last_change, now)
-        self._write_state(conn, row.id, self._schedule_of(conn, row.part_id), urgency, now, last_change, key=row.id, reset=self._reset)
+        self._write_state(conn, row.id, self._schedule_of(conn, row.part_id), urgency, now, last_change, part_key=row.part_id, account_key=self._account, reset=self._reset)
 
     @staticmethod
     def _packaging_of(conn, listing_id: str) -> str:
@@ -505,7 +509,7 @@ class Poller:
         current = conn.execute("SELECT tier, urgency FROM poll_state WHERE listing_id = %s", (row.id,)).fetchone()
         schedule = current["tier"] if current else self._schedule_of(conn, row.part_id)
         urgency = tiers.Urgency(current["urgency"]) if current else tiers.Urgency.NORMAL
-        self._write_state(conn, row.id, schedule, urgency, now, row.last_change_at, key=row.id, missing=misses, reset=self._reset)
+        self._write_state(conn, row.id, schedule, urgency, now, row.last_change_at, part_key=row.part_id, account_key=self._account, missing=misses, reset=self._reset)
         return 0
 
     @staticmethod
@@ -535,11 +539,11 @@ class Poller:
 
     @staticmethod
     def _write_state(conn, listing_id: str, schedule: str, urgency: tiers.Urgency, now: datetime, last_change: datetime | None,
-                     *, key: str, reset: tuple[str, str], missing: int = 0) -> None:
+                     *, part_key: str, account_key: str, reset: tuple[str, str], missing: int = 0) -> None:
         # A listing that is merely missing is asked again within the hour, not on its schedule.
         when = (
             now + min(tiers.interval(schedule), timedelta(hours=1)) if missing
-            else tiers.next_poll_at(now, schedule, key=key, reset_time=reset[0], tz=reset[1])
+            else tiers.next_poll_at(now, schedule, part_key=part_key, account_key=account_key, reset_time=reset[0], tz=reset[1])
         )
         conn.execute(
             """

@@ -3,8 +3,9 @@
 How often a followed part is read is decided by its tracking tier (``tracking.py``): tier 1 daily, tier 2 weekly or
 monthly. A listing's ``poll_state.tier`` holds that schedule. Here are the rules around it:
 
-* ``next_poll_at``: a daily read falls once in each of the provider's days, at a time that changes every day; weekly and
-  monthly reads are spread by a day-changing jitter, so nothing falls due at the same moment every time
+* ``next_poll_at``: reads come due together, so a batch goes out full. A daily read falls when the account's next provider day
+  opens (after its start delay); a weekly or monthly one on a day slot of its part, so the parts of one slot are due at once and a
+  part's listings share a slot
 * ``urgency``: which listing to read first when the day's budget cannot cover them all (low stock, near the threshold,
   not recommended for new designs, projected to run out). It sets the order, never the rate.
 
@@ -24,10 +25,10 @@ from app.services.supply.vocabulary import Lifecycle
 
 SCHEDULES = ("daily", "weekly", "monthly")
 INTERVAL = {"daily": timedelta(days=1), "weekly": timedelta(days=7), "monthly": timedelta(days=30)}
-# A weekly read lands within a day of the seventh, a monthly one within three days of the thirtieth.
-SPREAD = {"weekly": timedelta(days=1), "monthly": timedelta(days=3)}
-# A daily read lands in the first part of the provider's day, so a late one is still the same day's.
-DAILY_WINDOW = timedelta(hours=20)
+# A weekly read waits at least this long before its day slot comes round (so 4 to 10 days, a week on average), a monthly one
+# the same over 30 slots (15 to 44 days).
+SLOTS = {"weekly": 7, "monthly": 30}
+MIN_WAIT_DAYS = {"weekly": 4, "monthly": 15}
 
 
 class Urgency(IntEnum):
@@ -104,21 +105,27 @@ def interval(schedule: str) -> timedelta:
 
 
 def next_poll_at(
-    now: datetime, schedule: str, *, key: str = "", reset_time: str = quota.DEFAULT_RESET_TIME, tz: str = quota.DEFAULT_RESET_TZ,
+    now: datetime, schedule: str, *, part_key: str = "", account_key: str = "", reset_time: str = quota.DEFAULT_RESET_TIME,
+    tz: str = quota.DEFAULT_RESET_TZ,
 ) -> datetime:
     """When to ask again after an answer.
 
-    A daily listing is next due in the provider's next day, at a time that changes from day to day (``key`` and the date
-    set it), so it is read once in each day and never at the same moment twice. Weekly and monthly ones are due after
-    their interval, moved by up to half the spread either way.
+    Reads come due together so a provider that takes a batch gets full ones. A daily listing is next due as the provider's next
+    day opens, plus the account's start delay for that day (``quota.start_delay_seconds``, 5 to 30 minutes), the moment the day's
+    budget starts to open. A weekly or monthly one is due on its part's day slot (``part_key``): the first provider day of that slot
+    at least ``MIN_WAIT_DAYS`` ahead, at the same time of day. Spreading the calls over the day is the budget's job
+    (``quota.background_allowance``).
     """
 
-    day = quota.provider_day(now, reset_time, tz)
-    spread = _spread(f"{key}|{day.isoformat()}")
-    if schedule == "daily":
-        next_day_start = now + timedelta(seconds=quota.seconds_to_reset(now, reset_time, tz))
-        return next_day_start + DAILY_WINDOW * spread
-    return now + INTERVAL[schedule] + SPREAD[schedule] * (spread - 0.5)
+    today = quota.provider_day(now, reset_time, tz)
+    day = today + timedelta(days=1 if schedule == "daily" else MIN_WAIT_DAYS[schedule])
+    if schedule != "daily":
+        slots = SLOTS[schedule]
+        slot = int(hashlib.sha256(part_key.encode()).hexdigest()[:8], 16) % slots
+        day += timedelta(days=(slot - day.toordinal()) % slots)
+    # Midday of that day, so a clock change cannot move it into the day before or after.
+    midday = quota.day_bounds(now, reset_time, tz)[0] + timedelta(days=(day - today).days, hours=12)
+    return quota.day_bounds(midday, reset_time, tz)[0] + timedelta(seconds=quota.start_delay_seconds(account_key, day))
 
 
 def retry_at(now: datetime, error_streak: int, *, key: str = "") -> datetime:

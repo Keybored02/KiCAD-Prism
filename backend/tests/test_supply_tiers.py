@@ -69,34 +69,40 @@ class ScheduleTests(unittest.TestCase):
                          [timedelta(minutes=5), timedelta(minutes=10), timedelta(minutes=20)])
         self.assertEqual(tiers.backoff(30), timedelta(hours=24))
 
-    def test_a_daily_listing_is_next_due_in_the_providers_next_day(self) -> None:
-        for key in ("a", "b", "listing-42", ""):
-            when = tiers.next_poll_at(NOW, "daily", key=key)
-            midnight = datetime(2026, 3, 2, 0, 0, tzinfo=timezone.utc)
-            self.assertGreaterEqual(when, midnight, key)
-            self.assertLessEqual(when, midnight + tiers.DAILY_WINDOW, key)
+    def test_a_daily_listing_is_next_due_as_the_providers_next_day_opens_after_the_accounts_start_delay(self) -> None:
+        midnight = datetime(2026, 3, 2, 0, 0, tzinfo=timezone.utc)
+        for part in ("a", "b", "part-42", ""):
+            when = tiers.next_poll_at(NOW, "daily", part_key=part, account_key="acct")
+            self.assertGreaterEqual(when, midnight + timedelta(minutes=5), part)
+            self.assertLessEqual(when, midnight + timedelta(minutes=30), part)
+        self.assertEqual(tiers.next_poll_at(NOW, "daily", part_key="a", account_key="acct"), tiers.next_poll_at(NOW, "daily", part_key="b", account_key="acct"),
+                         "an account's daily reads are due together")
 
     def test_a_daily_listing_follows_the_providers_reset(self) -> None:
-        when = tiers.next_poll_at(NOW, "daily", key="x", reset_time="18:00", tz="UTC")
-        self.assertGreaterEqual(when, datetime(2026, 3, 1, 18, 0, tzinfo=timezone.utc))
-        self.assertLessEqual(when, datetime(2026, 3, 1, 18, 0, tzinfo=timezone.utc) + tiers.DAILY_WINDOW)
+        when = tiers.next_poll_at(NOW, "daily", part_key="x", account_key="acct", reset_time="18:00", tz="UTC")
+        self.assertGreaterEqual(when, datetime(2026, 3, 1, 18, 5, tzinfo=timezone.utc))
+        self.assertLessEqual(when, datetime(2026, 3, 1, 18, 30, tzinfo=timezone.utc))
 
-    def test_the_time_of_a_daily_read_changes_from_day_to_day_and_between_listings(self) -> None:
+    def test_the_time_of_a_daily_read_changes_from_day_to_day_and_between_accounts(self) -> None:
         offsets = set()
         for day in range(1, 29):
             moment = datetime(2026, 3, day, 12, 0, tzinfo=timezone.utc)
-            when = tiers.next_poll_at(moment, "daily", key="listing-1")
+            when = tiers.next_poll_at(moment, "daily", account_key="acct")
             offsets.add(when - datetime(when.year, when.month, when.day, tzinfo=timezone.utc))
         self.assertGreater(len(offsets), 15, "never at the same moment every day")
-        across = {tiers.next_poll_at(NOW, "daily", key=f"listing-{i}") for i in range(50)}
+        across = {tiers.next_poll_at(NOW, "daily", account_key=f"acct-{i}") for i in range(50)}
         self.assertGreater(len(across), 30)
 
-    def test_weekly_and_monthly_listings_wait_their_interval_give_or_take_the_spread(self) -> None:
+    def test_weekly_and_monthly_listings_are_due_on_their_parts_day_slot_and_a_slot_is_due_together(self) -> None:
         for schedule in ("weekly", "monthly"):
-            base, spread = tiers.INTERVAL[schedule], tiers.SPREAD[schedule]
-            whens = [tiers.next_poll_at(NOW, schedule, key=f"l{i}") - NOW for i in range(60)]
-            self.assertTrue(all(base - spread / 2 <= wait <= base + spread / 2 for wait in whens), schedule)
-            self.assertGreater(len(set(whens)), 20)
+            slots, least = tiers.SLOTS[schedule], tiers.MIN_WAIT_DAYS[schedule]
+            whens = {f"p{i}": tiers.next_poll_at(NOW, schedule, part_key=f"p{i}", account_key="acct") for i in range(200)}
+            waits = [(when - NOW).total_seconds() / 86400 for when in whens.values()]
+            self.assertGreaterEqual(min(waits), least - 1, schedule)
+            self.assertLess(max(waits), least + slots + 1, schedule)
+            self.assertLessEqual(len(set(whens.values())), slots, "one moment for each slot")
+            self.assertGreater(len(set(whens.values())), slots // 2, "parts spread over the slots")
+            self.assertEqual(tiers.next_poll_at(NOW, schedule, part_key="p1", account_key="acct"), whens["p1"], "stable for a part")
 
     def test_a_retry_follows_the_backoff_and_ignores_the_schedule(self) -> None:
         for streak in (1, 2, 3, 6, 12):
