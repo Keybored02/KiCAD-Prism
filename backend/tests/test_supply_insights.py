@@ -127,6 +127,34 @@ class BelievableWarningTests(unittest.TestCase):
                          "one restock is not a cadence")
 
 
+class DrainTests(unittest.TestCase):
+    def test_a_part_still_made_is_not_shown_running_out_after_a_year_but_an_ending_one_is(self) -> None:
+        slow = series([1_000_000 - 100 * index for index in range(10)])
+        made = insights.apply_horizon(insights.analyse(slow), ending=False)
+        self.assertEqual((made["trend"], made["days_to_zero"], made["beyond_year"]), ("falling", None, True))
+        ending = insights.apply_horizon(insights.analyse(slow), ending=True)
+        self.assertEqual((ending["days_to_zero"], ending["beyond_year"]), (9991, False))
+
+    def test_a_drain_inside_a_year_is_left_alone(self) -> None:
+        result = insights.apply_horizon(insights.analyse(series([1000, 950, 900, 850, 800, 750, 700, 650])), ending=False)
+        self.assertEqual((result["days_to_zero"], result["beyond_year"]), (13, False))
+
+    def test_a_drain_that_speeds_up_says_so_and_gives_the_recent_runout(self) -> None:
+        result = insights.analyse(series([1000, 990, 980, 970, 960, 950, 900, 800, 650, 450, 250]))
+        self.assertEqual(result["pace"], "accelerating")
+        self.assertGreater(result["recent_decrease_per_day"], result["decrease_per_day"])
+        self.assertLess(result["days_to_zero_recent"], result["days_to_zero"])
+
+    def test_an_even_or_slowing_drain_has_no_recent_runout(self) -> None:
+        even = insights.analyse(series([1000 - 20 * index for index in range(12)]))
+        self.assertEqual((even["pace"], even["days_to_zero_recent"]), ("steady", None))
+        slowing = insights.analyse(series([1000, 800, 650, 550, 480, 440, 430, 424, 420, 417, 415]))
+        self.assertEqual((slowing["pace"], slowing["days_to_zero_recent"]), ("slowing", None))
+
+    def test_too_short_a_run_has_no_pace(self) -> None:
+        self.assertIsNone(insights.analyse(series([1000, 900, 800, 700, 600]))["pace"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

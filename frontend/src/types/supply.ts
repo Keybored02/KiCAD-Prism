@@ -934,6 +934,12 @@ export interface SupplyInsight {
   /** Observed net decrease, pieces a day. Not consumption: transfers and caps look the same. */
   decrease_per_day: number | null;
   days_to_zero: number | null;
+  /** Falling faster in the later half of the readings: the later rate and the days to zero at it. */
+  pace?: "accelerating" | "steady" | "slowing" | null;
+  recent_decrease_per_day?: number | null;
+  days_to_zero_recent?: number | null;
+  /** The drain is too slow to run out within a year, for a part that is still made and restocked. */
+  beyond_year?: boolean;
   days_to_threshold: number | null;
   restocks: number;
   restock_interval_days: number | null;

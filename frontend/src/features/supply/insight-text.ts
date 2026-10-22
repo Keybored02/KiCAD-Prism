@@ -29,7 +29,15 @@ export function insightLines(insight: SupplyInsight): string[] {
   if (insight.trend === "falling" && insight.decrease_per_day !== null) {
     const rate = Math.round(insight.decrease_per_day).toLocaleString();
     lines.push(`Observed net decrease: ${rate} a day.`);
-    if (insight.days_to_zero !== null) lines.push(`At that rate it reaches zero in ${inDays(insight.days_to_zero)}.`);
+    if (insight.beyond_year) lines.push("That is too slow to run out within a year.");
+    else if (insight.days_to_zero !== null) lines.push(`At that rate it reaches zero in ${inDays(insight.days_to_zero)}.`);
+    if (insight.pace === "accelerating" && insight.recent_decrease_per_day) {
+      const recent = Math.round(insight.recent_decrease_per_day).toLocaleString();
+      const to = insight.days_to_zero_recent ? ` At the recent pace it reaches zero in ${inDays(insight.days_to_zero_recent)}.` : "";
+      lines.push(`It is falling faster lately: ${recent} a day over the later half of the readings.${to}`);
+    } else if (insight.pace === "slowing") {
+      lines.push("The fall is slowing.");
+    }
     if (insight.days_to_threshold !== null) lines.push(`It reaches your threshold in ${inDays(insight.days_to_threshold)}.`);
   } else if (insight.trend === "rising") {
     lines.push("Stock is rising.");

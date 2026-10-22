@@ -17,6 +17,8 @@ OFTEN_OUT_SHARE = 0.2
 
 # The groups the Insights lists and the Dashboard bars count, each a test on one part's facts. ``runs_out_*`` are buckets of
 # the projected days until zero stock; the others are findings.
+# Parts nothing will refill: no limit on how far ahead their drain is shown.
+ENDING_BANDS = ("ended", "under_2_years")
 OUTLOOK_BANDS = ("ended", "under_2_years", "2_to_5_years", "no_signs", "unknown")
 # The shortest quoted lead time in buckets of weeks.
 LEAD_BUCKETS = (("under_2w", 14), ("2_to_8w", 56), ("8_to_16w", 112), ("16_to_26w", 182))
@@ -32,9 +34,9 @@ KINDS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "runs_out_2w": lambda d: d["days_to_zero"] is not None and d["days_to_zero"] <= 14,
     "runs_out_8w": lambda d: d["days_to_zero"] is not None and 14 < d["days_to_zero"] <= 56,
     "runs_out_later": lambda d: d["days_to_zero"] is not None and d["days_to_zero"] > 56,
-    "steady": lambda d: d["trend"] in ("steady", "rising"),
+    "steady": lambda d: d["trend"] in ("steady", "rising") or bool(d.get("beyond_year")),
     "few_readings": lambda d: d["trend"] is None and d["stock"] != 0,
-    "draining": lambda d: d["trend"] == "falling",
+    "draining": lambda d: d["trend"] == "falling" and not d.get("beyond_year"),
     "restock_late": lambda d: d["restock_expected_in_days"] is not None and d["restock_expected_in_days"] < 0,
     "often_out": lambda d: (d["zero_share"] or 0) >= OFTEN_OUT_SHARE,
     "one_distributor": lambda d: d["holders"] == 1,
@@ -73,6 +75,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     price = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
     last = days[-1] if days else None
     band = _outlook_band(conn, part_id, offers, days, (price["trend"] or {}).get("change_percent"))
+    insights.apply_horizon(insight, ending=band in ENDING_BANDS)
     behaviour = price_behaviour.load(conn, part_id, now)
     forecast = _forecast(conn, part_id, now)
     arrivals = promises.reliability(conn, part_id, now.date())
@@ -81,6 +84,9 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
         "trend": insight["trend"],
         "decrease_per_day": insight["decrease_per_day"],
         "days_to_zero": insight["days_to_zero"],
+        "days_to_zero_recent": insight["days_to_zero_recent"],
+        "pace": insight["pace"],
+        "beyond_year": insight["beyond_year"],
         "restocks": insight["restocks"],
         "restock_interval_days": insight["restock_interval_days"],
         "restock_expected_in_days": insight["restock_expected_in_days"],

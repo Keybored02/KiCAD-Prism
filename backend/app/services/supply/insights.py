@@ -25,6 +25,12 @@ from datetime import date
 from typing import Any, Sequence
 
 HORIZON_DAYS = 56
+# A part that is still made and restocked is not shown running out later than this: a drain that slow is not a finding.
+RESTOCKABLE_HORIZON_DAYS = 365
+# Falling this much faster in the later half of the run than in the earlier half is an accelerating drain (and the reverse, slowing).
+PACE_RATIO = 1.5
+MIN_PACE_POINTS = 8
+MIN_PACE_SPAN_DAYS = 7
 RESTOCK_SHARE = 0.2
 MIN_RUN_POINTS = 4
 MIN_RUN_SPAN_DAYS = 3
@@ -97,6 +103,10 @@ def analyse(points: Sequence[Point], *, threshold: int | None = None, today: dat
         "decrease_per_day": None,
         "days_to_zero": None,
         "days_to_threshold": None,
+        "pace": None,
+        "recent_decrease_per_day": None,
+        "days_to_zero_recent": None,
+        "beyond_year": False,
         "restocks": 0,
         "restock_interval_days": None,
         "restock_expected_in_days": None,
@@ -146,6 +156,7 @@ def analyse(points: Sequence[Point], *, threshold: int | None = None, today: dat
                 result["days_to_zero"] = math.ceil(current / rate)
             if threshold is not None and current > threshold:
                 result["days_to_threshold"] = math.ceil((current - threshold) / rate)
+            result |= _pace(run, current, rate)
         else:
             result["trend"] = "rising" if slope > 0 else "steady"
 
@@ -156,6 +167,42 @@ def analyse(points: Sequence[Point], *, threshold: int | None = None, today: dat
         reference = today or points[-1].day
         result["restock_expected_in_days"] = interval - (reference - restock_days[-1]).days
     return result
+
+
+def _pace(run: Sequence[Point], current: int, rate: float) -> dict[str, Any]:
+    """Whether the fall is speeding up or slowing down: the rate in the later half of the run against the earlier half.
+
+    Both halves must fall. ``recent_decrease_per_day`` and ``days_to_zero_recent`` are the later half's, for a drain that accelerates.
+    """
+
+    if len(run) < MIN_PACE_POINTS or (run[-1].day - run[0].day).days < MIN_PACE_SPAN_DAYS:
+        return {}
+    middle = len(run) // 2
+    earlier, later = _theil_sen(run[:middle]), _theil_sen(run[middle:])
+    if earlier is None or later is None or earlier >= 0 or later >= 0:
+        return {}
+    ratio = (-later) / (-earlier)
+    pace = "accelerating" if ratio >= PACE_RATIO else "slowing" if ratio <= 1 / PACE_RATIO else "steady"
+    found: dict[str, Any] = {"pace": pace}
+    if pace == "accelerating" and current > 0:
+        found["recent_decrease_per_day"] = round(-later, 2)
+        found["days_to_zero_recent"] = math.ceil(current / -later)
+    return found
+
+
+def apply_horizon(insight: dict[str, Any], *, ending: bool) -> dict[str, Any]:
+    """Limit how far ahead a drain is shown. A part still made and restocked runs out in at most a year as far as anyone can tell:
+    longer is dropped and ``beyond_year`` says so. A part that is ending (last time buy, obsolete, a notice or last date to buy) has
+    no limit, since nothing will refill it. Changes ``insight`` in place and returns it."""
+
+    if ending:
+        return insight
+    for key in ("days_to_zero", "days_to_threshold", "days_to_zero_recent"):
+        if insight.get(key) is not None and insight[key] > RESTOCKABLE_HORIZON_DAYS:
+            if key == "days_to_zero":
+                insight["beyond_year"] = True
+            insight[key] = None
+    return insight
 
 
 def _shape(points: Sequence[Point]) -> dict[str, Any]:

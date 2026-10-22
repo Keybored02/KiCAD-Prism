@@ -26,6 +26,15 @@ describe("insight text", () => {
     ]);
   });
 
+  it("does not give a runout beyond a year, and says when the fall speeds up", () => {
+    expect(insightLines(insight({ trend: "falling", decrease_per_day: 2, beyond_year: true }))).toEqual([
+      "Observed net decrease: 2 a day.",
+      "That is too slow to run out within a year.",
+    ]);
+    const lines = insightLines(insight({ trend: "falling", decrease_per_day: 20, days_to_zero: 15, pace: "accelerating", recent_decrease_per_day: 90, days_to_zero_recent: 3 }));
+    expect(lines).toContain("It is falling faster lately: 90 a day over the later half of the readings. At the recent pace it reaches zero in about 3 days.");
+  });
+
   it("describes steady, rising and not-enough-yet differently", () => {
     expect(insightLines(insight({ trend: "steady" }))).toEqual(["Stock is steady."]);
     expect(insightLines(insight({ trend: "rising" }))).toEqual(["Stock is rising."]);

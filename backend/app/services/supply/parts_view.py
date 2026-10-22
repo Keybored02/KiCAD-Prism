@@ -858,6 +858,18 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
 
     days = history(conn, part_id, now)
     price_view = _price_block(conn, part_id, now, [r for r in counted if not r["marketplace"]])
+    ahead = outlook.outlook(
+        lifecycle,
+        [item["offer"] for item in listings if item["counted"] and item["offer"]],
+        zero_stock_days=outlook.trailing_zero_days(days),
+        price_change_percent=(price_view["trend"] or {}).get("change_percent"),
+        notices=pcn.for_part(conn, part_id),
+        last_buy_dates=[
+            (source["source"], source["value"])
+            for item in facts.for_part(conn, part_id) if item["name"] == "last_buy_date" for source in item["sources"]
+        ],
+    )
+    insight = insights.apply_horizon(insight_from(days, watch_row["threshold"], now), ending=ahead["band"] in part_insights.ENDING_BANDS)
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name, "first_seen": _first_seen(conn, part_id)},
         "watch": _watch_dto(watch_row),
@@ -880,21 +892,11 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "history": days,
         "price": price_view,
         "parameters": parameters_of(conn, part_id),
-        "outlook": outlook.outlook(
-            lifecycle,
-            [item["offer"] for item in listings if item["counted"] and item["offer"]],
-            zero_stock_days=outlook.trailing_zero_days(days),
-            price_change_percent=(price_view["trend"] or {}).get("change_percent"),
-            notices=pcn.for_part(conn, part_id),
-            last_buy_dates=[
-                (source["source"], source["value"])
-                for item in facts.for_part(conn, part_id) if item["name"] == "last_buy_date" for source in item["sources"]
-            ],
-        ),
+        "outlook": ahead,
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),
         "market_behaviour": price_behaviour.load(conn, part_id, now) | {"arrivals": promises.reliability(conn, part_id, now.date())},
         "restock_record": scorecard.for_part(conn, part_id, now.date()),
-        "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings, lead_time_trend(conn, part_id, now)),
+        "insight": _with_lead_gap(insight, listings, lead_time_trend(conn, part_id, now)),
     }
