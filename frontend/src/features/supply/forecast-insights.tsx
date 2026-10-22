@@ -20,11 +20,11 @@ const DIRECTION = { stretching: "Stretching", easing: "Easing", flat: "Flat" } a
 
 function LeadTimes({ page }: { page: ForecastInsights }) {
   const model = stateOf(page.track_record.models, "lead_90");
-  const rows = page.lead_times.slice(0, 12);
+  const rows = page.lead_times;
   return (
     <ChartCard title="Lead times ahead" info="The median quoted lead time of each maker and category, three months ahead, from its recent trend." answer={<ModelChip model={model} />}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">Needs about three weeks of stored market figures.</p> : (
-        <ul className="space-y-1 text-sm">
+        <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
           {rows.map((row) => (
             <li key={`${row.kind}:${row.scope}`} className={`flex items-baseline justify-between gap-3 ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
               <span className="min-w-0 truncate">{row.scope.replace(/^category:/, "")}</span>
@@ -50,8 +50,8 @@ function Warnings({ page }: { page: ForecastInsights }) {
   return (
     <ChartCard title="Early warnings" info="A family whose figure moved and stayed moved for two weeks, beyond its usual swings.">
       {page.warnings.length === 0 ? <p className="text-sm text-muted-foreground">No family has shifted.</p> : (
-        <ul className="space-y-1 text-sm">
-          {page.warnings.slice(0, 10).map((warning) => (
+        <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+          {page.warnings.map((warning) => (
             <li key={`${warning.kind}:${warning.scope}:${warning.metric}`}>
               <span className="font-medium">{warning.scope.replace(/^category:/, "")}</span>: {METRIC[warning.metric as keyof typeof METRIC] ?? warning.metric} {warning.direction === "up" ? "up" : "down"} from {percent(warning.metric, warning.before)} to {percent(warning.metric, warning.after)} since {warning.since}
             </li>
@@ -72,7 +72,7 @@ function Prices({ page, currency, onOpenPart }: { page: ForecastInsights; curren
       answer={prices.parts === 0 ? undefined : <>{prices.flat} of {prices.parts} {prices.parts === 1 ? "part is" : "parts are"} likely to stay flat <ModelChip model={model} /></>}
     >
       {rising.length === 0 ? <p className="text-sm text-muted-foreground">No price is likely to rise.</p> : (
-        <ul className={`space-y-1 text-sm ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
+        <ul className={`max-h-64 space-y-1 overflow-y-auto text-sm ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
           {rising.map((item) => (
             <li key={item.part_id}>
               <button type="button" className="flex w-full items-baseline justify-between gap-3 text-left hover:underline" onClick={() => onOpenPart(item.part_id)}>

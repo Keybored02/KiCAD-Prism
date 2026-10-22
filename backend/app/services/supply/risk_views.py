@@ -19,9 +19,9 @@ AVAILABILITY = ("two_plus", "one", "out", "not_read")
 DEADLINE_DAYS = 365
 DEADLINE_LIMIT = 40
 LEAD_BUCKETS = (("under_2w", 14), ("2_to_8w", 56), ("8_to_16w", 112), ("16_to_26w", 182))
-MOVERS = 8
+MOVERS = 50
 ORIGINS = 12
-CONTROLLED_LIMIT = 20
+CONTROLLED_LIMIT = 200
 
 
 def availability_of(item: Mapping[str, Any], held: Mapping[str, Any] | None) -> str:

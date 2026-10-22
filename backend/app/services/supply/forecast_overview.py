@@ -86,7 +86,7 @@ def insights_page(conn, today: date | None = None) -> dict[str, Any]:
         "currency": settings_store.load(conn).base_currency,
         "coming_up": board["coming_up"], "likely_out_4w": board["likely_out_4w"],
         "lead_times": families["lead_times"], "warnings": families["warnings"],
-        "prices": {"parts": len(movers), "flat": sum(1 for m in movers if m["flat"]), "likeliest_up": movers[:10]},
+        "prices": {"parts": len(movers), "flat": sum(1 for m in movers if m["flat"]), "likeliest_up": movers[:50]},
         "lifecycle": {"last_buy_lag": forecast_lifecycle.last_buy_lag(conn), "changes": forecast_lifecycle.rates(conn, today)["changes"], "needs": forecast_lifecycle.MIN_CHANGES_TO_SHOW},
         "track_record": forecasting.track_record(conn),
     }

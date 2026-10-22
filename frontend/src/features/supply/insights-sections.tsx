@@ -132,7 +132,7 @@ export function LeadAndPricesSection({ page, onOpenPart }: { page: SupplyInsight
   const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"], empty: string) => (
     <ChartCard title={title}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : (
-        <ul className="divide-y text-sm">
+        <ul className="max-h-64 divide-y overflow-y-auto text-sm">
           {rows.map((row) => (
             <li key={row.part_id} className="flex items-baseline justify-between gap-3 py-1">
               <button type="button" className="font-medium hover:underline" onClick={() => onOpenPart(row.part_id)}>{row.mpn}</button>
@@ -184,7 +184,7 @@ export function TradeSection({ page, onOpenPart }: { page: SupplyInsightsPage; o
           { key: "unknown", label: "No class given", value: control.unknown, tone: GREY },
         ]} />
         {controlled.length > 0 ? (
-          <ul className="mt-2 divide-y border-t text-sm">
+          <ul className="mt-2 max-h-64 divide-y overflow-y-auto border-t text-sm">
             {controlled.map((item) => (
               <li key={item.part_id} className="flex items-baseline gap-3 py-1">
                 <button type="button" className="font-medium hover:underline" onClick={() => onOpenPart(item.part_id)}>{item.mpn}</button>
