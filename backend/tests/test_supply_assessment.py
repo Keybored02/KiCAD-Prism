@@ -185,6 +185,44 @@ class OutlookFindingTests(unittest.TestCase):
         self.assertEqual(result.status, Status.WARNING)
 
 
+class LastBuyDateTests(unittest.TestCase):
+    def severity(self, last_buy, lifecycle=Lifecycle.LAST_TIME_BUY, settings=DEFAULTS, outlook=""):
+        found = checks.evaluate(facts(lifecycle=lifecycle, last_buy=last_buy, outlook=outlook), settings)
+        return {f.check: f.severity for f in found}
+
+    def test_a_last_time_buy_is_fatal_once_its_date_has_passed_an_error_within_the_limit_and_a_warning_beyond_or_with_no_date(self) -> None:
+        today = NOW.date()
+        self.assertEqual(self.severity(today - timedelta(days=1))["last_time_buy"], Status.FATAL)
+        self.assertEqual(self.severity(today + timedelta(days=180))["last_time_buy"], Status.ERROR, "the limit itself is inside")
+        self.assertEqual(self.severity(today + timedelta(days=181))["last_time_buy"], Status.WARNING)
+        self.assertEqual(self.severity(None)["last_time_buy"], Status.WARNING)
+
+    def test_the_limit_is_a_setting(self) -> None:
+        from dataclasses import replace
+
+        near = replace(DEFAULTS, last_buy_error_days=30)
+        self.assertEqual(self.severity(NOW.date() + timedelta(days=60), settings=near)["last_time_buy"], Status.WARNING)
+        self.assertEqual(self.severity(NOW.date() + timedelta(days=20), settings=near)["last_time_buy"], Status.ERROR)
+
+    def test_a_date_only_raises_so_a_check_set_to_ok_stays_a_note(self) -> None:
+        from dataclasses import replace
+        from types import MappingProxyType
+
+        quiet = replace(DEFAULTS, severity=MappingProxyType({**DEFAULTS.severity, "last_time_buy": Status.OK}))
+        self.assertEqual(self.severity(NOW.date() - timedelta(days=30), settings=quiet)["last_time_buy"], Status.OK)
+
+    def test_the_same_rule_applies_to_an_ending_part_whose_outlook_came_from_a_date(self) -> None:
+        found = self.severity(NOW.date() + timedelta(days=90), lifecycle=Lifecycle.ACTIVE, outlook="under_2_years")
+        self.assertEqual(found["ending_within_2_years"], Status.ERROR)
+
+    def test_the_dates_a_distributor_or_an_open_notice_gives_are_read_for_all_parts_at_once(self) -> None:
+        from app.services.supply.assessment import settings as rules
+
+        self.assertEqual(rules.validate(rules.to_dto(DEFAULTS))["last_buy_error_days"], 180)
+        with self.assertRaises(ValueError):
+            rules.validate({**rules.to_dto(DEFAULTS), "last_buy_error_days": 10})
+
+
 class HealthTests(unittest.TestCase):
     def assess(self, f):
         found = checks.evaluate(f, DEFAULTS)

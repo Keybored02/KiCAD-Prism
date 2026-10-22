@@ -71,6 +71,7 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
   const [draft, setDraft] = useState<AssessmentSettings>(view.settings);
   const { busy, error, run } = useConnectorSubmit();
   const [lowLead, highLead] = view.ranges.lead_time_days;
+  const [lowLastBuy, highLastBuy] = view.ranges.last_buy_error_days;
   const [lowAge, highAge] = view.ranges.stale_hours;
   const [lowQuantity, highQuantity] = view.ranges.price_quantity;
 
@@ -89,6 +90,12 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
           <Input id="setting-lead" inputMode="numeric" value={draft.lead_time_days}
             onChange={(event) => setDraft({ ...draft, lead_time_days: whole(event.target.value, lowLead, highLead, draft.lead_time_days) })} />
           <p className="text-xs text-muted-foreground">{lowLead} to {highLead}. Longer is a finding.</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="setting-last-buy">Last date to buy is an error within, in days</Label>
+          <Input id="setting-last-buy" inputMode="numeric" value={draft.last_buy_error_days}
+            onChange={(event) => setDraft({ ...draft, last_buy_error_days: whole(event.target.value, lowLastBuy, highLastBuy, draft.last_buy_error_days) })} />
+          <p className="text-xs text-muted-foreground">{lowLastBuy} to {highLastBuy}. A last time buy this close to its last date is an error, and fatal once the date has passed.</p>
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="setting-currency">Currency for comparing and totalling prices</Label>

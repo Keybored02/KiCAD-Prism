@@ -18,6 +18,7 @@ const mocked = vi.mocked(api);
 
 const defaults: AssessmentSettings = {
   lead_time_days: 84,
+  last_buy_error_days: 180,
   stale_hours: 72,
   base_currency: "EUR",
   price_quantity: 100,
@@ -28,7 +29,7 @@ const view: AssessmentSettingsView = {
   settings: defaults,
   defaults,
   checks: [{ id: "nrnd", label: "Not recommended for new designs" }, { id: "obsolete", label: "Manufacturer lists it as obsolete" }],
-  ranges: { lead_time_days: [1, 730], stale_hours: [1, 720], price_quantity: [1, 1_000_000] },
+  ranges: { lead_time_days: [1, 730], last_buy_error_days: [30, 730], stale_hours: [1, 720], price_quantity: [1, 1_000_000] },
 };
 
 function open(onOpenChange = vi.fn()) {

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 import statistics
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
 from app.services.supply.assessment import settings as ids
@@ -39,6 +39,8 @@ class Facts:
     prices: Sequence[tuple[str, Decimal]] = ()
     # Where the part stands on the way to its end (``outlook.py``): "ended", "under_2_years", "2_to_5_years", "no_signs", "unknown", or "" when not known.
     outlook: str = ""
+    # The earliest last date to buy a distributor states or an open notice gives, when there is one.
+    last_buy: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,11 +87,27 @@ def _disagreements(offers: Sequence[Mapping[str, Any]], add) -> None:
         add(ids.LIFECYCLE_DISAGREEMENT, f"Distributors disagree on the lifecycle: {who}.", "lifecycle_disagreement")
 
 
+# Checks whose severity the last date to buy raises: past it the part can no longer be ordered, near it the time is short.
+_DATED = frozenset({ids.LAST_TIME_BUY, ids.ENDING_WITHIN_2_YEARS})
+_RANK = {Status.OK: 0, Status.WARNING: 1, Status.ERROR: 2, Status.FATAL: 3}
+
+
+def _by_last_buy(configured: Status, facts: Facts, settings: AssessmentSettings) -> Status:
+    """The check's own severity, raised to fatal once the last date to buy has passed and to error within ``last_buy_error_days`` of it.
+    A date only raises: a workspace that set the check to "ok" keeps it a note."""
+
+    if facts.last_buy is None or configured is Status.OK:
+        return configured
+    days = (facts.last_buy - facts.now.date()).days
+    wanted = Status.FATAL if days < 0 else Status.ERROR if days <= settings.last_buy_error_days else configured
+    return wanted if _RANK[wanted] > _RANK[configured] else configured
+
+
 def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     found: list[Finding] = []
 
     def add(check: str, text: str, scope: str) -> None:
-        found.append(Finding(check, settings.severity_of(check), text, scope))
+        found.append(Finding(check, _by_last_buy(settings.severity_of(check), facts, settings) if check in _DATED else settings.severity_of(check), text, scope))
 
     if facts.problem:
         add(ids.PART_NOT_FOUND, "No distributor carries this part number.", "not_found")

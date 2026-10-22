@@ -95,6 +95,24 @@ class AssessmentApiTests(unittest.TestCase):
         self.assertEqual({s["name"] for s in result["sub_scores"]}, {"lifecycle", "sourcing", "inventory", "market", "compliance"})
         self.assertTrue(0 <= result["health"] < 8)
 
+    def test_a_last_time_buy_is_fatal_once_a_distributors_or_a_notices_last_date_has_passed(self) -> None:
+        from datetime import date, timedelta
+
+        self.offer(stock=1000, lifecycle="last_time_buy")
+        self.assertEqual(self.assessment()["status"], "warning", "no date known")
+        today = datetime.now(timezone.utc).date()
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'last_buy_date', %s, now())",
+                (self.part_id, (today + timedelta(days=90)).isoformat()),
+            )
+        self.assertEqual(self.assessment()["status"], "error", "a date within 180 days")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'a')", (today - timedelta(days=2),))
+            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
+        found = self.assessment()
+        self.assertEqual((found["status"], found["health"]), ("fatal", 0.0), "an open notice's date has passed: the earliest counts")
+
     def test_a_waiver_is_proposed_then_approved_and_then_the_finding_stops_counting(self) -> None:
         self.offer(lifecycle="nrnd")
         proposed = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="designer", body={"check": "nrnd", "reason": "We stock last-time buys"})

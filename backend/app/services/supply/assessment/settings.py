@@ -68,6 +68,8 @@ SUB_SCORES = ("lifecycle", "sourcing", "inventory", "market", "compliance")
 class AssessmentSettings:
     # Longer than this and a lead time is a finding.
     lead_time_days: int = 84
+    # A last date to buy this close, or past, makes a last time buy (or an ending part) an error, and a fatal one once it has passed.
+    last_buy_error_days: int = 180
     # An offer older than this is out of date.
     stale_hours: int = 72
     # Prices in other currencies are converted to this one to be compared and totalled.
@@ -117,6 +119,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
 # What a workspace may set. "ok" turns a check into a note that does not count against health.
 SEVERITY_CHOICES = (Status.OK, Status.WARNING, Status.ERROR, Status.FATAL)
 LEAD_TIME_RANGE = (1, 730)
+LAST_BUY_ERROR_RANGE = (30, 730)
 STALE_HOURS_RANGE = (1, 720)
 PRICE_QUANTITY_RANGE = (1, 1_000_000)
 
@@ -124,6 +127,7 @@ PRICE_QUANTITY_RANGE = (1, 1_000_000)
 def to_dto(settings: AssessmentSettings) -> dict:
     return {
         "lead_time_days": settings.lead_time_days,
+        "last_buy_error_days": settings.last_buy_error_days,
         "stale_hours": settings.stale_hours,
         "base_currency": settings.base_currency,
         "price_quantity": settings.price_quantity,
@@ -140,6 +144,7 @@ def from_dto(payload: Mapping) -> AssessmentSettings:
     base = DEFAULTS
     return AssessmentSettings(
         lead_time_days=int(payload.get("lead_time_days", base.lead_time_days)),
+        last_buy_error_days=int(payload.get("last_buy_error_days", base.last_buy_error_days)),
         stale_hours=int(payload.get("stale_hours", base.stale_hours)),
         base_currency=str(payload.get("base_currency", base.base_currency)),
         price_quantity=int(payload.get("price_quantity", base.price_quantity)),
@@ -190,6 +195,7 @@ def validate(payload: Mapping) -> dict:
             raise ValueError(f"The severity of {check} must be one of {', '.join(sorted(allowed))}.")
     return {
         "lead_time_days": whole("lead_time_days", "The lead time limit", *LEAD_TIME_RANGE),
+        "last_buy_error_days": whole("last_buy_error_days", "The last-date-to-buy limit", *LAST_BUY_ERROR_RANGE),
         "stale_hours": whole("stale_hours", "The data age limit", *STALE_HOURS_RANGE),
         "base_currency": currency,
         "price_quantity": whole("price_quantity", "The price quantity", *PRICE_QUANTITY_RANGE),

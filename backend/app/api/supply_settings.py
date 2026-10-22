@@ -26,6 +26,7 @@ class AssessmentSettingsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lead_time_days: int
+    last_buy_error_days: int = 180
     stale_hours: int
     base_currency: str = "EUR"
     price_quantity: int = 100
@@ -45,7 +46,7 @@ def _view(current: rules.AssessmentSettings) -> dict[str, Any]:
         "settings": rules.to_dto(current),
         "defaults": rules.to_dto(rules.DEFAULTS),
         "checks": [{"id": check, "label": label} for check, label in rules.CHECK_LABELS.items()],
-        "ranges": {"lead_time_days": list(rules.LEAD_TIME_RANGE), "stale_hours": list(rules.STALE_HOURS_RANGE),
+        "ranges": {"lead_time_days": list(rules.LEAD_TIME_RANGE), "last_buy_error_days": list(rules.LAST_BUY_ERROR_RANGE), "stale_hours": list(rules.STALE_HOURS_RANGE),
                    "price_quantity": list(rules.PRICE_QUANTITY_RANGE)},
     }
 

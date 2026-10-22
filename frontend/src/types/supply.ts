@@ -1163,6 +1163,8 @@ export type AssessmentSeverity = "ok" | "warning" | "error" | "fatal";
 
 export interface AssessmentSettings {
   lead_time_days: number;
+  /** A last date to buy this many days away or less makes a last time buy an error; past it, fatal. */
+  last_buy_error_days: number;
   stale_hours: number;
   /** Prices in other currencies are converted to this one. */
   base_currency: string;
@@ -1181,7 +1183,7 @@ export interface AssessmentSettingsView {
   settings: AssessmentSettings;
   defaults: AssessmentSettings;
   checks: Array<{ id: string; label: string }>;
-  ranges: { lead_time_days: [number, number]; stale_hours: [number, number]; price_quantity: [number, number] };
+  ranges: { lead_time_days: [number, number]; last_buy_error_days: [number, number]; stale_hours: [number, number]; price_quantity: [number, number] };
 }
 
 /** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */
