@@ -12,18 +12,21 @@ const settings = { tz: "UTC", days: [0, 1, 2, 3, 4], start: "08:00", end: "19:00
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getSchedule).mockResolvedValue(settings); });
 afterEach(cleanup);
 
-describe("the working week", () => {
-  it("shows the week and saves a change", async () => {
+describe("spare work", () => {
+  it("saves a switch and sends the stored week back unchanged", async () => {
     vi.mocked(api.saveSchedule).mockImplementation(async (next) => next);
     render(<ScheduleSettings />);
-    expect((await screen.findByLabelText("Sat") as HTMLInputElement).getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(screen.getByLabelText("Sat"));
-    fireEvent.click(screen.getByLabelText("Read change notices of parts nobody tracks"));
-    fireEvent.change(screen.getByLabelText("Time zone"), { target: { value: "Europe/Rome" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save schedule" }));
-    await waitFor(() => expect(api.saveSchedule).toHaveBeenCalledWith({
-      ...settings, tz: "Europe/Rome", days: [0, 1, 2, 3, 4, 5], spare: { waiting: true, tier2_early: true, notices: false },
-    }));
+    fireEvent.click(await screen.findByLabelText("Read change notices of parts nobody tracks"));
+    fireEvent.click(screen.getByRole("button", { name: "Save spare work" }));
+    await waitFor(() => expect(api.saveSchedule).toHaveBeenCalledWith({ ...settings, spare: { waiting: true, tier2_early: true, notices: false } }));
+  });
+
+  it("does not offer a working week, which spare budget no longer follows", async () => {
+    render(<ScheduleSettings />);
+    await screen.findByLabelText("Read parts waiting for room");
+    expect(screen.queryByLabelText("Sat")).toBeNull();
+    expect(screen.queryByLabelText("Time zone")).toBeNull();
+    expect(screen.getByText(/at any hour/)).toBeTruthy();
   });
 
   it("shows nothing when it cannot be read", async () => {
