@@ -432,11 +432,16 @@ export function getPartHistory(partId: string, days: number, signal?: AbortSigna
   return fetchJson<PartHistory>(`${BASE}/parts/${encodeURIComponent(partId)}/history?days=${days}`, { signal }, "Could not load the history");
 }
 
+/** The part Prism knows for a manufacturer (may be blank) and number, with whether it is followed, or null. Creates nothing. */
+export async function lookupSupplyPart(manufacturer: string, mpn: string, signal?: AbortSignal): Promise<{ partId: string; followed: boolean } | null> {
+  const query = new URLSearchParams({ manufacturer, mpn });
+  const found = await fetchJson<{ part_id: string | null; followed?: boolean }>(`${BASE}/part-lookup?${query}`, { signal }, "Could not look the part up");
+  return found.part_id ? { partId: found.part_id, followed: found.followed ?? true } : null;
+}
+
 /** The part Prism tracks for a manufacturer and number, or null. Creates nothing. */
 export async function findSupplyPart(manufacturer: string, mpn: string, signal?: AbortSignal): Promise<string | null> {
-  const query = new URLSearchParams({ manufacturer, mpn });
-  const found = await fetchJson<{ part_id: string | null }>(`${BASE}/part-lookup?${query}`, { signal }, "Could not look the part up");
-  return found.part_id;
+  return (await lookupSupplyPart(manufacturer, mpn, signal))?.partId ?? null;
 }
 
 /** Ask DigiKey for parts it offers in place of this one. One call, from the interactive reserve; once an hour for a part. */

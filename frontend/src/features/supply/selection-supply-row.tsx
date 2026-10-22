@@ -7,18 +7,18 @@ import type { User } from "@/types/auth";
 import type { SemanticComponent } from "@/types/prism-selection";
 import { identityOf } from "./bom-supply";
 import { PartSheet } from "./part-sheet";
-import { findSupplyPart } from "./supply-api";
+import { lookupSupplyPart } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
 /**
- * The supply link of a component picked in a viewer: when Prism tracks its part, a button opens the part's sheet where the viewer
- * stands. Nothing shows for a role that cannot read supply data or a component with no part number.
+ * The supply link of a component picked in a viewer: when Prism knows its part, a button opens the part's sheet where the viewer
+ * stands, with a note when the part is known but not tracked. Nothing shows for a role that cannot read supply data or a component with no part number.
  */
 export function SelectionSupplyRow({ component, user }: { component: SemanticComponent; user: User | null }) {
   const { manufacturer, mpn } = identityOf(component);
   const allowed = canOpenSupply(user?.role) && mpn !== "";
-  const fetcher = useCallback((signal: AbortSignal) => (allowed ? findSupplyPart(manufacturer, mpn, signal) : Promise.resolve(null)), [allowed, manufacturer, mpn]);
-  const found = useLoaded<string | null>(`${manufacturer}|${mpn}`, fetcher, "Could not look the part up in Supply");
+  const fetcher = useCallback((signal: AbortSignal) => (allowed ? lookupSupplyPart(manufacturer, mpn, signal) : Promise.resolve(null)), [allowed, manufacturer, mpn]);
+  const found = useLoaded<{ partId: string; followed: boolean } | null>(`${manufacturer}|${mpn}`, fetcher, "Could not look the part up in Supply");
   const [open, setOpen] = useState(false);
   if (!allowed || found.status === "error") return null;
   return (
@@ -30,11 +30,14 @@ export function SelectionSupplyRow({ component, user }: { component: SemanticCom
       {found.status === "loading" ? (
         <span className="text-xs text-muted-foreground">Looking up</span>
       ) : found.data ? (
-        <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>Open supply part</Button>
+        <span className="flex items-center gap-2">
+          {found.data.followed ? null : <span className="text-xs text-muted-foreground">Not tracked</span>}
+          <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>Open supply part</Button>
+        </span>
       ) : (
-        <span className="text-xs text-muted-foreground">Not tracked</span>
+        <span className="text-xs text-muted-foreground">Not in Supply</span>
       )}
-      {found.data ? <PartSheet partId={open ? found.data : null} user={user} onClose={() => setOpen(false)} onWatchChanged={() => undefined} /> : null}
+      {found.data ? <PartSheet partId={open ? found.data.partId : null} user={user} onClose={() => setOpen(false)} onWatchChanged={() => undefined} /> : null}
     </div>
   );
 }

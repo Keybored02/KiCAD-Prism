@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@/types/auth";
 import type { SemanticComponent } from "@/types/prism-selection";
 
-vi.mock("./supply-api", () => ({ findSupplyPart: vi.fn(), getSupplyPart: vi.fn() }));
+vi.mock("./supply-api", () => ({ lookupSupplyPart: vi.fn(), getSupplyPart: vi.fn() }));
 vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div>Sheet of {partId}</div> : null) }));
 
 import * as api from "./supply-api";
@@ -21,17 +21,26 @@ afterEach(cleanup);
 
 describe("the supply link of a selected component", () => {
   it("opens the part's sheet when Prism tracks the part", async () => {
-    vi.mocked(api.findSupplyPart).mockResolvedValue("p1");
+    vi.mocked(api.lookupSupplyPart).mockResolvedValue({ partId: "p1", followed: true });
     render(<SelectionSupplyRow component={part} user={user("designer")} />);
     fireEvent.click(await screen.findByRole("button", { name: "Open supply part" }));
     expect(await screen.findByText("Sheet of p1")).toBeTruthy();
-    expect(api.findSupplyPart).toHaveBeenCalledWith("Acme", "R-10K", expect.anything());
+    expect(api.lookupSupplyPart).toHaveBeenCalledWith("Acme", "R-10K", expect.anything());
+    expect(screen.queryByText("Not tracked")).toBeNull();
   });
 
-  it("says so when the part is not tracked", async () => {
-    vi.mocked(api.findSupplyPart).mockResolvedValue(null);
+  it("still opens a part Prism knows but does not track, and says it is not tracked", async () => {
+    vi.mocked(api.lookupSupplyPart).mockResolvedValue({ partId: "p2", followed: false });
     render(<SelectionSupplyRow component={part} user={user("designer")} />);
     expect(await screen.findByText("Not tracked")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open supply part" }));
+    expect(await screen.findByText("Sheet of p2")).toBeTruthy();
+  });
+
+  it("says so when Supply does not know the part", async () => {
+    vi.mocked(api.lookupSupplyPart).mockResolvedValue(null);
+    render(<SelectionSupplyRow component={part} user={user("designer")} />);
+    expect(await screen.findByText("Not in Supply")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open supply part" })).toBeNull();
   });
 
@@ -40,6 +49,6 @@ describe("the supply link of a selected component", () => {
     expect(container.innerHTML).toBe("");
     rerender(<SelectionSupplyRow component={{ ...part, fields: {} } as SemanticComponent} user={user("designer")} />);
     await waitFor(() => expect(container.innerHTML).toBe(""));
-    expect(api.findSupplyPart).not.toHaveBeenCalled();
+    expect(api.lookupSupplyPart).not.toHaveBeenCalled();
   });
 });

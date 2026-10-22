@@ -113,16 +113,20 @@ async def part_groups(
 
 @router.get("/part-lookup")
 async def find_part(
-    manufacturer: str = Query(min_length=1, max_length=120),
     mpn: str = Query(min_length=1, max_length=100),
+    manufacturer: str = Query(default="", max_length=120),
     _user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
-    """The part Prism tracks for a manufacturer and number, if it knows one. Creates nothing."""
+    """The part Prism knows for a manufacturer and number, and whether it follows it. A blank manufacturer finds a number only one part has.
+    Creates nothing."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             record = parts.find_part(conn, manufacturer, mpn)
-            return {"part_id": record.id if record else None}
+            if record is None:
+                return {"part_id": None, "followed": False}
+            followed = conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (record.id,)).fetchone() is not None
+            return {"part_id": record.id, "followed": followed}
 
     return await _run(read)
 

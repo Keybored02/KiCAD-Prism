@@ -24,11 +24,12 @@ export function useBomRowDetail(supply: BomSupply, user: User | null) {
   const [partId, setPartId] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  // A row of one tracked part opens its supply sheet straight away; a row of several, or of a part nobody tracks yet, opens the drawer.
+  // A row of one tracked part opens its supply sheet straight away; a row of several, or of a part nobody tracks yet (known or not), opens the drawer, which has Watch.
   const results = supply.lookup?.lines ?? null;
   const open = useCallback((components: readonly SemanticComponent[]) => {
     const lines = rowLines(components, supply.lines);
-    const only = lines.length === 1 ? results?.[lines[0].key]?.part_id : null;
+    const result = lines.length === 1 ? results?.[lines[0].key] : undefined;
+    const only = result?.watched ? result.part_id : null;
     if (only) setPartId(only);
     else setRow(lines);
   }, [supply.lines, results]);
