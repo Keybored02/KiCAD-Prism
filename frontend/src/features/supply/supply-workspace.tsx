@@ -99,11 +99,11 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
         <div className="min-h-0 flex-1 overflow-hidden">
           {mounted.map((id) => (
             <div key={id} hidden={id !== view} className="h-full">
-              {id === "dashboard" && <DashboardView user={user} />}
+              {id === "dashboard" && <DashboardView user={user} active={view === "dashboard"} />}
               {id === "parts" && <PartsView user={user} active={view === "parts"} headerSlot={view === "parts" ? headerSlot : null} />}
               {id === "projects" && <ProjectsView user={user} active={view === "projects"} />}
               {id === "review" && <ReviewView user={user} />}
-              {id === "insights" && <InsightsView />}
+              {id === "insights" && <InsightsView user={user} active={view === "insights"} />}
               {id === "connectors" && <SupplyConnectorsView user={user} headerSlot={view === "connectors" ? headerSlot : null} />}
             </div>
           ))}

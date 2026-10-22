@@ -17,6 +17,7 @@ import { TileButton, type Tile } from "./dashboard-tiles";
 import { RecentChanges } from "./recent-changes";
 import { getSupplyDashboard } from "./supply-api";
 import { useLoaded } from "./use-loaded";
+import { OpenPartSheet } from "./open-part-sheet";
 import { useSupplyNavigation } from "./use-supply-navigation";
 import { useSupplyOverview } from "./use-supply-parts";
 
@@ -25,7 +26,7 @@ const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
 };
 
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
-export function DashboardView({ user }: { user: User | null }) {
+export function DashboardView({ user, active = true }: { user: User | null; active?: boolean }) {
   const overview = useSupplyOverview();
   const dashboardFetcher = useCallback((signal: AbortSignal) => getSupplyDashboard(signal), []);
   const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard", "supply");
@@ -93,6 +94,7 @@ export function DashboardView({ user }: { user: User | null }) {
           ) : null}
         </div>
       </div>
+      <OpenPartSheet user={user} active={active} onChanged={() => void overview.refresh()} />
     </div>
   );
 }

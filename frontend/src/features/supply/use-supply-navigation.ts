@@ -16,6 +16,12 @@ export function useSupplyNavigation() {
     });
   }, [setSearchParams]);
 
-  const openPart = useCallback((partId: string) => go("parts", { part: partId }), [go]);
+  // A part opens where you are: its sheet is drawn by the tab being shown (``OpenPartSheet``), and closing it leaves you there.
+  const openPart = useCallback((partId: string) => setSearchParams((current) => {
+    const updated = new URLSearchParams(current);
+    updated.set("section", "supply");
+    updated.set("part", partId);
+    return updated;
+  }), [setSearchParams]);
   return { go, openPart };
 }

@@ -7,6 +7,7 @@ import { partRowFixture } from "./supply-test-fixtures";
 
 vi.mock("./runway-scatter", () => ({ default: () => <div>Scatter drawn</div> }));
 vi.mock("./market-chart", () => ({ default: () => <div>Market chart drawn</div> }));
+vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div>Sheet of {partId}</div> : null) }));
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getSupplyInsights: vi.fn(),
@@ -148,6 +149,16 @@ describe("the insights sections added with the rework", () => {
     const search = screen.getByLabelText("location").textContent ?? "";
     expect(search).toContain("partsOnly=origin%3AMalaysia");
     expect(search).toContain("partsScope=watched");
+  });
+
+  it("opens a part's sheet in place and stays on Insights when it is closed", async () => {
+    renderView("/?section=supply&supplyView=insights");
+    await screen.findByText("DigiKey lists 5 of 6 parts");
+    fireEvent.click(screen.getByRole("button", { name: "NE5532" }));
+    const search = () => screen.getByLabelText("location").textContent ?? "";
+    expect(search()).toContain("supplyView=insights");
+    expect(search()).toContain("part=");
+    expect(await screen.findByText(/^Sheet of /)).toBeTruthy();
   });
 
   it("makes every bar of the lifecycle, compliance, lead time and export control charts open its parts", async () => {

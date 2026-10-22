@@ -16,6 +16,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   snoozeSupplyAlert: vi.fn(),
 }));
 vi.mock("./packaging-api", () => ({ listPackagingWaiting: vi.fn() }));
+vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div>Sheet of {partId}</div> : null) }));
 
 import * as api from "./supply-api";
 import * as packaging from "./packaging-api";
@@ -133,6 +134,7 @@ describe("the dashboard", () => {
     expect(within(deadlines).getByText("in 20 days")).toBeTruthy();
     fireEvent.click(within(deadlines).getByRole("button", { name: "OLD-7" }));
     expect(search()).toContain("part=p7");
+    expect(await screen.findByText("Sheet of p7")).toBeTruthy();
     const projects = screen.getByRole("region", { name: "Tracked projects" });
     expect(within(projects).getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
     expect(within(projects).getByText("120")).toBeTruthy();
@@ -141,8 +143,9 @@ describe("the dashboard", () => {
   it("opens a part from an alert", async () => {
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "OOS-1" }));
-    expect(search()).toContain("supplyView=parts");
+    expect(search()).not.toContain("supplyView=parts");
     expect(search()).toContain("part=");
+    expect((await screen.findByText(/^Sheet of /)).textContent).toMatch(/^Sheet of \S+/);
   });
 
   it("tells a new workspace what to do first", async () => {

@@ -11,6 +11,8 @@ import { LeadAndPricesSection, LifecycleSection, SourcingSection, TradeSection }
 import { MarketSection } from "./market-section";
 import { getSupplyInsights } from "./supply-api";
 import { useLoaded } from "./use-loaded";
+import type { User } from "@/types/auth";
+import { OpenPartSheet } from "./open-part-sheet";
 import { useSupplyNavigation } from "./use-supply-navigation";
 
 const RunwaySection = lazy(() => import("./runway-section").then((module) => ({ default: module.RunwaySection })));
@@ -46,7 +48,7 @@ function sectionOnScreen(scroller: HTMLElement, ids: readonly string[]): string 
 }
 
 /** What the readings add up to across every tracked part, in sections you can jump between. */
-export function InsightsView() {
+export function InsightsView({ user = null, active = true }: { user?: User | null; active?: boolean }) {
   const [searchParams] = useSearchParams();
   const fetcher = useCallback((signal: AbortSignal) => getSupplyInsights(signal), []);
   const loaded = useLoaded<SupplyInsightsPage>("insights", fetcher, "Could not load the insights", "supply");
@@ -146,6 +148,7 @@ export function InsightsView() {
           </CollapsibleSection>
         </div>
       </div>
+      <OpenPartSheet user={user} active={active} />
     </div>
   );
 }
