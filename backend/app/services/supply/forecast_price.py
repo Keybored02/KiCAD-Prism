@@ -18,9 +18,18 @@ import numpy as np
 from app.services.supply import prices
 
 DRAWS = 2000
-MIN_SPAN_DAYS = 7
-SHRINK_DAYS = 30.0
+# Days of readings a horizon needs before it is forecast: a month for the month ahead, two for the quarter.
+MIN_SPAN_DAYS = {30: 30, 90: 60}
+# A part's rate of repricing is pulled towards one in 90 days, as strongly as 90 days of its own history.
+PRIOR_RATE = 1 / 90
+SHRINK_DAYS = 90.0
 MIN_OWN_MOVES = 3
+# A change under this share is rounding or noise, not a repricing; one over BIG_MOVE counts only when the next reading holds the new price.
+NOISE_MOVE = 0.01
+BIG_MOVE = 0.25
+# Moves are believed to drift one way only when the part's own history has this many the same way over at least this many days.
+DRIFT_MOVES = 3
+DRIFT_DAYS = 60
 # No single repricing is believed to be bigger than a doubling or a halving: a bigger jump is a listing that changed, not a price.
 MAX_MOVE = math.log(2)
 SEED = 20261018
@@ -43,6 +52,28 @@ def moves_of(series: Sequence[tuple[date, float]]) -> Moves:
     return Moves(len(sizes), float(span), sizes)
 
 
+def _repricings(series: Sequence[tuple[date, Any]]) -> list[tuple[date, float]]:
+    """The real repricings in one listing's series: (day, log ratio). Changes under ``NOISE_MOVE`` are dropped, and so is a big one the
+    next reading does not confirm (a spike that reverts, or a last reading nothing follows)."""
+
+    found: list[tuple[date, float]] = []
+    level = float(series[0][1]) if series else 0.0
+    for index in range(1, len(series)):
+        after = float(series[index][1])
+        if level <= 0 or after <= 0:
+            level = after
+            continue
+        change = after / level - 1
+        if abs(change) > BIG_MOVE:
+            following = float(series[index + 1][1]) if index + 1 < len(series) else None
+            if following is None or abs(following / after - 1) >= NOISE_MOVE:
+                continue  # a reading nothing confirms: the level stays what it was
+        if abs(change) >= NOISE_MOVE:
+            found.append((series[index][0], math.log(after / level)))
+        level = after
+    return found
+
+
 def own_moves(conn, part_id: str, now: datetime, days: int = 90) -> Moves:
     """The repricings of a part as its own listings made them: one event for each day a listing's price differed from its last reading,
     sized by the median change among the listings that moved that day. The cheapest listing changing, or a listing joining or leaving,
@@ -54,9 +85,8 @@ def own_moves(conn, part_id: str, now: datetime, days: int = 90) -> Moves:
     for series in prices.listing_series(conn, part_id, now, days).values():
         first = series[0][0] if first is None else min(first, series[0][0])
         last = series[-1][0] if last is None else max(last, series[-1][0])
-        for (_, before), (day, after) in zip(series, series[1:]):
-            if before > 0 and after > 0 and before != after:
-                events.setdefault(day, []).append(math.log(float(after) / float(before)))
+        for day, size in _repricings(series):
+            events.setdefault(day, []).append(size)
     sizes = [max(-MAX_MOVE, min(MAX_MOVE, float(np.median(changes)))) for _day, changes in sorted(events.items())]
     span = float((last - first).days) if first is not None and last is not None else 0.0
     return Moves(len(sizes), span, sizes)
@@ -89,25 +119,44 @@ def forget() -> None:
     _pool = None
 
 
+def _centred(sizes: Sequence[float]) -> list[float]:
+    """Sizes with their mean taken out: how big a move is, not which way prices happen to have gone."""
+
+    if not sizes:
+        return []
+    mean = sum(sizes) / len(sizes)
+    return [size - mean for size in sizes]
+
+
+def drifts(own: Moves) -> bool:
+    """Whether a part's own history is evidence for a trend: at least ``DRIFT_MOVES`` moves the same way over ``DRIFT_DAYS`` days."""
+
+    if own.span < DRIFT_DAYS:
+        return False
+    return max(sum(1 for size in own.sizes if size > 0), sum(1 for size in own.sizes if size < 0)) >= DRIFT_MOVES
+
+
 def draw_prices(
     series: Sequence[tuple[date, float]], pool: Moves, horizon: int, draws: int = DRAWS, seed: int = SEED, own: Moves | None = None,
 ) -> np.ndarray | None:
     """Possible prices ``horizon`` days ahead, or None when the series is too short to say anything.
 
     ``own`` is the part's repricings from its listings (``own_moves``); without it they are read from the series itself.
+    The median is today's price unless the part's own history shows a trend: the sizes are centred, so a pool that went mostly one
+    way is a spread, not a drift.
     """
 
-    if len(series) < 2 or (series[-1][0] - series[0][0]).days < MIN_SPAN_DAYS:
+    if len(series) < 2 or (series[-1][0] - series[0][0]).days < MIN_SPAN_DAYS.get(horizon, max(MIN_SPAN_DAYS.values())):
         return None
     own = own or moves_of(series)
-    pooled_rate = pool.count / pool.span if pool.span > 0 else 0.0
-    rate = (own.count + SHRINK_DAYS * pooled_rate) / (own.span + SHRINK_DAYS)
+    rate = (own.count + SHRINK_DAYS * PRIOR_RATE) / (own.span + SHRINK_DAYS)
     rng = np.random.default_rng(seed)
     counts = rng.poisson(rate * horizon, draws)
     if own.count >= MIN_OWN_MOVES:
-        sizes = np.asarray(own.sizes + pool.sizes[: len(own.sizes)] if pool.sizes else own.sizes, dtype=float)
+        own_sizes = own.sizes if drifts(own) else _centred(own.sizes)
+        sizes = np.asarray(own_sizes + _centred(pool.sizes)[: len(own.sizes)], dtype=float)
     else:
-        sizes = np.asarray(pool.sizes or [0.0], dtype=float)
+        sizes = np.asarray(_centred(pool.sizes) or [0.0], dtype=float)
     total = np.zeros(draws)
     for index, moves in enumerate(counts):
         if moves:

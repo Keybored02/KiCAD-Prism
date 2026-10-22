@@ -1900,6 +1900,22 @@ def _m086_free_budget(conn) -> None:
     )
 
 
+def _m087_restart_price_forecasts(conn) -> None:
+    """The price forecasts made before currency switches and noise stopped counting as repricings, and before drift needed evidence, no
+    longer count towards the price models' track record; they start again from forecasts the new model makes."""
+
+    conn.execute(
+        """
+        DELETE FROM forecasts WHERE target IN ('price_30', 'price_90');
+        UPDATE forecast_models SET state = 'learning', checks = 0, coverage = NULL, since = NULL, reason = '', updated_at = NOW()
+            WHERE target IN ('price_30', 'price_90');
+        DELETE FROM part_summaries;
+        UPDATE part_insights SET computed_at = '-infinity'::timestamptz;
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2047,6 +2063,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (84, "block_streak", _m084_block_streak),
     (85, "pace_state", _m085_pace_state),
     (86, "free_budget", _m086_free_budget),
+    (87, "restart_price_forecasts", _m087_restart_price_forecasts),
 ]
 
 

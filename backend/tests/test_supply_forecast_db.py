@@ -137,10 +137,10 @@ class ForecastDbTests(unittest.TestCase):
     # --- making and keeping -------------------------------------------------
 
     def test_a_falling_part_gets_its_forecasts_kept_and_the_little_a_list_needs(self) -> None:
-        from app.services.supply import forecast_run
+        from app.services.supply import forecast_price, forecast_run
 
         self.falling(self.listing(self.cid, "FALL-SKU"))
-        with self.store.connection() as conn:
+        with self.store.connection() as conn, mock.patch.dict(forecast_price.MIN_SPAN_DAYS, {30: 7, 90: 7}):  # the fall is 20 days of readings
             summary = forecast_run.run_part(conn, self.part_id, START)
         self.assertTrue(summary["available"])
         self.assertEqual(summary["runout"]["median_date"], (START + timedelta(days=10)).date().isoformat())
@@ -280,10 +280,10 @@ class ForecastDbTests(unittest.TestCase):
         return _request(self.app, "GET", path, user=self.user, query=query)
 
     def test_the_part_forecast_comes_as_dates_and_words_with_each_models_state(self) -> None:
-        from app.services.supply import forecast_view
+        from app.services.supply import forecast_price, forecast_view
 
         self.falling(self.listing(self.cid, "FALL-SKU"))
-        with self.store.connection() as conn:
+        with self.store.connection() as conn, mock.patch.dict(forecast_price.MIN_SPAN_DAYS, {30: 7, 90: 7}):
             found = forecast_view.part(conn, self.part_id, START, quantity=100)
         self.assertTrue(found["available"])
         self.assertEqual(found["runout"]["median"], (START + timedelta(days=10)).date().isoformat())

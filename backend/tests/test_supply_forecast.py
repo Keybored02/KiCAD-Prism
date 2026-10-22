@@ -123,26 +123,63 @@ class OutageTests(unittest.TestCase):
 
 class PriceTests(unittest.TestCase):
     def test_a_flat_price_stays_flat_and_says_so(self) -> None:
-        flat = [(START + timedelta(days=i), 0.5) for i in range(30)]
+        flat = [(START + timedelta(days=i), 0.5) for i in range(70)]
         result = forecast_price.forecast(flat, forecast_price.Moves(0, 0.0, []))
         self.assertTrue(result["available"])
         self.assertTrue(result["h90"]["flat"])
         self.assertAlmostEqual(result["h90"]["median"], 0.5)
 
     def test_a_price_that_moves_gets_a_range(self) -> None:
-        moving = [(START + timedelta(days=i), 0.5 + 0.02 * (i // 5)) for i in range(40)]
+        moving = [(START + timedelta(days=i), 0.5 + 0.02 * (i // 5)) for i in range(70)]
         result = forecast_price.forecast(moving, forecast_price.Moves(0, 0.0, []))
         self.assertGreater(result["h90"]["high"], result["h90"]["low"])
         self.assertFalse(result["h90"]["flat"])
-        self.assertEqual(result["inputs"]["own_moves"], 7)
+        self.assertEqual(result["inputs"]["own_moves"], 13)
 
-    def test_a_short_series_is_not_forecast(self) -> None:
-        self.assertFalse(forecast_price.forecast([(START, 0.5), (START + timedelta(days=2), 0.5)], forecast_price.Moves(0, 0.0, []))["available"])
+    def test_a_series_is_forecast_only_when_it_covers_the_horizon_a_month_for_30_days_two_for_90(self) -> None:
+        pool = forecast_price.Moves(0, 0.0, [])
+        self.assertFalse(forecast_price.forecast([(START, 0.5), (START + timedelta(days=2), 0.5)], pool)["available"])
+        forty_five = [(START + timedelta(days=i), 0.5) for i in range(46)]
+        self.assertFalse(forecast_price.forecast(forty_five, pool)["available"], "45 days is enough for 30 days ahead, not for 90")
+        self.assertIsNotNone(forecast_price.draw_prices(forty_five, pool, 30))
+        self.assertIsNone(forecast_price.draw_prices(forty_five, pool, 90))
+        self.assertIsNone(forecast_price.draw_prices([(START + timedelta(days=i), 0.5) for i in range(20)], pool, 30))
 
     def test_the_same_series_gives_the_same_forecast(self) -> None:
-        moving = [(START + timedelta(days=i), 0.5 + 0.02 * (i // 5)) for i in range(40)]
+        moving = [(START + timedelta(days=i), 0.5 + 0.02 * (i // 5)) for i in range(70)]
         pool = forecast_price.Moves(2, 100.0, [0.05, -0.03])
         self.assertEqual(forecast_price.forecast(moving, pool), forecast_price.forecast(moving, pool))
+
+    def test_a_pool_that_went_mostly_up_is_a_spread_not_a_drift_for_a_part_that_never_repriced(self) -> None:
+        flat = [(START + timedelta(days=i), 0.5) for i in range(70)]
+        pool = forecast_price.Moves(10, 100.0, [0.05] * 8 + [-0.02] * 2)
+        result = forecast_price.forecast(flat, pool)
+        self.assertAlmostEqual(result["h30"]["median"], 0.5, delta=0.03, msg="today's price is the middle of the forecast")
+        self.assertAlmostEqual(result["h90"]["median"], 0.5, delta=0.04)
+
+    def test_a_part_with_three_moves_the_same_way_over_two_months_may_drift(self) -> None:
+        up = forecast_price.Moves(3, 70.0, [0.05, 0.04, 0.06])
+        self.assertTrue(forecast_price.drifts(up))
+        self.assertFalse(forecast_price.drifts(forecast_price.Moves(3, 40.0, [0.05, 0.04, 0.06])), "too short a history")
+        self.assertFalse(forecast_price.drifts(forecast_price.Moves(3, 70.0, [0.05, -0.04, 0.06])), "only two the same way")
+
+    def test_noise_and_unconfirmed_jumps_are_not_repricings(self) -> None:
+        def days(*values):
+            return [(START + timedelta(days=i), value) for i, value in enumerate(values)]
+
+        self.assertEqual(forecast_price._repricings(days(1.0, 1.005, 1.0, 1.004)), [], "under 1% is noise")
+        self.assertEqual(len(forecast_price._repricings(days(1.0, 1.10, 1.10))), 1, "a 10% move counts")
+        self.assertEqual(forecast_price._repricings(days(1.0, 2.0, 1.0, 1.0)), [], "a spike that reverts is dropped")
+        self.assertEqual(len(forecast_price._repricings(days(1.0, 2.0, 2.0, 2.0))), 1, "a big move the next reading holds counts")
+        self.assertEqual(forecast_price._repricings(days(1.0, 2.0)), [], "a big move nothing confirms yet is not counted")
+
+    def test_a_slower_prior_rate_gives_a_part_with_no_history_about_one_repricing_a_quarter(self) -> None:
+        flat = [(START + timedelta(days=i), 0.5) for i in range(70)]
+        pool = forecast_price.Moves(0, 0.0, [0.05, -0.05])
+        result = forecast_price.forecast(flat, pool, forecast_price.Moves(0, 70.0, []))
+        self.assertTrue(result["h30"]["flat"] is False or result["h30"]["high"] >= result["h30"]["low"])
+        rate = (0 + forecast_price.SHRINK_DAYS * forecast_price.PRIOR_RATE) / (70.0 + forecast_price.SHRINK_DAYS)
+        self.assertAlmostEqual(rate * 90, 0.5625, places=3, msg="about half a repricing in a quarter for a part that has had none in 70 days")
 
 
 class VerdictTests(unittest.TestCase):
