@@ -14,7 +14,7 @@ import math
 from datetime import datetime
 from typing import Any
 
-from app.services.supply import accounts, details, ledger, quota
+from app.services.supply import accounts, budget, details, ledger, quota
 from app.services.supply.discoverer import DUE_SEARCH, cutoffs
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANCES
@@ -43,13 +43,13 @@ def connector_rest(conn, connector_id: str, now: datetime, until: datetime) -> i
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND %s
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
         """,
-        (connector_id, until),
+        (budget.picks_limit_reads(spec), connector_id, until),
     ).fetchone()
     if spec.groups_by_part:
         # One call reads all of a part's listings, and where a call takes several parts, many parts.

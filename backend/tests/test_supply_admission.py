@@ -72,6 +72,7 @@ class CostTests(unittest.TestCase):
 
         self.assertAlmostEqual(budget.pick_saving(registry.get_spec("lcsc"), 1, "daily", 2), 1.0, places=4)
         self.assertEqual(budget.pick_saving(registry.get_spec("digikey"), 1, "daily", 3), 0.0, "DigiKey reads a part in one call")
+        self.assertEqual(budget.pick_saving(registry.get_spec("farnell"), 1, "daily", 3), 0.0, "a listing costs a place in a batch, not a call")
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")

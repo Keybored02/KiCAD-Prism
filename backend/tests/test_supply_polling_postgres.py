@@ -521,7 +521,15 @@ class PollingTests(unittest.TestCase):
             self.assertEqual([p.part_id for p in discoverer.pending_parts(conn, cid, self.clock.now, 10)], [watch.part_id], "a part not found is searched after 14 days, not 30")
 
     def test_a_listing_found_after_a_pick_is_read_once_and_a_picked_listing_still_wins_the_rest(self) -> None:
-        cid = self.connector()
+        from app.services.supply.providers.base import ProviderSpec
+
+        # A provider that pays a call for each listing: a pick limits what is read there.
+        self.registry.register(ProviderSpec(
+            key="demo_pay", label="Pays per listing", capabilities=frozenset({"offers"}), max_batch=1, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config), default_daily_budget=100,
+        ), replace=True)
+        self.addCleanup(self.registry.unregister, "demo_pay")
+        cid = self.connector("demo_pay")
         watch = self.watch()
         picked = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-RL")
@@ -535,6 +543,21 @@ class PollingTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
         self.assertEqual(poller.poll_connector(cid).polled, 1, "afterwards only the picked one")
+
+    def test_where_a_listing_costs_a_place_in_a_batch_and_not_a_call_a_pick_does_not_limit_what_is_read(self) -> None:
+        cid = self.connector("demo_small", daily_budget=100)
+        watch = self.watch()
+        picked = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-RL")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (watch.part_id, cid, picked))
+            conn.execute("UPDATE admissions SET state = 'admitted'")
+        poller = self.poller()
+        self.assertEqual(poller.poll_connector(cid).polled, 2)
+        self.clock.advance(days=2)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
+        self.assertEqual(poller.poll_connector(cid).polled, 2, "both listings are read again")
 
     def test_a_returning_listing_clears_its_misses(self) -> None:
         cid = self.connector()

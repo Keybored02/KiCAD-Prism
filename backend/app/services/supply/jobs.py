@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
+    accounts, budget, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
@@ -138,14 +138,14 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN connectors c ON c.id = l.connector_id
         LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.match_state IN ('exact', 'manual') AND {active}
           AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)
         """,
-        {"now": now, **cutoffs(now)},
+        {"now": now, "limited": budget.providers_limited_by_picks(), **cutoffs(now)},
     ).fetchall()
     unsearched = conn.execute(
         f"""

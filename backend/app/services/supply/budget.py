@@ -39,6 +39,20 @@ def committed_calls(daily_budget: int, reserve_pct: int) -> int:
     return daily_budget * committed_share_pct(reserve_pct) // 100
 
 
+def picks_limit_reads(spec: ProviderSpec) -> bool:
+    """Whether a packaging pick limits what is read: only at a provider that pays a call for each listing (one to a call, and no
+    part's listings together: LCSC, JLCPCB). Everywhere else a listing costs a place in a batch, not a call, so every counted listing
+    is read and a pick only says which one prices the part."""
+
+    return spec.max_batch == 1 and not spec.groups_by_part
+
+
+def providers_limited_by_picks() -> list[str]:
+    from app.services.supply.providers import registry
+
+    return [spec.key for spec in registry.list_specs(include_dev=True) if picks_limit_reads(spec)]
+
+
 def read_cost(spec: ProviderSpec, rate: str, listings: float) -> float:
     """Calls a day to read stock and price."""
 
@@ -87,6 +101,8 @@ def total(costs: Iterable[float]) -> int:
 
 
 def pick_saving(spec: ProviderSpec, tier: int, rate: str, listings: int) -> float:
-    """Calls a day a packaging pick would save: all the part's listings against one."""
+    """Calls a day a packaging pick would save: all the part's listings against one, where a pick limits what is read."""
 
+    if not picks_limit_reads(spec):
+        return 0.0
     return max(0.0, cost(spec, tier, rate, listings) - cost(spec, tier, rate, 1))

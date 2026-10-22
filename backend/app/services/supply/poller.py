@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import accounts, alerts, alternates, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
+from app.services.supply import accounts, alerts, budget, alternates, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -129,7 +129,8 @@ def due_listings(
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        JOIN connectors c ON c.id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%s)
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
           AND (NOT %s OR a.state = 'admitted')
@@ -138,7 +139,7 @@ def due_listings(
         ORDER BY {_SERVICE_ORDER}
         LIMIT %s
         """,
-        (connector_id, metered, now, limit),
+        (budget.providers_limited_by_picks(), connector_id, metered, now, limit),
     ).fetchall()
     return [
         _due(r)
@@ -179,14 +180,15 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        JOIN connectors c ON c.id = l.connector_id
+        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id) AND {where}
         ORDER BY {order}
         LIMIT %(limit)s
         """,
-        {"connector": connector_id, "now": now, "limit": limit, "early": now - EARLY_GAP},
+        {"connector": connector_id, "now": now, "limit": limit, "early": now - EARLY_GAP, "limited": budget.providers_limited_by_picks()},
     ).fetchall()
     return [
         _due(r)

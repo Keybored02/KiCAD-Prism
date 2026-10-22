@@ -118,7 +118,7 @@ def _inputs(conn) -> dict[str, Any]:
 def part_cost(spec: ProviderSpec, part_id: str, connector_id: str, data: dict[str, Any]) -> float:
     tier, rate, _reasons = data["tiers"][part_id]
     key = (part_id, connector_id)
-    if key in data["picked"]:
+    if key in data["picked"] and budget.picks_limit_reads(spec):
         listings = 1.0
     elif key in data["listed"]:
         listings = float(data["listed"][key])
