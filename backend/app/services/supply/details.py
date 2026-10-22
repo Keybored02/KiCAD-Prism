@@ -3,7 +3,7 @@
 They change rarely and each costs a call, so each is read once per part, from one of its listings (the picked one, else
 the first): notices weekly for tier-1 and tier-2 parts, substances monthly for tier-1 parts only. Notices of parts nobody
 tracks are read only from spare budget, at most weekly. A few per poll job, within the connector's daily budget and after
-its polling. A failure is recorded against the listing and tried again the next turn; it never pauses the connector. A
+its polling. A failure is recorded against the listing and tried again after a short wait that grows with each failure (``tiers.backoff``'s steps); it never pauses the connector. A
 rate limit or an outage stops the pass for this run.
 
 DigiKey notices need a person's sign-in (``oauth.py``); without one the pass skips them and says so. Notices are
@@ -64,9 +64,13 @@ def due(
                   SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
                   WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.checked_at > %(since)s)
             ORDER BY l.part_id, l.sku
+              AND NOT EXISTS (
+                  SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                  WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.failures > 0
+                    AND d.tried_at + LEAST(5 * power(2, d.failures - 1), 1440) * INTERVAL '1 minute' > %(now)s)
             LIMIT %(limit)s
             """,
-            {"connector": connector_id, "kind": kind, "since": now - interval, "limit": limit},
+            {"connector": connector_id, "kind": kind, "since": now - interval, "limit": limit, "now": now},
         ).fetchall()
         return [dict(row) for row in rows]
     rows = conn.execute(
@@ -85,6 +89,10 @@ def due(
               AND (%(kind)s <> 'substances' OR pt.tier = 1)
               AND (%(kind)s <> 'notices' OR NOT EXISTS (
                   SELECT 1 FROM offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete'))
+              AND NOT EXISTS (
+                  SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                  WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.failures > 0
+                    AND d.tried_at + LEAST(5 * power(2, d.failures - 1), 1440) * INTERVAL '1 minute' > %(now)s)
             ORDER BY l.part_id, (pk.listing_id = l.id) DESC NULLS LAST, l.sku
         ) per_part
         WHERE last_checked IS NULL OR last_checked <= %(since)s
@@ -95,7 +103,7 @@ def due(
         LIMIT %(limit)s
         """,
         {
-            "connector": connector_id, "kind": kind, "since": now - interval, "limit": limit,
+            "connector": connector_id, "kind": kind, "since": now - interval, "limit": limit, "now": now,
             "day_ago": now - timedelta(days=1), "news": list(NEWS_EVENTS), "news_since": now - NEWS_WINDOW,
             "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
         },
@@ -104,13 +112,17 @@ def due(
 
 
 def _record(conn, listing_id: str, kind: str, now: datetime, status: str, *, failed: bool) -> None:
+    """A read that worked sets ``checked_at``; one that failed sets only ``tried_at``, so the listing is read again after a short wait
+    and not when its week comes round."""
+
     conn.execute(
         """
-        INSERT INTO detail_checks (listing_id, kind, checked_at, status, failures) VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (listing_id, kind) DO UPDATE SET checked_at = EXCLUDED.checked_at, status = EXCLUDED.status,
+        INSERT INTO detail_checks (listing_id, kind, checked_at, tried_at, status, failures) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (listing_id, kind) DO UPDATE SET checked_at = CASE WHEN %s THEN detail_checks.checked_at ELSE EXCLUDED.checked_at END,
+            tried_at = EXCLUDED.tried_at, status = EXCLUDED.status,
             failures = CASE WHEN %s THEN detail_checks.failures + 1 ELSE 0 END
         """,
-        (listing_id, kind, now, status[:64], 1 if failed else 0, failed),
+        (listing_id, kind, None if failed else now, now, status[:64], 1 if failed else 0, failed, failed),
     )
 
 

@@ -1849,6 +1849,21 @@ def _m082_reschedule_raised_weekly_parts(conn) -> None:
         )
 
 
+def _m083_detail_tried_at(conn) -> None:
+    """A failed read of a listing's notices or substances no longer counts as read: ``checked_at`` is the last read that worked
+    (empty when none did) and ``tried_at`` the last try."""
+
+    conn.execute(
+        """
+        ALTER TABLE detail_checks ADD COLUMN IF NOT EXISTS tried_at TIMESTAMPTZ;
+        ALTER TABLE detail_checks ALTER COLUMN checked_at DROP NOT NULL;
+        UPDATE detail_checks SET tried_at = checked_at WHERE tried_at IS NULL;
+        UPDATE detail_checks SET checked_at = NULL WHERE failures > 0;
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -1992,6 +2007,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (79, "forecasts", _m079_forecasts),
     (81, "reschedule_raised_parts", _m081_reschedule_raised_parts),
     (82, "reschedule_raised_weekly_parts", _m082_reschedule_raised_weekly_parts),
+    (83, "detail_tried_at", _m083_detail_tried_at),
 ]
 
 

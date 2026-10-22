@@ -321,7 +321,8 @@ class Discoverer:
                 conn.execute("UPDATE discovery_runs SET family_done = TRUE WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
 
     def _spend_extra(self, connector_id: str) -> bool:
-        """One more search call for a part's other number: from the committed share, then from spare budget."""
+        """One more search call for a part's other number, from spare budget only: the cost model does not count it, so it never
+        takes from the committed share."""
 
         connector = self._connectors.get(connector_id)
         if not registry.get_spec(connector["provider"]).metered:

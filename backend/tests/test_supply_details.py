@@ -164,6 +164,34 @@ class DetailsTests(unittest.TestCase):
         self.run_notices({"296-1395-1-ND": [eol]})
         self.assertEqual(self.rows("SELECT state FROM pcns"), [{"state": "closed"}], "listing it again does not reopen it")
 
+    def test_a_failed_read_is_tried_again_after_a_short_wait_not_a_week_later(self) -> None:
+        from app.services.supply import details
+        from app.services.supply.providers.base import ProviderError
+
+        bad = {"on": True}
+
+        class Provider:
+            def change_notices(self, sku, user_token):
+                if bad["on"] and sku == "296-9999-1-ND":
+                    raise ProviderError("refused")
+                return []
+
+        def run(minutes):
+            return details.run(self.connectors, self.digikey, now=NOW + timedelta(minutes=minutes), provider=Provider(), token_for=lambda *_a: "t")
+
+        self.assertEqual(run(0).read, 1, "one listing read, the other failed")
+        failed = self.rows("SELECT checked_at, failures FROM detail_checks WHERE listing_id = %s", self.dk_b)
+        self.assertEqual(failed, [{"checked_at": None, "failures": 1}])
+        with self.store.connection() as conn:
+            def waiting(minutes):
+                return [row["id"] for row in details.due(conn, self.digikey, "notices", NOW + timedelta(minutes=minutes), 5)]
+
+            self.assertEqual(waiting(2), [], "it waits its few minutes")
+            self.assertEqual(waiting(6), [self.dk_b], "and is due again once they have passed, not a week later")
+        bad["on"] = False
+        self.assertEqual(run(24 * 60 + 1).read, 2, "the next day reads both, the failed one included")
+        self.assertEqual(self.rows("SELECT failures FROM detail_checks WHERE listing_id = %s", self.dk_b), [{"failures": 0}])
+
     def test_a_listing_read_this_week_is_not_read_again(self) -> None:
         self.run_notices({})
         self.assertEqual(self.run_notices({}).read, 0)
