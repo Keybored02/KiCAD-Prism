@@ -21,6 +21,8 @@ DRAWS = 2000
 MIN_SPAN_DAYS = 7
 SHRINK_DAYS = 30.0
 MIN_OWN_MOVES = 3
+# No single repricing is believed to be bigger than a doubling or a halving: a bigger jump is a listing that changed, not a price.
+MAX_MOVE = math.log(2)
 SEED = 20261018
 POOL_CACHE_FOR = 6 * 3600.0
 _pool: tuple[float, "Moves"] | None = None
@@ -41,6 +43,25 @@ def moves_of(series: Sequence[tuple[date, float]]) -> Moves:
     return Moves(len(sizes), float(span), sizes)
 
 
+def own_moves(conn, part_id: str, now: datetime, days: int = 90) -> Moves:
+    """The repricings of a part as its own listings made them: one event for each day a listing's price differed from its last reading,
+    sized by the median change among the listings that moved that day. The cheapest listing changing, or a listing joining or leaving,
+    is not an event, which the move sizes of the part's cheapest price used to count."""
+
+    events: dict[date, list[float]] = {}
+    first: date | None = None
+    last: date | None = None
+    for series in prices.listing_series(conn, part_id, now, days).values():
+        first = series[0][0] if first is None else min(first, series[0][0])
+        last = series[-1][0] if last is None else max(last, series[-1][0])
+        for (_, before), (day, after) in zip(series, series[1:]):
+            if before > 0 and after > 0 and before != after:
+                events.setdefault(day, []).append(math.log(float(after) / float(before)))
+    sizes = [max(-MAX_MOVE, min(MAX_MOVE, float(np.median(changes)))) for _day, changes in sorted(events.items())]
+    span = float((last - first).days) if first is not None and last is not None else 0.0
+    return Moves(len(sizes), span, sizes)
+
+
 def series_of(conn, part_id: str, now: datetime, days: int = 90) -> list[tuple[date, float]]:
     points, _meta = prices.daily(conn, part_id, now, days)
     return [(day, float(price)) for day, price, _currency in points]
@@ -54,7 +75,7 @@ def pooled_moves(conn, part_ids: Sequence[str], now: datetime) -> Moves:
         return _pool[1]
     count, span, sizes = 0, 0.0, []
     for part_id in part_ids:
-        found = moves_of(series_of(conn, part_id, now))
+        found = own_moves(conn, part_id, now)
         count += found.count
         span += found.span
         sizes.extend(found.sizes)
@@ -68,12 +89,17 @@ def forget() -> None:
     _pool = None
 
 
-def draw_prices(series: Sequence[tuple[date, float]], pool: Moves, horizon: int, draws: int = DRAWS, seed: int = SEED) -> np.ndarray | None:
-    """Possible prices ``horizon`` days ahead, or None when the series is too short to say anything."""
+def draw_prices(
+    series: Sequence[tuple[date, float]], pool: Moves, horizon: int, draws: int = DRAWS, seed: int = SEED, own: Moves | None = None,
+) -> np.ndarray | None:
+    """Possible prices ``horizon`` days ahead, or None when the series is too short to say anything.
+
+    ``own`` is the part's repricings from its listings (``own_moves``); without it they are read from the series itself.
+    """
 
     if len(series) < 2 or (series[-1][0] - series[0][0]).days < MIN_SPAN_DAYS:
         return None
-    own = moves_of(series)
+    own = own or moves_of(series)
     pooled_rate = pool.count / pool.span if pool.span > 0 else 0.0
     rate = (own.count + SHRINK_DAYS * pooled_rate) / (own.span + SHRINK_DAYS)
     rng = np.random.default_rng(seed)
@@ -89,19 +115,19 @@ def draw_prices(series: Sequence[tuple[date, float]], pool: Moves, horizon: int,
     return series[-1][1] * np.exp(total)
 
 
-def forecast(series: Sequence[tuple[date, float]], pool: Moves) -> dict[str, Any]:
+def forecast(series: Sequence[tuple[date, float]], pool: Moves, own: Moves | None = None) -> dict[str, Any]:
     """The cheapest price in 30 and 90 days as ranges, with what they rest on."""
 
     now = series[-1][1] if series else None
     out: dict[str, Any] = {"available": False, "now": now}
     for horizon in (30, 90):
-        draw = draw_prices(series, pool, horizon)
+        draw = draw_prices(series, pool, horizon, own=own)
         if draw is None:
             out["reason"] = "too_few_readings"
             return out
         low, mid, high = (float(v) for v in np.percentile(draw, [10, 50, 90]))
         out[f"h{horizon}"] = {"low": low, "median": mid, "high": high, "flat": bool(np.isclose(low, high, rtol=1e-4) or (high - low) / max(now or 1, 1e-12) < 0.005)}
-    own = moves_of(series)
+    own = own or moves_of(series)
     out["available"] = True
     out["inputs"] = {"readings": len(series), "span_days": own.span, "own_moves": own.count, "pooled_moves": pool.count}
     return out

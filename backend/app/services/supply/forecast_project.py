@@ -81,8 +81,9 @@ def forecast(conn, project_id: str, variant: str, boards: int, now: datetime | N
             })
         series = forecast_price.series_of(conn, part_id, now)
         if len(series) >= 2:
-            d30 = forecast_price.draw_prices(series, pool, 30, DRAWS, SEED)
-            d90 = forecast_price.draw_prices(series, pool, 90, DRAWS, SEED)
+            own = forecast_price.own_moves(conn, part_id, now)
+            d30 = forecast_price.draw_prices(series, pool, 30, DRAWS, SEED, own)
+            d90 = forecast_price.draw_prices(series, pool, 90, DRAWS, SEED, own)
             if d30 is not None and d90 is not None:
                 price_30.append(d30 * per_board)
                 price_90.append(d90 * per_board)

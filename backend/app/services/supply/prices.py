@@ -42,6 +42,30 @@ def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[l
     else prices the part.
     """
 
+    points, meta = _points(conn, part_id, now, days)
+    base = meta["base"]
+    chosen = [point for point in points if point[3]] or points
+    cheapest: dict[date, Decimal] = {}
+    for _listing, day, price, _orderable in chosen:
+        cheapest[day] = min(price, cheapest.get(day, price))
+    result = [(day, cheapest[day], base) for day in sorted(cheapest)]
+    return result, {"quantity": meta["quantity"], "estimated_until": meta["estimated_until"] if cheapest else None}
+
+
+def listing_series(conn, part_id: str, now: datetime, days: int = CHART_DAYS) -> dict[str, list[tuple[date, Decimal]]]:
+    """Each counted listing's own price per day in the base currency, oldest first. Converted at one rate (the latest), so a currency
+    a listing is quoted in changing is not a price change, and a listing that joins later is its own series, not a move of the part."""
+
+    points, _meta = _points(conn, part_id, now, days)
+    found: dict[str, list[tuple[date, Decimal]]] = {}
+    for listing, day, price, _orderable in points:
+        found.setdefault(listing, []).append((day, price))
+    return {listing: sorted(series) for listing, series in found.items()}
+
+
+def _points(conn, part_id: str, now: datetime, days: int) -> tuple[list[tuple[str, date, Decimal, bool]], dict[str, Any]]:
+    """Every listing's price on each day it was read: (listing, day, price in the base currency, orderable at the part's quantity)."""
+
     from app.services.supply import fx, price_breaks, price_quantity
     from app.services.supply.assessment import settings_store
 
@@ -50,7 +74,7 @@ def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[l
     rates = fx.latest(conn)
     raw = _daily_rows(conn, part_id, now, days)
     kept = price_breaks.load(conn, sorted({row["listing_id"] for row in raw}))
-    points: list[tuple[date, Decimal, bool]] = []
+    points: list[tuple[str, date, Decimal, bool]] = []
     estimated: list[date] = []
     for row in raw:
         held = price_breaks.in_force(kept.get(row["listing_id"], []), row["day"])
@@ -63,13 +87,8 @@ def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[l
                 estimated.append(row["day"])
         converted = rates.convert(price, currency, base) if price is not None else None
         if converted is not None and converted > 0:
-            points.append((row["day"], converted, moq <= quantity))
-    chosen = [point for point in points if point[2]] or points
-    cheapest: dict[date, Decimal] = {}
-    for day, price, _orderable in chosen:
-        cheapest[day] = min(price, cheapest.get(day, price))
-    result = [(day, cheapest[day], base) for day in sorted(cheapest)]
-    return result, {"quantity": quantity, "estimated_until": max(estimated).isoformat() if estimated and cheapest else None}
+            points.append((row["listing_id"], row["day"], converted, moq <= quantity))
+    return points, {"quantity": quantity, "base": base, "estimated_until": max(estimated).isoformat() if estimated else None}
 
 
 def _daily_rows(conn, part_id: str, now: datetime, days: int) -> list[dict[str, Any]]:

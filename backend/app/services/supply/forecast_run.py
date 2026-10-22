@@ -30,7 +30,7 @@ def price_forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
     series = forecast_price.series_of(conn, part_id, now)
     if not series:
         return {"available": False, "now": None, "reason": "no_prices"}
-    return forecast_price.forecast(series, forecast_price.pooled_moves(conn, _tracked(conn), now))
+    return forecast_price.forecast(series, forecast_price.pooled_moves(conn, _tracked(conn), now), forecast_price.own_moves(conn, part_id, now))
 
 
 def price_by_distributor(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:

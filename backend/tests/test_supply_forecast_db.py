@@ -102,6 +102,25 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             return [dict(row) for row in conn.execute(sql, params).fetchall()]
 
+    # --- price moves ------------------------------------------------------
+
+    def test_a_cheaper_listing_joining_is_not_a_repricing_but_a_listing_changing_its_price_is(self) -> None:
+        import math
+
+        from app.services.supply import forecast_price
+
+        first, joined = self.listing(self.cid, "A"), self.listing(self.other, "B")
+        self.readings(first, [100] * 10, START - timedelta(days=19), fetched_at=START, price="0.50")
+        self.readings(first, [100] * 10, START - timedelta(days=9), fetched_at=START, price="0.60")
+        self.readings(joined, [100] * 6, START - timedelta(days=5), fetched_at=START, price="0.05")
+        with self.store.connection() as conn:
+            own = forecast_price.own_moves(conn, self.part_id, START)
+            cheapest = forecast_price.moves_of(forecast_price.series_of(conn, self.part_id, START))
+        self.assertEqual(own.count, 1, "only the listing that changed its price moved")
+        self.assertAlmostEqual(own.sizes[0], math.log(0.60 / 0.50), places=6)
+        self.assertGreater(cheapest.count, own.count, "the cheapest price also jumped when the cheaper listing joined")
+        self.assertLessEqual(max(abs(size) for size in own.sizes), forecast_price.MAX_MOVE)
+
     # --- making and keeping -------------------------------------------------
 
     def test_a_falling_part_gets_its_forecasts_kept_and_the_little_a_list_needs(self) -> None:
