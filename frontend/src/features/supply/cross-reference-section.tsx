@@ -24,7 +24,7 @@ async function propose(componentId: string, manufacturer: string, mpn: string) {
   }
 }
 
-/** Alternatives found in what Prism holds, graded by how close they are. Looked up when asked. A person checks footprint and pins before approving one. */
+/** Alternatives found in what Prism holds, graded by how close they are. Looked up when the section opens or when asked (no distributor is called). A person checks footprint and pins before approving one. */
 export function CrossReferenceSection({ partId, canEdit }: { partId: string; canEdit: boolean }) {
   const [found, setFound] = useState<CrossReference | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,7 +56,7 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
   };
   return (
     <FoldSection
-      title="Alternatives" open={open} onOpenChange={setOpen}
+      title="Alternatives" open={open} onOpenChange={(next) => { setOpen(next); if (next && !found && !busy) void look(); }}
       actions={(
         <span className="ml-auto flex gap-1">
           {canEdit ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}

@@ -23,7 +23,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("alternatives to a part", () => {
-  it("looks only when asked, grades each, and proposes one to the part's component", async () => {
+  it("looks only when asked or opened, grades each, and proposes one to the part's component", async () => {
     render(<CrossReferenceSection partId="p1" canEdit />);
     expect(api.getCrossReference).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Find alternatives" }));
@@ -33,6 +33,16 @@ describe("alternatives to a part", () => {
     expect(screen.getByText(/Differs: package/)).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Propose as alternate" })[0]);
     await waitFor(() => expect(api.addComponentSource).toHaveBeenCalledWith("c1", "Globex", "G-10K"));
+  });
+
+  it("loads what is stored when the section is opened, without a distributor call", async () => {
+    vi.mocked(api.getCrossReference).mockResolvedValue({ ...result, suggestions: [] });
+    render(<CrossReferenceSection partId="p1" canEdit />);
+    expect(api.getCrossReference).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("heading", { name: "Alternatives" }));
+    expect(await screen.findByText("Direct replacement")).toBeTruthy();
+    expect(api.getCrossReference).toHaveBeenCalledTimes(1);
+    expect(api.askSubstitutes).not.toHaveBeenCalled();
   });
 
   it("offers no proposal to someone who cannot edit, or when no component has the part", async () => {
