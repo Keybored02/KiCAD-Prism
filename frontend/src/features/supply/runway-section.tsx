@@ -16,7 +16,6 @@ const KINDS: Array<{ key: Exclude<PartsFilter, "">; label: string }> = [
   { key: "lead_up", label: "Lead time up" },
   { key: "often_out", label: "Often out" },
   { key: "unusual_drop", label: "Unusual drop" },
-  { key: "price_moving", label: "Price moving" },
 ];
 
 function KindList({ kind, onOpen }: { kind: Exclude<PartsFilter, "">; onOpen: (partId: string) => void }) {
