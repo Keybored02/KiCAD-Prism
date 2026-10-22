@@ -219,13 +219,16 @@ def _batches(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing
     return [chunk for level in sorted(levels) for chunk in _chunks(levels[level], max(1, size // 2 ** level))]
 
 
-def _by_part(items: Sequence[DueListing]) -> list[Sequence[DueListing]]:
-    """Listings grouped by part, in the order each part first appears (the service order)."""
+def _by_part(items: Sequence[DueListing], parts_per_call: int = 1) -> list[Sequence[DueListing]]:
+    """Listings grouped by part, in the order each part first appears (the service order). A provider that answers for several parts
+    in one call (``max_batch`` over 1, as Arrow does) gets whole parts packed together, up to ``parts_per_call`` of them."""
 
     groups: dict[str, list[DueListing]] = {}
     for item in items:
         groups.setdefault(item.part_id, []).append(item)
-    return list(groups.values())
+    parts = list(groups.values())
+    size = max(parts_per_call, 1)
+    return [[row for part in parts[start:start + size] for row in part] for start in range(0, len(parts), size)]
 
 
 def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[DueListing]:
@@ -300,7 +303,7 @@ class Poller:
         if trouble.cooling_down(self._store, connector_id, now):
             return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         with self._store.connection() as conn:
-            limit = (GROUP_LISTINGS if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN
+            limit = (GROUP_LISTINGS * spec.max_batch if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN
             due = (
                 spare_listings(conn, connector_id, now, limit, spare) if spare
                 else due_listings(conn, connector_id, now, limit, only_part, metered=spec.metered)
@@ -310,10 +313,11 @@ class Poller:
         if not due:
             return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE)
 
-        batches = _by_part(due) if spec.groups_by_part else _batches(due, spec.max_batch)
+        batches = _by_part(due, spec.max_batch) if spec.groups_by_part else _batches(due, spec.max_batch)
         holding = 0
-        if spec.max_batch > 1 and not spec.groups_by_part and not (interactive or oneoff or spare or only_part is not None):
-            if len(batches[-1]) < spec.max_batch and not _worth_sending(batches[-1], now, self._reset):
+        if spec.max_batch > 1 and not (interactive or oneoff or spare or only_part is not None):
+            full = len({row.part_id for row in batches[-1]}) >= spec.max_batch if spec.groups_by_part else len(batches[-1]) >= spec.max_batch
+            if not full and not _worth_sending(batches[-1], now, self._reset):
                 holding = len(batches.pop())
             if not batches:
                 return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE, holding=holding)

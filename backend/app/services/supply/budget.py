@@ -43,7 +43,8 @@ def read_cost(spec: ProviderSpec, rate: str, listings: float) -> float:
 
     reads_a_day = 1 / RATE_DAYS[rate]
     if spec.groups_by_part:
-        return reads_a_day
+        # One call reads all of a part's listings, and where a call takes several parts (Arrow, 100), many parts at once.
+        return reads_a_day / spec.max_batch
     return reads_a_day * listings / spec.max_batch * spec.calls_per_offers_batch
 
 

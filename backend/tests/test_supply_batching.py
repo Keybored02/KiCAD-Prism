@@ -241,6 +241,28 @@ class SchedulingTests(unittest.TestCase):
         poller.poll_connector(self.cid)
         self.assertEqual([sorted(group) for group in self.asked], [["A-1", "A-2"]], "the sibling is not left for a call of its own")
 
+    def test_a_provider_that_answers_for_several_parts_gets_whole_parts_packed_into_one_call(self) -> None:
+        from app.services.supply import budget
+        from app.services.supply.providers.base import ProviderSpec
+        from app.services.supply.providers.fake import FakeProvider
+
+        spec = ProviderSpec(
+            key="demo_packed", label="Demo packed", capabilities=frozenset({"offers"}), max_batch=3, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: FakeProvider(config), default_daily_budget=100, groups_by_part=True,
+        )
+        self.registry.register(spec, replace=True)
+        self.addCleanup(self.registry.unregister, "demo_packed")
+        self.assertEqual(budget.read_cost(spec, "daily", 2), 1 / 3, "a call reads three parts")
+        cid = self.connectors.create(actor="a@example.com", provider="demo_packed", currency="EUR", interactive_reserve_pct=10)["id"]
+        self.cid = cid
+        for mpn in ("AAA", "BBB", "CCC", "DDD"):
+            record = self.watch(mpn)
+            self.listing(record.part_id, f"{mpn}-1")
+            self.listing(record.part_id, f"{mpn}-2")
+        summary = self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).poll_connector(cid)
+        self.assertEqual(sorted(len(group) for group in self.asked), [2, 6], "three whole parts in one call, the fourth in another")
+        self.assertEqual((summary.calls, summary.polled), (2, 8))
+
     def test_extra_calls_a_group_needed_are_counted(self) -> None:
         a = self.watch("AAA")
         self.listing(a.part_id, "A-1")
