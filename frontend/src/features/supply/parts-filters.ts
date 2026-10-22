@@ -1,6 +1,6 @@
 import type { PartsFilter } from "@/types/supply";
 
-export const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
+export const FILTER_LABEL: Record<Exclude<PartsFilter, "" | `${string}:${string}`>, string> = {
   at_risk: "At risk",
   out_of_stock: "Out of stock",
   lifecycle: "End of life",
@@ -52,7 +52,26 @@ export const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
 export const LIFECYCLE_FILTERS = ["lifecycle", "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown"] as const;
 export const ANY = "any";
 
+const VALUED_LABEL: Record<string, (value: string) => string> = {
+  origin: (value) => (value === "Several" ? "Origin: several countries" : value === "Unknown" ? "Origin unknown" : `Made in ${value}`),
+  listed: (value) => `Listed at ${value}`,
+  stocked: (value) => `In stock at ${value}`,
+  cheapest: (value) => `Cheapest at ${value}`,
+  repricing: (value) => `${value} changes their price`,
+  leader: (value) => `${value} moves price first`,
+  restock_first: (value) => `${value} restocks first`,
+};
+
 /** A filter from the address, or none when it is not one Prism knows. */
 export function filterFromParam(value: string | null): PartsFilter {
-  return value && value in FILTER_LABEL ? (value as PartsFilter) : "";
+  if (!value) return "";
+  const [kind, ...rest] = value.split(":");
+  if (rest.length > 0 && kind in VALUED_LABEL && rest.join(":") !== "") return value as PartsFilter;
+  return value in FILTER_LABEL ? (value as PartsFilter) : "";
+}
+
+/** The words for a filter: a fixed group, or a country or distributor chosen on a chart. */
+export function filterLabel(only: Exclude<PartsFilter, "">): string {
+  const [kind, ...rest] = only.split(":");
+  return rest.length > 0 && kind in VALUED_LABEL ? VALUED_LABEL[kind](rest.join(":")) : FILTER_LABEL[only as keyof typeof FILTER_LABEL];
 }

@@ -522,7 +522,8 @@ export type PartsFilter =
   | "lead_under_2w" | "lead_2_to_8w" | "lead_8_to_16w" | "lead_16_to_26w" | "lead_over_26w" | "lead_none"
   | "rohs_compliant" | "rohs_not_compliant" | "rohs_not_applicable" | "rohs_unknown"
   | "reach_compliant" | "reach_affected" | "reach_not_applicable" | "reach_unknown"
-  | "control_controlled" | "control_disputed" | "control_none" | "control_unknown";
+  | "control_controlled" | "control_disputed" | "control_none" | "control_unknown"
+  | `${"origin" | "listed" | "stocked" | "cheapest" | "repricing" | "leader" | "restock_first"}:${string}`;
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 

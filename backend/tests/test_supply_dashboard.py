@@ -168,6 +168,33 @@ class DashboardTests(unittest.TestCase):
             for group, count in (("rohs_not_compliant", page["lifecycle"]["compliance"]["rohs"]["not_compliant"]), ("control_unknown", page["trade"]["control"]["unknown"])):
                 self.assertEqual(len(ids(group)), count)
 
+    def test_a_bar_per_country_or_distributor_opens_the_parts_it_counts(self) -> None:
+        one = self.follow("ONE-1", [500] * 5)
+        two = self.follow("TWO-1", [500] * 5, holders=("c1", "c2"))
+        none = self.follow("NONE-1", [0] * 5)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'origin_country', 'China', %s)", (one, NOW))
+            conn.execute("UPDATE connectors SET display_name = 'Alpha' WHERE id = 'c1'")
+            conn.execute("UPDATE connectors SET display_name = 'Beta' WHERE id = 'c2'")
+            self.part_insights.renew(conn, NOW)
+            page = self.insights_page.build(conn)
+
+            def ids(only: str) -> set[str]:
+                return {item["id"] for item in self.parts_view.list_parts(conn, scope="watched", only=only)["items"]}
+
+            self.assertEqual(ids("origin:China"), {one})
+            self.assertEqual(ids("origin:Unknown"), {two, none})
+            self.assertEqual(ids("listed:Alpha"), {one, two, none})
+            self.assertEqual(ids("listed:Beta"), {two})
+            self.assertEqual(ids("stocked:Alpha"), {one, two})
+            coverage = {row["name"]: row for row in page["sourcing"]["coverage"]}
+            self.assertEqual((len(ids("listed:Alpha")), len(ids("stocked:Alpha"))), (coverage["Alpha"]["listed"], coverage["Alpha"]["in_stock"]))
+            self.assertEqual(ids("leader:Alpha"), set())
+            with self.assertRaises(ValueError):
+                ids("nonsense")
+            with self.assertRaises(ValueError):
+                ids("country:China")
+
     def test_a_persons_export_control_mark_wins_over_what_distributors_state(self) -> None:
         from app.services.supply import trade_marks
 

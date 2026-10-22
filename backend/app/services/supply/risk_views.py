@@ -96,13 +96,24 @@ def coverage(conn, items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """For each distributor: how many of the tracked parts it lists, holds in stock, and is the cheapest for."""
 
     ids = [item["id"] for item in items]
+    listed, held, cheapest, names = _coverage_sets(conn, items)
+    return sorted(
+        ({"connector_id": cid, "name": names[cid][0], "provider": names[cid][1], "tracked": len(ids), "listed": len(listed[cid]), "in_stock": len(held[cid]), "cheapest": len(cheapest[cid])} for cid in listed),
+        key=lambda item: -item["listed"],
+    )
+
+
+def _coverage_sets(conn, items: Sequence[Mapping[str, Any]]):
+    """For each distributor the parts it lists, holds in stock and is the cheapest for, as sets of part ids (the counts are their sizes)."""
+
+    ids = [item["id"] for item in items]
     offers = parts_view.offers_by_part(conn, ids)
     quantities = price_quantity.of_parts(conn, ids)
     base = settings_store.load(conn).base_currency
     rates = fx.latest(conn)
-    listed: Counter[str] = Counter()
-    held: Counter[str] = Counter()
-    cheapest: Counter[str] = Counter()
+    listed: dict[str, set[str]] = defaultdict(set)
+    held: dict[str, set[str]] = defaultdict(set)
+    cheapest: dict[str, set[str]] = defaultdict(set)
     names: dict[str, tuple[str, str]] = {}
     for part_id in ids:
         here = [offer for offer in offers.get(part_id, []) if not offer["marketplace"]]
@@ -115,17 +126,60 @@ def coverage(conn, items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             if found is not None and (entry["price"] is None or found.price < entry["price"]):
                 entry["price"] = found.price
         for connector_id, entry in by_connector.items():
-            listed[connector_id] += 1
-            held[connector_id] += 1 if entry["stock"] > 0 else 0
+            listed[connector_id].add(part_id)
+            if entry["stock"] > 0:
+                held[connector_id].add(part_id)
         priced = {cid: entry for cid, entry in by_connector.items() if entry["price"] is not None}
         if len(priced) > 1:
             best = min(entry["price"] for entry in priced.values())
             for connector_id, entry in priced.items():
-                cheapest[connector_id] += 1 if entry["price"] == best else 0
-    return sorted(
-        ({"connector_id": cid, "name": names[cid][0], "provider": names[cid][1], "tracked": len(ids), "listed": listed[cid], "in_stock": held[cid], "cheapest": cheapest[cid]} for cid in listed),
-        key=lambda item: -item["listed"],
-    )
+                if entry["price"] == best:
+                    cheapest[connector_id].add(part_id)
+        for connector_id in by_connector:
+            cheapest.setdefault(connector_id, set())
+    return listed, held, cheapest, names
+
+
+def origin_labels(conn, tracked: Sequence[str]) -> dict[str, str]:
+    """The country each tracked part is said to come from: the one country distributors give, ``Several`` when they differ, else ``Unknown``."""
+
+    origins: dict[str, set[str]] = defaultdict(set)
+    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'origin_country' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+        origins[row["part_id"]].add(row["value"].strip())
+    found = {part_id: {value for value in origins.get(part_id, set()) if value} for part_id in tracked}
+    return {part_id: (sorted(values)[0] if len(values) == 1 else "Several" if values else "Unknown") for part_id, values in found.items()}
+
+
+# Filters that carry a value (``kind:value``), from the Insights charts that have one bar per country or distributor.
+VALUED = ("origin", "listed", "stocked", "cheapest", "repricing", "leader", "restock_first")
+
+
+def valued_members(conn, only: str, items: Sequence[Mapping[str, Any]]) -> set[str] | None:
+    """The parts one bar of a per-country or per-distributor chart counts, or None when ``only`` is not such a filter."""
+
+    kind, _, value = only.partition(":")
+    if kind not in VALUED or not value:
+        return None
+    ids = [item["id"] for item in items]
+    if kind == "origin":
+        return {part_id for part_id, label in origin_labels(conn, ids).items() if label == value}
+    if kind in ("listed", "stocked", "cheapest"):
+        listed, held, cheapest, names = _coverage_sets(conn, items)
+        sets = {"listed": listed, "stocked": held, "cheapest": cheapest}[kind]
+        return set().union(*(sets.get(cid, set()) for cid, (name, _provider) in names.items() if name == value))
+    wanted = set(ids)
+    members: set[str] = set()
+    for row in part_insights.read_all(conn):
+        if row["part_id"] not in wanted:
+            continue
+        behaviour = row.get("behaviour") or {}
+        if kind == "repricing" and value in (behaviour.get("repricing") or {}):
+            members.add(row["part_id"])
+        elif kind == "leader" and behaviour.get("leader") == value:
+            members.add(row["part_id"])
+        elif kind == "restock_first" and behaviour.get("restock_first") == value:
+            members.add(row["part_id"])
+    return members
 
 
 def lifecycle_mix(items: Sequence[Mapping[str, Any]]) -> dict[str, int]:

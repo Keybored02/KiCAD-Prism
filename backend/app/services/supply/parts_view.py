@@ -332,7 +332,7 @@ def _projects_of(conn, part_ids: list[str], role: str | None) -> dict[str, set[s
 
 
 def part_groups(
-    conn, *, scope: Scope = "watched", query: str = "", role: str | None = None, only: Filter = "", vendor: str = "",
+    conn, *, scope: Scope = "watched", query: str = "", role: str | None = None, only: Filter | str = "", vendor: str = "",
 ) -> dict[str, Any]:
     """The parts that match, grouped by the projects that use them: tracked projects first, then by what needs a look.
 
@@ -441,13 +441,19 @@ def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
 
     if only in risk_views.GROUPS:
         keep = risk_views.group_members(conn, only, [item["id"] for item in items])
-    else:
+    elif ":" in only:
+        keep = risk_views.valued_members(conn, only, items)
+        if keep is None:
+            raise ValueError("That filter is not one Prism knows.")
+    elif only in part_insights.KINDS:
         keep = part_insights.matching(conn, only)
+    else:
+        raise ValueError("That filter is not one Prism knows.")
     return [item for item in items if item["id"] in keep]
 
 
 def list_parts(
-    conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = "", offset: int = 0,
+    conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter | str = "", offset: int = 0,
     project_id: str = "", vendor: str = "",
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of

@@ -14,6 +14,7 @@ const COVERAGE = [
   { key: "in_stock", label: "Has in stock" },
   { key: "cheapest", label: "Cheapest for" },
 ] as const;
+const COVERAGE_FILTER = { listed: "listed", in_stock: "stocked", cheapest: "cheapest" } as const;
 
 /** Which distributors carry the BOM: how many tracked parts each lists, holds in stock, and is cheapest for. */
 export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; onOpen: OpenParts }) {
@@ -39,10 +40,13 @@ export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; on
                   <span aria-hidden className="h-2 w-2 shrink-0 rounded-[2px]" style={{ backgroundColor: vendorColor(item.provider) ?? "#6b7280" }} /><span className="truncate">{item.name}</span>
                 </p>
                 {COVERAGE.map((column) => (
-                  <span key={column.key} className="grid grid-cols-[1fr_2.5rem] items-center gap-1.5" aria-label={`${item.name} ${column.label.toLowerCase()}: ${item[column.key]}`}>
+                  <button
+                    key={column.key} type="button" className="grid grid-cols-[1fr_2.5rem] items-center gap-1.5 text-left hover:bg-muted/30"
+                    aria-label={`${item.name} ${column.label.toLowerCase()}: ${item[column.key]}`} onClick={() => onOpen(`${COVERAGE_FILTER[column.key]}:${item.name}`)}
+                  >
                     <span className="h-3.5 bg-muted/30"><span className={cn("block h-full", item[column.key] === 0 ? "bg-muted" : "bg-primary")} style={{ width: `${Math.max((item[column.key] / largest) * 100, item[column.key] === 0 ? 2 : 0)}%` }} /></span>
                     <span className="text-right tabular-nums">{item[column.key].toLocaleString()}</span>
-                  </span>
+                  </button>
                 ))}
               </div>
             ))}
@@ -53,7 +57,7 @@ export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; on
           onOpen={(key) => onOpen(key === "none" ? "out_of_stock" : key === "one" ? "one_distributor" : key === "unknown" ? "few_readings" : "")}
         />
       </div>
-      {behaviour ? <DistributorsSection distributors={page.distributors} /> : null}
+      {behaviour ? <DistributorsSection distributors={page.distributors} onOpen={onOpen} /> : null}
     </div>
   );
 }
@@ -169,7 +173,7 @@ export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsight
         info="What distributors state. A part with several answers is counted as Several."
       >
         <BarList labelWidth="8rem" rows={[
-          ...origins.map((item) => ({ key: item.country, label: item.country, value: item.parts, tone: item.country === "Unknown" || item.country === "Several" ? GREY : undefined })),
+          ...origins.map((item) => ({ key: item.country, label: item.country, value: item.parts, tone: item.country === "Unknown" || item.country === "Several" ? GREY : undefined, onClick: () => onOpen(`origin:${item.country}`) })),
           ...(other > 0 ? [{ key: "other", label: "Other countries", value: other }] : []),
         ]} />
       </ChartCard>

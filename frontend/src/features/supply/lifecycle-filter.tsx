@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PartsFilter } from "@/types/supply";
-import { ANY, FILTER_LABEL, LIFECYCLE_FILTERS } from "./parts-filters";
+import { ANY, FILTER_LABEL, filterLabel, LIFECYCLE_FILTERS } from "./parts-filters";
 
 const isLifecycle = (only: PartsFilter) => LIFECYCLE_FILTERS.some((item) => item === only);
 
@@ -27,8 +27,8 @@ export function LifecycleSelect({ only, onChange }: { only: PartsFilter; onChang
 export function ActiveFilterChip({ only, onClear }: { only: PartsFilter; onClear: () => void }) {
   if (!only || isLifecycle(only)) return null;
   return (
-    <Button size="sm" variant="secondary" onClick={onClear} aria-label={`Showing only ${FILTER_LABEL[only]}. Show all`}>
-      {FILTER_LABEL[only]}<X className="h-3.5 w-3.5" />
+    <Button size="sm" variant="secondary" onClick={onClear} aria-label={`Showing only ${filterLabel(only)}. Show all`}>
+      {filterLabel(only)}<X className="h-3.5 w-3.5" />
     </Button>
   );
 }

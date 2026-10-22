@@ -425,7 +425,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(only("lifecycle"), ["EOL-1", "NRND-1"])
         self.assertEqual(only("at_risk"), ["EOL-1", "NRND-1", "OOS-1"])
         self.assertEqual(len(only("")), 4)
-        self.assertEqual(self.call("GET", "/api/supply/parts", query="only=nonsense").status, 422)
+        self.assertEqual(self.call("GET", "/api/supply/parts", query="only=nonsense").status, 400)
 
     def test_a_threshold_above_stock_is_a_warning(self) -> None:
         cid = self.fake_connector()

@@ -77,7 +77,7 @@ def _watch_dto(record: watches.WatchRecord) -> dict[str, Any]:
 @router.get("/parts")
 async def list_parts(
     scope: Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"] = "watched",
-    only: parts_view.Filter = "",
+    only: str = Query(default="", max_length=120, pattern=r"^[A-Za-z0-9_]*(:[^\x00-\x1f]{1,100})?$"),
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),
     offset: int = Query(default=0, ge=0, le=parts_view.MAX_CANDIDATES),
@@ -97,7 +97,7 @@ async def list_parts(
 @router.get("/part-groups")
 async def part_groups(
     scope: Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"] = "watched",
-    only: parts_view.Filter = "",
+    only: str = Query(default="", max_length=120, pattern=r"^[A-Za-z0-9_]*(:[^\x00-\x1f]{1,100})?$"),
     q: str = Query(default="", max_length=100),
     vendor: str = Query(default="", max_length=100),
     user: AuthenticatedUser = Depends(require_supply_reader),

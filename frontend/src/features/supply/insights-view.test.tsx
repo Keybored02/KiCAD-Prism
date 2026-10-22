@@ -139,7 +139,7 @@ describe("the insights sections added with the rework", () => {
   it("makes every bar of the lifecycle, compliance, lead time and export control charts open its parts", async () => {
     renderView();
     await screen.findByText("DigiKey lists 5 of 6 parts");
-    for (const name of [/^Not compliant: \d/, /^Affected: \d/, /^Unknown: \d/, /^Ended: \d/, /^Under 2 weeks: \d/, /^Controlled: \d/, /^No class given: \d/, /^Active: \d/]) {
+    for (const name of [/^Malaysia: \d/, /^DigiKey lists: \d/, /^DigiKey has in stock: \d/, /^Not compliant: \d/, /^Affected: \d/, /^Unknown: \d/, /^Ended: \d/, /^Under 2 weeks: \d/, /^Controlled: \d/, /^No class given: \d/, /^Active: \d/]) {
       expect(screen.getAllByRole("button", { name }).length).toBeGreaterThan(0);
     }
   });
