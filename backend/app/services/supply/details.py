@@ -63,11 +63,11 @@ def due(
               AND NOT EXISTS (
                   SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
                   WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.checked_at > %(since)s)
-            ORDER BY l.part_id, l.sku
               AND NOT EXISTS (
                   SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
                   WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.failures > 0
                     AND d.tried_at + LEAST(5 * power(2, d.failures - 1), 1440) * INTERVAL '1 minute' > %(now)s)
+            ORDER BY l.part_id, l.sku
             LIMIT %(limit)s
             """,
             {"connector": connector_id, "kind": kind, "since": now - interval, "limit": limit, "now": now},

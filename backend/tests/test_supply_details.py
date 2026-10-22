@@ -243,6 +243,29 @@ class DetailsTests(unittest.TestCase):
             self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds), "50 is the whole day")
             self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"interactive": True})))
 
+    def test_notices_of_a_part_nobody_tracks_are_due_weekly_and_a_failed_read_waits_a_little(self) -> None:
+        from app.services.supply import details, parts
+
+        with self.store.connection() as conn:
+            loose = parts.ensure_part(conn, "Texas Instruments", "LM324DR", ADMIN).id
+        listing = self.listing(self.digikey, "296-1391-1-ND", loose)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 10, 'active')", (listing, NOW))
+
+        def due(at):
+            with self.store.connection() as conn:
+                return [row["part_id"] for row in details.due(conn, self.digikey, "notices", at, 10, untracked=True)]
+
+        self.assertEqual(due(NOW), [loose], "only the part nobody tracks")
+        with self.store.connection() as conn:
+            details._record(conn, listing, "notices", NOW, "provider_error", failed=True)
+        self.assertEqual(due(NOW + timedelta(minutes=1)), [], "a failed read waits")
+        self.assertEqual(due(NOW + timedelta(minutes=6)), [loose], "and is tried again after five minutes")
+        with self.store.connection() as conn:
+            details._record(conn, listing, "notices", NOW + timedelta(minutes=6), "0 notices", failed=False)
+        self.assertEqual(due(NOW + timedelta(days=6)), [], "read: not again within the week")
+        self.assertEqual(due(NOW + timedelta(days=8)), [loose])
+
     def test_notice_calls_stop_when_digikey_says_its_count_is_zero_and_start_again_in_the_next_day(self) -> None:
         from app.services.supply import details
 
