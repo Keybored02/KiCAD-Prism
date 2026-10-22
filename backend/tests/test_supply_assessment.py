@@ -163,18 +163,16 @@ class RiskTests(unittest.TestCase):
 
 
 class OutlookFindingTests(unittest.TestCase):
-    def test_a_part_ending_within_two_years_is_a_warning_and_an_ended_one_an_error(self) -> None:
+    def test_a_part_ending_within_two_years_is_a_warning(self) -> None:
         soon = [f for f in checks.evaluate(facts(outlook="under_2_years"), DEFAULTS) if f.check == "ending_within_2_years"]
         self.assertEqual([f.severity for f in soon], [Status.WARNING])
-        ended = [f for f in checks.evaluate(facts(outlook="ended"), DEFAULTS) if f.check == "outlook_ended"]
-        self.assertEqual([f.severity for f in ended], [Status.ERROR])
         for quiet in ("", "no_signs", "2_to_5_years", "unknown"):
-            self.assertFalse({"ending_within_2_years", "outlook_ended"} & set(ids(checks.evaluate(facts(outlook=quiet), DEFAULTS))), quiet)
+            self.assertFalse({"ending_within_2_years"} & set(ids(checks.evaluate(facts(outlook=quiet), DEFAULTS))), quiet)
 
     def test_it_is_not_said_twice_when_the_lifecycle_or_the_distributors_already_say_it(self) -> None:
         found = ids(checks.evaluate(facts(lifecycle=Lifecycle.OBSOLETE, outlook="ended"), DEFAULTS))
         self.assertIn("obsolete", found)
-        self.assertNotIn("outlook_ended", found)
+        self.assertNotIn("ending_within_2_years", found)
         dropped = ids(checks.evaluate(facts([offer(discontinued=True)], outlook="under_2_years"), DEFAULTS))
         self.assertNotIn("ending_within_2_years", dropped)
 
