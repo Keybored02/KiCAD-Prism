@@ -416,12 +416,11 @@ def run_supply_poll_job(context: Any) -> Any:
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
-    compacted = housekeeping(connectors.store)
     details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,
         "calls": calls, "polled": polled_count, "gone": gone, "poll_stopped": poll_stopped,
-        "samples_compacted": compacted, "details_stopped": details_stopped,
+        "details_stopped": details_stopped,
     }
     return JobResult(
         message=f"Searched {searched} part(s), polled {polled_count} listing(s)",

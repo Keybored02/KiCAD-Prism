@@ -357,6 +357,8 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
     only = sorted(set(part_ids)) if part_ids is not None else None
     if only is not None and not only:
         return {"added": 0, "changed": 0, "removed": 0}
+    # Taken with ``admission.sync``'s: tiers and admissions are written one run at a time.
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('supply-admission'))")
     wanted = _sources(conn, only)
     current = {
         row["part_id"]: row
@@ -372,7 +374,7 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
         row = current.get(part_id)
         if row is None:
             conn.execute(
-                "INSERT INTO part_tiers (part_id, tier, rate, reasons) VALUES (%s, %s, %s, %s::jsonb)",
+                "INSERT INTO part_tiers (part_id, tier, rate, reasons) VALUES (%s, %s, %s, %s::jsonb) ON CONFLICT (part_id) DO NOTHING",
                 (part_id, tier, rate, _json(stored)),
             )
             added += 1

@@ -133,6 +133,8 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
     """Bring ``admissions`` in line with the tiers, the budgets and the listings. Returns how many pairs changed."""
 
     now = now or datetime.now(timezone.utc)
+    # One writer at a time: two runs would admit the same pair twice, or both promote into the same free room.
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('supply-admission'))")
     # A pick on a listing that is no longer counted (gone, rejected) is dropped: the part is read at all its listings again.
     conn.execute(
         "DELETE FROM packaging_picks pk USING listings l WHERE l.id = pk.listing_id AND l.match_state NOT IN ('exact', 'manual')"
@@ -178,7 +180,7 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
             fits = budget.total([used + desired[key]]) <= account.capacity
             state = ADMITTED if fits else WAITING
             conn.execute(
-                "INSERT INTO admissions (part_id, connector_id, state, since) VALUES (%s, %s, %s, %s)", (*key, state, now)
+                "INSERT INTO admissions (part_id, connector_id, state, since) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", (*key, state, now)
             )
             mine[key] = {"state": state, "since": now}
             used += desired[key] if fits else 0

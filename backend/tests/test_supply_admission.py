@@ -139,6 +139,22 @@ class AdmissionTests(unittest.TestCase):
             self.watch(n)
         self.assertEqual(self.counts(cid), {"admitted": 15, "waiting": 5})
 
+    def test_runs_at_the_same_time_neither_fail_nor_overfill_the_account(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        cid = self.connector()
+        for n in range(20):
+            self.watch(n)
+
+        def run(_n: int) -> None:
+            with self.store.connection() as conn:
+                self.tracking.recompute(conn)
+                self.admission.sync(conn)
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(run, range(12)))  # a failure in any run is raised here
+        self.assertEqual(self.counts(cid), {"admitted": 15, "waiting": 5})
+
     def test_freeing_room_promotes_the_oldest_waiting_part(self) -> None:
         cid = self.connector()
         for n in range(17):
