@@ -11,6 +11,8 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
 
+import numpy as np
+
 from app.services.supply import forecast_stock, part_history
 from app.services.supply.forecast_stock import Holder, OutageModel
 
@@ -19,8 +21,9 @@ _CACHE_FOR = 600.0
 _pooled: tuple[float, date, tuple[dict[str, OutageModel | None], dict[str, float], dict[str, int]]] | None = None
 
 
-def holders(conn, part_id: str, now: datetime, days: int = 90) -> list[Holder]:
-    """Each distributor's daily stock of the part, with the lead time it quotes."""
+def holders(conn, part_id: str, now: datetime, days: int = 90, *, borrow: bool = True) -> list[Holder]:
+    """Each distributor's daily stock of the part, with the lead time it quotes. A distributor with too few readings since its last
+    restock to have a drain of its own is given the drains of similar parts (``borrow`` False leaves that out)."""
 
     built = part_history.build(conn, part_id, now, days)
     if not built["connectors"]:
@@ -36,11 +39,46 @@ def holders(conn, part_id: str, now: datetime, days: int = 90) -> list[Holder]:
     }
     rate = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     found = []
+    similar: np.ndarray | None | bool = False
     for line in built["connectors"]:
         series = [(date.fromisoformat(day), int(stock)) for day, stock in line["stock"]]
         if series:
-            found.append(Holder(line["connector_id"], line["name"], line["provider"], series, quotes.get(line["connector_id"]), bool(rate and rate["rate"] != "daily")))
+            holder = Holder(line["connector_id"], line["name"], line["provider"], series, quotes.get(line["connector_id"]), bool(rate and rate["rate"] != "daily"))
+            if borrow and len(forecast_stock.run_since_restock(series)) < forecast_stock.FEW_READINGS:
+                if similar is False:
+                    similar = similar_shares(conn, part_id, now)
+                holder.similar = similar  # type: ignore[assignment]
+            found.append(holder)
     return found
+
+
+def similar_shares(conn, part_id: str, now: datetime, limit: int = 40) -> np.ndarray | None:
+    """The drain, as a share of stock a day, of each tracked part of the same maker and category that has a drain of its own. None
+    unless at least ``MIN_SIMILAR`` parts have one."""
+
+    category = conn.execute("SELECT lower(trim(value)) AS value FROM part_facts WHERE part_id = %s AND name = 'category' LIMIT 1", (part_id,)).fetchone()
+    if category is None or not category["value"]:
+        return None
+    others = conn.execute(
+        """
+        SELECT p.id FROM parts p JOIN part_tiers pt ON pt.part_id = p.id
+        JOIN parts me ON me.id = %s AND me.manufacturer_id = p.manufacturer_id
+        WHERE p.id <> %s AND EXISTS (SELECT 1 FROM part_facts f WHERE f.part_id = p.id AND f.name = 'category' AND lower(trim(f.value)) = %s)
+        ORDER BY p.id LIMIT %s
+        """,
+        (part_id, part_id, category["value"], limit),
+    ).fetchall()
+    shares: list[float] = []
+    for other in others:
+        drains = stocks = 0.0
+        for holder in holders(conn, other["id"], now, borrow=False):
+            slopes = forecast_stock.drain_samples(holder.series)
+            if slopes is not None and holder.stock > 0:
+                drains += float(np.median(slopes))
+                stocks += holder.stock
+        if stocks > 0:
+            shares.append(drains / stocks)
+    return np.asarray(shares, dtype=float) if len(shares) >= forecast_stock.MIN_SIMILAR else None
 
 
 def is_weekly(conn, part_id: str) -> bool:

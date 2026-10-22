@@ -755,7 +755,7 @@ export interface PartForecast {
     stock: Array<{ connector_id: string; path: Array<{ day: string; median: number }> }>;
     price: Array<{ connector_id: string; now: number; h30: { date: string; median: number; low: number; high: number }; h90: { date: string; median: number; low: number; high: number } }>;
   };
-  inputs?: { span_days: number; holders: number; drain_known: number; outages_modelled: number; weekly: boolean };
+  inputs?: { span_days: number; holders: number; drain_known: number; from_similar?: number; outages_modelled: number; weekly: boolean };
   price?: {
     now: number;
     inputs: { readings: number; span_days: number; own_moves: number; pooled_moves: number };

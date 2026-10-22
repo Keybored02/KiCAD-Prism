@@ -23,6 +23,14 @@ def _chance(probability: float) -> dict[str, Any]:
     return {"probability": probability, "percent": forecasting.chance_percent(probability), "word": forecasting.chance_word(probability)}
 
 
+def _borrowed(state: dict[str, Any], stock: dict[str, Any]) -> dict[str, Any]:
+    """A runout worked out from similar parts, because the part has too few readings of its own, is kept as learning: it says so."""
+
+    if stock["inputs"].get("from_similar"):
+        return {**state, "state": "learning", "reason": "The drain is taken from similar parts of the same maker and category: this part has too few readings of its own."}
+    return state
+
+
 def part(conn, part_id: str, now: datetime | None = None, quantity: int | None = None) -> dict[str, Any]:
     """Everything the part sheet's Forecast section and chart bands need."""
 
@@ -42,7 +50,7 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
             "quantity": stock["quantity"], "out_now": stock["out_now"], "weeks": weeks,
             "buy_state": {"4w": state("can_buy_4w"), "8w": state("can_buy_8w")},
             "out_everywhere": {"4w": _chance(stock["out_everywhere"][4]), "8w": _chance(stock["out_everywhere"][8])},
-            "runout": ({**_range(today, stock["runout"]), **_chance(stock["runout"]["probability"]), "state": state("runout")} if stock["runout"] else None),
+            "runout": ({**_range(today, stock["runout"]), **_chance(stock["runout"]["probability"]), "state": _borrowed(state("runout"), stock)} if stock["runout"] else None),
             "back": [
                 _range(today, item, {"connector_id": item["connector_id"], "name": item["name"], "provider": item["provider"], "quote_days": item["quote_days"],
                                       "ratio": item["ratio"], "beyond_share": item["beyond"], "state": state("back_in")})

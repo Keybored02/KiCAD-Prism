@@ -317,6 +317,50 @@ class ForecastDbTests(unittest.TestCase):
             conn.execute("UPDATE pcns SET state = 'closed'")
             self.assertFalse(forecast_lifecycle.signs(conn, self.part_id)["notice"], "a closed notice is no sign")
 
+    def test_a_part_with_few_readings_since_its_restock_borrows_the_drain_of_five_similar_parts(self) -> None:
+        from app.services.supply import forecast_load, forecast_stock, parts, watches
+
+        category = "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
+        with self.store.connection() as conn:
+            conn.execute(category, (self.part_id, START))
+            twins = []
+            for index in range(5):
+                twin = parts.ensure_part(conn, "Acme", f"TWIN-{index}", ADMIN).id
+                watches.add_watch(conn, "Acme", f"TWIN-{index}", ADMIN, tier=1)
+                conn.execute(category, (twin, START))
+                twins.append(twin)
+        for twin in twins:
+            self.falling(self.listing(self.cid, f"TWIN-SKU-{twin[:6]}", twin))  # 100 a day from 3,000: 3.3% to 10% of stock a day
+        # This part: a restock to 3,000 two days ago and three readings since.
+        self.readings(self.listing(self.cid, "NEW-SKU"), [200] * 12 + [3000, 2950, 2900], START - timedelta(days=14), fetched_at=START)
+        with self.store.connection() as conn:
+            shares = forecast_load.similar_shares(conn, self.part_id, START)
+            found = forecast_load.holders(conn, self.part_id, START)
+            alone = forecast_load.holders(conn, self.part_id, START, borrow=False)
+        self.assertIsNotNone(shares)
+        self.assertEqual(len(shares), 5)
+        self.assertTrue(all(0.0 < share < 0.2 for share in shares), shares)
+        self.assertIsNotNone(found[0].similar)
+        self.assertIsNone(alone[0].similar)
+        self.assertLess(len(forecast_stock.run_since_restock(found[0].series)), forecast_stock.FEW_READINGS)
+
+    def test_four_similar_parts_are_too_few_to_borrow_from(self) -> None:
+        from app.services.supply import forecast_load, parts, watches
+
+        category = "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
+        with self.store.connection() as conn:
+            conn.execute(category, (self.part_id, START))
+            twins = []
+            for index in range(4):
+                twin = parts.ensure_part(conn, "Acme", f"TWIN-{index}", ADMIN).id
+                watches.add_watch(conn, "Acme", f"TWIN-{index}", ADMIN, tier=1)
+                conn.execute(category, (twin, START))
+                twins.append(twin)
+        for index, twin in enumerate(twins):
+            self.falling(self.listing(self.cid, f"SKU-{index}", twin))
+        with self.store.connection() as conn:
+            self.assertIsNone(forecast_load.similar_shares(conn, self.part_id, START))
+
     def test_the_forecast_endpoint_and_the_track_record(self) -> None:
         self.falling(self.listing(self.cid, "FALL-SKU"), end=datetime.now(timezone.utc))
         reply = self.get(f"/api/supply/parts/{self.part_id}/forecast", "quantity=50")

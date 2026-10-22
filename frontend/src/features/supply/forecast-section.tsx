@@ -103,6 +103,7 @@ export function ForecastSection({ forecast, currency, titled = true }: {
       ) : forecast.runout ? (
         <Line model={forecast.runout.state} why={`${whyStock(forecast)} The range is where 8 in 10 simulated futures run out, given that it does within 8 weeks (${forecast.runout.percent}% of them do).`}>
           Runs out <strong>{rangeText(forecast.runout.low, forecast.runout.median, forecast.runout.high, today)}</strong>
+          {forecast.inputs?.from_similar ? <span className="text-xs text-muted-foreground"> (from similar parts)</span> : null}
         </Line>
       ) : null}
       {forecast.out_everywhere ? (

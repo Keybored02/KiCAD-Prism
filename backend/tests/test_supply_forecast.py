@@ -249,3 +249,24 @@ class RunsOutFirstTests(unittest.TestCase):
         with mock.patch.object(parts_view.part_insights, "of_parts", return_value=kept):
             ordered = parts_view._runs_out_first(None, [{"id": key} for key in ("none", "slow", "sure", "out", "sooner")])  # noqa: SLF001
         self.assertEqual([item["id"] for item in ordered], ["out", "sure", "sooner", "slow", "none"])
+
+
+class SimilarPartsTests(unittest.TestCase):
+    def holder(self, readings, similar=None):
+        series = [(START + timedelta(days=index), value) for index, value in enumerate(readings)]
+        return forecast_stock.Holder("c1", "DigiKey", "digikey", series, None, False, similar)
+
+    def test_a_part_with_too_few_readings_since_its_restock_borrows_the_drain_of_similar_parts_and_says_so(self) -> None:
+        # Ten days of 100, then a restock to 1,000 and three readings since: no drain of its own.
+        alone = self.holder([100] * 10 + [1000, 990, 985])
+        own = forecast_stock.forecast([alone], {}, {}, 1)
+        borrowed = forecast_stock.forecast([self.holder([100] * 10 + [1000, 990, 985], np.asarray([0.05] * 6))], {}, {}, 1)
+        self.assertEqual(borrowed["inputs"]["from_similar"], 1)
+        self.assertEqual(own["inputs"]["from_similar"], 0)
+        self.assertIsNone(own["runout"], "no drain: nothing says when it runs out")
+        self.assertIsNotNone(borrowed["runout"], "5% of stock a day runs out within 8 weeks")
+        self.assertLess(borrowed["runout"]["median"], 40)
+
+    def test_a_part_with_a_drain_of_its_own_does_not_borrow(self) -> None:
+        drained = self.holder([1000 - 40 * index for index in range(15)], np.asarray([0.2] * 6))
+        self.assertEqual(forecast_stock.forecast([drained], {}, {}, 1)["inputs"]["from_similar"], 0)

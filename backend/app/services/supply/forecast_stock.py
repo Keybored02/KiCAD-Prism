@@ -31,6 +31,9 @@ HORIZON_DAYS = 84
 RUNOUT_HORIZON = 56
 MIN_RUN_POINTS = insights.MIN_RUN_POINTS
 MIN_RUN_SPAN_DAYS = insights.MIN_RUN_SPAN_DAYS
+# Readings since the last restock below which a part borrows the drain of similar parts, and how many similar parts that takes.
+FEW_READINGS = 4
+MIN_SIMILAR = 5
 MIN_OUTAGES = 5
 SHRINK_EVENTS = 5
 QUOTE_SPREAD = 0.4
@@ -48,6 +51,9 @@ class Holder:
     series: list[tuple[date, int]]
     quote_days: int | None = None
     weekly: bool = False
+    # With fewer than ``FEW_READINGS`` readings since its last restock a part has no drain of its own; these are the drains, as a share
+    # of stock a day, of similar parts (the same maker and category) that have one.
+    similar: np.ndarray | None = None
 
     @property
     def stock(self) -> int:
@@ -69,6 +75,7 @@ class Simulation:
     stock: np.ndarray  # (holders, draws, days + 1)
     names: list[str]
     drain_known: list[bool]
+    from_similar: list[bool] = field(default_factory=list)
     back_days: list[np.ndarray | None] = field(default_factory=list)  # per holder that is out now: draws of days until it is back
 
 
@@ -180,12 +187,20 @@ def simulate(
     days = np.arange(horizon + 1, dtype=float)
     stock = np.zeros((len(holders), draws, horizon + 1))
     known: list[bool] = []
+    borrowed: list[bool] = []
     backs: list[np.ndarray | None] = []
     for index, holder in enumerate(holders):
         now = float(holder.stock)
         slopes = drain_samples(holder.series)
         known.append(slopes is not None)
-        drain = rng.choice(slopes, draws) if slopes is not None else np.zeros(draws)
+        borrows = slopes is None and holder.similar is not None and len(holder.similar) > 0 and now > 0
+        borrowed.append(bool(borrows))
+        if slopes is not None:
+            drain = rng.choice(slopes, draws)
+        elif borrows:
+            drain = rng.choice(holder.similar, draws) * now
+        else:
+            drain = np.zeros(draws)
         sizes = restock_sizes(holder.series)
         size = rng.choice(np.asarray(sizes, dtype=float), draws) if sizes else np.full(draws, float(max((s for _, s in holder.series), default=0) or 1))
         model = outage.get(holder.connector_id)
@@ -205,7 +220,7 @@ def simulate(
         before = np.maximum(now - drain[:, None] * t, 0.0) if now > 0 else np.zeros((draws, horizon + 1))
         after = np.maximum(size[:, None] - drain[:, None] * (t - back[:, None]), 0.0)
         stock[index] = np.where(t < out_at[:, None], before, np.where(t < back[:, None], 0.0, after))
-    return Simulation(stock, [h.name for h in holders], known, backs)
+    return Simulation(stock, [h.name for h in holders], known, borrowed, backs)
 
 
 # --- what is said ----------------------------------------------------------
@@ -241,7 +256,7 @@ def forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None]
     horizon_hit = (first_zero >= 0) & (first_zero <= RUNOUT_HORIZON)
     p_out = float(horizon_hit.mean())
     runout = None
-    if p_out >= 0.10 and not out_now and any(sim.drain_known):
+    if p_out >= 0.10 and not out_now and (any(sim.drain_known) or any(sim.from_similar)):
         low, mid, high = _quantiles(first_zero[horizon_hit].astype(float))
         low, high = _widen(low, high, weekly)
         runout = {"low": low, "median": mid, "high": high, "probability": p_out}
@@ -271,7 +286,7 @@ def forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None]
         "available": True, "quantity": quantity, "path": path, "holder_paths": holder_paths, "out_now": out_now, "runout": runout, "p_out_total": p_out,
         "out_everywhere": out_everywhere, "weeks": weeks, "back": back,
         "inputs": {
-            "span_days": span, "holders": len(live), "drain_known": sum(sim.drain_known), "outages_modelled": sum(1 for m in outage.values() if m),
+            "span_days": span, "holders": len(live), "drain_known": sum(sim.drain_known), "from_similar": sum(sim.from_similar), "outages_modelled": sum(1 for m in outage.values() if m),
             "weekly": weekly,
         },
     }
