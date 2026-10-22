@@ -1818,7 +1818,7 @@ def _m077_component_restrictions(conn) -> None:
     )
 
 
-def _m080_reschedule_raised_parts(conn) -> None:
+def _m081_reschedule_raised_parts(conn) -> None:
     """A part raised to daily kept the next read planned for its old rate (a week or a month away). Each listing of a daily part is due
     a day after its last read at the latest."""
 
@@ -1974,7 +1974,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (77, "component_restrictions", _m077_component_restrictions),
     (78, "forget_cached_prices", _m078_forget_cached_prices),
     (79, "forecasts", _m079_forecasts),
-    (80, "reschedule_raised_parts", _m080_reschedule_raised_parts),
+    (81, "reschedule_raised_parts", _m081_reschedule_raised_parts),
 ]
 
 
