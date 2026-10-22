@@ -1864,6 +1864,12 @@ def _m083_detail_tried_at(conn) -> None:
     )
 
 
+def _m084_block_streak(conn) -> None:
+    """How many blocks in a row a connector without credentials has had, which sets how long it rests."""
+
+    conn.execute("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS block_streak INTEGER NOT NULL DEFAULT 0", prepare=False)
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2008,6 +2014,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (81, "reschedule_raised_parts", _m081_reschedule_raised_parts),
     (82, "reschedule_raised_weekly_parts", _m082_reschedule_raised_weekly_parts),
     (83, "detail_tried_at", _m083_detail_tried_at),
+    (84, "block_streak", _m084_block_streak),
 ]
 
 

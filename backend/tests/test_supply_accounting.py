@@ -372,6 +372,24 @@ class AccountingTests(unittest.TestCase):
         self.assertFalse(self.trouble.cooling_down(self.store, cid, START + timedelta(hours=13)))
         self.assertEqual(self.connectors.get(cid)["last_error_code"], "blocked")
 
+    def test_a_provider_with_no_credentials_rests_15_minutes_then_longer_and_starts_over_after_a_good_call(self) -> None:
+        from app.services.supply.providers.base import Blocked
+
+        cid = self.connectors.create(actor=ACTOR, provider="fake", currency="EUR", interactive_reserve_pct=10)["id"]
+
+        def rest() -> timedelta:
+            self.trouble.react(self.connectors, self.store, cid, Blocked("403"), START, rng=lambda: 0.0)
+            with self.store.connection() as conn:
+                return conn.execute("SELECT cooldown_until FROM connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START
+
+        first, second = rest(), rest()
+        self.connectors.record_result(cid)
+        again = rest()
+        self.assertEqual((first, second, again), (timedelta(minutes=15), timedelta(minutes=30), timedelta(minutes=15)))
+        for _ in range(12):
+            last = rest()
+        self.assertEqual(last, timedelta(hours=12), "never longer than the old fixed rest")
+
     def test_repeated_failures_rest_longer_each_time(self) -> None:
         from app.services.supply.providers.base import Unavailable
 
