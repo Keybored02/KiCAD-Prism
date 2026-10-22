@@ -47,11 +47,12 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const only = filterFromParam(searchParams.get("partsOnly"));
   const layout = layoutFromParam(searchParams.get("partsLayout"));
   const vendor = searchParams.get("partsVendor") ?? "";
+  const sort = searchParams.get("partsSort") === "runout" ? "runout" : "";
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
   const openPart = active ? searchParams.get("part") : null;
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor);
+  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -106,6 +107,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
           </div>
           <LifecycleSelect only={only} onChange={(next) => setParams({ partsOnly: next })} />
           <VendorSelect vendor={vendor} onChange={(next) => setParams({ partsVendor: next })} />
+          <Button variant={sort ? "secondary" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setParams({ partsSort: sort ? null : "runout" })}>Runs out first</Button>
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
           <ActiveFilterChip only={only} onClear={() => setParams({ partsOnly: null })} />
           <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ partsLayout: next === "compact" ? null : next })} /></div>

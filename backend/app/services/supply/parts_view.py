@@ -452,12 +452,29 @@ def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
     return [item for item in items if item["id"] in keep]
 
 
+def _runs_out_first(conn, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The chance of being out in 4 weeks (a part already out counts as certain), then the fewest days to zero; parts with neither keep
+    their order after them."""
+
+    kept = part_insights.of_parts(conn, [item["id"] for item in items])
+
+    def key(item: dict[str, Any]) -> tuple[float, float]:
+        data = kept.get(item["id"]) or {}
+        forecast = data.get("forecast") or {}
+        chance = 1.0 if forecast.get("out_now") else float(forecast.get("p_out_4w") or 0.0) if forecast.get("available") else 0.0
+        days = data.get("days_to_zero")
+        return (-chance, float(days) if days is not None else float("inf"))
+
+    return sorted(items, key=key)
+
+
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter | str = "", offset: int = 0,
-    project_id: str = "", vendor: str = "",
+    project_id: str = "", vendor: str = "", sort: str = "",
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
-    one project (``none`` for those in no project)."""
+    one project (``none`` for those in no project). ``sort`` "runout" puts the parts likeliest to be out within 4 weeks first, then
+    by days to zero."""
 
     limit = max(1, min(limit, MAX_LIMIT))
     items, total = ranked_parts(conn, scope=scope, query=query, role=role)
@@ -470,6 +487,8 @@ def list_parts(
         of = _projects_of(conn, [item["id"] for item in items], role)
         items = [item for item in items if (project_id in of.get(item["id"], set()) if project_id != NO_PROJECT else not of.get(item["id"]))]
         total = len(items)
+    if sort == "runout":
+        items = _runs_out_first(conn, items)
     offset = max(0, offset)
     page = items[offset:offset + limit]
     kept = part_insights.of_parts(conn, [item["id"] for item in page])

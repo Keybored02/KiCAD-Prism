@@ -83,12 +83,13 @@ async def list_parts(
     offset: int = Query(default=0, ge=0, le=parts_view.MAX_CANDIDATES),
     project_id: str = Query(default="", max_length=100),
     vendor: str = Query(default="", max_length=100),
+    sort: Literal["", "runout"] = "",
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return parts_view.list_parts(
-                conn, scope=scope, query=q, limit=limit, role=user.role, only=only, offset=offset, project_id=project_id, vendor=vendor,
+                conn, scope=scope, query=q, limit=limit, role=user.role, only=only, offset=offset, project_id=project_id, vendor=vendor, sort=sort,
             )
 
     return await _run(read)

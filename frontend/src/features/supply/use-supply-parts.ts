@@ -22,16 +22,16 @@ import {
 } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
-export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "", limit = 0, projectId = "", vendor = "") {
-  const fetcher = useCallback((signal: AbortSignal) => listSupplyParts(scope, query, signal, only, 0, limit, projectId, vendor), [scope, query, only, limit, projectId, vendor]);
-  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}|${projectId}|${limit}|${vendor}`, fetcher, "Could not load parts", "parts");
+export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "", limit = 0, projectId = "", vendor = "", sort = "") {
+  const fetcher = useCallback((signal: AbortSignal) => sort ? listSupplyParts(scope, query, signal, only, 0, limit, projectId, vendor, sort) : listSupplyParts(scope, query, signal, only, 0, limit, projectId, vendor), [scope, query, only, limit, projectId, vendor, sort]);
+  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}|${projectId}|${limit}|${vendor}|${sort}`, fetcher, "Could not load parts", "parts");
 }
 
 const FEED_PAGE = 50;
 
 /** Parts a page at a time: the first page, then more as `loadMore` is called. A refresh starts again from the first page. */
-export function useSupplyPartsFeed(scope: PartsScope, query: string, only: PartsFilter = "", projectId = "", vendor = "") {
-  const first = useSupplyPartsList(scope, query, only, FEED_PAGE, projectId, vendor);
+export function useSupplyPartsFeed(scope: PartsScope, query: string, only: PartsFilter = "", projectId = "", vendor = "", sort = "") {
+  const first = useSupplyPartsList(scope, query, only, FEED_PAGE, projectId, vendor, sort);
   const [more, setMore] = useState<{ base: SupplyPartsPage | null; items: SupplyPartRow[]; next: number | null }>({ base: null, items: [], next: null });
   const [loadingMore, setLoadingMore] = useState(false);
   const base = first.data;
@@ -41,14 +41,14 @@ export function useSupplyPartsFeed(scope: PartsScope, query: string, only: Parts
     if (!base || extra.next === null || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE, projectId, vendor);
+      const page = await (sort ? listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE, projectId, vendor, sort) : listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE, projectId, vendor));
       setMore({ base, items: [...extra.items, ...page.items], next: page.next_offset ?? null });
     } catch {
       // The sentinel asks again when it is next seen; the rows already loaded stay.
     } finally {
       setLoadingMore(false);
     }
-  }, [base, extra.items, extra.next, loadingMore, scope, query, only, projectId, vendor]);
+  }, [base, extra.items, extra.next, loadingMore, scope, query, only, projectId, vendor, sort]);
   const items = base ? [...base.items, ...extra.items] : [];
   return { ...first, items, forecastState: base?.forecast_state, total: base?.total ?? 0, hasMore: extra.next !== null, loadingMore, loadMore };
 }

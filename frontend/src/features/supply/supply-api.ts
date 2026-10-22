@@ -329,8 +329,9 @@ export function listSupplyPartGroups(scope: PartsScope, query: string, signal?: 
   return fetchJson<SupplyPartGroups>(`${BASE}/part-groups?${params}`, { signal }, "Could not load the parts");
 }
 
-export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = "", offset = 0, limit = 0, projectId = "", vendor = ""): Promise<SupplyPartsPage> {
+export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = "", offset = 0, limit = 0, projectId = "", vendor = "", sort = ""): Promise<SupplyPartsPage> {
   const params = new URLSearchParams({ scope });
+  if (sort) params.set("sort", sort);
   if (vendor) params.set("vendor", vendor);
   if (projectId) params.set("project_id", projectId);
   if (offset > 0) params.set("offset", String(offset));

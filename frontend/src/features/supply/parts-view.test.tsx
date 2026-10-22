@@ -658,3 +658,15 @@ describe("the watch settings", () => {
     expect(screen.queryByRole("button", { name: "Watch this part" })).toBeNull();
   });
 });
+
+describe("the runs out first sort", () => {
+  it("asks for the parts likeliest to be out first, and goes back to the usual order", async () => {
+    renderView("designer", "/?section=supply");
+    const button = await screen.findByRole("button", { name: "Runs out first" });
+    fireEvent.click(button);
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.anything(), "", 0, 50, "", "", "runout"));
+    expect(search()).toContain("partsSort=runout");
+    fireEvent.click(screen.getByRole("button", { name: "Runs out first" }));
+    await waitFor(() => expect(search()).not.toContain("partsSort"));
+  });
+});
