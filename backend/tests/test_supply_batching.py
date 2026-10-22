@@ -101,6 +101,32 @@ class TmeSearchBatchTests(unittest.TestCase):
         self.assertEqual(tme.SPEC.search_batch, 50)
 
 
+class FailingBatchTests(unittest.TestCase):
+    @staticmethod
+    def due(sku, streak=0, code=""):
+        from app.services.supply.poller import DueListing
+
+        return DueListing(sku, sku, "p", streak, 0, None, 1, code)
+
+    def test_listings_that_keep_failing_go_in_smaller_batches_until_the_bad_one_is_alone(self) -> None:
+        from app.services.supply.poller import _batches
+
+        fresh = [self.due(f"G{i}") for i in range(4)]
+        self.assertEqual([[row.sku for row in batch] for batch in _batches(fresh, 4)], [["G0", "G1", "G2", "G3"]])
+        second = [self.due(f"G{i}", 2, "provider_error") for i in range(4)]
+        self.assertEqual([len(batch) for batch in _batches(second, 4)], [2, 2])
+        third = [self.due(f"G{i}", 3, "provider_error") for i in range(4)]
+        self.assertEqual([len(batch) for batch in _batches(third, 4)], [1, 1, 1, 1])
+        mixed = fresh[:2] + [self.due("BAD", 3, "provider_error")]
+        self.assertEqual([[row.sku for row in batch] for batch in _batches(mixed, 4)], [["G0", "G1"], ["BAD"]])
+
+    def test_a_provider_that_was_down_says_nothing_of_the_listing(self) -> None:
+        from app.services.supply.poller import _batches
+
+        down = [self.due(f"G{i}", 5, "unavailable") for i in range(4)]
+        self.assertEqual([len(batch) for batch in _batches(down, 4)], [4])
+
+
 class Clock:
     def __init__(self) -> None:
         self.now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)

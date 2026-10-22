@@ -56,6 +56,8 @@ class DueListing:
     last_change_at: datetime | None
     # The part's tracking tier (2 for a part nobody tracks), which says what the read is charged to.
     tier: int = 2
+    # What the last failed read said ("" when it did not fail).
+    last_error_code: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,13 @@ _SERVICE_ORDER = (
     "pt.tier, (ps.listing_id IS NOT NULL), COALESCE(ps.urgency, 0), "
     "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
 )
+
+
+def _due(r) -> DueListing:
+    return DueListing(
+        r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]),
+        r.get("last_error_code") or "",
+    )
 
 
 def due_listings(
@@ -100,13 +109,14 @@ def due_listings(
             (connector_id, [only_part] if isinstance(only_part, str) else list(only_part), limit),
         ).fetchall()
         return [
-            DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
+            _due(r)
             for r in rows
         ]
     rows = conn.execute(
         f"""
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
-               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier
+               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier,
+               COALESCE(ps.last_error_code, '') AS last_error_code
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
@@ -122,7 +132,7 @@ def due_listings(
         (connector_id, metered, now, limit),
     ).fetchall()
     return [
-        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
+        _due(r)
         for r in rows
     ]
 
@@ -149,7 +159,8 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
     rows = conn.execute(
         f"""
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
-               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier
+               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier,
+               COALESCE(ps.last_error_code, '') AS last_error_code
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
@@ -163,13 +174,29 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
         {"connector": connector_id, "now": now, "limit": limit, "early": now - EARLY_GAP},
     ).fetchall()
     return [
-        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
+        _due(r)
         for r in rows
     ]
 
 
 def _chunks(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing]]:
     return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+MAX_SPLIT = 6
+
+
+def _batches(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing]]:
+    """Batches of ``size``, except that listings whose last reads failed go in smaller ones: half the size for a second failure, a
+    quarter for a third, and so on, grouped by how many times they failed. A bad listing in a batch fails it for the good ones too; this
+    way the good ones split off within a few tries and the bad one ends alone. A provider that was unavailable says nothing of the
+    listing, so those keep the full size."""
+
+    levels: dict[int, list[DueListing]] = {}
+    for item in items:
+        level = 0 if item.error_streak < 2 or item.last_error_code == "unavailable" else min(item.error_streak - 1, MAX_SPLIT)
+        levels.setdefault(level, []).append(item)
+    return [chunk for level in sorted(levels) for chunk in _chunks(levels[level], max(1, size // 2 ** level))]
 
 
 def _by_part(items: Sequence[DueListing]) -> list[Sequence[DueListing]]:
@@ -204,7 +231,7 @@ def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[Du
         (connector_id, part_ids, sorted(have)),
     ).fetchall()
     extra = [
-        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
+        _due(r)
         for r in rows
     ]
     return list(due) + extra
@@ -262,7 +289,7 @@ class Poller:
         provider = self._provider_for(connector_id)
         calls = polled = gone = 0
         stopped: str | None = None
-        for batch in _by_part(due) if spec.groups_by_part else _chunks(due, spec.max_batch):
+        for batch in _by_part(due) if spec.groups_by_part else _batches(due, spec.max_batch):
             purpose = (
                 ledger.PURPOSE_ONE_OFF if oneoff else ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare
                 else f"tier{min(row.tier for row in batch)}"
