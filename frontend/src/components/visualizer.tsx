@@ -1979,6 +1979,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
                                 canImportComponent={canImportLibraryComponent}
                                 importingComponent={componentImportPending}
+                                supplyUser={supplyAtHead ? (user ?? null) : null}
                                 labelInstances={labelInstances}
                                 onNavigateLabelInstance={navigateLabelInstance}
                                 onFocusLabelInstance={(uuid) => void focusLabelInstance(uuid)}
