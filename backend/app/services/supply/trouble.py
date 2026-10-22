@@ -96,6 +96,19 @@ def react(
     return reason
 
 
+def stopped_text(store: SupplyStore, connector_id: str, name: str, stopped: str | None, now: datetime, fallback: str) -> str:
+    """The sentence for a person's action that was stopped. A connector resting after a refusal says for how long."""
+
+    if stopped in ("cooling_down", BLOCKED):
+        with store.connection() as conn:
+            row = conn.execute("SELECT cooldown_until, last_error_code FROM connectors WHERE id = %s", (connector_id,)).fetchone()
+        if row and row["last_error_code"] == BLOCKED and row["cooldown_until"] and row["cooldown_until"] > now:
+            minutes = max(1, -(-int((row["cooldown_until"] - now).total_seconds()) // 60))
+            wait = f"{minutes} minutes" if minutes < 120 else f"{-(-minutes // 60)} hours"
+            return f"{name} is resting after a refusal. Try again in {wait}."
+    return f"{name} {fallback}."
+
+
 def cooling_down(store: SupplyStore, connector_id: str, now: datetime) -> bool:
     with store.connection() as conn:
         until = conn.execute("SELECT cooldown_until FROM connectors WHERE id = %s", (connector_id,)).fetchone()["cooldown_until"]

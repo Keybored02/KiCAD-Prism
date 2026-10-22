@@ -390,6 +390,18 @@ class AccountingTests(unittest.TestCase):
             last = rest()
         self.assertEqual(last, timedelta(hours=12), "never longer than the old fixed rest")
 
+    def test_a_person_is_told_how_long_a_connector_rests_after_a_refusal(self) -> None:
+        from app.services.supply.providers.base import Blocked, Unavailable
+
+        cid = self.connectors.create(actor=ACTOR, provider="fake", currency="EUR", interactive_reserve_pct=10)["id"]
+        self.trouble.react(self.connectors, self.store, cid, Blocked("403"), START, rng=lambda: 0.0)
+        text = self.trouble.stopped_text(self.store, cid, "JLCPCB", "cooling_down", START, "is cooling down after an error")
+        self.assertEqual(text, "JLCPCB is resting after a refusal. Try again in 15 minutes.")
+        self.connectors.record_result(cid)
+        self.trouble.react(self.connectors, self.store, cid, Unavailable("down"), START, rng=lambda: 0.0)
+        self.assertEqual(self.trouble.stopped_text(self.store, cid, "JLCPCB", "cooling_down", START, "is cooling down after an error"),
+                         "JLCPCB is cooling down after an error.")
+
     def test_repeated_failures_rest_longer_each_time(self) -> None:
         from app.services.supply.providers.base import Unavailable
 

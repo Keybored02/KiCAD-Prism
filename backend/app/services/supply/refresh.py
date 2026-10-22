@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import poller, parts
+from app.services.supply import poller, parts, trouble
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorService
 
@@ -23,6 +23,7 @@ _STOPPED_TEXT = {
     poller.STOPPED_BUDGET: "has used today's allowance for asking",
     "auth_failed": "rejected its credentials",
     "rate_limited": "is limiting requests",
+    "blocked": "was refused",
     "error": "did not answer",
 }
 
@@ -75,5 +76,8 @@ def read_now(
         read += summary.polled
         if summary.stopped and summary.stopped != poller.STOPPED_NOTHING_DUE:
             name = connectors.get(connector_id)["display_name"]
-            problems.append({"connector": name, "reason": f"{name} {_STOPPED_TEXT.get(summary.stopped, 'could not be read')}."})
+            problems.append({
+                "connector": name,
+                "reason": trouble.stopped_text(store, connector_id, name, summary.stopped, now, _STOPPED_TEXT.get(summary.stopped, "could not be read")),
+            })
     return {"read": read, "connectors": len(connector_ids), "problems": problems}

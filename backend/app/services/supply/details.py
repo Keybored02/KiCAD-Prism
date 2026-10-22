@@ -287,6 +287,7 @@ _ASK_STOPPED = {
     "sign_in_refused": "refused the sign-in; an administrator needs to sign in again",
     "budget": "has used today's allowance for asking",
     "rate_limited": "is limiting requests",
+    "blocked": "was refused",
     NOTICE_QUOTA: "has used today's change-notice calls (its notice API allows a set number a day); try tomorrow",
     "unavailable": "did not answer",
     "inactive": "is disabled or paused",
@@ -350,7 +351,9 @@ def check_now(
         new += summary.new
         if summary.stopped:
             name = connector["display_name"]
-            problems.append({"connector": name, "reason": f"{name} {_ASK_STOPPED.get(summary.stopped, 'could not be read')}."})
+            problems.append({
+                "connector": name, "reason": trouble.stopped_text(store, connector_id, name, summary.stopped, now, _ASK_STOPPED.get(summary.stopped, "could not be read")),
+            })
     if checked:
         with store.connection() as conn:
             write_audit(conn, actor, ASK_ACTION, part_id, {"read": read, "new": new}, subject_kind="part")
