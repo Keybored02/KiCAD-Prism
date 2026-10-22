@@ -151,6 +151,12 @@ class RiskTests(unittest.TestCase):
         self.assertEqual(self.scores(outlook="ended")["lifecycle"], 5)
         self.assertEqual(self.scores(lifecycle=Lifecycle.LAST_TIME_BUY, outlook="2_to_5_years")["lifecycle"], 4, "the outlook never lowers the score")
 
+    def test_dropped_everywhere_counts_once_when_the_outlook_came_from_it(self) -> None:
+        gone = [offer(discontinued=True)]
+        self.assertEqual(self.scores(gone, outlook="under_2_years")["lifecycle"], 4)
+        self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY, outlook="under_2_years")["lifecycle"], 5)
+        self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY)["lifecycle"], 5)
+
     def test_market_follows_lead_time(self) -> None:
         for days, score in ((20, 1), (50, 2), (80, 3), (150, 4), (400, 5)):
             self.assertEqual(self.scores([offer(lead_time_days=days)])["market"], score, days)

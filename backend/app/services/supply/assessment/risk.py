@@ -33,10 +33,12 @@ def lifecycle(facts: Facts) -> SubScore:
     score = _LIFECYCLE_SCORE[facts.lifecycle]
     reasons = [] if facts.lifecycle in (Lifecycle.ACTIVE, Lifecycle.UNKNOWN) else [f"Manufacturer lifecycle: {facts.lifecycle.value.replace('_', ' ')}."]
     ahead = _OUTLOOK_SCORE.get(facts.outlook)
-    if ahead and ahead[0] > score:
+    from_outlook = bool(ahead and ahead[0] > score)
+    if ahead and from_outlook:
         score = ahead[0]
         reasons.append(ahead[1])
-    if facts.offers and all(o["discontinued"] for o in facts.offers):
+    # The outlook's "under 2 years" comes from this same fact, so a score it set already counts it.
+    if facts.offers and all(o["discontinued"] for o in facts.offers) and not from_outlook:
         score = min(score + 1, 5)
         reasons.append("Every distributor has stopped selling it.")
     return SubScore("lifecycle", score, tuple(reasons))
