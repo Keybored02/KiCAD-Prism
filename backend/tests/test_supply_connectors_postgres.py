@@ -74,7 +74,8 @@ class SupplyDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             declared = {version for version, _name, _step in self.schema_migrations.MIGRATIONS}
             self.assertEqual(self.schema_migrations.applied_versions(conn), declared)
-            self.assertEqual(sorted(declared), list(range(1, len(declared) + 1)), "versions are consecutive")
+            # Version 80 is the other checkout's (cross_reference_snapshots), already in the shared dev database; it is skipped here.
+            self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "versions are consecutive")
             self.assertEqual(self.schema_migrations.apply_supply_migrations(conn), [])
 
     # --- connectors -------------------------------------------------------
