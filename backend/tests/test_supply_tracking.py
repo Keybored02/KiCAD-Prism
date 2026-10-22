@@ -201,6 +201,25 @@ class TrackingTests(unittest.TestCase):
         got = self.tier("Acme", "OWN-1")
         self.assertEqual((got["tier"], [r["kind"] for r in got["reasons"]]), (1, ["component"]))
 
+    def test_a_part_raised_to_daily_is_due_a_day_after_its_last_read_not_when_its_old_rate_said(self) -> None:
+        from datetime import timedelta
+
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO connectors (id, provider, display_name) VALUES ('c1', 'fake', 'Sim')")
+            record, _ = self.watches.add_watch(conn, "Acme", "R-1", ACTOR, tier=2, rate="weekly")
+            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'S1', %s, 'R-1', 'Acme', 'exact')", (record.part_id,))
+            conn.execute(
+                "INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at, error_streak, missing_streak, last_error_code) "
+                "VALUES ('l1', 'weekly', 0, %s, %s, 0, 0, '')", (NOW + timedelta(days=4), NOW - timedelta(days=3)),
+            )
+            self.watches.update_watch(conn, record.id, ACTOR, tier=1, rate="daily")
+            row = conn.execute("SELECT tier, next_poll_at, last_polled_at FROM poll_state WHERE listing_id = 'l1'").fetchone()
+            self.assertEqual(row["tier"], "daily")
+            self.assertEqual(row["next_poll_at"], row["last_polled_at"] + timedelta(days=1))
+            # Lowered again, the plan is not pushed back: the listing is just read early.
+            self.watches.update_watch(conn, record.id, ACTOR, tier=2, rate="weekly")
+            self.assertEqual(conn.execute("SELECT next_poll_at FROM poll_state WHERE listing_id = 'l1'").fetchone()["next_poll_at"], row["next_poll_at"])
+
     def test_recompute_writes_nothing_when_nothing_changed(self) -> None:
         self.project("p1", [component("R1", "Acme", "R-1")])
         self.track("p1")

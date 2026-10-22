@@ -333,6 +333,21 @@ def _decide(reasons: list[dict[str, Any]]) -> tuple[int, str]:
     return tier, rate
 
 
+def reschedule(conn, part_id: str, rate: str) -> None:
+    """A part read more often than it was planned for is due as its new rate asks, not when the old one said: the next read of each of
+    its listings is brought forward to a rate's interval after the last one. A part read less often keeps its plan (it is simply early)."""
+
+    from app.services.supply import tiers
+
+    conn.execute(
+        """
+        UPDATE poll_state ps SET tier = %s, next_poll_at = LEAST(ps.next_poll_at, ps.last_polled_at + %s)
+        FROM listings l WHERE l.id = ps.listing_id AND l.part_id = %s AND ps.last_polled_at IS NOT NULL
+        """,
+        (rate, tiers.INTERVAL[rate], part_id),
+    )
+
+
 def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
     """Bring ``part_tiers`` in line with every source, for these parts or all of them. Writes only what changed.
 
@@ -361,12 +376,14 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
                 (part_id, tier, rate, _json(stored)),
             )
             added += 1
+            reschedule(conn, part_id, rate)
         elif (row["tier"], row["rate"], row["reasons"]) != (tier, rate, stored):
             conn.execute(
                 "UPDATE part_tiers SET tier = %s, rate = %s, reasons = %s::jsonb, updated_at = %s WHERE part_id = %s",
                 (tier, rate, _json(stored), datetime.now(timezone.utc), part_id),
             )
             changed += 1
+            reschedule(conn, part_id, rate)
     stale = [part_id for part_id in current if part_id not in wanted]
     if stale:
         conn.execute("DELETE FROM part_tiers WHERE part_id = ANY(%s)", (stale,))

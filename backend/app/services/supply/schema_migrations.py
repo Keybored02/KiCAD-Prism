@@ -1818,6 +1818,21 @@ def _m077_component_restrictions(conn) -> None:
     )
 
 
+def _m080_reschedule_raised_parts(conn) -> None:
+    """A part raised to daily kept the next read planned for its old rate (a week or a month away). Each listing of a daily part is due
+    a day after its last read at the latest."""
+
+    conn.execute(
+        """
+        UPDATE poll_state ps SET tier = 'daily', next_poll_at = LEAST(ps.next_poll_at, ps.last_polled_at + INTERVAL '1 day')
+        FROM listings l JOIN part_tiers pt ON pt.part_id = l.part_id
+        WHERE l.id = ps.listing_id AND pt.rate = 'daily' AND ps.last_polled_at IS NOT NULL
+          AND ps.next_poll_at > ps.last_polled_at + INTERVAL '1 day'
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -1959,6 +1974,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (77, "component_restrictions", _m077_component_restrictions),
     (78, "forget_cached_prices", _m078_forget_cached_prices),
     (79, "forecasts", _m079_forecasts),
+    (80, "reschedule_raised_parts", _m080_reschedule_raised_parts),
 ]
 
 
