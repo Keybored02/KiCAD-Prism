@@ -155,6 +155,18 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual(self.call("DELETE", f"/{a}/{self.cid}").status, 204)
         self.assertEqual(len(self.call("GET", "/waiting").json["items"]), 1)
 
+    def test_a_listing_found_after_the_pick_is_flagged_in_review(self) -> None:
+        a = self.part("A", ("cut_tape", "tape_reel"))
+        self.assertEqual(self.call("PUT", f"/{a}/{self.cid}", body={"listing_id": "A-0"}).status, 200)
+        (before,) = [item for item in self.call("GET", "/several").json["items"] if item["part_id"] == a]
+        self.assertEqual(before["new_since_pick"], 0)
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                "VALUES ('A-2', %s, 'SKU-A-2', %s, 'x', 'Acme', 'exact', 'custom_reel')", (self.cid, a))
+        (after,) = [item for item in self.call("GET", "/several").json["items"] if item["part_id"] == a]
+        self.assertEqual(after["new_since_pick"], 1)
+
     def test_similar_parts_have_the_same_packagings_and_one_listing_of_the_choice(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         b = self.part("B", ("cut_tape", "tape_reel"))

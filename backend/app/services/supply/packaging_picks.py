@@ -248,7 +248,8 @@ def several(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.part_id, l.connector_id, COUNT(*) AS listings, p.mpn, m.name AS manufacturer, c.display_name AS connector, c.provider,
-               pk.listing_id AS picked_id, pl.sku AS picked_sku, pk.picked_by, pk.note
+               pk.listing_id AS picked_id, pl.sku AS picked_sku, pk.picked_by, pk.note,
+               COUNT(*) FILTER (WHERE pk.picked_at IS NOT NULL AND l.first_seen_at > pk.picked_at AND l.id <> pk.listing_id) AS newer
         FROM listings l
         JOIN part_tiers pt ON pt.part_id = l.part_id
         JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
@@ -256,7 +257,7 @@ def several(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
         LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
         LEFT JOIN listings pl ON pl.id = pk.listing_id
         WHERE l.match_state = ANY(%s)
-        GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name, c.provider, pk.listing_id, pl.sku, pk.picked_by, pk.note
+        GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name, c.provider, pk.listing_id, pl.sku, pk.picked_by, pk.note, pk.picked_at
         HAVING COUNT(*) > 1
         """,
         (list(COUNTED),),
@@ -266,6 +267,8 @@ def several(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
             "part_id": row["part_id"], "connector_id": row["connector_id"], "connector": row["connector"], "provider": row["provider"],
             "mpn": row["mpn"], "manufacturer": row["manufacturer"], "listings": int(row["listings"]),
             "picked_listing": row["picked_id"], "picked_sku": row["picked_sku"] or "", "picked_by": row["picked_by"] or "", "note": row["note"] or "",
+            # Listings found after the pick was made: a pick is of what there was then.
+            "new_since_pick": int(row["newer"]),
             "saves_calls_a_day": _saving(conn, row["part_id"], row["connector_id"], int(row["listings"])),
         }
         for row in rows

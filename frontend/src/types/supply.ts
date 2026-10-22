@@ -1369,6 +1369,8 @@ export interface PackagingSeveral {
   picked_sku: string;
   picked_by: string;
   note: string;
+  /** Listings found after the pick was made. */
+  new_since_pick?: number;
   saves_calls_a_day: number;
 }
 

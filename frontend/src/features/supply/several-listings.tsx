@@ -42,6 +42,7 @@ export function SeveralListings({ canDecide, user = null }: { canDecide: boolean
               <button type="button" className="font-medium text-primary hover:underline" onClick={() => setOpenPart(item.part_id)}>{item.mpn}</button>
               <VendorName provider={item.provider} name={item.connector} className="text-xs" />
               <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{who(item)}</span>
+              {item.new_since_pick ? <span className="text-xs text-warning">a new packaging since the pick</span> : null}
               <span className="text-xs text-muted-foreground">
                 {item.saves_calls_a_day > 0 ? `saves ${item.saves_calls_a_day.toFixed(2)} calls a day` : "read together"}
               </span>
