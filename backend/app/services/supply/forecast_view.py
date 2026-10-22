@@ -67,7 +67,8 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
         }
         out.setdefault("by_distributor", {"stock": [], "price": []})["price"] = [
             {"connector_id": item["connector_id"], "now": item["now"],
-             "h30": {"date": _day(today, 30), "median": item["h30"]["median"]}, "h90": {"date": _day(today, 90), "median": item["h90"]["median"]}}
+             "h30": {"date": _day(today, 30), "median": item["h30"]["median"], "low": item["h30"]["low"], "high": item["h30"]["high"]},
+             "h90": {"date": _day(today, 90), "median": item["h90"]["median"], "low": item["h90"]["low"], "high": item["h90"]["high"]}}
             for item in forecast_run.price_by_distributor(conn, part_id, now)
         ]
     items = _lifecycle_of(conn, part_id)

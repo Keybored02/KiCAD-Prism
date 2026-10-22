@@ -113,6 +113,27 @@ function put(rows: HistoryRows["rows"], day: string, median: number, low: number
 /** The row key of a distributor's forecast line; it carries a "~" so the tooltip lists the distributor once. */
 export const forecastKeyOf = (connectorId: string) => `${connectorId}~f`;
 
+const DAY_MS = 86_400_000;
+
+/** A straight line through the points, a value for every day between them (the ends included, the first left out when `skipFirst`). */
+export function dailyBetween(knots: ReadonlyArray<readonly [string, number]>): Array<[string, number]> {
+  const out: Array<[string, number]> = [];
+  for (let index = 0; index < knots.length - 1; index += 1) {
+    const [fromDay, fromValue] = knots[index];
+    const [toDay, toValue] = knots[index + 1];
+    const start = Date.parse(`${fromDay}T00:00:00Z`);
+    const days = Math.round((Date.parse(`${toDay}T00:00:00Z`) - start) / DAY_MS);
+    for (let step = 1; step <= days; step += 1) {
+      out.push([new Date(start + step * DAY_MS).toISOString().slice(0, 10), fromValue + ((toValue - fromValue) * step) / days]);
+    }
+  }
+  return out;
+}
+
+/** The low and high of a distributor's projected value on a day; the tooltip reads them from the row. */
+export const lowKeyOf = (connectorId: string) => `${connectorId}~lo`;
+export const highKeyOf = (connectorId: string) => `${connectorId}~hi`;
+
 function setValue(rows: HistoryRows["rows"], day: string, key: string, value: number): void {
   const found = rows.find((row) => row.day === day);
   if (found) found[key] = value;
@@ -137,13 +158,24 @@ export function withDistributorForecasts(
     if (!lastReading) return [];
     const future: Array<[string, number]> = "path" in item
       ? item.path.filter((point) => point.day > lastReading[0]).map((point) => [point.day, point.median])
-      : [[item.h30.date, item.h30.median], [item.h90.date, item.h90.median]];
-    return future.length > 0 ? [{ id: item.connector_id, from: lastReading, future }] : [];
+      // The price is known at 30 and 90 days; a value for every day between lets the hover find one wherever the pointer is.
+      : dailyBetween([[lastReading[0], lastReading[1]], [item.h30.date, item.h30.median], [item.h90.date, item.h90.median]]);
+    let ranges: Array<[string, number, number]> = [];
+    if (!("path" in item)) {
+      const knots = (pick: "low" | "high") => dailyBetween([[lastReading[0], lastReading[1]], [item.h30.date, item.h30[pick]], [item.h90.date, item.h90[pick]]]);
+      const highs = knots("high");
+      ranges = knots("low").map(([day, low], at) => [day, low, highs[at][1]]);
+    }
+    return future.length > 0 ? [{ id: item.connector_id, from: lastReading, future, ranges }] : [];
   });
   for (const item of points) {
     const key = forecastKeyOf(item.id);
     setValue(rows, item.from[0], key, item.from[1]);
     for (const [day, value] of item.future) setValue(rows, day, key, value);
+    for (const [day, low, high] of item.ranges) {
+      setValue(rows, day, lowKeyOf(item.id), low);
+      setValue(rows, day, highKeyOf(item.id), high);
+    }
     drawn.push(item.id);
   }
   rows.sort((a, b) => String(a.day).localeCompare(String(b.day)));
@@ -171,8 +203,11 @@ export function withForecast(
   const last = history.connectors.flatMap((line) => line.price.map(([day]) => day)).sort().pop();
   if (!price || !last) return { rows, overlay: null };
   put(rows, last, price.now, price.now, price.now);
-  put(rows, price.h30.date, price.h30.median, price.h30.low, price.h30.high);
-  put(rows, price.h90.date, price.h90.median, price.h90.low, price.h90.high);
+  const along = (pick: (point: { median: number; low: number; high: number }) => number, start: number) => dailyBetween([[last, start], [price.h30.date, pick(price.h30)], [price.h90.date, pick(price.h90)]]);
+  const medians = along((point) => point.median, price.now);
+  const lows = along((point) => point.low, price.now);
+  const highs = along((point) => point.high, price.now);
+  medians.forEach(([day, median], at) => put(rows, day, median, lows[at][1], highs[at][1]));
   rows.sort((a, b) => String(a.day).localeCompare(String(b.day)));
   return { rows, overlay: { from: last, grey: price.h90.state.state !== "shown" } };
 }

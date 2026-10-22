@@ -21,26 +21,47 @@ interface Props {
 interface TipProps {
   active?: boolean;
   label?: string;
-  payload?: ReadonlyArray<{ dataKey?: string | number; value?: number | string | null; color?: string; name?: string }>;
+  payload?: ReadonlyArray<{ dataKey?: string | number; value?: number | string | null | readonly number[]; color?: string; name?: string; payload?: Record<string, unknown> }>;
 }
 
-/** Every distributor's value on the hovered day, one line each. A dashed continuation is not listed twice. */
-function makeTip(format: (value: number) => string) {
+const PROJECTED = /~f$/;
+
+/**
+ * Every distributor's value on the hovered day, one line each. A dashed continuation of a reading is not listed twice. After a
+ * distributor's last reading its projection is listed, marked "projected", with its range where it has one, and the total's forecast
+ * closes the list with its range.
+ */
+export function makeTip(format: (value: number) => string) {
   return function Tip({ active, label, payload }: TipProps) {
     if (!active || !payload?.length) return null;
-    const rows = payload.filter((item) => item.value !== null && item.value !== undefined && !Array.isArray(item.value) && !String(item.dataKey).includes("~"));
+    const has = (item: { value?: unknown }) => item.value !== null && item.value !== undefined && !Array.isArray(item.value);
+    const row = payload[0]?.payload ?? {};
+    const read = new Set(payload.filter((item) => has(item) && !String(item.dataKey).includes("~")).map((item) => String(item.dataKey)));
+    // A projection shows only where its distributor has no reading of its own that day.
+    const rows = payload.filter((item) => has(item) && (!String(item.dataKey).includes("~") || (PROJECTED.test(String(item.dataKey)) && !read.has(String(item.dataKey).replace(PROJECTED, "")))));
+    const band = payload.find((item) => Array.isArray(item.value) && !read.has(TOTAL_KEY));
     if (rows.length === 0) return null;
+    const rangeOf = (item: { dataKey?: string | number }) => {
+      const id = String(item.dataKey).replace(PROJECTED, "");
+      const low = row[`${id}~lo`];
+      const high = row[`${id}~hi`];
+      return typeof low === "number" && typeof high === "number" ? `${format(low)} to ${format(high)}` : null;
+    };
     // The total always closes the list.
     const ordered = [...rows].sort((a, b) => Number(a.dataKey === TOTAL_KEY) - Number(b.dataKey === TOTAL_KEY));
     return (
       <div className="border bg-background px-2.5 py-1.5 text-xs shadow-md">
         <p className="mb-1 font-medium">{formatDay(String(label))}</p>
-        {ordered.map((item) => (
-          <p key={String(item.dataKey)} className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5"><span aria-hidden className="h-2 w-2" style={{ backgroundColor: item.color }} />{item.name}</span>
-            <span className="tabular-nums">{format(Number(item.value))}</span>
-          </p>
-        ))}
+        {ordered.map((item) => {
+          const projected = PROJECTED.test(String(item.dataKey)) || item.dataKey === FORECAST_KEY;
+          const range = PROJECTED.test(String(item.dataKey)) ? rangeOf(item) : item.dataKey === FORECAST_KEY && Array.isArray(band?.value) ? `${format(Number(band.value[0]))} to ${format(Number(band.value[1]))}` : null;
+          return (
+            <p key={String(item.dataKey)} className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-1.5"><span aria-hidden className="h-2 w-2" style={{ backgroundColor: item.color }} />{item.name}{projected && item.dataKey !== FORECAST_KEY ? " (projected)" : ""}</span>
+              <span className="tabular-nums">{format(Number(item.value))}{range ? <span className="ml-1.5 text-muted-foreground">{range}</span> : null}</span>
+            </p>
+          );
+        })}
       </div>
     );
   };
