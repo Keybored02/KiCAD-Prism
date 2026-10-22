@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ForecastSection } from "./forecast-section";
+import { EndOfLifeLine, ForecastSection } from "./forecast-section";
 import { chanceText, chipText, dateText, isGrey, rangeText } from "./forecast-text";
 import { forecastWord } from "./forecast-words";
 import { learning, partForecastFixture, shown } from "./forecast-test-fixtures";
@@ -37,6 +37,13 @@ describe("how a forecast is said", () => {
 });
 
 describe("the part sheet's Forecast section", () => {
+  it("puts the end-of-life chance in a line of its own, for the outlook", () => {
+    render(<EndOfLifeLine forecast={partForecastFixture({}, shown)} />);
+    expect(screen.getByText(/Chance of an end-of-life change within 12 months/).querySelector("strong")).not.toBeNull();
+    const { container } = render(<EndOfLifeLine forecast={null} />);
+    expect(container.textContent).toBe("");
+  });
+
   it("says what to expect, in dates and words, ", () => {
     render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" />);
     expect(screen.getByText(/Can be bought on 18 Dec/)).toBeTruthy();
@@ -46,16 +53,16 @@ describe("the part sheet's Forecast section", () => {
     expect(screen.getByText("(quoted 6 weeks)")).toBeTruthy();
     expect(screen.getByText(/Out everywhere within 8 weeks:/)).toBeTruthy();
     expect(screen.getByText("Likely (82%)").tagName).toBe("STRONG");
-    expect(screen.getByText(/Chance of an end-of-life change within 12 months/).querySelector("strong")).not.toBeNull();
+    expect(screen.queryByText(/Chance of an end-of-life change/), "it sits under the outlook, not here").toBeNull();
     expect(screen.getByText(/In 90 days, at its price quantity/)).toBeTruthy();
     expect(screen.getAllByRole("listitem", { name: /^Week/ })).toHaveLength(12);
   });
 
   it("shows no Learning chip for a shown model and one for each learning line", () => {
     const { rerender } = render(<ForecastSection forecast={partForecastFixture({}, shown)} currency="EUR" />);
-    expect(screen.queryAllByText("Learning")).toHaveLength(1);
+    expect(screen.queryAllByText("Learning")).toHaveLength(0);
     rerender(<ForecastSection forecast={partForecastFixture({}, learning)} currency="EUR" />);
-    expect(screen.getAllByText("Learning").length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByText("Learning").length).toBeGreaterThanOrEqual(3);
   });
 
   it("explains each line when asked why", () => {

@@ -12,7 +12,7 @@ import { behaviourLines } from "./market-behaviour-text";
 import { RestockRecordDetails } from "./restock-record";
 import { restockItems } from "./restock-items";
 import { FoldSection } from "./fold-section";
-import { ForecastSection } from "./forecast-section";
+import { EndOfLifeLine, ForecastSection } from "./forecast-section";
 import { TryQuantity } from "./price-quantity";
 import { usePartForecast } from "./use-part-forecast";
 import { ComplianceSection } from "./compliance-section";
@@ -79,7 +79,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
         </FoldSection>
       ) : null}
 
-      <OutlookSection outlook={detail.outlook} partId={detail.part.id} role={role} />
+      <OutlookSection outlook={detail.outlook} partId={detail.part.id} role={role} below={<EndOfLifeLine forecast={forecast.data} />} />
 
       <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 

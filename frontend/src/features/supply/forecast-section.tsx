@@ -119,14 +119,20 @@ export function ForecastSection({ forecast, currency, titled = true }: {
           In 90 days, at its price quantity: <strong>{priceRange(forecast.price.h90.low, forecast.price.h90.high, format, forecast.price.h90.flat)}</strong>
         </Line>
       ) : null}
-      {forecast.end_of_life ? (
-        <Line
-          model={forecast.end_of_life.state}
-          why={`Lifecycle changes seen across all tracked parts, pooled by maker. ${forecast.end_of_life.changes} of the ${forecast.end_of_life.needs} needed so far; the rule-based outlook above stays the guide until then.`}
-        >
-          Chance of an end-of-life change within 12 months: <strong>{chanceText(forecast.end_of_life.p12)}</strong>
-        </Line>
-      ) : null}
     </section>
+  );
+}
+
+/** The chance of an end-of-life change, which belongs under the Outlook band: the rule-based outlook and this model speak of the same thing. */
+export function EndOfLifeLine({ forecast }: { forecast: PartForecast | null }) {
+  const eol = forecast?.end_of_life;
+  if (!eol) return null;
+  return (
+    <Line
+      model={eol.state}
+      why={`Lifecycle changes seen across all tracked parts, pooled by maker. ${eol.changes} of the ${eol.needs} needed so far; the rule-based outlook above stays the guide until then.`}
+    >
+      Chance of an end-of-life change within 12 months: <strong>{chanceText(eol.p12)}</strong>
+    </Line>
   );
 }

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import type { UserRole } from "@/types/auth";
 import type { SupplyOutlook } from "@/types/supply";
@@ -19,7 +21,7 @@ const TONE: Record<SupplyOutlook["band"], "outline" | "warning" | "destructive" 
  * Whether the part is heading for its end, and how healthy it is, on one line: the outlook with every signal behind it, then the
  * health score. One info icon opens what both rest on: how the outlook is worked out, the five scores and the findings.
  */
-export function OutlookSection({ outlook, partId = null, role }: { outlook: SupplyOutlook; partId?: string | null; role?: UserRole | null }) {
+export function OutlookSection({ outlook, partId = null, role, below = null }: { outlook: SupplyOutlook; partId?: string | null; role?: UserRole | null; below?: ReactNode }) {
   const { assessment, error, canPropose, canApprove, act } = useHealth(partId, role);
   const data = assessment.data;
   const scored = data ? data.status !== "unknown" : false;
@@ -63,6 +65,7 @@ export function OutlookSection({ outlook, partId = null, role }: { outlook: Supp
       {outlook.signals.length === 0 && outlook.band === "unknown" ? (
         <p className="text-xs text-muted-foreground">Nothing has been read for this part yet.</p>
       ) : null}
+      {below}
     </section>
   );
 }
