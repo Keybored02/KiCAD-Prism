@@ -149,12 +149,17 @@ def due_listings(
 def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str) -> list[DueListing]:
     """Listings to read from spare budget.
 
+    ``overdue``: listings admitted here whose committed read is late (the budget for committed reads ran out first); spare budget
+    goes to these before any other spare work.
     ``waiting``: counted listings of parts that wait for room here, not read since their rate asks.
     ``tier2_early``: tier-2 listings admitted here that are not yet due, the soonest due first, and not read in the last
     ``EARLY_GAP``: early reads make a tier-2 part fresher, never read more often than a tier-1 one.
     """
 
-    if kind == "waiting":
+    if kind == "overdue":
+        where = "a.state = 'admitted' AND ps.listing_id IS NOT NULL AND ps.next_poll_at <= %(now)s"
+        order = "pt.tier, ps.next_poll_at, l.part_id, l.sku"
+    elif kind == "waiting":
         where = "a.state = 'waiting' AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)"
         order = "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
     elif kind == "tier2_early":

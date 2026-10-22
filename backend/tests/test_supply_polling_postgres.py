@@ -419,6 +419,20 @@ class PollingTests(unittest.TestCase):
             conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
         self.assertEqual(poller.poll_connector(cid).polled, 1, "nor in the last two hours of the day")
 
+    def test_a_late_committed_read_is_read_from_spare_budget(self) -> None:
+        cid = self.connector("demo_small", daily_budget=100, interactive_reserve_pct=20)
+        for mpn in ("AAA", "BBB"):
+            self.add_listing(self.watch(mpn).part_id, cid, f"FAKE-{mpn}-CT")
+        poller = self.poller()
+        self.assertEqual(poller.poll_connector(cid).polled, 2)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
+        before = self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM quota_ledger")[0]["n"]
+        summary = poller.poll_connector(cid, spare="overdue")
+        self.assertEqual(summary.polled, 2, "both late listings are read")
+        self.assertGreater(self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM quota_ledger")[0]["n"], before)
+        self.assertEqual(poller.poll_connector(cid, spare="overdue").stopped, "nothing_due", "nothing is late any more")
+
     def test_a_returning_listing_clears_its_misses(self) -> None:
         cid = self.connector()
         self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")

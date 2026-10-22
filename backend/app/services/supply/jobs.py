@@ -404,13 +404,15 @@ def _spend_spare(
     connectors: ConnectorService, connector_id: str, *, poller: Poller | None = None, discoverer: Discoverer | None = None
 ) -> None:
     """Use budget that would otherwise go unused, once all committed work is done. In order: searches and reads for parts
-    waiting for room, then tier-2 parts ahead of their time. Best effort, and each stops where the spare allowance does."""
+    late committed reads, then those waiting for room, then tier-2 parts ahead of their time. Best effort, and each stops where the spare allowance does."""
 
     try:
         with connectors.store.connection() as conn:
             kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
         poller = poller or Poller(connectors)
         discoverer = discoverer or Discoverer(connectors)
+        # Late committed reads come first, whatever the switches say: they are work the budget promised.
+        poller.poll_connector(connector_id, spare="overdue")
         if "waiting" in kinds:
             discoverer.run(connector_id, waiting=True)
             poller.poll_connector(connector_id, spare="waiting")
@@ -444,7 +446,7 @@ def run_supply_poll_job(context: Any) -> Any:
             oneoff.run(Discoverer(connectors), Poller(connectors), connectors.store, connector_id)
         except Exception:  # noqa: BLE001 - a check that fails is tried again; it never fails the job
             logging.getLogger(__name__).info("Check once not served", exc_info=True)
-        if polled.stopped in (None, "nothing_due"):
+        if polled.stopped in (None, "nothing_due", "budget"):
             _spend_spare(connectors, connector_id)
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
