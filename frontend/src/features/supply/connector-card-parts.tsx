@@ -2,8 +2,16 @@ import { ChevronRight, FileSpreadsheet } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { BudgetNotices, SupplyCapacity, SupplyConnector } from "@/types/supply";
+import type { BudgetConnector, BudgetNotices, SupplyConnector } from "@/types/supply";
+import { DayBar } from "./call-day-bar";
 import { budgetUsedPercent, formatWhen } from "./connector-status";
+
+/** One line about how a provider is called, where it matters. */
+export function providerNote(provider: string): string {
+  if (provider === "lcsc" || provider === "jlcpcb") return "A call every 8 seconds at most: it has no credentials and answers a burst with a block.";
+  if (provider === "arrow") return "Reads 100 parts a call.";
+  return "";
+}
 
 /** The change-notice quota some providers keep apart from their product calls, with how the tracked parts use it. */
 export function NoticeBar({ notices }: { notices: BudgetNotices }) {
@@ -26,7 +34,7 @@ export function NoticeBar({ notices }: { notices: BudgetNotices }) {
 }
 
 /** Today's calls against the daily budget. */
-export function CallBudget({ connector, detail }: { connector: SupplyConnector; detail?: ReactNode }) {
+export function CallBudget({ connector, budget, detail }: { connector: SupplyConnector; budget?: BudgetConnector; detail?: ReactNode }) {
   const used = budgetUsedPercent(connector);
   const [open, setOpen] = useState(false);
   return (
@@ -41,49 +49,21 @@ export function CallBudget({ connector, detail }: { connector: SupplyConnector; 
           {connector.usage_today.spent.toLocaleString()} / {connector.daily_budget.toLocaleString()}
         </span>
       </div>
-      <div
-        role="progressbar"
-        aria-label="Share of today's call budget spent"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={used}
-        className="h-1.5 overflow-hidden bg-muted"
-      >
-        <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
-      </div>
-      <p className="text-[11px] text-muted-foreground">{connector.interactive_reserve_pct}% held for lookups</p>
+      {budget ? (
+        <DayBar item={budget} />
+      ) : (
+        <div
+          role="progressbar"
+          aria-label="Share of today's call budget spent"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={used}
+          className="h-1.5 overflow-hidden bg-muted"
+        >
+          <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
+        </div>
+      )}
       {detail && open ? <div className="pt-2">{detail}</div> : null}
-    </div>
-  );
-}
-
-/** Whether the daily budget keeps up with what is watched, said before it bites. */
-export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefined }) {
-  if (!capacity || (capacity.listings === 0 && capacity.searches_pending === 0 && !capacity.quotes?.of)) return null;
-  const calls = capacity.calls_per_day.toLocaleString();
-  const usable = capacity.usable_per_day.toLocaleString();
-  return (
-    <div className="mt-2 space-y-0.5 text-[11px]">
-      {capacity.listings > 0 ? (
-        capacity.fits ? (
-          <p className="text-muted-foreground">
-            Reading {capacity.listings.toLocaleString()} {capacity.listings === 1 ? "listing" : "listings"} needs about {calls} calls a day of {usable} usable.
-          </p>
-        ) : (
-          <p role="alert" className="text-warning">
-            Reading {capacity.listings.toLocaleString()} {capacity.listings === 1 ? "listing" : "listings"} needs about {calls} calls a day, but only {usable} are usable.
-            About {capacity.shortfall_pct}% of reads will run later than their tier asks. Raise the budget or watch fewer parts.
-          </p>
-        )
-      ) : null}
-      {capacity.quotes && capacity.quotes.of > 0 ? (
-        <p className="text-muted-foreground">Gives a price for {capacity.quotes.parts.toLocaleString()} of {capacity.quotes.of.toLocaleString()} tracked parts.</p>
-      ) : null}
-      {capacity.searches_pending > 0 ? (
-        <p className="text-muted-foreground">
-          {capacity.searches_pending.toLocaleString()} watched {capacity.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
-        </p>
-      ) : null}
     </div>
   );
 }

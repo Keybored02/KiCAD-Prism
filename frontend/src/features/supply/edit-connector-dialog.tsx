@@ -95,6 +95,7 @@ function EditForm({ connector, storefronts = [], onClose, onSaved }: { connector
             <div className="space-y-1.5">
               <Label htmlFor="edit-connector-reserve">Held for people and one-off checks (%)</Label>
               <Input id="edit-connector-reserve" inputMode="numeric" value={values.reserve} onChange={(event) => update({ reserve: event.target.value })} />
+              <p className="text-xs text-muted-foreground">The part of the day people can always use. First searches and one-off checks take at most half of it. Calls nothing else needs come on top.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-connector-reset">Provider's day begins at</Label>

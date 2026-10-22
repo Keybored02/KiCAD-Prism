@@ -23,19 +23,21 @@ DAYS = 14
 TOP = 10
 
 
-def _hourly(conn, connector_id: str, day) -> list[dict[str, Any]]:
+def _hourly(conn, connector_id: str, day, *, notices: bool = True) -> list[dict[str, Any]]:
+    """Today's calls by hour. ``notices`` False leaves out change-notice calls, for a provider whose notices have a quota of their own."""
+
     rows = conn.execute(
-        "SELECT hour, kind, purpose, calls FROM call_counts WHERE connector_id = %s AND day = %s ORDER BY hour, kind, purpose",
-        (connector_id, day),
+        "SELECT hour, kind, purpose, calls FROM call_counts WHERE connector_id = %s AND day = %s AND (%s OR kind <> 'notices') ORDER BY hour, kind, purpose",
+        (connector_id, day, notices),
     ).fetchall()
     return [{"hour": int(r["hour"]), "kind": r["kind"], "purpose": r["purpose"], "calls": int(r["calls"])} for r in rows]
 
 
-def _daily(conn, connector_id: str, day) -> list[dict[str, Any]]:
+def _daily(conn, connector_id: str, day, *, notices: bool = True) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT day, purpose, SUM(calls) AS calls FROM call_counts WHERE connector_id = %s AND day > %s AND day <= %s AND kind <> 'refused' "
-        "GROUP BY day, purpose ORDER BY day, purpose",
-        (connector_id, day - timedelta(days=DAYS), day),
+        "AND (%s OR kind <> 'notices') GROUP BY day, purpose ORDER BY day, purpose",
+        (connector_id, day - timedelta(days=DAYS), day, notices),
     ).fetchall()
     return [{"day": r["day"].isoformat(), "purpose": r["purpose"], "calls": int(r["calls"])} for r in rows]
 
@@ -122,8 +124,9 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
             "spent": state.spent_today,
             "refused_today": _refused(conn, row["id"], day),
             "tracking": standing.get(row["id"]),
-            "hourly": _hourly(conn, row["id"], day),
-            "days": _daily(conn, row["id"], day),
+            # A provider's own notice quota has its own bar; its calls are not part of the product budget's day.
+            "hourly": _hourly(conn, row["id"], day, notices=not spec.notice_daily_limit),
+            "days": _daily(conn, row["id"], day, notices=not spec.notice_daily_limit),
             "owners": owners(conn, row["id"], spec, data),
             # The provider's change-notice quota, apart from the products budget; absent for providers without one.
             "notices": notice_budget.plan(conn, row["id"], spec.notice_daily_limit, now).dto() if spec.notice_daily_limit else None,

@@ -279,31 +279,13 @@ describe("testing a connection", () => {
 });
 
 describe("capacity notes", () => {
-  it("says what the watchlist needs against what the budget allows", async () => {
-    load();
-    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture()]);
-    render(<SupplyConnectorsView user={admin} />);
-    const card = await screen.findByRole("article", { name: "Demo EU" });
-    expect(await within(card).findByText("Reading 12 listings needs about 66 calls a day of 900 usable.")).toBeTruthy();
-    expect(within(card).queryByRole("alert")).toBeNull();
-  });
-
-  it("warns before the budget runs short", async () => {
+  it("no longer says what the watchlist needs against what the budget allows: the day's bar and the room table do", async () => {
     load();
     mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 300, calls_per_day: 1840, usable_per_day: 900, fits: false, shortfall_pct: 51 })]);
     render(<SupplyConnectorsView user={admin} />);
     const card = await screen.findByRole("article", { name: "Demo EU" });
-    const warning = await within(card).findByRole("alert");
-    expect(warning.textContent).toContain("needs about 1,840 calls a day, but only 900 are usable");
-    expect(warning.textContent).toContain("About 51% of reads will run later than their tier asks");
-  });
-
-  it("mentions watched parts that have not been searched for yet", async () => {
-    load();
-    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 0, calls_per_day: 0, searches_pending: 3 })]);
-    render(<SupplyConnectorsView user={admin} />);
-    const card = await screen.findByRole("article", { name: "Demo EU" });
-    expect(await within(card).findByText("3 watched parts have not been searched here yet.")).toBeTruthy();
+    expect(within(card).queryByText(/needs about/)).toBeNull();
+    expect(within(card).queryByRole("alert")).toBeNull();
   });
 
   it("stays quiet with nothing watched and when capacity cannot be loaded", async () => {

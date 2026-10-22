@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { budgetUsedPercent, connectorState, errorCodeLabel, formatWhen } from "./connector-status";
+import type { SupplyConnector } from "@/types/supply";
+import { budgetUsedPercent, clockTime, connectorState, errorCodeLabel, formatWhen, slowedText } from "./connector-status";
 import { connectorFixture } from "./supply-test-fixtures";
 
 describe("connectorState", () => {
@@ -68,5 +69,23 @@ describe("labels", () => {
     expect(formatWhen(null)).toBe("");
     expect(formatWhen("not a date")).toBe("");
     expect(formatWhen("2026-03-01T10:00:00Z")).not.toBe("");
+  });
+});
+
+describe("a resting connector", () => {
+  const NOW = Date.parse("2026-10-22T14:05:00");
+  const base = { provider_available: true, credentials: {}, credentials_status: "ok", enabled: true, paused_reason: "", provider: "jlcpcb", csv_import: null, last_ok_at: null, last_error_code: "blocked", last_error_at: "2026-10-22T14:05:00" } as unknown as SupplyConnector;
+
+  it("says it rests until a time instead of that the last call failed, and tells a refusal from other errors", () => {
+    const resting = { ...base, cooldown_until: "2026-10-22T14:20:00" } as SupplyConnector;
+    expect(connectorState(resting, NOW)).toEqual({ label: "Resting until 14:20", tone: "warning" });
+    expect(connectorState({ ...resting, cooldown_until: "2026-10-22T14:00:00" } as SupplyConnector, NOW).label).toBe("Last call failed");
+    expect(errorCodeLabel("blocked")).toBe("refused");
+  });
+
+  it("gives the day when the rest or the slowdown ends tomorrow", () => {
+    expect(clockTime("2026-10-23T09:10:00", NOW)).toBe("tomorrow 09:10");
+    expect(slowedText({ ...base, slow_until: "2026-10-23T09:10:00" } as SupplyConnector, NOW)).toBe("Calls slowed until tomorrow 09:10");
+    expect(slowedText({ ...base, slow_until: "2026-10-22T10:00:00" } as SupplyConnector, NOW)).toBe("");
   });
 });

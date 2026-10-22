@@ -11,10 +11,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CSV_PROVIDER, type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
 import { BudgetDetail } from "./budget-view";
-import { CallBudget, CapacityNote, OffersFile, ReportedLimits } from "./connector-card-parts";
+import { CallBudget, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
 import { vendorColor } from "./vendor-colors";
-import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
+import { clockTime, connectorState, errorCodeLabel, formatWhen, lastCallFailed, resting, slowedText } from "./connector-status";
 
 export type ConnectorAction =
   | "edit"
@@ -59,8 +59,10 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
         {isAdmin ? <ConnectorMenu connector={connector} onAction={onAction} /> : null}
       </div>
 
-      {connector.metered ? <CallBudget connector={connector} detail={budget ? <BudgetDetail item={budget} /> : undefined} /> : <OffersFile connector={connector} />}
-      {connector.metered ? <CapacityNote capacity={capacity} /> : null}
+      {connector.metered
+        ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} capacity={capacity} /> : undefined} />
+        : <OffersFile connector={connector} />}
+      {providerNote(connector.provider) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider)}</p> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">
         {credentialNames.length > 0 ? (
@@ -78,6 +80,12 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
           <dt className="text-muted-foreground">Last call</dt>
           <dd>{lastCallText(connector)}</dd>
         </div>
+        {slowedText(connector) ? (
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">Pacing</dt>
+            <dd>{slowedText(connector)}</dd>
+          </div>
+        ) : null}
         <ReportedLimits connector={connector} isAdmin={isAdmin} onApply={() => onAction("apply-reset", connector)} />
         {connector.paused_reason ? (
           <div className="flex gap-1.5">
@@ -93,6 +101,10 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
 
 function lastCallText(connector: SupplyConnector): string {
   if (lastCallFailed(connector)) {
+    if (resting(connector) && connector.last_error_at) {
+      const what = connector.last_error_code === "blocked" ? "Refused" : connector.last_error_code === "rate_limited" ? "Rate limited" : `Failed (${errorCodeLabel(connector.last_error_code)})`;
+      return `${what} ${clockTime(connector.last_error_at)}, resting until ${clockTime(connector.cooldown_until as string)}`;
+    }
     return `Failed (${errorCodeLabel(connector.last_error_code)}) ${formatWhen(connector.last_error_at)}`;
   }
   return connector.last_ok_at ? `OK ${formatWhen(connector.last_ok_at)}` : "None yet";

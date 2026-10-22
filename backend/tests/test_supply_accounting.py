@@ -436,6 +436,22 @@ class AccountingTests(unittest.TestCase):
         second.wait()
         self.assertEqual(sleeps, [1.5], "and ends after a day")
 
+    def test_a_resting_connector_says_until_when_and_how_long_it_is_slowed(self) -> None:
+        from app.services.supply import pacing
+        from app.services.supply.providers.base import Blocked
+
+        pacing.use_store(self.store)
+        self.addCleanup(pacing.use_store, None)
+        cid = self.connectors.create(actor=ACTOR, provider="fake", currency="EUR", interactive_reserve_pct=10)["id"]
+        self.assertEqual((self.connectors.get(cid)["cooldown_until"], self.connectors.get(cid)["slow_until"]), (None, None))
+        pacing.pacer_for("provider:fake", 1.0)
+        self.trouble.react(self.connectors, self.store, cid, Blocked("403"), START, rng=lambda: 0.0)
+        found = self.connectors.get(cid)
+        self.assertEqual((found["block_streak"], found["last_error_code"]), (1, "blocked"))
+        self.assertIsNotNone(found["cooldown_until"])
+        self.assertIsNotNone(found["slow_until"], "calls are slowed for a day after a refusal")
+        self.assertEqual([item["slow_until"] is not None for item in self.connectors.list() if item["id"] == cid], [True])
+
     def test_a_person_is_told_how_long_a_connector_rests_after_a_refusal(self) -> None:
         from app.services.supply.providers.base import Blocked, Unavailable
 

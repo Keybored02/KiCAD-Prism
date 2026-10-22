@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
@@ -159,7 +159,16 @@ class ConnectorService:
             usage = self._usage_today(conn)
             imports = self._offers.import_infos(conn)
             guesses = limits.suggestions(conn, self._clock())
+            rows = self._paced(conn, rows)
         return [self._dto(row, usage.get(row["id"]), imports.get(row["id"]), guesses.get(row["id"])) for row in rows]
+
+    @staticmethod
+    def _paced(conn, rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        """The rows with ``slow_until``: when the pacing of the connector's account (or of its provider, with no credentials) goes
+        back to normal, if it was slowed after a refusal."""
+
+        slowed = {row["pace_key"]: row["slow_until"] for row in conn.execute("SELECT pace_key, slow_until FROM pace_state WHERE slow_until IS NOT NULL").fetchall()}
+        return [{**row, "slow_until": slowed.get(accounts.pace_key(row["account_key"], row["provider"]))} for row in rows]
 
     def get(self, connector_id: str) -> dict[str, Any]:
         with self._store.connection() as conn:
@@ -218,7 +227,7 @@ class ConnectorService:
             raise ConnectorError(
                 "duplicate", "A connector for this provider and storefront already exists."
             ) from None
-        return self._dto(row)  # a new connector has spent nothing
+        return self._dto({**row, "slow_until": None})  # a new connector has spent nothing
 
     def update(self, connector_id: str, *, actor: str, **changes: Any) -> dict[str, Any]:
         actor = actor_text(actor)
@@ -423,6 +432,7 @@ class ConnectorService:
 
     def _dto_from(self, conn, row: Mapping[str, Any]) -> dict[str, Any]:
         guess = limits.suggestions(conn, self._clock()).get(row["id"])
+        (row,) = self._paced(conn, [row])
         return self._dto(row, self._usage_today(conn).get(row["id"]), self._offers.import_info(conn, row["id"]), guess)
 
     def _usage_today(self, conn) -> dict[str, dict[str, Any]]:
@@ -486,6 +496,10 @@ class ConnectorService:
             "last_ok_at": _iso(row["last_ok_at"]),
             "last_error_code": row["last_error_code"],
             "last_error_at": _iso(row["last_error_at"]),
+            # Resting until this time after a refusal or a run of errors, and slowed until this time after a refusal.
+            "cooldown_until": _iso(row["cooldown_until"]),
+            "block_streak": int(row["block_streak"]),
+            "slow_until": _iso(row.get("slow_until")),
             "created_by": row["created_by"],
             "created_at": _iso(row["created_at"]),
             "updated_at": _iso(row["updated_at"]),

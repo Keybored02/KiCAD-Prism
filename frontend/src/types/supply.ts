@@ -76,6 +76,12 @@ export interface SupplyConnector {
   last_ok_at: string | null;
   last_error_code: string;
   last_error_at: string | null;
+  /** The connector rests, making no calls, until this time (after a refusal, a rate limit or errors in a row). */
+  cooldown_until?: string | null;
+  /** Refusals in a row at a provider with no credentials; each rests longer. */
+  block_streak?: number;
+  /** Calls are spaced twice as far apart until this time, after a refusal. */
+  slow_until?: string | null;
   created_by: string;
   created_at: string | null;
   updated_at: string | null;

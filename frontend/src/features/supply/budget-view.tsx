@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
-import type { BudgetCall, BudgetConnector } from "@/types/supply";
+import type { BudgetCall, BudgetConnector, SupplyCapacity } from "@/types/supply";
 import { getBudget } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 
@@ -20,44 +20,51 @@ function hoursMinutes(seconds: number): string {
   return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
 }
 
-function Bar({ label, spent, capacity }: { label: string; spent: number; capacity: number }) {
-  const share = capacity > 0 ? Math.min(100, (spent / capacity) * 100) : 0;
-  return (
-    <div className="space-y-0.5">
-      <div className="flex justify-between text-xs"><span>{label}</span><span className="text-muted-foreground">{spent} of {capacity}</span></div>
-      <div className="h-2 bg-muted" role="img" aria-label={`${label}: ${spent} of ${capacity} calls`}>
-        <div className="h-2 bg-primary" style={{ width: `${share}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function totalsByPurpose(rows: readonly BudgetCall[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const row of rows) totals.set(row.purpose, (totals.get(row.purpose) ?? 0) + row.calls);
   return totals;
 }
 
-/** Fourteen days as stacked bars, one per day, split by what the calls were for. */
-function Days({ rows }: { rows: readonly BudgetCall[] }) {
+/** What a day's calls were for, as the hover says it. */
+function daySplit(rows: readonly BudgetCall[], day: string): string {
+  const parts = PURPOSES.flatMap((purpose) => {
+    const calls = rows.reduce((sum, row) => sum + (row.day === day && row.purpose === purpose.id ? row.calls : 0), 0);
+    return calls > 0 ? [`${purpose.label} ${calls}`] : [];
+  });
+  return `${day}: ${parts.join(", ") || "no calls"}`;
+}
+
+/** Fourteen days as stacked bars, one per day, split by what the calls were for, with the daily budget as a line and a legend. */
+function Days({ rows, budget }: { rows: readonly BudgetCall[]; budget: number }) {
   const days = [...new Set(rows.map((row) => row.day ?? ""))].sort();
-  const peak = Math.max(1, ...days.map((day) => rows.reduce((sum, row) => sum + (row.day === day ? row.calls : 0), 0)));
+  const peak = Math.max(1, budget, ...days.map((day) => rows.reduce((sum, row) => sum + (row.day === day ? row.calls : 0), 0)));
+  const used = new Set(rows.map((row) => row.purpose));
   return (
-    <div className="flex h-16 items-end gap-0.5" role="img" aria-label="Calls a day for the last two weeks">
-      {days.map((day) => (
-        <div key={day} className="flex h-full flex-1 flex-col-reverse" title={day}>
-          {PURPOSES.map((purpose) => {
-            const calls = rows.reduce((sum, row) => sum + (row.day === day && row.purpose === purpose.id ? row.calls : 0), 0);
-            return calls > 0 ? <div key={purpose.id} className={purpose.tone} style={{ height: `${(calls / peak) * 100}%` }} /> : null;
-          })}
-        </div>
-      ))}
+    <div className="space-y-1">
+      <div className="relative flex h-16 items-end gap-0.5" role="img" aria-label="Calls a day for the last two weeks">
+        {days.map((day) => (
+          <div key={day} className="flex h-full flex-1 flex-col-reverse" title={daySplit(rows, day)}>
+            {PURPOSES.map((purpose) => {
+              const calls = rows.reduce((sum, row) => sum + (row.day === day && row.purpose === purpose.id ? row.calls : 0), 0);
+              return calls > 0 ? <div key={purpose.id} className={purpose.tone} style={{ height: `${(calls / peak) * 100}%` }} /> : null;
+            })}
+          </div>
+        ))}
+        {budget > 0 ? <div aria-hidden title={`Daily budget ${budget}`} className="pointer-events-none absolute inset-x-0 border-t border-dashed border-destructive" style={{ bottom: `${(budget / peak) * 100}%` }} /> : null}
+      </div>
+      <ul className="flex flex-wrap gap-x-3 text-[11px] text-muted-foreground" aria-label="What the days' calls were for">
+        {PURPOSES.filter((purpose) => used.has(purpose.id)).map((purpose) => (
+          <li key={purpose.id}><span className={`mr-1 inline-block h-2 w-2 ${purpose.tone}`} />{purpose.label}</li>
+        ))}
+        {budget > 0 ? <li><span className="mr-1 inline-block h-0 w-3 border-t border-dashed border-destructive align-middle" />Daily budget {budget.toLocaleString()}</li> : null}
+      </ul>
     </div>
   );
 }
 
 /** Where a connector's budget goes today and what tracking costs, shown under its card's Calls today bar. */
-export function BudgetDetail({ item }: { item: BudgetConnector }) {
+export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capacity?: SupplyCapacity }) {
   const today = totalsByPurpose(item.hourly);
   const standing = item.tracking;
   return (
@@ -65,21 +72,18 @@ export function BudgetDetail({ item }: { item: BudgetConnector }) {
       <p className="text-xs text-muted-foreground">
         Day resets in {hoursMinutes(item.reset_in_seconds)}{item.shares_account ? ", shares its budget with another connector" : ""}
       </p>
-      <Bar label="Tracking (committed)" spent={item.committed.spent} capacity={item.committed.capacity} />
-      <Bar label="Pool (people, first searches, one-off)" spent={item.pool.spent} capacity={item.pool.capacity} />
-      {item.free ? (
-        <p className="text-xs text-muted-foreground">
-          Until the reset: {item.free.scheduled} calls kept for scheduled work, {item.free.kept_for_people} for people, {item.free.free} free now.
-        </p>
-      ) : null}
-      {item.spare_spent > 0 ? (
-        <p className="text-xs text-muted-foreground">{item.spare_spent} calls today from budget left over (in the total, not in the two shares).</p>
-      ) : null}
       {item.refused_today > 0 ? <p className="text-xs text-warning">{item.refused_today} calls turned away today.</p> : null}
       {standing ? (
         <p className="text-xs text-muted-foreground">
-          {standing.admitted} parts read, costing {standing.committed} of {standing.capacity} calls a day.
-          {standing.waiting > 0 ? ` ${standing.waiting} wait for room.` : ""}
+          Tracking promises {standing.committed} of {standing.capacity} calls a day, for {standing.admitted} parts{standing.waiting > 0 ? `; ${standing.waiting} wait for room` : ""}.
+        </p>
+      ) : null}
+      {capacity?.quotes && capacity.quotes.of > 0 ? (
+        <p className="text-xs text-muted-foreground">Gives a price for {capacity.quotes.parts.toLocaleString()} of {capacity.quotes.of.toLocaleString()} tracked parts.</p>
+      ) : null}
+      {capacity && capacity.searches_pending > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {capacity.searches_pending.toLocaleString()} watched {capacity.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
         </p>
       ) : null}
       <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground" aria-label="Spent today">
@@ -87,7 +91,7 @@ export function BudgetDetail({ item }: { item: BudgetConnector }) {
           <li key={purpose.id}><span className={`mr-1 inline-block h-2 w-2 ${purpose.tone}`} />{purpose.label} {today.get(purpose.id)}</li>
         ))}
       </ul>
-      <Days rows={item.days} />
+      <Days rows={item.days} budget={item.daily_budget} />
       {item.owners.projects.length > 0 || item.owners.parts.length > 0 ? (
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">What costs most</summary>
