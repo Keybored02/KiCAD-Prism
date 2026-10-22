@@ -133,7 +133,7 @@ def due_listings(
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
           AND (NOT %s OR a.state = 'admitted')
-          AND (pk.listing_id IS NULL OR pk.listing_id = l.id)
+          AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
         ORDER BY {_SERVICE_ORDER}
         LIMIT %s
@@ -540,6 +540,16 @@ class Poller:
                 (row.id,),
             )
             conn.execute("DELETE FROM poll_state WHERE listing_id = %s", (row.id,))
+            # A part with nothing counted left at this distributor is "not found" there: it is searched again on the shorter cadence.
+            conn.execute(
+                """
+                UPDATE discovery_runs d SET found = 0 FROM listings l
+                WHERE l.id = %s AND d.part_id = l.part_id AND d.connector_id = l.connector_id
+                  AND NOT EXISTS (SELECT 1 FROM listings o WHERE o.part_id = l.part_id AND o.connector_id = l.connector_id
+                                  AND o.id <> l.id AND o.match_state IN ('exact', 'manual'))
+                """,
+                (row.id,),
+            )
             conn.execute(
                 "INSERT INTO events (kind, part_id, listing_id, payload) VALUES ('listing_gone', %s, %s, %s::jsonb)",
                 (row.part_id, row.id, json.dumps({"sku": row.sku, "packaging": self._packaging_of(conn, row.id)})),

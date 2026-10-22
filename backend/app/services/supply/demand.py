@@ -46,7 +46,7 @@ def connector_rest(conn, connector_id: str, now: datetime, until: datetime) -> i
         LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
-          AND (pk.listing_id IS NULL OR pk.listing_id = l.id)
+          AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
         """,
         (connector_id, until),

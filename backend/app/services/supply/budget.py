@@ -20,8 +20,9 @@ from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, Provider
 # How often each extra kind of call is made, in days.
 NOTICE_EVERY_DAYS = 7
 SUBSTANCE_EVERY_DAYS = 30
+# How often a part is searched again, by tracking tier. ``discoverer`` reads these, so the cost model and the schedule say the same.
 SEARCH_EVERY_DAYS = {1: 30, 2: 90}
-# A provider that did not carry the part is asked again sooner (``discoverer.RESEARCH_MISSING_AFTER``).
+# A provider that did not carry the part is asked again sooner.
 SEARCH_MISSING_EVERY_DAYS = {1: 14, 2: 30}
 RATE_DAYS = {"daily": 1, "weekly": 7, "monthly": 30}
 # The most of a connector's day that tracking may commit; the rest is the pool for people's reads and one-off checks.
@@ -60,7 +61,8 @@ def extra_cost(spec: ProviderSpec, tier: int) -> float:
     """Calls a day for notices, substances and the search that finds listings."""
 
     cost = search_cost(spec, tier)
-    if CAP_PCN in spec.capabilities:
+    # A provider with a quota of its own for notices (DigiKey) does not pay for them from the product budget.
+    if CAP_PCN in spec.capabilities and not spec.notice_daily_limit:
         cost += 1 / NOTICE_EVERY_DAYS
     if CAP_SUBSTANCES in spec.capabilities and tier == 1:
         cost += 1 / SUBSTANCE_EVERY_DAYS

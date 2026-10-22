@@ -495,6 +495,47 @@ class PollingTests(unittest.TestCase):
         self.clock.advance(minutes=16)
         self.assertEqual(free(), 0, "a count older than 15 minutes is not trusted")
 
+    def test_a_part_that_left_a_distributor_is_searched_there_again_on_the_not_found_cadence(self) -> None:
+        from app.services.supply import discoverer
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-GHOST-CT")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (watch.part_id, cid, self.clock.now))
+
+        class DropsAll:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus): return []
+
+        self.provider_behaviour = DropsAll
+        poller = self.poller()
+        for _ in range(3):
+            poller.poll_connector(cid)
+            self.clock.advance(hours=2)
+        self.assertEqual(self.state_of("FAKE-GHOST-CT")["match_state"], "gone")
+        self.assertEqual(self.rows("SELECT found FROM discovery_runs")[0]["found"], 0, "nothing counted is left here")
+        with self.store.connection() as conn:
+            self.assertEqual(discoverer.pending_parts(conn, cid, self.clock.now, 10), [], "searched six hours ago")
+            conn.execute("UPDATE discovery_runs SET last_run_at = %s", (self.clock.now - timedelta(days=15),))
+            self.assertEqual([p.part_id for p in discoverer.pending_parts(conn, cid, self.clock.now, 10)], [watch.part_id], "a part not found is searched after 14 days, not 30")
+
+    def test_a_listing_found_after_a_pick_is_read_once_and_a_picked_listing_still_wins_the_rest(self) -> None:
+        cid = self.connector()
+        watch = self.watch()
+        picked = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-RL")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (watch.part_id, cid, picked))
+            conn.execute("UPDATE admissions SET state = 'admitted'")
+        poller = self.poller()
+        first = poller.poll_connector(cid)
+        self.assertEqual(first.polled, 2, "the listing nobody read yet is read once whatever the pick")
+        self.clock.advance(days=2)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
+        self.assertEqual(poller.poll_connector(cid).polled, 1, "afterwards only the picked one")
+
     def test_a_returning_listing_clears_its_misses(self) -> None:
         cid = self.connector()
         self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")

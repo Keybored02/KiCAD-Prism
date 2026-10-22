@@ -338,6 +338,16 @@ class SchedulingTests(unittest.TestCase):
         discoverer.run(self.cid)
         self.assertEqual(asked_family, ["NONE-1"], "once")
 
+    def test_a_part_waiting_for_room_is_searched_again_on_the_same_cadences(self) -> None:
+        record = self.watch("AAA")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE admissions SET state = 'waiting'")
+            self.assertEqual([p.first for p in self.discoverer.pending_waiting(conn, self.cid, self.clock.now, 10)], [True], "never searched")
+            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
+            self.assertEqual(self.discoverer.pending_waiting(conn, self.cid, self.clock.now, 10), [])
+            conn.execute("UPDATE discovery_runs SET last_run_at = %s", (self.clock.now - timedelta(days=31),))
+            self.assertEqual([p.first for p in self.discoverer.pending_waiting(conn, self.cid, self.clock.now, 10)], [False], "found, tier 1: a month")
+
     def test_the_budget_is_charged_per_group(self) -> None:
         for mpn in ("AAA", "BBB", "CCC", "DDD"):
             self.watch(mpn)

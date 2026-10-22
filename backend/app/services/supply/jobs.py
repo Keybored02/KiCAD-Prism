@@ -142,7 +142,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.match_state IN ('exact', 'manual') AND {active}
           AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
-          AND (pk.listing_id IS NULL OR pk.listing_id = l.id)
+          AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)
         """,
         {"now": now, **cutoffs(now)},

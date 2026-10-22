@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import admission, ledger, parts, trouble
+from app.services.supply import admission, budget, ledger, parts, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import DiscoveryService
 from app.services.supply.identity import match_key
@@ -24,9 +24,9 @@ from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
 
-# How long after a search a part is searched again, by tracking tier: where it was found, and where nothing was.
-RESEARCH_AFTER = {1: timedelta(days=30), 2: timedelta(days=90)}
-RESEARCH_MISSING_AFTER = {1: timedelta(days=14), 2: timedelta(days=30)}
+# How long after a search a part is searched again, by tracking tier: where it was found, and where nothing was (``budget.py`` has the days).
+RESEARCH_AFTER = {tier: timedelta(days=days) for tier, days in budget.SEARCH_EVERY_DAYS.items()}
+RESEARCH_MISSING_AFTER = {tier: timedelta(days=days) for tier, days in budget.SEARCH_MISSING_EVERY_DAYS.items()}
 MAX_PER_RUN = 10
 
 STOPPED_INACTIVE = "inactive"
@@ -71,19 +71,24 @@ class PendingPart:
     first: bool
 
 
-def pending_waiting(conn, connector_id: str, limit: int) -> list[PendingPart]:
-    """Parts that wait for room here and have never been searched: their searches come from spare budget."""
+def pending_waiting(conn, connector_id: str, now: datetime, limit: int) -> list[PendingPart]:
+    """Parts that wait for room here and are due a search: never searched, or searched longer ago than a part admitted here would be
+    (the found and not-found cadences). Their searches come from spare budget."""
 
     rows = conn.execute(
         """
-        SELECT pt.part_id, pt.tier FROM part_tiers pt
-        JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = %s AND a.state = 'waiting'
+        SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first FROM part_tiers pt
+        JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = %(connector)s AND a.state = 'waiting'
         LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = a.connector_id
-        WHERE d.part_id IS NULL ORDER BY pt.tier, pt.part_id LIMIT %s
+        WHERE d.part_id IS NULL OR d.last_run_at <= CASE
+            WHEN d.found = 0 AND pt.tier = 1 THEN %(missing1)s::timestamptz
+            WHEN d.found = 0 THEN %(missing2)s::timestamptz
+            WHEN pt.tier = 1 THEN %(tier1)s::timestamptz ELSE %(tier2)s::timestamptz END
+        ORDER BY (d.part_id IS NULL) DESC, pt.tier, COALESCE(d.last_run_at, '-infinity'::timestamptz), pt.part_id LIMIT %(limit)s
         """,
-        (connector_id, limit),
+        {"connector": connector_id, "limit": limit, **cutoffs(now)},
     ).fetchall()
-    return [PendingPart(row["part_id"], int(row["tier"]), True) for row in rows]
+    return [PendingPart(row["part_id"], int(row["tier"]), bool(row["first"])) for row in rows]
 
 
 def pending_parts(conn, connector_id: str, now: datetime, limit: int) -> list[PendingPart]:
@@ -154,7 +159,7 @@ class Discoverer:
         group_size = max(spec.search_batch, 1)
         with self._store.connection() as conn:
             pending = (
-                pending_waiting(conn, connector_id, limit * group_size) if waiting
+                pending_waiting(conn, connector_id, now, limit * group_size) if waiting
                 else pending_parts(conn, connector_id, now, limit * group_size)
             )
         if not pending:
