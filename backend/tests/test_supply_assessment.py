@@ -211,11 +211,37 @@ class HealthTests(unittest.TestCase):
     def test_no_data_is_unknown_not_good(self) -> None:
         self.assertEqual(self.assess(facts([]))[1], health.Health(0.0, Status.UNKNOWN))
 
-    def test_rollup_weights_by_quantity_and_caps_at_four_when_a_line_is_fatal(self) -> None:
+    def test_every_status_lands_in_its_band_and_the_number_never_disagrees_with_it(self) -> None:
+        cases = {
+            "last time buy with plenty of stock": (facts([offer(stock=5000), offer(connector_id="c2", stock=5000), offer(connector_id="c3", stock=5000)], lifecycle=Lifecycle.LAST_TIME_BUY), Status.WARNING),
+            "nrnd": (facts(lifecycle=Lifecycle.NRND), Status.WARNING),
+            "no stock anywhere": (facts([offer(stock=0)]), Status.ERROR),
+            "obsolete": (facts(lifecycle=Lifecycle.OBSOLETE), Status.FATAL),
+            "fine": (facts([offer(), offer(connector_id="c2"), offer(connector_id="c3")]), Status.OK),
+        }
+        for name, (given, status) in cases.items():
+            _, result = self.assess(given)
+            self.assertEqual(result.status, status, name)
+            if status is Status.FATAL:
+                self.assertEqual(result.score, 0.0, name)
+            else:
+                low, high = health.BANDS[status]
+                self.assertTrue(low <= result.score <= high, f"{name}: {result.score} is outside {low} to {high}")
+
+    def test_a_last_time_buy_with_stock_from_three_distributors_sits_higher_than_one_also_single_sourced(self) -> None:
+        good = facts([offer(stock=5000), offer(connector_id="c2", stock=5000), offer(connector_id="c3", stock=5000)], lifecycle=Lifecycle.LAST_TIME_BUY)
+        thin = facts([offer(stock=5000), offer(connector_id="c2", stock=0), offer(connector_id="c3", stock=0)], lifecycle=Lifecycle.LAST_TIME_BUY, distributors=3)
+        self.assertGreater(self.assess(good)[1].score, self.assess(thin)[1].score)
+        self.assertGreaterEqual(self.assess(good)[1].score, 5.5)
+
+    def test_rollup_weights_by_quantity_and_is_held_at_the_top_of_the_worst_lines_band(self) -> None:
         rolled = health.rollup([(9.0, 90, Status.OK), (3.0, 10, Status.ERROR)])
-        self.assertEqual((rolled.score, rolled.status), (8.4, Status.ERROR))
+        self.assertEqual((rolled.score, rolled.status), (3.9, Status.ERROR), "an error line caps the BOM at 3.9")
+        warned = health.rollup([(9.0, 90, Status.OK), (6.0, 10, Status.WARNING)])
+        self.assertEqual((warned.score, warned.status), (6.9, Status.WARNING))
         capped = health.rollup([(9.0, 90, Status.OK), (0.0, 10, Status.FATAL)])
-        self.assertEqual((capped.score, capped.status), (4.0, Status.FATAL))
+        self.assertEqual((capped.score, capped.status), (3.9, Status.FATAL))
+        self.assertEqual(health.rollup([(9.0, 10, Status.OK), (8.0, 10, Status.OK)]), health.Health(8.5, Status.OK))
         self.assertEqual(health.rollup([(0.0, 5, Status.UNKNOWN)]).status, Status.UNKNOWN)
 
 

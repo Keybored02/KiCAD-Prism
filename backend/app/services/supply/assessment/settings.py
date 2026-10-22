@@ -83,9 +83,6 @@ class AssessmentSettings:
         "lifecycle": 0.25, "sourcing": 0.2, "inventory": 0.3, "market": 0.1, "compliance": 0.15,
     }))
     severity: Mapping[str, Status] = field(default_factory=lambda: DEFAULT_SEVERITY)
-    # The most health the sub-scores can take away, and the most the findings can.
-    sub_score_penalty: float = 6.0
-    finding_penalty_cap: float = 4.0
 
     def severity_of(self, check: str) -> Status:
         return self.severity.get(check, DEFAULT_SEVERITY[check])

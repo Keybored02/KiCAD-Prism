@@ -10,9 +10,10 @@ from app.services.supply.assessment.risk import SubScore
 from app.services.supply.assessment.settings import AssessmentSettings
 from app.services.supply.vocabulary import Status
 
-_FINDING_PENALTY = {Status.ERROR: 1.5, Status.WARNING: 0.5}
-# One fatal line drags a BOM's health down to this at most.
-FATAL_CAP = 4.0
+# The status sets the band a number sits in; the details (sub-scores and how many findings) set the place in it. A fatal part is 0.
+BANDS = {Status.OK: (7.0, 10.0), Status.WARNING: (4.0, 6.9), Status.ERROR: (0.1, 3.9)}
+# Each finding beyond the first takes this share of the band's width.
+EXTRA_FINDING_SHARE = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,11 +27,9 @@ def _unwaived(findings: Iterable[Finding]) -> list[Finding]:
 
 
 def health(findings: Sequence[Finding], scores: Sequence[SubScore], settings: AssessmentSettings, *, has_data: bool) -> Health:
-    """10 minus weighted sub-score penalties minus unwaived finding penalties, 0 to 10.
-
-    Any unwaived fatal finding sets 0. Status: fatal on an unwaived fatal finding, error on an
-    unwaived error or health under 4, warning on an unwaived warning or health under 7, ok
-    otherwise, unknown when there is no data and nothing to report.
+    """The status is the worst unwaived finding (fatal, error, warning, else ok; unknown when there is no data and nothing to report).
+    The number sits in that status's band (``BANDS``: ok 7 to 10, warning 4 to 6.9, error 0.1 to 3.9, fatal 0), lower the worse the
+    weighted sub-scores are and the more findings there are beyond the first, so the number never disagrees with the status.
     """
 
     open_findings = _unwaived(findings)
@@ -38,19 +37,20 @@ def health(findings: Sequence[Finding], scores: Sequence[SubScore], settings: As
         return Health(0.0, Status.UNKNOWN)
     if any(f.severity is Status.FATAL for f in open_findings):
         return Health(0.0, Status.FATAL)
+    status = (
+        Status.ERROR if any(f.severity is Status.ERROR for f in open_findings)
+        else Status.WARNING if any(f.severity is Status.WARNING for f in open_findings) else Status.OK
+    )
     total_weight = sum(settings.weights.get(s.name, 0.0) for s in scores) or 1.0
-    penalty = settings.sub_score_penalty * sum(settings.weights.get(s.name, 0.0) * (s.score - 1) / 4 for s in scores) / total_weight
-    penalty += min(sum(_FINDING_PENALTY.get(f.severity, 0.0) for f in open_findings), settings.finding_penalty_cap)
-    score = round(max(0.0, min(10.0, 10.0 - penalty)), 1)
-    if any(f.severity is Status.ERROR for f in open_findings) or score < 4:
-        return Health(score, Status.ERROR)
-    if any(f.severity is Status.WARNING for f in open_findings) or score < 7:
-        return Health(score, Status.WARNING)
-    return Health(score, Status.OK)
+    penalty = sum(settings.weights.get(s.name, 0.0) * (s.score - 1) / 4 for s in scores) / total_weight
+    penalty += EXTRA_FINDING_SHARE * max(0, len(open_findings) - 1)
+    low, high = BANDS[status]
+    return Health(round(high - (high - low) * min(1.0, penalty), 1), status)
 
 
 def rollup(parts: Sequence[tuple[float, int, Status]]) -> Health:
-    """The quantity-weighted mean of (health, quantity, status), capped at 4 when any line is fatal."""
+    """The quantity-weighted mean of (health, quantity, status), capped at the top of the worst line's band: 3.9 for an error or a
+    fatal line, 6.9 for a warning."""
 
     scored = [(score, max(quantity, 1), status) for score, quantity, status in parts if status is not Status.UNKNOWN]
     if not scored:
@@ -58,13 +58,13 @@ def rollup(parts: Sequence[tuple[float, int, Status]]) -> Health:
     weight = sum(quantity for _, quantity, _ in scored)
     mean = sum(score * quantity for score, quantity, _ in scored) / weight
     if any(status is Status.FATAL for _, _, status in scored):
-        mean = min(mean, FATAL_CAP)
-        return Health(round(mean, 1), Status.FATAL)
-    score = round(mean, 1)
+        return Health(round(min(mean, BANDS[Status.ERROR][1]), 1), Status.FATAL)
     worst = Status.OK
     for _, _, status in scored:
         if status is Status.ERROR:
             worst = Status.ERROR
         elif status is Status.WARNING and worst is Status.OK:
             worst = Status.WARNING
-    return Health(score, worst)
+    if worst is not Status.OK:
+        mean = min(mean, BANDS[worst][1])
+    return Health(round(mean, 1), worst)

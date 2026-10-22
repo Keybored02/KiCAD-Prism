@@ -1916,6 +1916,12 @@ def _m087_restart_price_forecasts(conn) -> None:
     )
 
 
+def _m088_recompute_health(conn) -> None:
+    """Health numbers now sit in the band of their status; the kept list summaries are worked out again."""
+
+    conn.execute("DELETE FROM part_summaries", prepare=False)
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2064,6 +2070,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (85, "pace_state", _m085_pace_state),
     (86, "free_budget", _m086_free_budget),
     (87, "restart_price_forecasts", _m087_restart_price_forecasts),
+    (88, "recompute_health", _m088_recompute_health),
 ]
 
 
