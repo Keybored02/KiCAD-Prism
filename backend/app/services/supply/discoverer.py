@@ -316,7 +316,14 @@ class Discoverer:
         takes (a part with several numbers, alone) makes more calls, which ``charge`` counts."""
 
         if not batched:
-            return {group[0]: service.discover(group[0], connector_id, spend=lambda: self._spend_extra(connector_id))}
+            try:
+                return {group[0]: service.discover(group[0], connector_id, spend=lambda: self._spend_extra(connector_id))}
+            finally:
+                # A request the provider repeated (a retry after a refusal) is a call it counts too, answered or not.
+                repeated = getattr(provider, "extra_calls", 0)
+                repeated = repeated if isinstance(repeated, int) else 0
+                if charge and repeated > 0:
+                    charge(repeated)
         with self._store.connection() as conn:
             found = [parts.get_part(conn, part_id) for part_id in group]
             extra = {part.id: parts.searched_numbers(conn, part.id) for part in found}

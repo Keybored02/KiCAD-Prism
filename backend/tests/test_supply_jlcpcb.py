@@ -87,6 +87,18 @@ class JlcpcbTests(unittest.TestCase):
             provider(twice).lookup_mpn("LM358DR")
         self.assertEqual(len(twice.calls), 2)
 
+    def test_a_retry_is_a_call_the_provider_says_it_made(self) -> None:
+        retried = provider(FakeClient({PATH: [AuthError("rejected (HTTP 403)"), recorded("lm358dr")]}))
+        retried.lookup_mpn("LM358DR")
+        self.assertEqual(retried.extra_calls, 1)
+        clean = provider(FakeClient({PATH: [recorded("lm358dr")]}))
+        clean.lookup_mpn("LM358DR")
+        self.assertEqual(clean.extra_calls, 0, "reset at each public call")
+        refused = provider(FakeClient({PATH: [AuthError("rejected (HTTP 403)"), AuthError("rejected (HTTP 403)")]}))
+        with self.assertRaises(Blocked):
+            refused.lookup_mpn("LM358DR")
+        self.assertEqual(refused.extra_calls, 1, "the second request counts even when it was refused too")
+
     def test_a_web_page_is_a_block_at_once_and_the_client_keeps_no_cookies(self) -> None:
         page = FakeClient({PATH: [Blocked("answered a web page (HTTP 403)")]})
         with self.assertRaises(Blocked):

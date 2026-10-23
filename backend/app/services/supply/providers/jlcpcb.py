@@ -71,10 +71,13 @@ class JlcpcbProvider:
         self._client = client or SafeHttpClient(ALLOWED_HOSTS, keep_cookies=False)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
+        # Requests the last public call made beyond the one that was paid for (a retry after a refusal); the caller charges them.
+        self.extra_calls = 0
 
     def _search(self, keyword: str) -> list[dict[str, Any]]:
         self._pacer.wait()
         for attempt in range(2):
+            self.extra_calls += attempt  # the second request is a call JLCPCB counts too
             try:
                 answer = self._client.request_json("POST", SEARCH_URL, json={"keyword": keyword, "currentPage": 1, "pageSize": PAGE_SIZE})
                 break
@@ -91,6 +94,7 @@ class JlcpcbProvider:
     # --- the contract ------------------------------------------------------
 
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
+        self.extra_calls = 0
         wanted = match_key(mpn)
         if not wanted:
             return []
@@ -99,6 +103,7 @@ class JlcpcbProvider:
         return [_match(item, now) for item in keep_family(found, wanted, lambda item: str(item.get("componentModelEn") or ""))]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
+        self.extra_calls = 0
         offers = []
         for sku in skus:
             code = sku.strip().upper()

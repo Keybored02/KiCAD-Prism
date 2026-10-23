@@ -356,7 +356,17 @@ class Poller:
                 break
             calls += 1
             try:
-                offers = provider.get_offers([row.sku for row in batch])
+                try:
+                    offers = provider.get_offers([row.sku for row in batch])
+                finally:
+                    # A request the provider repeated (a retry after a refusal) is a call it counts too, answered or not.
+                    repeated = getattr(provider, "extra_calls", 0)
+                    repeated = repeated if isinstance(repeated, int) else 0
+                    if repeated > 0 and spec.metered:
+                        ledger.record_calls(
+                            self._store, connector_id, repeated, now=now, interactive=interactive, kind=ledger.KIND_OFFERS, purpose=purpose
+                        )
+                        calls += repeated
                 # A group that needed more calls than the one it paid for (two products) pays the rest now.
                 extra = getattr(provider, "last_batch_calls", 1) - spec.calls_per_offers_batch if spec.groups_by_part else 0
                 if extra > 0:

@@ -237,6 +237,22 @@ class SupplyJobTests(unittest.TestCase):
         summary = self.poller_().poll_connector(cid)
         self.assertEqual((summary.calls, summary.polled), (0, 0), "the poller makes no second call for it")
 
+    def test_a_request_the_provider_repeated_is_charged_to_the_search_and_to_the_read(self) -> None:
+        class Retrying:
+            extra_calls = 1  # as the JLCPCB provider says after one retry
+
+            def __init__(self, inner): self.inner = inner
+            def lookup_mpn(self, mpn, manufacturer=None): return self.inner.lookup_mpn(mpn, manufacturer)
+            def get_offers(self, skus): return self.inner.get_offers(skus)
+
+        self.behaviour = Retrying
+        cid = self.connector()
+        self.watch()
+        self.discoverer_().run(cid)
+        self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM quota_ledger")[0]["n"], 2, "the search and its retry")
+        self.poller_().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM quota_ledger")[0]["n"], 4, "the read and its retry")
+
     def test_free_connectors_search_without_spending(self) -> None:
         cid = self.connector("csv")
         self.watch()
