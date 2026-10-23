@@ -140,7 +140,6 @@ class SpareTests(unittest.TestCase):
         from app.services.supply import quota
 
         self.quota = quota
-        self.week = quota.WorkWeek("UTC", (0, 1, 2, 3, 4), "08:00", "19:00")
 
     def state(self, spent=0, interactive=0, spare=0, budget=1000, reserve_pct=10):
         return self.quota.QuotaState(budget, max(spent, interactive + spare), interactive, reserve_pct, spare)
@@ -188,13 +187,6 @@ class SpareTests(unittest.TestCase):
         self.assertLessEqual(spare + kept, 600, "spare calls and what is kept for people fit what is left of the day")
         self.assertEqual(self.quota.interactive_allowance(state, 0), 100)
         self.assertEqual(self.quota.interactive_allowance(state, 30), 130, "people also spend free calls")
-
-    def test_the_week_is_the_workspaces_in_its_time_zone(self) -> None:
-        rome = self.quota.WorkWeek("Europe/Rome", (0, 1, 2, 3, 4), "08:00", "19:00")
-        # 17:30 UTC is 18:30 in Rome: still work.
-        self.assertTrue(self.quota.is_working_time(self.at(2, 17, 30), rome))
-        self.assertFalse(self.quota.is_working_time(self.at(2, 18, 30), rome))
-
 
 class ErrorBackoffTests(unittest.TestCase):
     def test_server_errors_back_off_exponentially_with_a_spread(self) -> None:
@@ -359,16 +351,6 @@ class AccountingTests(unittest.TestCase):
             with self.assertRaises(ConnectorError):
                 self.connectors.update(cid, actor=ACTOR, **changes)
         self.assertEqual(self.connectors.update(cid, actor=ACTOR, reset_time="06:30", reset_tz="Europe/Rome")["reset_time"], "06:30")
-
-    def test_the_working_week_must_be_valid(self) -> None:
-        from app.services.supply import schedule_settings
-
-        good = schedule_settings.validate(schedule_settings.DEFAULTS)
-        self.assertEqual(good["days"], [0, 1, 2, 3, 4])
-        with self.store.connection() as conn:
-            self.assertEqual(schedule_settings.load(conn)["tz"], "UTC")
-            saved = schedule_settings.save(conn, {**good, "tz": "Europe/Rome", "days": [5, 6, 5]}, ACTOR)
-            self.assertEqual((saved["days"], schedule_settings.load(conn)["tz"]), ([5, 6], "Europe/Rome"))
 
     def test_a_rate_limit_holds_every_connector_on_the_account_and_is_counted(self) -> None:
         from app.services.supply.providers.base import RateLimited

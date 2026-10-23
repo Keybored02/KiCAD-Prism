@@ -12,7 +12,7 @@ afterEach(cleanup);
 
 const connector = (id: string, name: string, provider: string) => ({ id, display_name: name, provider, enabled: true, metered: true, assembly_only: false }) as SupplyConnector;
 const draft = (extra: Partial<AssessmentSettings> = {}) =>
-  ({ lead_time_days: 84, stale_hours: 72, base_currency: "EUR", weights: {}, severity: {}, prefer_distributors: true, distributor_order: [], ...extra }) as unknown as AssessmentSettings;
+  ({ lead_time_days: 84, late_hours: 48, base_currency: "EUR", severity: {}, prefer_distributors: true, distributor_order: [], ...extra }) as unknown as AssessmentSettings;
 
 describe("preferred distributors in the settings", () => {
   it("is off by default and turns on with a checkbox", async () => {

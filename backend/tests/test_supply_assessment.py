@@ -109,6 +109,15 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(checks.evaluate(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)]), DEFAULTS), [])
         self.assertEqual(ids(checks.evaluate(facts([offer(fetched_at=NOW - timedelta(hours=100))]), DEFAULTS)), ["data_stale"])
 
+    def test_a_read_is_late_by_the_parts_own_schedule(self) -> None:
+        def late(hours: int, rate: str) -> list[str]:
+            return ids(checks.evaluate(facts([offer(fetched_at=NOW - timedelta(hours=hours))], rate=rate), DEFAULTS))
+
+        self.assertEqual((late(70, "daily"), late(73, "daily")), ([], ["data_stale"]), "a day and the 48 hours of grace")
+        self.assertEqual((late(70, ""), late(73, "")), ([], ["data_stale"]), "no schedule is judged as daily")
+        self.assertEqual((late(24 * 8, "weekly"), late(24 * 10, "weekly")), ([], ["data_stale"]), "a weekly part read 8 days ago is on time")
+        self.assertEqual((late(24 * 31, "monthly"), late(24 * 33, "monthly")), ([], ["data_stale"]))
+
     def test_a_part_nobody_carries(self) -> None:
         self.assertEqual(ids(checks.evaluate(facts([], problem="not_found"), DEFAULTS)), ["part_not_found"])
         self.assertEqual(checks.evaluate(facts([]), DEFAULTS), [], "not read yet is not a finding")

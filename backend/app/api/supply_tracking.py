@@ -305,16 +305,12 @@ async def tracking_room(_user: AuthenticatedUser = Depends(require_supply_reader
 class ScheduleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tz: str = Field(max_length=64)
-    days: list[int] = Field(max_length=7)
-    start: str = Field(max_length=5)
-    end: str = Field(max_length=5)
     spare: dict[str, bool]
 
 
 @budget_router.get("/schedule")
 async def get_schedule(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """The working week and which spare work is on. Spare budget opens outside working hours."""
+    """Which spare work is on. Spare budget is the calls nothing else needs, at any hour."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:

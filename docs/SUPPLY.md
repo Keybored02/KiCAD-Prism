@@ -100,7 +100,7 @@ tracked project, someone's choice, a watched component, or a watch from before t
   limit for the rest. Once tracking has spent for a week, the estimate is corrected by what it really spent. A distributor with
   fewer than 10 parts searched shows no figure, and one with parts already waiting shows none left.
 - **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project. Both can be narrowed by lifecycle and by distributor (a menu with the distributors' colours), and shown compact or detailed: the detailed layout adds a row for each distributor with its stock, smallest order, packaging and unit price at 1, 10, 100, 1,000 and 10,000, and the distributor's name opens its page. Farnell states the packaging in the unit text of each store's language; Prism reads that and never guesses it where the text is silent.
-- **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
+- **Settings:** Supply settings has which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
   shows the same cost preview before it tracks.
@@ -118,10 +118,10 @@ tracked project, someone's choice, a watched component, or a watch from before t
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
   check offers the same for the parts on a release BOM.
 - **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project.
-- **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
+- **Settings:** Supply settings has which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
-- **Spare budget** is what would go unused: outside working hours, on non-working days and in the last three hours of a
-  provider's day. It reads parts waiting for room, then tier-2 parts early, then change notices of parts nobody tracks.
+- **Spare budget** is what would go unused: the calls scheduled reads and people will not need, at any hour (at most 5% of the
+  day's budget an hour, no limit in the last three hours of a provider's day). It reads parts waiting for room, then tier-2 parts early, then change notices of parts nobody tracks.
 - **Politeness:** calls are spaced at random around half a provider's published rate, a rate limit slows the whole account
   for a day, and a web page or challenge where data was expected is treated as a block: the connector rests for 12 hours
   and the Connectors page shows why.
@@ -392,7 +392,7 @@ Each part gets findings, five risk scores (lifecycle, sourcing, inventory, marke
 | Lead time over the limit | Over the limit in Supply settings |
 | Not RoHS compliant | Distributors list it so |
 | Affected by REACH | A distributor flags it, or a declared substance is on the Candidate List |
-| Data out of date | Older than the limit in Supply settings |
+| A read is late | Overdue by more than the limit in Supply settings, counted from when the part's schedule (daily, weekly or monthly) wanted it |
 | Manufacturer missing | The BOM line has a part number but no manufacturer |
 | Not in library | No catalog component has this manufacturer and part number |
 

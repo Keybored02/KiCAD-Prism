@@ -54,7 +54,7 @@ root first.
 | `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account (and between processes through `pace_state`), doubled for a day after a rate limit. |
-| `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |
+| `schedule_settings.py` | Which spare work is on. Spare budget (`quota.free_allowance`) is the calls nothing else needs, at any hour. |
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
 | `discoverer.py` | Searches for listings of followed parts at the connectors they are admitted at: the first time from the pool (then spare), again every month at tier 1 and quarter at tier 2, found or not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
@@ -96,13 +96,13 @@ root first.
 | `fill.py` | Fill from distributor: asks the connected distributors for a part number and, for one picked candidate, its description and datasheet. Spends the interactive reserve; writes nothing to the catalog. |
 | `backend/app/api/supply_fill.py` | Fill search and details (admin, designer). |
 | `backend/app/api/supply_component_watch.py` | Component watch API: readers see a component's watch; writers set or stop it. |
-| `backend/app/services/supply/assessment/settings.py` | Check ids, default severities, weights and thresholds for the assessment. |
+| `backend/app/services/supply/assessment/settings.py` | Check ids, default severities and thresholds for the assessment (the late read limit counts from the part's schedule). |
 | `backend/app/services/supply/assessment/checks.py` | Findings from a part's facts: lifecycle, stock, lead time, RoHS, age. Pure rules. |
 | `backend/app/services/supply/assessment/risk.py` | Five risk sub-scores, 1 good to 5 bad, each with its reasons. |
 | `backend/app/services/supply/assessment/health.py` | Health 0 to 10, status, and the quantity-weighted BOM roll-up. |
 | `backend/app/services/supply/assessment/waivers.py` | Proposing, approving and applying waivers; a waiver holds while its condition does. |
 | `backend/app/services/supply/assessment/service.py` | Gathers a part's facts and runs the pipeline. Reads only; no distributor calls. |
-| `backend/app/services/supply/assessment/settings_store.py` | Loads, saves and resets the workspace's assessment settings (thresholds, severities, weights); absent means the defaults in code. Changes are audited. |
+| `backend/app/services/supply/assessment/settings_store.py` | Loads, saves and resets the workspace's assessment settings (thresholds, severities); absent means the defaults in code. Changes are audited. |
 | `backend/app/api/supply_settings.py` | Assessment settings endpoints: readers see them, administrators change them. |
 | `backend/app/api/supply_assessment.py` | Assessment and waiver endpoints. Readers see assessments; admin, designer and qa propose waivers; admin and qa decide. |
 | `backend/app/api/supply_access.py` | The role check shared by endpoints that writers and approvers both use. |

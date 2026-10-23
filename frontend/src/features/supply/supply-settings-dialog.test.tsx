@@ -19,17 +19,16 @@ const mocked = vi.mocked(api);
 const defaults: AssessmentSettings = {
   lead_time_days: 84,
   last_buy_error_days: 180,
-  stale_hours: 72,
+  late_hours: 48,
   base_currency: "EUR",
   price_quantity: 100,
-  weights: { lifecycle: 0.25, sourcing: 0.2, inventory: 0.3, market: 0.1, compliance: 0.15 },
   severity: { nrnd: "warning", obsolete: "fatal" },
 };
 const view: AssessmentSettingsView = {
   settings: defaults,
   defaults,
   checks: [{ id: "nrnd", label: "Not recommended for new designs" }, { id: "obsolete", label: "Manufacturer lists it as obsolete" }],
-  ranges: { lead_time_days: [1, 730], last_buy_error_days: [30, 730], stale_hours: [1, 720], price_quantity: [1, 1_000_000] },
+  ranges: { lead_time_days: [1, 730], last_buy_error_days: [30, 730], late_hours: [1, 720], price_quantity: [1, 1_000_000] },
 };
 
 function open(onOpenChange = vi.fn()) {
@@ -55,7 +54,6 @@ describe("the supply settings dialog", () => {
     fireEvent.change(screen.getByLabelText(/Currency for comparing/), { target: { value: "usd" } });
     fireEvent.change(screen.getByLabelText(/Price quantity/), { target: { value: "1000" } });
     fireEvent.change(screen.getByLabelText("Not recommended for new designs"), { target: { value: "error" } });
-    fireEvent.change(screen.getByLabelText("Inventory"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalled());
     expect(mocked.saveAssessmentSettings.mock.calls[0][0]).toEqual({
@@ -63,7 +61,6 @@ describe("the supply settings dialog", () => {
       lead_time_days: 30,
       base_currency: "USD",
       price_quantity: 1000,
-      weights: { ...defaults.weights, inventory: 0.5 },
       severity: { nrnd: "error", obsolete: "fatal" },
     });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -74,9 +71,9 @@ describe("the supply settings dialog", () => {
     const lead = await screen.findByLabelText(/Longest lead time/);
     fireEvent.change(lead, { target: { value: "5000" } });
     expect((lead as HTMLInputElement).value).toBe("84");
-    const weight = screen.getByLabelText("Market");
-    fireEvent.change(weight, { target: { value: "3" } });
-    expect((weight as HTMLInputElement).value).toBe("0.1");
+    const late = screen.getByLabelText(/A read is late when/);
+    fireEvent.change(late, { target: { value: "5000" } });
+    expect((late as HTMLInputElement).value).toBe("48");
   });
 
   it("goes back to the defaults on request", async () => {

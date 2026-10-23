@@ -189,17 +189,17 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual((empty.status, empty.json["detail"]["code"]), (400, "invalid_check"))
         self.assertEqual(_request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body={"kind": "other", "lines": []}).status, 422)
 
-    def test_the_working_week_is_read_by_readers_and_changed_by_administrators(self) -> None:
+    def test_the_spare_switches_are_read_by_readers_and_changed_by_administrators_and_there_is_no_week(self) -> None:
         shown = _request(self.app, "GET", "/api/supply/schedule", user=self.users["qa"])
-        self.assertEqual((shown.status, shown.json["days"], shown.json["start"]), (200, [0, 1, 2, 3, 4], "08:00"))
-        week = {**shown.json, "tz": "Europe/Rome", "days": [0, 1, 2, 3, 4, 5], "spare": {**shown.json["spare"], "notices": False}}
-        self.assertEqual(_request(self.app, "PUT", "/api/supply/schedule", user=self.users["designer"], body=week).status, 403)
-        saved = _request(self.app, "PUT", "/api/supply/schedule", user=self.users["admin"], body=week)
-        self.assertEqual((saved.status, saved.json["tz"], saved.json["spare"]["notices"]), (200, "Europe/Rome", False))
-        self.assertEqual(_request(self.app, "GET", "/api/supply/schedule", user=self.users["qa"]).json["days"], [0, 1, 2, 3, 4, 5])
-        for bad in ({**week, "tz": "Mars/Base"}, {**week, "start": "20:00", "end": "08:00"}, {**week, "days": [9]}, {**week, "spare": {"nope": True}}):
+        self.assertEqual((shown.status, sorted(shown.json)), (200, ["spare"]))
+        switches = {"spare": {**shown.json["spare"], "notices": False}}
+        self.assertEqual(_request(self.app, "PUT", "/api/supply/schedule", user=self.users["designer"], body=switches).status, 403)
+        saved = _request(self.app, "PUT", "/api/supply/schedule", user=self.users["admin"], body=switches)
+        self.assertEqual((saved.status, saved.json["spare"]["notices"]), (200, False))
+        self.assertFalse(_request(self.app, "GET", "/api/supply/schedule", user=self.users["qa"]).json["spare"]["notices"])
+        for bad in ({"spare": {"nope": True}}, {**switches, "days": [1]}):
             answer = _request(self.app, "PUT", "/api/supply/schedule", user=self.users["admin"], body=bad)
-            self.assertEqual((answer.status, answer.json["detail"]["code"]), (400, "invalid_request"), bad)
+            self.assertIn(answer.status, (400, 422), bad)
 
     def test_a_bad_tier_or_unknown_part_is_refused(self) -> None:
         self.connector()

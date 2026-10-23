@@ -68,8 +68,8 @@ class AssessmentSettings:
     lead_time_days: int = 84
     # A last date to buy this close, or past, makes a last time buy (or an ending part) an error, and a fatal one once it has passed.
     last_buy_error_days: int = 180
-    # An offer older than this is out of date.
-    stale_hours: int = 72
+    # A read is late when it is this many hours past when the part's schedule wanted it (a day for a daily part, a week, a month).
+    late_hours: int = 48
     # Prices in other currencies are converted to this one to be compared and totalled.
     base_currency: str = "EUR"
     # The quantity lists and price history price at, unless a part has its own.
@@ -78,10 +78,6 @@ class AssessmentSettings:
     prefer_distributors: bool = False
     # Connector ids, most preferred first. A part's own preferred distributor comes before them.
     distributor_order: tuple[str, ...] = ()
-    # Weights of the five sub-scores in health. They are relative; only their proportions matter.
-    weights: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({
-        "lifecycle": 0.25, "sourcing": 0.2, "inventory": 0.3, "market": 0.1, "compliance": 0.15,
-    }))
     severity: Mapping[str, Status] = field(default_factory=lambda: DEFAULT_SEVERITY)
 
     def severity_of(self, check: str) -> Status:
@@ -101,7 +97,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     INSUFFICIENT_STOCK: "Stock does not cover the build",
     LEAD_TIME_OVER_THRESHOLD: "Lead time over the limit",
     ROHS_NONCOMPLIANT: "Not RoHS compliant",
-    DATA_STALE: "Distributor data is out of date",
+    DATA_STALE: "A read is late",
     SINGLE_SOURCE: "Only one distributor has it in stock",
     MANUFACTURER_MISSING: "The BOM line has no manufacturer",
     NOT_IN_LIBRARY: "No library component has this part",
@@ -117,7 +113,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
 SEVERITY_CHOICES = (Status.OK, Status.WARNING, Status.ERROR, Status.FATAL)
 LEAD_TIME_RANGE = (1, 730)
 LAST_BUY_ERROR_RANGE = (30, 730)
-STALE_HOURS_RANGE = (1, 720)
+LATE_HOURS_RANGE = (1, 720)
 PRICE_QUANTITY_RANGE = (1, 1_000_000)
 
 
@@ -125,12 +121,11 @@ def to_dto(settings: AssessmentSettings) -> dict:
     return {
         "lead_time_days": settings.lead_time_days,
         "last_buy_error_days": settings.last_buy_error_days,
-        "stale_hours": settings.stale_hours,
+        "late_hours": settings.late_hours,
         "base_currency": settings.base_currency,
         "price_quantity": settings.price_quantity,
         "prefer_distributors": settings.prefer_distributors,
         "distributor_order": list(settings.distributor_order),
-        "weights": {name: settings.weights[name] for name in SUB_SCORES},
         "severity": {check: settings.severity_of(check).value for check in CHECK_LABELS},
     }
 
@@ -142,12 +137,11 @@ def from_dto(payload: Mapping) -> AssessmentSettings:
     return AssessmentSettings(
         lead_time_days=int(payload.get("lead_time_days", base.lead_time_days)),
         last_buy_error_days=int(payload.get("last_buy_error_days", base.last_buy_error_days)),
-        stale_hours=int(payload.get("stale_hours", base.stale_hours)),
+        late_hours=int(payload.get("late_hours", base.late_hours)),
         base_currency=str(payload.get("base_currency", base.base_currency)),
         price_quantity=int(payload.get("price_quantity", base.price_quantity)),
         prefer_distributors=bool(payload.get("prefer_distributors", base.prefer_distributors)),
         distributor_order=tuple(str(item) for item in payload.get("distributor_order", base.distributor_order)),
-        weights=MappingProxyType({name: float(payload.get("weights", {}).get(name, base.weights[name])) for name in SUB_SCORES}),
         severity=MappingProxyType({
             check: Status(payload.get("severity", {}).get(check, base.severity_of(check).value)) for check in CHECK_LABELS
         }),
@@ -172,18 +166,9 @@ def validate(payload: Mapping) -> dict:
         raise ValueError("Preferring distributors is on or off.")
     if not isinstance(order, list) or len(order) > 30 or any(not isinstance(item, str) or not item or len(item) > 64 for item in order) or len(set(order)) != len(order):
         raise ValueError("The preferred distributors are a list of distributors, each once.")
-    weights = payload.get("weights", {})
     severity = payload.get("severity", {})
-    if not isinstance(weights, Mapping) or not isinstance(severity, Mapping):
-        raise ValueError("Weights and severities must be given by name.")
-    for name, value in weights.items():
-        if name not in SUB_SCORES:
-            raise ValueError(f"Unknown risk area: {name}.")
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
-            raise ValueError(f"The weight of {name} must be between 0 and 1.")
-    merged = {name: float(weights.get(name, DEFAULTS.weights[name])) for name in SUB_SCORES}
-    if sum(merged.values()) <= 0:
-        raise ValueError("At least one risk area needs a weight above 0.")
+    if not isinstance(severity, Mapping):
+        raise ValueError("Severities must be given by name.")
     allowed = {item.value for item in SEVERITY_CHOICES}
     for check, value in severity.items():
         if check not in CHECK_LABELS:
@@ -193,11 +178,10 @@ def validate(payload: Mapping) -> dict:
     return {
         "lead_time_days": whole("lead_time_days", "The lead time limit", *LEAD_TIME_RANGE),
         "last_buy_error_days": whole("last_buy_error_days", "The last-date-to-buy limit", *LAST_BUY_ERROR_RANGE),
-        "stale_hours": whole("stale_hours", "The data age limit", *STALE_HOURS_RANGE),
+        "late_hours": whole("late_hours", "The late read limit", *LATE_HOURS_RANGE),
         "base_currency": currency,
         "price_quantity": whole("price_quantity", "The price quantity", *PRICE_QUANTITY_RANGE),
         "prefer_distributors": prefer,
         "distributor_order": order,
-        "weights": merged,
         "severity": {check: severity.get(check, DEFAULTS.severity_of(check).value) for check in CHECK_LABELS},
     }

@@ -156,35 +156,10 @@ def interactive_allowance(state: QuotaState, free: int = 0) -> int:
     return max(0, min(reserve - state.interactive_spent_today + free, left_in_day))
 
 
-@dataclass(frozen=True, slots=True)
-class WorkWeek:
-    """When the workspace is at work, which is when the budget's pool is likely to be wanted by people."""
-
-    tz: str = "UTC"
-    days: tuple[int, ...] = (0, 1, 2, 3, 4)  # Monday is 0
-    start: str = "08:00"
-    end: str = "19:00"
-
-
 # Budget not used by a provider's reset is lost, so in its last hours everything left is released.
 SPARE_FINAL_HOURS = 3
 # The part of the pool kept for people even when spare is released.
 INTERACTIVE_FLOOR_SHARE = 0.25
-
-
-def _minutes(text: str) -> int:
-    hours, minutes = (int(part) for part in text.split(":"))
-    return hours * 60 + minutes
-
-
-def is_working_time(now: datetime, week: WorkWeek) -> bool:
-    try:
-        local = now.astimezone(ZoneInfo(week.tz))
-    except (ZoneInfoNotFoundError, ValueError):
-        local = now.astimezone(timezone.utc)
-    if local.weekday() not in week.days:
-        return False
-    return _minutes(week.start) <= local.hour * 60 + local.minute < _minutes(week.end)
 
 
 # What the committed work still needs is an estimate; this much of the day's budget is held back from free calls for its error.

@@ -7,13 +7,13 @@ vi.mock("./tracking-api", () => ({ getSchedule: vi.fn(), saveSchedule: vi.fn() }
 import { ScheduleSettings } from "./schedule-settings";
 import * as api from "./tracking-api";
 
-const settings = { tz: "UTC", days: [0, 1, 2, 3, 4], start: "08:00", end: "19:00", spare: { waiting: true, tier2_early: true, notices: true } };
+const settings = { spare: { waiting: true, tier2_early: true, notices: true } };
 
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getSchedule).mockResolvedValue(settings); });
 afterEach(cleanup);
 
 describe("spare work", () => {
-  it("saves a switch and sends the stored week back unchanged", async () => {
+  it("saves a switch", async () => {
     vi.mocked(api.saveSchedule).mockImplementation(async (next) => next);
     render(<ScheduleSettings />);
     fireEvent.click(await screen.findByLabelText("Read change notices of parts nobody tracks"));

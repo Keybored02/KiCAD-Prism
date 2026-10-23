@@ -14,6 +14,9 @@ from app.services.supply.vocabulary import Status
 BANDS = {Status.OK: (7.0, 10.0), Status.WARNING: (4.0, 6.9), Status.ERROR: (0.1, 3.9)}
 # Each finding beyond the first takes this share of the band's width.
 EXTRA_FINDING_SHARE = 0.1
+# How much each risk area counts in the place a part takes inside its band. Relative; fixed in code (a workspace setting would only
+# move a figure inside the band the status gives it).
+WEIGHTS = {"lifecycle": 0.25, "sourcing": 0.2, "inventory": 0.3, "market": 0.1, "compliance": 0.15}
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,8 +44,8 @@ def health(findings: Sequence[Finding], scores: Sequence[SubScore], settings: As
         Status.ERROR if any(f.severity is Status.ERROR for f in open_findings)
         else Status.WARNING if any(f.severity is Status.WARNING for f in open_findings) else Status.OK
     )
-    total_weight = sum(settings.weights.get(s.name, 0.0) for s in scores) or 1.0
-    penalty = sum(settings.weights.get(s.name, 0.0) * (s.score - 1) / 4 for s in scores) / total_weight
+    total_weight = sum(WEIGHTS.get(s.name, 0.0) for s in scores) or 1.0
+    penalty = sum(WEIGHTS.get(s.name, 0.0) * (s.score - 1) / 4 for s in scores) / total_weight
     penalty += EXTRA_FINDING_SHARE * max(0, len(open_findings) - 1)
     low, high = BANDS[status]
     return Health(round(high - (high - low) * min(1.0, penalty), 1), status)

@@ -29,17 +29,14 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(rules.to_dto(rules.from_dto(stored)), self.good())
 
     def test_missing_parts_fall_back_to_the_defaults(self) -> None:
-        self.assertEqual(rules.validate({"lead_time_days": 30})["stale_hours"], rules.DEFAULTS.stale_hours)
+        self.assertEqual(rules.validate({"lead_time_days": 30})["late_hours"], rules.DEFAULTS.late_hours)
 
     def test_what_is_refused_says_why(self) -> None:
         cases = [
             ({"lead_time_days": 0}, "lead time limit must be a whole number from 1 to 730"),
             ({"lead_time_days": "84"}, "lead time limit must be a whole number"),
             ({"base_currency": "euro"}, "base currency must be a three letter code"),
-            ({"stale_hours": 100000}, "data age limit must be a whole number from 1 to 720"),
-            ({"weights": {"lifecycle": 2}}, "weight of lifecycle must be between 0 and 1"),
-            ({"weights": {"colour": 0.5}}, "Unknown risk area: colour"),
-            ({"weights": dict.fromkeys(rules.SUB_SCORES, 0)}, "At least one risk area needs a weight above 0"),
+            ({"late_hours": 100000}, "late read limit must be a whole number from 1 to 720"),
             ({"severity": {"nrnd": "loud"}}, "severity of nrnd must be one of"),
             ({"severity": {"made_up": "error"}}, "Unknown check: made_up"),
         ]

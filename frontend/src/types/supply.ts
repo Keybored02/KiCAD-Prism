@@ -1138,7 +1138,8 @@ export interface AssessmentSettings {
   lead_time_days: number;
   /** A last date to buy this many days away or less makes a last time buy an error; past it, fatal. */
   last_buy_error_days: number;
-  stale_hours: number;
+  /** A read is late when it is this many hours past when the part's schedule wanted it. */
+  late_hours: number;
   /** Prices in other currencies are converted to this one. */
   base_currency: string;
   /** Lists and price history price at this quantity, unless a part has its own. */
@@ -1147,8 +1148,6 @@ export interface AssessmentSettings {
   prefer_distributors?: boolean;
   /** Connector ids, the most preferred first. */
   distributor_order?: string[];
-  /** Relative weight of each risk area in health, 0 to 1. */
-  weights: Record<SupplySubScore["name"], number>;
   severity: Record<string, AssessmentSeverity>;
 }
 
@@ -1156,7 +1155,7 @@ export interface AssessmentSettingsView {
   settings: AssessmentSettings;
   defaults: AssessmentSettings;
   checks: Array<{ id: string; label: string }>;
-  ranges: { lead_time_days: [number, number]; last_buy_error_days: [number, number]; stale_hours: [number, number]; price_quantity: [number, number] };
+  ranges: { lead_time_days: [number, number]; last_buy_error_days: [number, number]; late_hours: [number, number]; price_quantity: [number, number] };
 }
 
 /** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */
@@ -1369,13 +1368,8 @@ export interface CheckProgress {
   failed: number;
 }
 
-/** The workspace's working week, and which spare work may run outside it. */
+/** Which spare work is on. */
 export interface ScheduleSettings {
-  tz: string;
-  /** 0 is Monday. */
-  days: number[];
-  start: string;
-  end: string;
   spare: { waiting: boolean; tier2_early: boolean; notices: boolean };
 }
 

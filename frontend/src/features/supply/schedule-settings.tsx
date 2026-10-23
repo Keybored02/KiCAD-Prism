@@ -15,7 +15,6 @@ const SPARE: ReadonlyArray<{ id: keyof Schedule["spare"]; label: string }> = [
   { id: "notices", label: "Read change notices of parts nobody tracks" },
 ];
 
-// The stored working week is sent back unchanged: spare budget no longer depends on it (`quota.free_allowance`).
 function Form({ initial }: { initial: Schedule }) {
   const [draft, setDraft] = useState(initial);
   const { busy, error, run } = useConnectorSubmit();

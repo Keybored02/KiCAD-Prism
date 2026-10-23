@@ -62,7 +62,7 @@ def assess_one(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
         svhc_listed=svhc_listed, prices=_quotes(offers, settings.base_currency, rates), outlook=outlook,
-        last_buy=last_buy,
+        last_buy=last_buy, rate=str((item.get("tracking") or {}).get("rate") or ""),
     )
     # Findings from outside the part (a component's) are waived like the part's own.
     findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)

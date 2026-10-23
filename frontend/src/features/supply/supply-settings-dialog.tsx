@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { AssessmentSettings, AssessmentSettingsView, AssessmentSeverity, SupplySubScore } from "@/types/supply";
+import type { AssessmentSettings, AssessmentSettingsView, AssessmentSeverity } from "@/types/supply";
 import { getAssessmentSettings, resetAssessmentSettings, saveAssessmentSettings } from "./supply-api";
 import { ScheduleSettings } from "./schedule-settings";
 import { MakerSpellings } from "./maker-spellings";
@@ -18,9 +18,6 @@ import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 
 const SEVERITY_LABEL: Record<AssessmentSeverity, string> = { ok: "Note only", warning: "Warning", error: "Error", fatal: "Critical" };
-const AREA_LABEL: Record<SupplySubScore["name"], string> = {
-  lifecycle: "Lifecycle", sourcing: "Sourcing", inventory: "Inventory", market: "Market", compliance: "Compliance",
-};
 
 /** A whole number inside its range, else the one it had. */
 function whole(value: string, low: number, high: number, keep: number): number {
@@ -72,7 +69,7 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
   const { busy, error, run } = useConnectorSubmit();
   const [lowLead, highLead] = view.ranges.lead_time_days;
   const [lowLastBuy, highLastBuy] = view.ranges.last_buy_error_days;
-  const [lowAge, highAge] = view.ranges.stale_hours;
+  const [lowLate, highLate] = view.ranges.late_hours;
   const [lowQuantity, highQuantity] = view.ranges.price_quantity;
 
   const save = async () => {
@@ -110,10 +107,10 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
           <p className="text-xs text-muted-foreground">{lowQuantity.toLocaleString()} to {highQuantity.toLocaleString()}. Lists and price history price at this; a part can have its own.</p>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="setting-age">Oldest distributor data you accept, in hours</Label>
-          <Input id="setting-age" inputMode="numeric" value={draft.stale_hours}
-            onChange={(event) => setDraft({ ...draft, stale_hours: whole(event.target.value, lowAge, highAge, draft.stale_hours) })} />
-          <p className="text-xs text-muted-foreground">{lowAge} to {highAge}. Older is a finding.</p>
+          <Label htmlFor="setting-late">A read is late when it is overdue by, in hours</Label>
+          <Input id="setting-late" inputMode="numeric" value={draft.late_hours}
+            onChange={(event) => setDraft({ ...draft, late_hours: whole(event.target.value, lowLate, highLate, draft.late_hours) })} />
+          <p className="text-xs text-muted-foreground">{lowLate} to {highLate}. Counted from when the part's schedule wanted the read: a day for a daily part, a week for a weekly one, a month for a monthly one.</p>
         </div>
       </div>
 
@@ -137,24 +134,6 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
           ))}
         </ul>
         <p className="text-xs text-muted-foreground">A note is shown but does not count against health.</p>
-      </fieldset>
-
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">How much each area counts towards health</legend>
-        <div className="grid grid-cols-5 gap-2">
-          {(Object.keys(AREA_LABEL) as SupplySubScore["name"][]).map((name) => (
-            <div key={name} className="space-y-1">
-              <Label htmlFor={`weight-${name}`} className="text-xs font-normal text-muted-foreground">{AREA_LABEL[name]}</Label>
-              <Input id={`weight-${name}`} type="number" min={0} max={1} step={0.05} className="h-8"
-                value={draft.weights[name]}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  if (Number.isFinite(next) && next >= 0 && next <= 1) setDraft({ ...draft, weights: { ...draft.weights, [name]: next } });
-                }} />
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground">Only the proportions matter. Set an area to 0 to leave it out.</p>
       </fieldset>
 
       <PreferredDistributors draft={draft} onChange={setDraft} />

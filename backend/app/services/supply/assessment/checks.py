@@ -42,6 +42,8 @@ class Facts:
     outlook: str = ""
     # The earliest last date to buy a distributor states or an open notice gives, when there is one.
     last_buy: date | None = None
+    # How often the part is read: "daily", "weekly" or "monthly"; "" when it has no schedule (then it is judged as a daily one).
+    rate: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +91,8 @@ def _disagreements(offers: Sequence[Mapping[str, Any]], add) -> None:
 
 
 # Checks whose severity the last date to buy raises: past it the part can no longer be ordered, near it the time is short.
+# How often a part of each rate is read, in hours.
+READ_EVERY_HOURS = {"daily": 24, "weekly": 7 * 24, "monthly": 30 * 24}
 _DATED = frozenset({ids.LAST_TIME_BUY, ids.ENDING_WITHIN_2_YEARS})
 _RANK = {Status.OK: 0, Status.WARNING: 1, Status.ERROR: 2, Status.FATAL: 3}
 
@@ -173,6 +177,8 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
             name, price = max(far, key=lambda item: abs(item[1] - middle))
             add(ids.PRICE_OUTLIER, f"{name} quotes {price:.4f} a piece against a median of {middle:.4f} across {len(quoted)} distributors.", "price_outlier")
     newest = max((o["fetched_at"] for o in offers if o["fetched_at"] is not None), default=None)
-    if newest is not None and facts.now - newest > timedelta(hours=settings.stale_hours):
-        add(ids.DATA_STALE, "Distributor data for this part is out of date.", "stale")
+    # Late is judged from when the part's schedule wanted the read, not from a flat age: a weekly part read on its day is not late.
+    due = READ_EVERY_HOURS.get(facts.rate, READ_EVERY_HOURS["daily"])
+    if newest is not None and facts.now - newest > timedelta(hours=due + settings.late_hours):
+        add(ids.DATA_STALE, f"The newest read is {int((facts.now - newest).total_seconds() // 3600)} hours old and this part is read {facts.rate or 'daily'}, so it is late.", "stale")
     return found

@@ -374,7 +374,7 @@ class SupplyAlertsTests(unittest.TestCase):
         listing = self.listing(watch["part_id"], "A", stock=500)
         self.assertEqual(self.open_after_two_looks(watch["part_id"]), [], "the first assessment is only noted")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET fetched_at = %s WHERE listing_id = %s", (START - timedelta(days=5), listing))
+            conn.execute("UPDATE offers SET fetched_at = %s WHERE listing_id = %s", (START - timedelta(days=12), listing))
         self.evaluate(watch["part_id"], after=timedelta(hours=2))
         self.evaluate(watch["part_id"], after=timedelta(hours=3))
         worse = [item for item in self.listed() if item["kind"] == "assessment_worse"]
