@@ -22,8 +22,14 @@ class PileTests(unittest.TestCase):
         self.assertEqual(stock.connector_stock("farnell", [row("farnell", "cut_tape", 11140), row("farnell", "custom_reel", 11140), row("farnell", "tape_reel", 5000)]), 16140)
         self.assertEqual(stock.connector_stock("farnell", [row("farnell", "cut_tape", 2264), row("farnell", "custom_reel", 2250)]), 2264, "the largest of the pile")
 
-    def test_other_packagings_and_unknown_ones_each_add(self) -> None:
+    def test_named_packagings_each_add(self) -> None:
         self.assertEqual(stock.connector_stock("mouser", [row("mouser", "tray", 100), row("mouser", "tube", 50), row("mouser", None, 7)]), 157)
+        self.assertEqual(stock.connector_stock("farnell", [row("farnell", "cut_tape", 300), row("farnell", "tape_reel", 4000)]), 4300)
+
+    def test_an_unknown_packaging_joins_the_cut_tape_pile_so_a_guess_never_doubles_stock(self) -> None:
+        self.assertEqual(stock.connector_stock("farnell", [row("farnell", "cut_tape", 300), row("farnell", "unknown", 300)]), 300)
+        self.assertEqual(stock.connector_stock("farnell", [row("farnell", "unknown", 50)]), 50)
+        self.assertEqual(stock.connector_stock("farnell", [row("farnell", "other", 80), row("farnell", None, 90), row("farnell", "tray", 10)]), 100)
 
     def test_a_provider_that_pools_its_stock_counts_the_largest_of_all(self) -> None:
         self.assertEqual(stock.connector_stock("digikey", [row("digikey", "cut_tape", 900), row("digikey", "tape_reel", 900), row("digikey", "custom_reel", 400)]), 900)

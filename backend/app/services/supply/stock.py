@@ -4,8 +4,8 @@ Only ``exact`` and ``manual`` listings count. Marketplace stock is left out.
 Within one connector, packaging variants of a part may share a single stock
 pool (cut tape and reel drawn from the same shelf): the provider declares
 whether its stock is ``pooled`` (take the largest of all its listings) or ``separate``.
-Of a ``separate`` provider, cut tape and custom reel (Digi-Reel, MouseReel, a re-reel) are one pile and the largest counts;
-a full reel, a tray or a tube is a pile of its own and adds.
+Of a ``separate`` provider, cut tape, custom reel (Digi-Reel, MouseReel, a re-reel) and any packaging not known are one pile and
+the largest counts, so a guess never doubles stock; a full reel, a tray or a tube is a pile of its own and adds.
 Across connectors the figures add, because they are different warehouses.
 """
 
@@ -22,8 +22,8 @@ from app.services.supply.providers import registry
 POLICIES = ("any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk")
 
 
-# Packagings cut from the same stock: of these only the largest figure counts.
-ONE_PILE = frozenset({"cut_tape", "custom_reel"})
+# Packagings cut from the same stock, and those not known (counted with the largest, never added): of these only the largest figure counts.
+ONE_PILE = frozenset({"cut_tape", "custom_reel", "unknown", "other", "several", None, ""})
 
 
 def counted_listing_sql(listing: str = "l", connector: str = "c") -> str:
