@@ -58,7 +58,7 @@ root first.
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
 | `discoverer.py` | Searches for listings of followed parts at the connectors they are admitted at: the first time from the pool (then spare), again every month at tier 1 and quarter at tier 2, found or not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
-| `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
+| `component_watches.py` | A standing request to watch a catalog component's part; `sync` turns it into a part watch. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
 | `demand.py` | What scheduled work (reads due before the reset, searches, budget-sharing notices) still needs of an account today, in calls the way each provider batches. The poll job stores it on the ledger; `quota.free_allowance` leaves it, what is kept for people and a margin alone, and the rest is free for spare work at any hour. |
 | `notice_budget.py` | The change-notice allowance of a provider with a quota of its own (DigiKey, 50 a day): counted in `call_counts`, not in the product budget; all 50 may be spent, tracked parts read over the shortest interval that fits, untracked parts last. |
@@ -71,7 +71,7 @@ root first.
 | `substitutes.py` | Asking DigiKey for substitutes: on request (once an hour per part, interactive reserve) and automatically once for a tracked part that is ending (committed budget, again after 30 days). |
 | `stock_events.py` | Stock-outs and restocks as the poller sees them, with the lead time quoted at the stock-out; a restock ends the open stock-out. |
 | `scorecard.py` | Per distributor, on parts two or more list: stock-outs, restocked first, promises kept (quoted lead times and Mouser's dated arrivals), wait said against real, days in stock. Withheld under five events. Also each distributor's open promise on one part. |
-| `ending_parts.py` | Library components whose part is ending, with the reasons, last buy date, stock, projects and approved alternates; and the decision kept for each (`component_restrictions`: not for new designs, retired). Proposes only. |
+| `ending_parts.py` | Library components whose part is ending, with the reasons, last buy date, stock and projects; and the decision kept for each (`component_restrictions`: not for new designs, retired). Proposes only. |
 | `forecasting.py` | Forecasts as kept: stored when made, checked when their day comes, each model's state (learning, shown, paused) from its checks, the words for a chance, the track record. |
 | `forecast_stock.py` | Runout, return from a stock-out and the chance of buying by week, from a simulation of 2,000 futures per distributor (drain from the slopes since the last restock, time out from Kaplan-Meier, restock sizes seen). Pure. |
 | `forecast_price.py` | A part's price in 30 and 90 days from repricing events (Poisson rate shrunk to the pooled rate, sizes seen). Pure. |
@@ -95,8 +95,7 @@ root first.
 | `backend/app/api/supply_bom.py` | BOM lookup (readers) and watch-all-lines (admin, designer). |
 | `fill.py` | Fill from distributor: asks the connected distributors for a part number and, for one picked candidate, its description and datasheet. Spends the interactive reserve; writes nothing to the catalog. |
 | `backend/app/api/supply_fill.py` | Fill search and details (admin, designer). |
-| `sources.py` | The approved parts list (AVL): alternates for a catalog component, proposed by writers, approved and ranked by QA, audited. The component's own part is its primary source and is not stored. |
-| `backend/app/api/supply_sources.py` | AVL API: readers list; admin, designer and qa propose; admin and qa approve, reject and rank. |
+| `backend/app/api/supply_component_watch.py` | Component watch API: readers see a component's watch; writers set or stop it. |
 | `backend/app/services/supply/assessment/settings.py` | Check ids, default severities, weights and thresholds for the assessment. |
 | `backend/app/services/supply/assessment/checks.py` | Findings from a part's facts: lifecycle, stock, lead time, RoHS, age. Pure rules. |
 | `backend/app/services/supply/assessment/risk.py` | Five risk sub-scores, 1 good to 5 bad, each with its reasons. |
@@ -108,16 +107,15 @@ root first.
 | `backend/app/api/supply_assessment.py` | Assessment and waiver endpoints. Readers see assessments; admin, designer and qa propose waivers; admin and qa decide. |
 | `backend/app/api/supply_access.py` | The role check shared by endpoints that writers and approvers both use. |
 | `backend/app/services/supply/refresh.py` | Read one part now: its counted listings are polled at once from the interactive reserve, once every 15 minutes per person and part. |
-| `backend/app/services/supply/panel_payload.py` | What the KiCad panel gets (remote provider 0.4.0, additive): a one-line summary on search, list and detail; detail adds distributor offers, approved alternates, insight, health, two risk lines and links. Reads only; not sent to roles that cannot read supply data. |
+| `backend/app/services/supply/panel_payload.py` | What the KiCad panel gets (remote provider 0.4.0, additive): a one-line summary on search, list and detail; detail adds distributor offers, insight, health, two risk lines and links. Reads only; not sent to roles that cannot read supply data. |
 | `backend/app/services/supply/catalog_read.py` | Reads catalog components for supply through the catalog service: all components, a manufacturer-and-number to component id map, and the manufacturer and number behind a `Prism ID`. |
-| `backend/app/services/supply/release_check.py` | The supply check on a release's BOM (health, parts that need a look; informs, never blocks) and the snapshot frozen at publish with each matched component's approved parts. The snapshot is evidence beside the release, never part of its digest. |
+| `backend/app/services/supply/release_check.py` | The supply check on a release's BOM (health, parts that need a look; informs, never blocks) and the snapshot frozen at publish. The snapshot is evidence beside the release, never part of its digest. |
 | `backend/app/services/supply/release_bom.py`, `release_source.py` | Read the BOM a release build exported (the dossier's `bom` member, digest-checked) as BOM lines. |
 | `backend/app/services/supply/release_snapshot.py` | Queues and runs the snapshot job at publish: idempotent per build, retried, with a recorded status (`release_snapshot_jobs`). |
 | `backend/app/services/supply/publish_hook.py` | Called by Release Studio after a publish; queues the snapshot job. |
 | `backend/app/api/supply_release.py` | Release check and release snapshot endpoints (readers; projects follow the caller's role). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), what counts as fitted, and the `Prism ID` field. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `assessment/line_checks.py` | Findings about how a BOM line names its part: `manufacturer_missing` (found by number alone) and `not_in_library` (no catalog component has the pair). |
-| `assessment/component_checks.py` | Findings about a component taken with its approved alternates: `no_approved_source` when the part and every approved alternate are known to be out of stock. Added to the BOM line of a placed component and shown in the Sourcing tab. |
 | `health.py` | Per connector: calls against budget, last error, how many reads are late and the oldest read. Administrators only, at `/api/supply/health`. |
 | `fx.py` | Exchange rates: the ECB daily file (fetched by the poll job, at most once in 20 hours) or rates an administrator enters; conversion goes through the euro and an unknown rate means no conversion. Used to compare offers and total a BOM in the base currency (a Supply setting, default EUR). |
 | `compliance.py` | REACH: the ECHA Candidate List (loaded by an administrator from a CSV export), substances a supplier declared for a part as CAS numbers (checked digit by digit), and a part's REACH standing (affected, clear, unknown; silence is never clear). A distributor's REACH flag is read with the offer. Substances a distributor names (Mouser's `REACH-SVHC`) become declarations marked `distributor:<provider>`, kept apart from people's. |

@@ -23,7 +23,7 @@ Parts with the tool. Lists, tables and bars use icons with tooltips; detail view
 revisions shows no supply.
 
 Who sees what: administrators, designers and QA read supply data. Administrators and designers watch parts and
-read a part now. QA and administrators approve alternates, aliases and waivers. Only administrators
+read a part now. QA and administrators approve aliases and waivers. Only administrators
 manage connectors and settings. Viewers see none of it.
 
 ## Set up a distributor
@@ -57,7 +57,7 @@ when, and asks for a new sign-in when it runs out or DigiKey refuses it. Stock a
 
 Prism follows a part at one of two tiers. **Tier 1** is read every day; **tier 2** every week or month. Everything else
 (tier 3) is read only when someone asks. A part is in the highest tier any reason gives it, and the part sheet says why: a
-tracked project, someone's choice, a watched component or its approved alternates, or a watch from before tiers (tier 2).
+tracked project, someone's choice, a watched component, or a watch from before tiers (tier 2).
 
 - **Track a project:** on the BOM (Visualizers) or in Project > Supply choose **Track this project**. One dialog asks everything:
   the designs (and **Also designs added later**), the distributors you buy from (an assembly-only one such as JLCPCB shows
@@ -154,7 +154,7 @@ A watch can count only one packaging (cut tape, custom reel, full reel, tray, tu
 
 On the part sheet, a star on a distributor makes it the part's **preferred** one: it comes first and is marked in lists. It changes no figure; the stock total and the cheapest price stay across every distributor. With **Preferred distributors** switched on in Supply settings, the BOM is priced at the part's preferred distributor, then at the workspace's order, when one holds enough stock for the build, else at the cheapest (off by default). Stock and price are drawn as a line per distributor in its colour, stepping from reading to reading and dashed when a distributor has not been read for longer than the part's rate allows, with restocks and product change notices marked on the axis; a chart opens larger with 1 month, 3 months, 6 months, 1 year or all. A distributor's ECCN other than EAR99 shows as **Export controlled 3A991** beside the lifecycle (**ECCN disputed** when they differ); a person can set it by hand, which wins over the distributors.
 
-A catalog component can be watched as a whole (Approved parts > Watch component): its part, and with "Include approved alternates" every alternate approved for it, now and later.
+A catalog component can be watched as a whole (Sourcing tab > Watch component): its part, counted in the packaging chosen.
 
 ## What else Prism works out
 
@@ -248,20 +248,19 @@ chance, always with the number beside the word: Almost certain (90% and up), Lik
 
 Library Manager > Ending Parts (for roles that open Supply) lists the catalog components whose part is ending: not recommended for new
 designs, last time buy, obsolete, dropped by every distributor, or an outlook under two years. Each row gives the reasons and where each
-comes from, the last buy date, stock, the tracked projects that use the part and the component's approved alternates. Prism proposes;
+comes from, the last buy date, stock, and the tracked projects that use the part. Prism proposes;
 QA and administrators decide. **Not for new designs** marks the component: it stays released and keeps resolving where it is placed, and
 the catalog shows a tag. **Retire** archives it through the catalog's own workflow (which takes it out of the KiCad library) after
 listing the projects that use it, and is allowed while projects still do. The decision is kept outside the component's revision, like
-the approved parts. A marked component reads "Not for new designs" in the KiCad database's Status column (instead of its workflow stage)
+the rest of the supply data. A marked component reads "Not for new designs" in the KiCad database's Status column (instead of its workflow stage)
 and the KiCad panel warns on its detail screen; the Dashboard has an "Ending in library" tile with the number nobody has decided about.
-Not built: making an approved alternate the primary from the dialog.
 
 ## Search
 
 The command palette (Ctrl or Command K) finds a part once, whether it is a library component, a supply part or both: a row reads the
 part number and maker with the component's stage and the stock, Enter opens the library component for people who use the library
 manager and the supply sheet for the others, and Ctrl or Command Enter opens the other place. Two components with one number stay two
-rows; an approved alternate is its own row named for what it stands in for. It also opens Parts on a group named in words (out of
+rows. It also opens Parts on a group named in words (out of
 stock, obsolete, runs out, one distributor, waiting for room) and the BOM file tool.
 
 ## Makers
@@ -299,7 +298,7 @@ remembered):
   same maker lists numbers that begin with it. One click each. Designers, QA and administrators answer.
 - **Pinned under another number:** listings pinned as a part although numbered otherwise (their stock counts as the part's).
   Tick the ones to take off; QA and administrators decide.
-- **To approve:** waivers and alternates people proposed, each with Approve and Reject and a link to where it lives. QA and
+- **To approve:** waivers people proposed, each with Approve and Reject and a link to where it lives. QA and
   administrators decide.
 - **Matched by Prism:** spellings Prism learned (Undo) and parts whose maker the distributors settled (Undo asks about the
   part again). Administrators can read and edit the built-in spellings of large makers in Supply settings.
@@ -307,12 +306,6 @@ remembered):
 A project with open questions shows a **N to settle** badge on Project > Supply and on the BOM bar; it opens the same
 answers for that project. Pinning a listing that is numbered otherwise than the part asks whether to add the number to the
 part or only pin the listing.
-
-## Approved parts (alternates)
-
-A component's Sourcing tab lists its approved parts. The component's own part is the primary; others are alternates
-that someone proposes and QA approves and ranks. The list is not part of a component revision. If the part and every
-approved alternate are out of stock, the component says so.
 
 ## Datasheets
 
@@ -400,7 +393,6 @@ Each part gets findings, five risk scores (lifecycle, sourcing, inventory, marke
 | Not RoHS compliant | Distributors list it so |
 | Affected by REACH | A distributor flags it, or a declared substance is on the Candidate List |
 | Data out of date | Older than the limit in Supply settings |
-| No approved source | The part and all approved alternates are out of stock |
 | Manufacturer missing | The BOM line has a part number but no manufacturer |
 | Not in library | No catalog component has this manufacturer and part number |
 
@@ -441,14 +433,14 @@ The supply check reads the BOM the release build exported, so it is exactly what
 (a dot on the stage rail, a summary above the outputs) and again as a one-line summary on Publish. It informs the release
 and never blocks it. At publish you can attach the compliance draft to the forge release (a working document, off by
 default). The snapshot of what supply said then is taken by a worker job, retried, and shown on the published run; if it
-could not be taken, the run says why. The BOM assessment, the approved parts and the compliance draft are recorded once
+could not be taken, the run says why. The BOM assessment and the compliance draft are recorded once
 and cannot be changed. The kept draft is at `/api/supply/projects/<project>/releases/<build>/compliance` (add `?format=csv`
 for the file); releases published before this have none. For a project Prism has never read, the published run offers to
 keep the release's BOM; that asks no distributor and tracks nothing.
 
 ## KiCad panel
 
-The panel shows a one-line standing in search and, in detail, offers, alternates and risks. Its refresh button reads
+The panel shows a one-line standing in search and, in detail, offers and risks. Its refresh button reads
 the part now (same 15 minute wait). Links open the part in Prism for roles that can see it.
 
 ## Looking after it
