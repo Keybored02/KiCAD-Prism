@@ -1,22 +1,22 @@
 import { useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenSupply } from "@/lib/roles";
-import type { UserRole } from "@/types/auth";
+import type { User } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
 import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
 import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
 import { NeedsALookChips, ProjectHeadline } from "./project-headline";
 import { matchesChip, type Chip } from "./project-part-filters";
+import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
 import { BoardCount, ProjectForecastSection, useProjectForecast } from "./project-forecast";
-import { supplyPartPath } from "@/components/command-palette-supply";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
@@ -45,28 +45,32 @@ function SparesControl({ percent, onChange }: { percent: number | null; onChange
 }
 
 /** The BOM costed at the tab's board count and spares, as a file. It names no distributor or link: a costing, not an order. */
-function CostExport({ projectId, variant, boards, spares }: { projectId: string; variant: string; boards: number; spares: string }) {
+function Downloads({ projectId, variant, boards, spares }: { projectId: string; variant: string; boards: number; spares: string }) {
   const query = new URLSearchParams({ build_quantity: String(boards) });
   if (variant) query.set("variant", variant);
   if (spares) query.set("spares", spares);
-  const href = `/api/supply/projects/${encodeURIComponent(projectId)}/cost-export?${query.toString()}`;
+  const base = `/api/supply/projects/${encodeURIComponent(projectId)}`;
   return (
-    <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <a href={href} className="text-primary hover:underline">Download the costing for {boards.toLocaleString()} boards as CSV</a>
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <a href={`${base}/cost-export?${query.toString()}`} className="text-primary hover:underline">Download the costing for {boards.toLocaleString()} boards as CSV</a>
+      <span>
+        <a href={`${base}/compliance-draft?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`} className="text-primary hover:underline">Download a draft RoHS and REACH declaration</a>{" "}
+        (a working document with the gaps listed, not a declaration)
+      </span>
     </p>
   );
 }
 
 /** How one product stands in supply: tracking, its parts, planned builds, releases and line notes. Reads the stored BOM, not a checked-out commit. */
-export function ProjectSupplyTab({ projectId, role }: { projectId: string; role: UserRole | null | undefined }) {
-  const allowed = canOpenSupply(role);
+export function ProjectSupplyTab({ projectId, user }: { projectId: string; user: User | null }) {
+  const allowed = canOpenSupply(user?.role);
   const [variant, setVariant] = useState("");
   // The boards a person typed; until then the page is for the project's usual build (100 when it has none).
   const [boardsChoice, setBoards] = useState<number | null>(null);
   // The spares a person chose; until then the page shows the workspace's (Supply settings), which the server applies.
   const [attritionChoice, setAttrition] = useState<number | null | undefined>(undefined);
   const [chip, setChip] = useState<Chip | null>(null);
-  const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const spares = attritionChoice === undefined ? "" : attritionChoice === null ? "auto" : String(attritionChoice);
   const fetcher = useCallback(
     (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, spares, signal),
@@ -92,8 +96,9 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
   }
   const supply = loaded.data ?? last;
   if (!supply) return <Skeleton className="h-48 w-full" aria-label="Loading the project's supply" />;
-  const open = (partId: string) => navigate(supplyPartPath(partId));
-  const shown = (supply.parts ?? []).filter((part) => chip === null || matchesChip(part, chip, forecast.data?.by_line));
+  // A part opens its sheet over the page, with `part` in the address so Back closes it.
+  const open = (partId: string) => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("part", partId); return next; });
+  const shown = (supply.parts ?? []).filter((part) => chip === null || matchesChip(part, chip, forecast.data?.by_line, supply.likely_out_chance));
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -124,7 +129,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
           <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={open} />
           <section aria-label="Parts" className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts{chip ? ` (${shown.length} of ${(supply.parts ?? []).length})` : ""}</h3>
-            <ProjectSupplyParts parts={shown} shortAt8Weeks={forecast.data?.by_line} />
+            <ProjectSupplyParts parts={shown} shortAt8Weeks={forecast.data?.by_line} chance={supply.likely_out_chance} currency={supply.rollup?.currency ?? ""} onOpenPart={open} />
           </section>
         </>
       ) : (
@@ -136,15 +141,8 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? <ProjectSuggestions projectId={projectId} variant={variant} /> : null}
       {supply.available ? <ProjectTrade projectId={projectId} variant={variant} /> : null}
-      {supply.available ? <CostExport projectId={projectId} variant={variant} boards={boards} spares={spares} /> : null}
-      {supply.available ? (
-        <p className="text-xs text-muted-foreground">
-          <a href={`/api/supply/projects/${encodeURIComponent(projectId)}/compliance-draft?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`} className="text-primary hover:underline">
-            Download a draft RoHS and REACH declaration
-          </a>{" "}
-          (a working document with the gaps listed, not a declaration).
-        </p>
-      ) : null}
+      {supply.available ? <Downloads projectId={projectId} variant={variant} boards={boards} spares={spares} /> : null}
+      <OpenPartSheet user={user} active />
     </div>
   );
 }

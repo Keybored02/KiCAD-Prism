@@ -87,7 +87,7 @@ def _parts(
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "lead_time_days": entry.get("lead_time_days"),
-            "short": bool(entry.get("short")), "jlc": entry.get("jlc"), "fetched_at": entry.get("fetched_at"), "unit_price": (entry.get("buy") or {}).get("unit_price"),
+            "short": bool(entry.get("short")), "jlc": entry.get("jlc"), "fetched_at": entry.get("fetched_at"), "unit_price": (entry.get("buy") or {}).get("unit_price"), "price_currency": (entry.get("buy") or {}).get("currency"),
             "tier": tiers.get(part_id), "first_seen": first_seen.get(part_id), "waiting": part_id in waiting, "notes": notes.get(row["key"], 0),
             "need": entry.get("need"),
             # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
@@ -213,8 +213,9 @@ def _where_the_money_goes(parts: list[dict[str, Any]]) -> dict[str, Any] | None:
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
     """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the workspace's spares."""
 
+    settings = settings_store.load(conn)
     if attrition_percent == DEFAULT:
-        attrition_percent = settings_store.load(conn).default_attrition()
+        attrition_percent = settings.default_attrition()
     tracked = tracking.tracked_project(conn, project_id)
     usual = int(tracked["build_quantity"]) if tracked else None
     if build_quantity is None:
@@ -231,7 +232,9 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int | Non
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     part_ids = sorted(status_now)
     return {
-        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
+        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent,
+        # The chance of being short at 8 weeks that the "likely out" chip counts: the same as the alert's, from the settings.
+        "likely_out_chance": settings.alert_likely_out_percent / 100, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
         "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
         "parts": parts, "cost_curve": curve, "money": _where_the_money_goes(parts), "cost_history": history, "cost_history_left_out": left_out, "releases": _releases(conn, project_id, status_now), "notes": notes,
     }

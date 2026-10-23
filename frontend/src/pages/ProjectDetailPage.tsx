@@ -867,7 +867,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         >
                             <ErrorBoundary label="the project's supply" resetKeys={[projectId]}>
                                 <h2 className="mb-6 text-2xl font-bold">Supply</h2>
-                                {projectId && <ProjectSupplyTab projectId={projectId} role={user?.role} />}
+                                {projectId && <ProjectSupplyTab projectId={projectId} user={user} />}
                             </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}

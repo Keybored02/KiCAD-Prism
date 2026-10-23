@@ -15,19 +15,19 @@ export const CHIPS: ReadonlyArray<{ key: Chip; label: string }> = [
   { key: "not_priced", label: "Not priced" },
 ];
 
-/** The chance of being short at 8 weeks that counts as "likely out", until the setting for it exists. */
-export const LIKELY_OUT_CHANCE = 0.5;
+/** The chance of being short at 8 weeks that counts as "likely out" when the page does not say (the setting is the alert's). */
+export const LIKELY_OUT_CHANCE = 0.7;
 const SOON_DAYS = 14;
 
 /** Whether a part row is one the chip counts. `shortAt8Weeks` is the forecast's chance by BOM line key. */
-export function matchesChip(part: ProjectSupplyPart, chip: Chip, shortAt8Weeks: Record<string, number> = {}): boolean {
+export function matchesChip(part: ProjectSupplyPart, chip: Chip, shortAt8Weeks: Record<string, number> = {}, chance = LIKELY_OUT_CHANCE): boolean {
   switch (chip) {
     case "out": return part.part_id !== null && part.stock === 0;
     case "short": return part.short;
     case "end_of_life": return Boolean(part.lifecycle) && part.lifecycle !== "active" && part.lifecycle !== "unknown";
     case "one_distributor": return part.holders === 1;
     case "runs_out_soon": return part.days_to_zero != null && part.days_to_zero <= SOON_DAYS;
-    case "likely_out": return (shortAt8Weeks[part.key] ?? 0) >= LIKELY_OUT_CHANCE;
+    case "likely_out": return (shortAt8Weeks[part.key] ?? 0) >= chance;
     case "alerts": return (part.alerts ?? 0) > 0;
     case "waiting": return part.waiting;
     case "not_priced": return part.part_id !== null && part.status !== null && part.unit_price === null;

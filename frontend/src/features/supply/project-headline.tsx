@@ -112,7 +112,8 @@ export function NeedsALookChips({ supply, forecast, chip, onChip }: {
 }) {
   const counts = supply.counts;
   if (!counts) return null;
-  const likely = Object.values(forecast?.by_line ?? {}).filter((share) => share >= LIKELY_OUT_CHANCE).length;
+  const chance = supply.likely_out_chance ?? LIKELY_OUT_CHANCE;
+  const likely = Object.values(forecast?.by_line ?? {}).filter((share) => share >= chance).length;
   const shown = CHIPS.flatMap((item) => {
     const count = item.key === "likely_out" ? likely : (counts[item.key as keyof typeof counts] as number | undefined) ?? 0;
     return count > 0 ? [{ ...item, count }] : [];

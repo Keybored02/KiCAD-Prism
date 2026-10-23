@@ -1412,6 +1412,8 @@ export interface ProjectSupplyPart {
   lead_time_days: number | null;
   short: boolean;
   unit_price: string | null;
+  /** The currency the unit price is quoted in. */
+  price_currency?: string | null;
   tier: 1 | 2 | null;
   waiting: boolean;
   notes: number;
@@ -1478,6 +1480,8 @@ export interface ProjectSupply {
   usual_build?: number | null;
   /** The spares the page is worked out with, in percent; null is by kind of part. */
   attrition_percent?: number | null;
+  /** The chance of being short at 8 weeks that counts as "likely out"; the alert's, from the settings. */
+  likely_out_chance?: number;
   rollup?: SupplyBomRollup;
   counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];

@@ -10,6 +10,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   getProjectForecast: vi.fn(() => new Promise(() => undefined)),
 }));
 vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn() }));
+vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div role="dialog">Sheet of {partId}</div> : null) }));
 vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button type="button">Track this project</button> }));
 
 import { ProjectSupplyTab } from "./project-supply-tab";
@@ -39,7 +40,7 @@ const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
 });
 
 const renderTab = (role: "designer" | "viewer" = "designer") =>
-  render(<MemoryRouter><ProjectSupplyTab projectId="prj" role={role} /></MemoryRouter>);
+  render(<MemoryRouter><ProjectSupplyTab projectId="prj" user={{ name: role, email: `${role}@example.com`, role }} /></MemoryRouter>);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,7 +54,8 @@ describe("the project Supply tab", () => {
     const parts = await screen.findByRole("region", { name: "Parts" });
     const rows = within(parts).getAllByRole("row").slice(1);
     const flaky = rows.find((row) => within(row).queryByText("FLAKY-1"))!;
-    expect(within(flaky).getByRole("link", { name: "FLAKY-1" }).getAttribute("href")).toContain("part=p1");
+    fireEvent.click(within(flaky).getByRole("button", { name: "FLAKY-1" }));
+    expect(screen.getByRole("dialog").textContent).toBe("Sheet of p1");
     expect(within(flaky).getByRole("img", { name: "Tracked, tier 1" })).toBeTruthy();
     expect(within(flaky).getByRole("img", { name: "Waiting for room" })).toBeTruthy();
     expect(screen.getByText("7.4 of 10")).toBeTruthy();
@@ -109,6 +111,19 @@ describe("the project Supply tab", () => {
     expect(screen.getByText(/Left out as one price read wrong: 2026-09-15/)).toBeTruthy();
   });
 
+  it("sorts the parts by a column and back to worst first", async () => {
+    renderTab();
+    const parts = await screen.findByRole("region", { name: "Parts" });
+    const names = () => within(parts).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0]?.textContent);
+    expect(names()).toEqual(["GOOD-1", "FLAKY-1"]);
+    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Part" }));
+    expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
+    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Part" }));
+    expect(names()).toEqual(["GOOD-1", "FLAKY-1"]);
+    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Part" }));
+    expect(within(parts).getByRole("columnheader", { name: /Part/ }).getAttribute("aria-sort")).toBe("none");
+  });
+
   it("sends the boards and the spares to the costing, and the file follows them", async () => {
     renderTab();
     const boards = await screen.findByLabelText("Boards to forecast and cost");
@@ -129,7 +144,7 @@ describe("the project Supply tab", () => {
     }));
     renderTab();
     expect(await screen.findByText("0 of 100 boards")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
+    expect(within(screen.getByLabelText("Headline")).getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
     expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /One distributor/ })).toBeNull();
     const parts = screen.getByRole("region", { name: "Parts" });
