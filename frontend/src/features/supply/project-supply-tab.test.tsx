@@ -201,6 +201,16 @@ describe("the project Supply tab", () => {
     await waitFor(() => expect(keepUsualBuild).toHaveBeenCalledWith("prj", 200));
   });
 
+  it("shows an example of a release's supply while the project has none, marked as an example", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({ releases: [] }));
+    renderTab();
+    const releases = await screen.findByRole("region", { name: "Releases" });
+    expect(within(releases).getByText(/No release has a supply snapshot yet/)).toBeTruthy();
+    const example = within(releases).getByLabelText("Example releases");
+    expect(within(example).getByText("v1.2")).toBeTruthy();
+    expect(within(example).queryByRole("link")).toBeNull();
+  });
+
   it("shows how much of the build the stock covers, line by line, instead of a forecast tile", async () => {
     renderTab();
     expect(await screen.findByText("Stock coverage")).toBeTruthy();
