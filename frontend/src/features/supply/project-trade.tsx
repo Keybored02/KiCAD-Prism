@@ -14,12 +14,11 @@ function Table({ projectId, variant }: { projectId: string; variant: string }) {
   if (status === "loading") return <p className="text-xs text-muted-foreground">Reading the classification...</p>;
   if (!data?.report) return null;
   const { report } = data;
-  const csv = `/api/supply/projects/${encodeURIComponent(projectId)}/trade?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`;
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
         {report.summary.controlled} controlled, {report.summary.disputed} disputed, {report.summary.unknown} unknown of {report.summary.parts} parts.{" "}
-        {report.summary.note} <a href={csv} className="text-primary hover:underline">Download as CSV</a>
+        {report.summary.note}
       </p>
       <div className="overflow-x-auto border">
         <table className="w-full text-sm">

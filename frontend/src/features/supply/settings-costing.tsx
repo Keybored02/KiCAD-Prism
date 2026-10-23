@@ -32,41 +32,39 @@ export function SettingsCosting({ view, readOnly, onSaved }: { view: AssessmentS
       {(draft, set) => (
         <>
           <div className="space-y-1.5">
-            <Label htmlFor="setting-currency">Currency for comparing and totalling prices</Label>
+            <Label htmlFor="setting-currency">Currency</Label>
             <span className="flex items-center">
               <Input id="setting-currency" className="w-28" maxLength={3} value={draft.base_currency}
                 onChange={(event) => set({ ...draft, base_currency: event.target.value.toUpperCase() })} />
               <DefaultNote changed={draft.base_currency !== defaults.base_currency} text={defaults.base_currency} />
             </span>
-            <p className="text-xs text-muted-foreground">Three letters, such as EUR. Rates come from the European Central Bank each day.</p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="setting-quantity">Price quantity, in pieces</Label>
+            <Label htmlFor="setting-quantity">Price quantity</Label>
             <span className="flex items-center">
               <Input id="setting-quantity" inputMode="numeric" className="w-32" value={draft.price_quantity}
                 onChange={(event) => set({ ...draft, price_quantity: whole(event.target.value, lowQuantity, highQuantity, draft.price_quantity) })} />
               <DefaultNote changed={draft.price_quantity !== defaults.price_quantity} text={String(defaults.price_quantity)} />
             </span>
-            <p className="text-xs text-muted-foreground">{lowQuantity.toLocaleString()} to {highQuantity.toLocaleString()}. Lists and price history price at this; a part can have its own.</p>
           </div>
           <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Spares ordered on top of what the boards use</legend>
+            <legend className="text-sm font-medium">Spares</legend>
             <div className="flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-1.5"><input type="radio" name="spares-mode" checked={draft.spares_mode === "flat"} onChange={() => set({ ...draft, spares_mode: "flat" })} />One percent for every part</label>
-              <label className="flex items-center gap-1.5"><input type="radio" name="spares-mode" checked={draft.spares_mode === "package"} onChange={() => set({ ...draft, spares_mode: "package" })} />By kind of part</label>
+              <label className="flex items-center gap-1.5"><input type="radio" name="spares-mode" checked={draft.spares_mode === "flat"} onChange={() => set({ ...draft, spares_mode: "flat" })} />Same for every part</label>
+              <label className="flex items-center gap-1.5"><input type="radio" name="spares-mode" checked={draft.spares_mode === "package"} onChange={() => set({ ...draft, spares_mode: "package" })} />By part type</label>
             </div>
             {draft.spares_mode === "flat" ? (
-              <Percent id="setting-spares" label="Spares for every part" value={draft.spares_percent} onChange={(next) => set({ ...draft, spares_percent: next })}
+              <Percent id="setting-spares" label="Spares" value={draft.spares_percent} onChange={(next) => set({ ...draft, spares_percent: next })}
                 changed={draft.spares_percent !== defaults.spares_percent} fallback={defaults.spares_percent} />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 <Percent id="setting-spares-small" label="Small passives (01005 to 0603)" value={draft.spares_small_passives} onChange={(next) => set({ ...draft, spares_small_passives: next })}
                   changed={draft.spares_small_passives !== defaults.spares_small_passives} fallback={defaults.spares_small_passives} />
-                <Percent id="setting-spares-others" label="Every other part" value={draft.spares_others} onChange={(next) => set({ ...draft, spares_others: next })}
+                <Percent id="setting-spares-others" label="Other parts" value={draft.spares_others} onChange={(next) => set({ ...draft, spares_others: next })}
                   changed={draft.spares_others !== defaults.spares_others} fallback={defaults.spares_others} />
               </div>
             )}
-            <p className="text-xs text-muted-foreground">The project page, its costing file, the cost history and the Visualizer's BOM bar start from this. A person can still type their own.</p>
+            <p className="text-xs text-muted-foreground">A tracked project can set its own.</p>
           </fieldset>
           <PreferredDistributors draft={draft} onChange={set} />
         </>

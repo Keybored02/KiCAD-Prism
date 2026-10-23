@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from app.services.supply import bom_comments, bom_lookup, cost_history, part_insights, parts_view, tracking, usage
@@ -256,16 +257,11 @@ COST_HEADER = (
     "Manufacturer", "Part number", "References", "Per board", "For the build", "Status", "In stock", "Lead time (days)",
     "Distributor", "Distributor part number", "Unit price", "Currency", "Cost for the build",
 )
+NO_VENDOR = "No distributor"
 
 
-def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> str | None:
-    """The BOM costed at a build size, as a CSV. Each line names the distributor its price comes from and that distributor's part
-    number; there is no link or cart, so it is still a costing and not an order. None when the BOM has not been read."""
-
-    import csv
-    import io
-
-    from app.services.supply.compliance_draft import _safe
+def _costed(conn, project_id: str, variant: str, build_quantity: int, attrition_percent: float | None | str) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+    """The stored BOM rows and what pricing them for a build says. None when the BOM has not been read."""
 
     if attrition_percent == DEFAULT:
         attrition_percent = usual_attrition(conn, tracking.tracked_project(conn, project_id))
@@ -273,22 +269,102 @@ def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, 
     if not rows:
         return None
     lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-    result = bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
+    return rows, bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
+
+
+def _cost_line(row: dict[str, Any], entry: dict[str, Any]) -> list[Any]:
+    from app.services.supply.compliance_draft import _safe
+
+    buy = entry.get("buy") or {}
+    return [
+        _safe(row["manufacturer"]), _safe(row["mpn"]), _safe(row["references"]), row["quantity"], entry["need"],
+        entry.get("status") or "not tracked", "" if entry.get("stock") is None else entry["stock"], entry.get("lead_time_days") or "",
+        _safe(buy.get("connector_name", "")), _safe(buy.get("sku", "")), buy.get("unit_price", ""), buy.get("currency", ""),
+        buy.get("extended", "") if not entry.get("bought_with") else "with another line",
+    ]
+
+
+def _csv_text(rows: list[list[Any]], footer: list[list[Any]] | None = None) -> str:
+    import csv
+    import io
+
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(COST_HEADER)
+    writer.writerows(rows)
+    if footer:
+        writer.writerow([])
+        writer.writerows(footer)
+    return out.getvalue()
+
+
+def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> str | None:
+    """The BOM costed at a build size, as a CSV. Each line names the distributor its price comes from and that distributor's part
+    number; there is no link or cart, so it is still a costing and not an order. None when the BOM has not been read."""
+
+    costed = _costed(conn, project_id, variant, build_quantity, attrition_percent)
+    if costed is None:
+        return None
+    rows, result = costed
+    rollup = result["rollup"]
+    footer: list[list[Any]] = []
+    if rollup["cost_build"] is not None:
+        blank = [""] * 10
+        footer = [
+            ["Total", *blank, rollup["currency"], rollup["cost_build"]],
+            ["Per board", *blank, rollup["currency"], rollup["cost_per_board"]],
+            ["Prices are list prices without VAT or shipping." + (" Converted at the rates of %s." % rollup["rates_day"] if rollup["converted"] else "")],
+        ]
+    return _csv_text([_cost_line(row, result["lines"][row["key"]]) for row in rows], footer)
+
+
+def cost_csvs_by_vendor(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> dict[str, str] | None:
+    """The same costing split by the distributor each line is priced at, one CSV a distributor, each with what it adds up to. Lines
+    with no price are together under ``NO_VENDOR``. None when the BOM has not been read."""
+
+    costed = _costed(conn, project_id, variant, build_quantity, attrition_percent)
+    if costed is None:
+        return None
+    rows, result = costed
+    groups: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
     for row in rows:
         entry = result["lines"][row["key"]]
-        buy = entry.get("buy") or {}
-        writer.writerow([
-            _safe(row["manufacturer"]), _safe(row["mpn"]), _safe(row["references"]), row["quantity"], entry["need"],
-            entry.get("status") or "not tracked", "" if entry.get("stock") is None else entry["stock"], entry.get("lead_time_days") or "",
-            _safe(buy.get("connector_name", "")), _safe(buy.get("sku", "")), buy.get("unit_price", ""), buy.get("currency", ""), buy.get("extended", "") if not entry.get("bought_with") else "with another line",
-        ])
-    rollup = result["rollup"]
-    if rollup["cost_build"] is not None:
-        writer.writerow([])
-        writer.writerow(["Total", "", "", "", "", "", "", "", "", "", "", rollup["currency"], rollup["cost_build"]])
-        writer.writerow(["Per board", "", "", "", "", "", "", "", "", "", "", rollup["currency"], rollup["cost_per_board"]])
-        writer.writerow(["Prices are list prices without VAT or shipping." + (" Converted at the rates of %s." % rollup["rates_day"] if rollup["converted"] else "")])
+        groups.setdefault((entry.get("buy") or {}).get("connector_name") or NO_VENDOR, []).append((row, entry))
+    files = {}
+    for vendor, pairs in sorted(groups.items(), key=lambda item: (item[0] == NO_VENDOR, item[0].lower())):
+        totals: dict[str, Decimal] = {}
+        for _row, entry in pairs:
+            buy = entry.get("buy")
+            if buy and not entry.get("bought_with"):
+                totals[buy["currency"]] = totals.get(buy["currency"], Decimal(0)) + Decimal(buy["extended"])
+        blank = [""] * 10
+        footer = [["Total", *blank, currency, format(total.normalize(), "f")] for currency, total in sorted(totals.items())]
+        files[vendor] = _csv_text([_cost_line(row, entry) for row, entry in pairs], footer)
+    return files
+
+
+def _file_name(text: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in text).strip(" .")[:60] or "file"
+
+
+def costing_zip(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> bytes | None:
+    """The project's costing as one zip: the whole costing, the costing by distributor, the draft RoHS and REACH declaration and the trade
+    classification, each a CSV. None when the BOM has not been read."""
+
+    import io
+    import zipfile
+
+    from app.services.supply import compliance_draft, trade
+
+    whole = cost_csv(conn, project_id, variant, build_quantity, attrition_percent)
+    if whole is None:
+        return None
+    rows = usage.project_rows(conn, project_id, variant)
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("costing.csv", whole)
+        for vendor, text in (cost_csvs_by_vendor(conn, project_id, variant, build_quantity, attrition_percent) or {}).items():
+            archive.writestr(f"costing-by-distributor/{_file_name(vendor)}.csv", text)
+        archive.writestr("compliance.csv", compliance_draft.to_csv(compliance_draft.build(conn, rows)))
+        archive.writestr("trade-classification.csv", trade.to_csv(trade.build(conn, rows)))
     return out.getvalue()

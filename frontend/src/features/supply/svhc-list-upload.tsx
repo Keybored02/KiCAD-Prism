@@ -27,7 +27,7 @@ export function SvhcListUpload() {
       <p className="text-xs text-muted-foreground">
         {info?.loaded
           ? `${info.substances.toLocaleString()} substances, from ${info.source_name || "a file"}, loaded ${info.loaded_at?.slice(0, 10)} by ${info.loaded_by}.`
-          : "Not loaded. Export the list from echa.europa.eu as CSV or Excel (it needs a substance name and a CAS number column)."}
+          : "Not loaded. Upload the ECHA list (CSV or Excel) with substance name and CAS number columns."}
       </p>
       <input
         ref={input}

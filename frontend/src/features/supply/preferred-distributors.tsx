@@ -33,10 +33,10 @@ export function PreferredDistributors({ draft, onChange }: { draft: AssessmentSe
       <legend className="text-sm font-medium">Preferred distributors</legend>
       <span className="flex items-center gap-2">
         <Checkbox id="prefer-distributors" checked={draft.prefer_distributors ?? false} onCheckedChange={(on) => onChange({ ...draft, prefer_distributors: on === true })} />
-        <Label htmlFor="prefer-distributors" className="font-normal">Price the BOM at a preferred distributor when it has enough stock</Label>
+        <Label htmlFor="prefer-distributors" className="font-normal">Use a preferred distributor when it has the stock</Label>
       </span>
       <p className="text-xs text-muted-foreground">
-        A part's own preferred distributor comes first, then this order. Where none has enough stock for the build, the cheapest is used. Off, the cheapest always is.
+        A part's own choice comes first, then this order. Otherwise the cheapest.
       </p>
       {draft.prefer_distributors ? (
         <ol className="divide-y border" aria-label="Order of preferred distributors">

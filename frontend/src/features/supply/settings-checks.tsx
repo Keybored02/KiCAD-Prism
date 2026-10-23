@@ -19,35 +19,33 @@ export function SettingsChecks({ view, readOnly, onSaved }: { view: AssessmentSe
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="setting-lead">Longest lead time you accept, in days</Label>
+              <Label htmlFor="setting-lead">Longest lead time (days)</Label>
               <span className="flex items-center">
                 <Input id="setting-lead" inputMode="numeric" className="w-28" value={draft.lead_time_days}
                   onChange={(event) => set({ ...draft, lead_time_days: whole(event.target.value, lowLead, highLead, draft.lead_time_days) })} />
                 <DefaultNote changed={draft.lead_time_days !== defaults.lead_time_days} text={String(defaults.lead_time_days)} />
               </span>
-              <p className="text-xs text-muted-foreground">{lowLead} to {highLead}. Longer is a finding.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="setting-last-buy">Last date to buy is an error within, in days</Label>
+              <Label htmlFor="setting-last-buy">Last buy date is an error within (days)</Label>
               <span className="flex items-center">
                 <Input id="setting-last-buy" inputMode="numeric" className="w-28" value={draft.last_buy_error_days}
                   onChange={(event) => set({ ...draft, last_buy_error_days: whole(event.target.value, lowLastBuy, highLastBuy, draft.last_buy_error_days) })} />
                 <DefaultNote changed={draft.last_buy_error_days !== defaults.last_buy_error_days} text={String(defaults.last_buy_error_days)} />
               </span>
-              <p className="text-xs text-muted-foreground">{lowLastBuy} to {highLastBuy}. Fatal once the date has passed and no distributor has stock.</p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="setting-late">A read is late when it is overdue by, in hours</Label>
+              <Label htmlFor="setting-late">Read is late after (hours)</Label>
               <span className="flex items-center">
                 <Input id="setting-late" inputMode="numeric" className="w-28" value={draft.late_hours}
                   onChange={(event) => set({ ...draft, late_hours: whole(event.target.value, lowLate, highLate, draft.late_hours) })} />
                 <DefaultNote changed={draft.late_hours !== defaults.late_hours} text={String(defaults.late_hours)} />
               </span>
-              <p className="text-xs text-muted-foreground">{lowLate} to {highLate}. Counted from when the part's schedule wanted the read: a day for a daily part, a week for a weekly one, a month for a monthly one.</p>
+              <p className="text-xs text-muted-foreground">Counted from when the part was due for a read.</p>
             </div>
           </div>
           <fieldset className="space-y-3">
-            <legend className="text-sm font-medium">How serious each check is</legend>
+            <legend className="text-sm font-medium">Severity of each check</legend>
             {AREAS.map((area) => (
               <div key={area} className="space-y-1">
                 <h4 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{area}</h4>
@@ -67,7 +65,6 @@ export function SettingsChecks({ view, readOnly, onSaved }: { view: AssessmentSe
                 </ul>
               </div>
             ))}
-            <p className="text-xs text-muted-foreground">A note is shown but does not count against health.</p>
           </fieldset>
         </>
       )}

@@ -499,38 +499,32 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((report["summary"]["disputed"], report["summary"]["unknown"]), (1, 2))
         self.assertIn("Disputed", csv_text)
 
-    def test_suggestions_name_what_the_bom_lacks_and_prism_knows(self) -> None:
-        from app.services.supply import bom_suggestions, usage
+    def test_the_costing_zip_holds_the_whole_costing_the_costing_by_distributor_the_compliance_draft_and_the_trade_classification(self) -> None:
+        import io
+        import zipfile
 
-        good = self.part("GOOD-1", stock=5000)
-        project = SimpleNamespace(id="prj_4", name="Four")
+        from app.services.supply import project_supply, usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_7", name="Seven")
         with self.store.connection() as conn:
-            conn.execute("UPDATE parts SET datasheet_url = 'https://example.com/good1.pdf' WHERE id = %s", (good,))
-            conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, raw_mpn, raw_manufacturer, match_state) "
-                "SELECT %s, c.id, 'C12345', 'LCSCPART-1', 'Acme', 'near' FROM connectors c LIMIT 1", (uuid.uuid4().hex,))
-            conn.execute("UPDATE connectors SET provider = 'lcsc' WHERE id = (SELECT connector_id FROM listings WHERE sku = 'C12345')")
-            usage.store_project(conn, "prj_4", "Four", "rev1", usage.lines_from_components([
-                component("R1", "", "GOOD-1"),
-                component("R2", "Acme", "GOOD-1", Datasheet="https://example.com/mine.pdf", **{"Prism ID": "c-1"}),
-                component("U1", "", "", LCSC="C12345"),
-                component("U2", "", "", LCSC="C99999"),
-                component("D1", "Acme", "OTHER-2", Datasheet="~"),
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            usage.store_project(conn, "prj_7", "Seven", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
-            rows = usage.project_rows(conn, "prj_4")
-            items = bom_suggestions.build(conn, rows, library=lambda: {("acme", "OTHER2"): "comp-77"})
-        by_kind = {}
-        for item in items:
-            by_kind.setdefault(item["kind"], []).append(item)
-        self.assertEqual([(i["references"], i["suggested"]) for i in by_kind["manufacturer"]], [("R1", "Acme")])
-        self.assertEqual([(i["references"], i["suggested"]) for i in by_kind["lcsc_part"]], [("U1", "Acme LCSCPART-1")])
-        self.assertEqual([(i["references"], i["suggested"]) for i in by_kind["datasheet"]], [("R1", "https://example.com/good1.pdf")])
-        self.assertEqual([(i["references"], i["suggested"]) for i in by_kind["prism_id"]], [("D1", "comp-77")])
-        self.assertEqual(bom_suggestions.summary(items), {"manufacturer": 1, "lcsc_part": 1, "datasheet": 1, "prism_id": 1})
+            content = project_supply.costing_zip(conn, "prj_7", "", 10)
+            self.assertIsNone(project_supply.costing_zip(conn, "prj_none", "", 10))
+        names = zipfile.ZipFile(io.BytesIO(content)).namelist()
+        self.assertEqual(sorted(name for name in names if "/" not in name), ["compliance.csv", "costing.csv", "trade-classification.csv"])
+        vendor_files = [name for name in names if name.startswith("costing-by-distributor/")]
+        self.assertEqual(len(vendor_files), 2, "the distributor that prices GOOD-1, and the line that is priced nowhere")
+        archive = zipfile.ZipFile(io.BytesIO(content))
+        self.assertIn("GOOD-1", archive.read("costing.csv").decode())
+        self.assertIn("costing-by-distributor/No distributor.csv", names)
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            answer = self.request("prj_4/suggestions").json
-        self.assertTrue(answer["available"])
-        self.assertEqual(answer["counts"]["manufacturer"], 1)
+            response = self.request("prj_7/costing.zip", query="build_quantity=10")
+            missing = self.request("prj_0/costing.zip")
+        self.assertEqual((response.status, missing.status), (200, 404))
 
     def test_one_class_is_none_controlled_or_unknown(self) -> None:
         from app.services.supply import trade

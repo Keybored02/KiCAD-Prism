@@ -57,18 +57,18 @@ afterEach(cleanup);
 describe("the Supply settings window", () => {
   it("shows a reader every setting and no way to change it", async () => {
     open("designer");
-    const currency = await screen.findByLabelText(/Currency for comparing/);
+    const currency = await screen.findByLabelText(/^Currency/);
     expect(currency.matches(":disabled")).toBe(true);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.getByText("Administrators change these.")).toBeTruthy();
+    expect(screen.getByText("Only administrators can change these.")).toBeTruthy();
   });
 
   it("saves one group by sending the whole settings with that group's fields changed, and shows the default beside a changed field", async () => {
     open();
-    fireEvent.change(await screen.findByLabelText(/Currency for comparing/), { target: { value: "usd" } });
+    fireEvent.change(await screen.findByLabelText(/^Currency/), { target: { value: "usd" } });
     expect(screen.getByText("default EUR")).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Price quantity/), { target: { value: "1000" } });
-    fireEvent.click(screen.getByLabelText("By kind of part"));
+    fireEvent.click(screen.getByLabelText("By part type"));
     fireEvent.change(screen.getByLabelText(/Small passives/), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalledWith({
@@ -78,9 +78,9 @@ describe("the Supply settings window", () => {
 
   it("keeps a group's save from carrying the figures of another that has not been saved", async () => {
     open();
-    fireEvent.change(await screen.findByLabelText(/Currency for comparing/), { target: { value: "usd" } });
+    fireEvent.change(await screen.findByLabelText(/^Currency/), { target: { value: "usd" } });
     fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
-    fireEvent.change(await screen.findByLabelText(/price rise raises an alert/), { target: { value: "35" } });
+    fireEvent.change(await screen.findByLabelText(/Price rise alert/), { target: { value: "35" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalledWith({ ...defaults, alert_price_rise_percent: 35 }));
   });
@@ -102,11 +102,10 @@ describe("the Supply settings window", () => {
     await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalledWith({ ...defaults, base_currency: "USD", alert_price_rise_percent: 20 }));
   });
 
-  it("offers the lists as they are and points to the connector cards for budgets", async () => {
+  it("offers the lists as they are", async () => {
     open();
     fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
     expect(within(await screen.findByRole("region", { name: "Reading" })).getByText("Spare work switches")).toBeTruthy();
-    expect(screen.getByText(/set on its card in Connectors/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Matching" }));
     expect(await screen.findByText("Maker spellings")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Reference data" }));

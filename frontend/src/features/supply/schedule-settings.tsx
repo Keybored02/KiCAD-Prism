@@ -10,24 +10,22 @@ import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 
 const SPARE: ReadonlyArray<{ id: keyof Schedule["spare"]; label: string }> = [
-  { id: "waiting", label: "Read parts waiting for room" },
-  { id: "tier2_early", label: "Read tier-2 parts ahead of their time" },
-  { id: "notices", label: "Read change notices of parts nobody tracks" },
+  { id: "waiting", label: "Parts waiting for room" },
+  { id: "tier2_early", label: "Tier 2 parts ahead of schedule" },
+  { id: "notices", label: "Change notices of untracked parts" },
 ];
 
 function Form({ initial }: { initial: Schedule }) {
   const [draft, setDraft] = useState(initial);
   const { busy, error, run } = useConnectorSubmit();
   const save = () => {
-    void run(async () => { setDraft(await saveSchedule(draft)); toast.success("Spare work saved"); });
+    void run(async () => { setDraft(await saveSchedule(draft)); toast.success("Saved"); });
   };
   return (
     <fieldset className="space-y-3">
-      <legend className="text-sm font-medium">Spare work</legend>
+      <legend className="text-sm font-medium">Background reads</legend>
       <p className="text-xs text-muted-foreground">
-        Calls that scheduled reads and people will not need today go to spare work, at any hour: at most 5% of the day's
-        budget an hour, with no hourly limit in the last 3 hours before a provider's reset. What people usually use for the
-        rest of the day stays theirs.
+        Calls nobody needs today go to background reads. Choose which ones.
       </p>
       <div className="space-y-1">
         {SPARE.map((item) => (
@@ -38,7 +36,7 @@ function Form({ initial }: { initial: Schedule }) {
         ))}
       </div>
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
-      <Button type="button" size="sm" disabled={busy} onClick={save}>Save spare work</Button>
+      <Button type="button" size="sm" disabled={busy} onClick={save}>Save</Button>
     </fieldset>
   );
 }

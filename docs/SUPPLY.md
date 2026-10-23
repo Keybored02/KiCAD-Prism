@@ -173,12 +173,8 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
 - **More checks.** Distributors that disagree on lifecycle are a warning. A distributor whose price is far from the median is a note.
   A part whose whole assessment gets worse raises an alert (accepting it makes the new state the baseline). Per part, **Alert rules**
   mute alerts, set the price rise that matters, and set a target price.
-- **Suggestions for the BOM.** The project tab lists what Prism knows about a line that its symbol lacks: a manufacturer for a
-  line with only a part number, the part an LCSC number is, a datasheet address, the library component to link. A list only;
-  Prism changes nothing in the project, and a person applies it in KiCad. A symbol with only an LCSC number now shows as a
-  line of its own ("not tracked") instead of being dropped.
 - **Costing.** The line drawer shows the pieces bought beyond the need and the next price break. The project tab follows the cost of a
-  board over time, shows the rounding waste, and downloads a costing CSV that names, for each line, the distributor its price comes from and that distributor's part number (no link, no cart). Spares can be set
+  board over time, shows the rounding waste, and downloads the costing as a zip (see the project page). Spares can be set
   **by package** (small passives get 2%, other parts none).
 - **Alternatives.** On the part sheet, **Find alternatives** lists what distributors suggest first (LCSC's alternate parts and Mouser's
   suggested replacement come with the answers Prism already reads; **Ask DigiKey for substitutes** asks DigiKey, one call, once an hour
@@ -410,17 +406,19 @@ A project's Supply tab answers, in this order: can we build N boards and what st
   in its Track dialog beside the usual build; the page, the daily cost and the costing file use them. The page opens on the usual build.
   The prices of the Cost tile and the charts are rounded to the cent; a unit price keeps its four decimals. The cost over time is worked out for the
   usual build and says so; a day written before the usual build changed is written again the same day.
+- **Search:** the list's search also finds a reference on the board (C80, R14, U3), exactly.
 - **Headline:** the build ("0 of 100 boards, limited by ..."; the pencil on it sets the number of boards and can keep it as the usual build), its cost
   (the price for the boards and the price of one, with what minimum orders leave over and the lines priced), health with the parts by status as a bar
-  and a legend of counts, and the chance every part can be bought in 8 weeks. "At risk" is error or fatal everywhere (the Projects view, the
+  and a legend of counts, and the stock coverage (the share of lines in stock for the boards). "At risk" is error or fatal everywhere (the Projects view, the
   Dashboard and here); a warning only needs a look.
 - **Cost:** per board by build size (1 to 10,000 boards), cost allocation (the ten dearest lines), and the cost over time. A day that priced
   fewer lines than today, or one that read a price wrong, is left out of the history and named. The daily cost is worked out for the usual build.
 - **Parts (last on the page):** the same list as the Parts tab (compact or a row for each vendor, search, lifecycle and vendor menus, "Runs out first") with the pieces a board uses, the pieces needed and the line cost added. Part, stock and price sort on the server, the three project columns where the list is; a row opens the part's sheet over the page. A BOM line that matches no part shows after the parts until something narrows the list.
 - **Filters:** out of stock, short for this build, not priced, end of life and open alerts sit with the list's other filters, with their counts.
   The list scrolls under its filters, as the Parts tab does.
-- **Above the list:** releases, line notes, suggestions for the BOM and trade classification, the draft declaration. The costing CSV is a button beside
-  Track.
+- **Above the list:** releases, line notes and trade classification. **Costing** and **Track** are buttons on the page's title row. Costing is a zip: the whole
+  costing (each line with the distributor its price comes from and that distributor's part number; no link, no cart), the costing by distributor, the draft
+  RoHS and REACH declaration and the trade classification, each a CSV.
 
 ## BOM file
 

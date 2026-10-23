@@ -166,7 +166,7 @@ describe("the project Supply tab", () => {
     renderTab();
     await boardsTo(250);
     await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "", expect.anything()));
-    expect((await screen.findByRole("link", { name: "Download the costing for 250 boards as CSV" })).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
+    expect((await screen.findByRole("link", { name: "Download the costing for 250 boards as a zip" })).getAttribute("href")).toBe("/api/supply/projects/prj/costing.zip?build_quantity=250");
   });
 
   it("answers whether the boards can be built and what stops it, and a chip filters the parts", async () => {
@@ -201,6 +201,14 @@ describe("the project Supply tab", () => {
     await waitFor(() => expect(keepUsualBuild).toHaveBeenCalledWith("prj", 200));
   });
 
+  it("shows how much of the build the stock covers, line by line, instead of a forecast tile", async () => {
+    renderTab();
+    expect(await screen.findByText("Stock coverage")).toBeTruthy();
+    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.getByText(/1 of 2 lines in stock for 100 boards, 1 short/)).toBeTruthy();
+    expect(screen.queryByText("In 8 weeks")).toBeNull();
+  });
+
   it("leaves the spares to the project's tracking settings, and says which the cost has", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ attrition_percent: 10 }));
     renderTab();
@@ -212,7 +220,7 @@ describe("the project Supply tab", () => {
   it("offers the costing as a file for a build size", async () => {
     renderTab();
     await boardsTo(250);
-    expect(screen.getByRole("link", { name: "Download the costing for 250 boards as CSV" }).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
+    expect(screen.getByRole("link", { name: "Download the costing for 250 boards as a zip" }).getAttribute("href")).toBe("/api/supply/projects/prj/costing.zip?build_quantity=250");
   });
 
   it("says when the BOM has not been read, and still offers tracking", async () => {

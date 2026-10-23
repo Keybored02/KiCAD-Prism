@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, bom_suggestions, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, trade, usage,
+    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, trade, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
@@ -121,23 +121,26 @@ async def cost_export(
     )
 
 
-@router.get("/{project_id}/suggestions")
-async def bom_suggestions_for(
+@router.get("/{project_id}/costing.zip")
+async def costing_zip(
     project_id: str,
     variant: str = Query(default="", max_length=120),
+    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
     user: AuthenticatedUser = Depends(require_supply_reader),
-) -> dict[str, Any]:
-    """What Prism could add to the project's BOM lines: a missing manufacturer, a datasheet address, the library link. A list only."""
+) -> Response:
+    """The costing as a zip: the whole costing, the costing by distributor, the draft RoHS and REACH declaration and the trade classification."""
 
-    get_project_for_role_or_404(project_id, user.role)
+    project = get_project_for_role_or_404(project_id, user.role)
 
-    def read() -> dict[str, Any]:
+    def read() -> bytes | None:
         with _store().connection() as conn:
-            rows = usage.project_rows(conn, project_id, variant)
-            items = bom_suggestions.build(conn, rows) if rows else []
-            return {"available": bool(rows), "items": items, "counts": bom_suggestions.summary(items)}
+            return project_supply.costing_zip(conn, project_id, variant, build_quantity)
 
-    return await _run(read)
+    content = await _run(read)
+    if content is None:
+        raise HTTPException(status_code=404, detail="This project's BOM has not been read yet")
+    name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (project.name or project_id))[:60]
+    return Response(content=content, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}-costing-{build_quantity}.zip"'})
 
 
 @router.get("/{project_id}/trade")

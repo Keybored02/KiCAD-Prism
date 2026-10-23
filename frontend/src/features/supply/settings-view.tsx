@@ -21,17 +21,17 @@ import { useLoaded } from "./use-loaded";
 type GroupId = "costing" | "checks" | "alerts" | "reading" | "matching" | "reference";
 
 const GROUPS: ReadonlyArray<{ id: GroupId; label: string; about: string; icon: LucideIcon }> = [
-  { id: "costing", label: "Costing", about: "What a price is worked out with.", icon: Calculator },
-  { id: "checks", label: "Health checks", about: "What counts as a finding and how serious each one is. A change applies to every health figure and status from now on, and is recorded.", icon: ShieldCheck },
-  { id: "alerts", label: "Alerts", about: "When an alert is raised for a part that has no rule of its own.", icon: Bell },
-  { id: "reading", label: "Reading", about: "Which spare work may run. Budgets are on each connector's card.", icon: RefreshCw },
-  { id: "matching", label: "Matching", about: "How makers and part numbers are matched. These save as they change.", icon: Link2 },
-  { id: "reference", label: "Reference data", about: "Exchange rates and the REACH Candidate List. These save as they change.", icon: Database },
+  { id: "costing", label: "Costing", about: "Currency, price quantity and spares.", icon: Calculator },
+  { id: "checks", label: "Health checks", about: "What counts as a problem, and how bad.", icon: ShieldCheck },
+  { id: "alerts", label: "Alerts", about: "When to raise an alert.", icon: Bell },
+  { id: "reading", label: "Reading", about: "Background reads.", icon: RefreshCw },
+  { id: "matching", label: "Matching", about: "Maker names and part number endings.", icon: Link2 },
+  { id: "reference", label: "Reference data", about: "Exchange rates and the REACH list.", icon: Database },
 ];
 
 /** A group of lists that save as they change, shown read-only to anyone who is not an administrator. */
 function Lists({ readOnly, children }: { readOnly: boolean; children: ReactNode }) {
-  return <fieldset disabled={readOnly} className="space-y-4">{children}{readOnly ? <p className="text-xs text-muted-foreground">Administrators change these.</p> : null}</fieldset>;
+  return <fieldset disabled={readOnly} className="space-y-4">{children}{readOnly ? <p className="text-xs text-muted-foreground">Only administrators can change these.</p> : null}</fieldset>;
 }
 
 function Group({ id, view, readOnly, onSaved }: { id: GroupId; view: AssessmentSettingsView; readOnly: boolean; onSaved: (next: AssessmentSettingsView) => void }) {
@@ -42,7 +42,6 @@ function Group({ id, view, readOnly, onSaved }: { id: GroupId; view: AssessmentS
     case "reading": return (
       <Lists readOnly={readOnly}>
         <ScheduleSettings />
-        <p className="text-xs text-muted-foreground">How many calls a day each distributor allows, and the share held for people, are set on its card in Connectors.</p>
       </Lists>
     );
     case "matching": return <Lists readOnly={readOnly}><MakerSpellings /><NumberEndings /></Lists>;

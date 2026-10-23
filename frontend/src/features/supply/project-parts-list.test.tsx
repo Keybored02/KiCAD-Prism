@@ -52,6 +52,20 @@ describe("a project's parts list", () => {
     expect(screen.getByText("Out within 8 weeks").getAttribute("title")).toContain("80%");
   });
 
+  it("finds the lines that carry a reference on the board, exactly, whatever the case", async () => {
+    show();
+    await screen.findByText("RISKY-1");
+    const search = async (text: string) => {
+      fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: text } });
+      fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    };
+    await search("r1");
+    expect(screen.getAllByText("RISKY-1").length).toBeGreaterThan(0);
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "");
+    await search("R");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "R", expect.anything(), "", 0, 200, "prj", "");
+  });
+
   it("lists a line that matches no part after the parts, until something narrows the list", async () => {
     show();
     expect(await screen.findByText("NOPN")).toBeTruthy();

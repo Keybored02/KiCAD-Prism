@@ -24,6 +24,6 @@ describe("the trade classification", () => {
     fireEvent(details, new Event("toggle"));
     expect(await screen.findByText("Controlled")).toBeTruthy();
     expect(screen.getByText("8542.33.0001")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Download as CSV" }).getAttribute("href")).toBe("/api/supply/projects/prj/trade?format=csv");
+    expect(screen.queryByRole("link", { name: "Download as CSV" })).toBeNull();
   });
 });

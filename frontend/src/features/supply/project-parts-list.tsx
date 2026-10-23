@@ -20,6 +20,11 @@ const LIMIT = 200;
 
 type Line = ProjectSupplyPart | undefined;
 
+/** Whether a BOM line has this reference (C80, R14, U3), whatever the case; "C8" is not "C80". */
+function hasReference(line: ProjectSupplyPart, wanted: string): boolean {
+  return wanted !== "" && (line.references ?? "").toLowerCase().split(/[\s,;]+/).includes(wanted);
+}
+
 /** The figure a project column sorts by; a part with none is last either way. */
 function figure(line: Line, column: string): number | null {
   if (!line) return null;
@@ -61,12 +66,16 @@ export function ProjectPartsList({ projectId, parts, shortAt8Weeks, chance, curr
   const [layout, setLayout] = useState<PartsLayout>("compact");
   const [sort, setSort] = useState<PartsSort>("");
   const [chip, setChip] = useState<Chip | null>(null);
-  const loaded = useSupplyPartsList("all", query, lifecycle, LIMIT, projectId, vendor, serverSort(sort));
+  // A search that is a reference on the board (C80) finds the lines that carry it; any other search is a part number or maker, asked of the server.
+  const wanted = query.trim().toLowerCase();
+  const byReference = useMemo(() => (parts.some((part) => hasReference(part, wanted)) ? new Set(parts.flatMap((part) => (part.part_id && hasReference(part, wanted) ? [part.part_id] : []))) : null), [parts, wanted]);
+  const loaded = useSupplyPartsList("all", byReference !== null ? "" : query, lifecycle, LIMIT, projectId, vendor, serverSort(sort));
   const lines = useMemo<ProjectLines>(() => ({
     byPart: new Map(parts.flatMap((part) => (part.part_id ? [[part.part_id, part] as const] : []))), currency, shortAt8Weeks, chance,
   }), [parts, currency, shortAt8Weeks, chance]);
   // The parts a chip keeps, by part: a line that matches no part cannot be one of them.
-  const only = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip) ? [part.part_id] : [])))), [parts, chip]);
+  const byChip = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip) ? [part.part_id] : [])))), [parts, chip]);
+  const only = byChip && byReference ? new Set([...byChip].filter((id) => byReference.has(id))) : byChip ?? byReference;
   const chips = CHIPS.flatMap((item) => {
     const count = parts.filter((part) => matchesChip(part, item.key)).length;
     return count > 0 ? [{ ...item, count }] : [];
@@ -74,7 +83,7 @@ export function ProjectPartsList({ projectId, parts, shortAt8Weeks, chance, curr
   const narrowed = query !== "" || lifecycle !== "" || vendor !== "" || only !== null;
   const items = inProjectOrder((loaded.data?.items ?? []).filter((item) => only === null || only.has(item.id)), lines, sort);
   // A line that matches no part has nothing to search or filter by, so it shows only while nothing narrows the list.
-  const unmatched = narrowed ? [] : parts.filter((part) => !part.part_id);
+  const unmatched = chip !== null || lifecycle !== "" || vendor !== "" ? [] : parts.filter((part) => !part.part_id && (query === "" || hasReference(part, wanted)));
 
   return (
     <div className="space-y-3">
@@ -91,7 +100,7 @@ export function ProjectPartsList({ projectId, parts, shortAt8Weeks, chance, curr
         <Button variant={sort === "runout" ? "default" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setSort(sort === "runout" ? "" : "runout")}>Runs out first</Button>
         <LifecycleSelect only={lifecycle} onChange={setLifecycle} />
         <VendorSelect vendor={vendor} onChange={setVendor} />
-        <SearchBox key={query} initial={query} onSearch={setQuery} />
+        <SearchBox key={query} initial={query} onSearch={setQuery} placeholder="Part number, maker or reference" />
         <div className="ml-auto"><LayoutToggle layout={layout} onChange={setLayout} /></div>
       </div>
       {loaded.status === "loading" && !loaded.data ? <Skeleton className="h-48 w-full" aria-label="Loading the parts" /> : null}

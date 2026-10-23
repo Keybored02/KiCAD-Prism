@@ -126,6 +126,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const [project, setProject] = useState<Project | null>(null);
+    // Where the Supply section puts its buttons: on its title row, a little higher than its own controls.
+    const [supplyActions, setSupplyActions] = useState<HTMLElement | null>(null);
     const [readme, setReadme] = useState<string>("");
     const [loading, setLoading] = useState(true);
     const [activeSection, setActiveSection] = useState<ProjectSection>(() => (
@@ -867,8 +869,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             className="themed-scrollbar"
                         >
                             <ErrorBoundary label="the project's supply" resetKeys={[projectId]}>
-                                <h2 className="mb-6 text-2xl font-bold">Supply</h2>
-                                {projectId && <ProjectSupplyTab projectId={projectId} user={user} />}
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                    <h2 className="text-2xl font-bold">Supply</h2>
+                                    <div ref={setSupplyActions} className="flex flex-wrap items-center gap-2" />
+                                </div>
+                                {projectId && <ProjectSupplyTab projectId={projectId} user={user} actionsSlot={supplyActions} />}
                             </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}

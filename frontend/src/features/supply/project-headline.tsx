@@ -3,15 +3,11 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { ProjectForecast, ProjectSupply, SupplyStatus } from "@/types/supply";
-import { chanceText } from "./forecast-text";
-import { forecastWord } from "./forecast-words";
+import type { ProjectSupply, SupplyStatus } from "@/types/supply";
 import { BoardCount } from "./project-forecast";
 import { StatusBar } from "./project-row-summary";
 import { StatusDot } from "./status-dot";
 import { formatPrice, STATUS_LABEL } from "./supply-format";
-
-const WEEKS = 8;
 
 function Tile({ label, bad, action, children }: { label: string; bad?: boolean; action?: ReactNode; children: ReactNode }) {
   return (
@@ -111,29 +107,37 @@ function HealthTile({ supply }: { supply: ProjectSupply }) {
   );
 }
 
-function WeeksTile({ forecast, learning }: { forecast: ProjectForecast | undefined; learning: boolean }) {
-  const chance = forecast?.available ? forecast.weeks[WEEKS] : undefined;
+/** How much of the build the stock covers, line by line: the share of lines whose parts are in stock for the boards. */
+function CoverageTile({ supply, boards }: { supply: ProjectSupply; boards: number }) {
+  const lines = supply.parts ?? [];
+  const known = lines.filter((part) => part.part_id && part.stock !== null);
+  const covered = known.filter((part) => !part.short).length;
+  const unknown = lines.length - known.length;
+  const share = known.length === 0 ? null : covered / known.length;
+  const low = share !== null && share < 1;
   return (
-    <Tile label={`In ${WEEKS} weeks`}>
-      <p className={`${big(false)} ${learning ? "text-muted-foreground" : ""}`}>{chance === undefined ? "Not yet" : chanceText(forecastWord(chance))}</p>
-      <p className="text-xs text-muted-foreground">{chance === undefined ? "Forecasts start after a week of readings." : `the chance every part can be bought${learning ? ", still learning" : ""}`}</p>
+    <Tile label="Stock coverage" bad={share !== null && share < 0.9}>
+      <p className={big(share !== null && share < 0.9)}>{share === null ? "No data" : `${Math.round(share * 100)}%`}</p>
+      <p className="text-xs text-muted-foreground">
+        {share === null ? "No stock figure yet." : `${covered} of ${known.length} lines in stock for ${boards.toLocaleString()} boards${low ? `, ${known.length - covered} short` : ""}`}
+        {unknown > 0 && share !== null ? `, ${unknown} unknown` : ""}
+      </p>
     </Tile>
   );
 }
 
-/** Four tiles that answer "can we build N boards, and what stops us": the build, its cost, the health of the parts and the next 8 weeks. */
-export function ProjectHeadline({ supply, boards, forecast, onOpenPart, onBoards, onKeepUsual }: {
-  supply: ProjectSupply; boards: number; forecast: ProjectForecast | undefined; onOpenPart: (partId: string) => void;
+/** Four tiles that answer "can we build N boards, and what stops us": the build, its cost, the health of the parts and how much the stock covers. */
+export function ProjectHeadline({ supply, boards, onOpenPart, onBoards, onKeepUsual }: {
+  supply: ProjectSupply; boards: number; onOpenPart: (partId: string) => void;
   onBoards: (next: number) => void; onKeepUsual: () => void;
 }) {
   if (!supply.rollup) return null;
-  const learning = !forecast || forecast.models.can_buy_8w?.state !== "shown";
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Headline">
       <BuildTile supply={supply} boards={boards} onOpenPart={onOpenPart} editor={supply.available ? <BoardsEditor boards={boards} usualBuild={supply.usual_build} onBoards={onBoards} onKeepUsual={onKeepUsual} /> : null} />
       <CostTile supply={supply} boards={boards} />
       <HealthTile supply={supply} />
-      <WeeksTile forecast={forecast} learning={learning} />
+      <CoverageTile supply={supply} boards={boards} />
     </div>
   );
 }
