@@ -401,6 +401,23 @@ anyone who may edit can withdraw or revoke one. The part sheet no longer offers 
 Administrators set the limits, the severity of each check and the weight of each risk area in the gear on the Supply
 section.
 
+## Project page
+
+A project's Supply tab answers, in this order: can we build N boards and what stops us, what it costs, what needs a look, and the parts.
+
+- **Controls:** the design variant, **Boards**, **Spares** (a percent, or by package) and, for a tracked project, a button to keep the chosen
+  size as its **usual build** (set in the Track dialog; 100 until said). Boards and Spares drive everything below, the costing file included.
+  The page opens on the project's usual build and on the workspace's spares (Supply settings).
+- **Headline:** the build ("0 of 100 boards, limited by ..."), its cost (total, per board, what minimum orders leave over, lines priced), health with
+  the parts by status, and the chance every part can be bought in 8 weeks.
+- **Needs a look:** counts of out of stock, short for this build, end of life, one distributor, runs out within 2 weeks, likely out in 8 weeks,
+  open alerts, waiting for room and not priced; a click filters the parts table. "At risk" is error or fatal everywhere (the Projects view, the
+  Dashboard and here); a warning only needs a look.
+- **Cost:** per board by build size (1 to 10,000 boards), where the money goes (the ten dearest lines), and the cost over time. A day that priced
+  fewer lines than today, or one that read a price wrong, is left out of the history and named. The daily cost is worked out for the usual build.
+- **Parts:** sortable by any column (need, distributors, unit price, line cost ...); a row opens the part's sheet over the page.
+- **Folded:** releases, line notes, suggestions for the BOM and trade classification, then the downloads.
+
 ## BOM file
 
 Supply > Parts > Upload BOM checks a BOM that is not a project. Drop or choose an Excel file (.xls, .xlsx; the first sheet is read) or a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
