@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PartsFilter, ProjectSupplyPart, SupplyPartRow } from "@/types/supply";
 import { LayoutToggle } from "./layout-toggle";
 import { LifecycleSelect } from "./lifecycle-filter";
+import { CHIPS, matchesChip, type Chip } from "./project-part-filters";
 import type { PartsLayout } from "./parts-layout";
 import { PartsTable } from "./parts-table";
 import { columnOf, serverSort, type PartsSort } from "./parts-sort";
@@ -44,12 +45,10 @@ function inProjectOrder(items: SupplyPartRow[], lines: ProjectLines, sort: Parts
  * A project's parts, as the Parts tab lists them (compact or a row for each vendor, search, lifecycle and vendor menus, runs out
  * first, sortable columns) with the pieces a board uses, the pieces the build needs and each line's cost added.
  */
-export function ProjectPartsList({ projectId, parts, only, shortAt8Weeks, chance, currency, selectedId, onOpen }: {
+export function ProjectPartsList({ projectId, parts, shortAt8Weeks, chance, currency, selectedId, onOpen }: {
   projectId: string;
   /** The project's lines of the BOM. */
   parts: ProjectSupplyPart[];
-  /** The parts a "needs a look" chip keeps; null when none is chosen. */
-  only: ReadonlySet<string> | null;
   shortAt8Weeks: Record<string, number>;
   chance: number;
   currency: string;
@@ -61,10 +60,17 @@ export function ProjectPartsList({ projectId, parts, only, shortAt8Weeks, chance
   const [vendor, setVendor] = useState("");
   const [layout, setLayout] = useState<PartsLayout>("compact");
   const [sort, setSort] = useState<PartsSort>("");
+  const [chip, setChip] = useState<Chip | null>(null);
   const loaded = useSupplyPartsList("all", query, lifecycle, LIMIT, projectId, vendor, serverSort(sort));
   const lines = useMemo<ProjectLines>(() => ({
     byPart: new Map(parts.flatMap((part) => (part.part_id ? [[part.part_id, part] as const] : []))), currency, shortAt8Weeks, chance,
   }), [parts, currency, shortAt8Weeks, chance]);
+  // The parts a chip keeps, by part: a line that matches no part cannot be one of them.
+  const only = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip) ? [part.part_id] : [])))), [parts, chip]);
+  const chips = CHIPS.flatMap((item) => {
+    const count = parts.filter((part) => matchesChip(part, item.key)).length;
+    return count > 0 ? [{ ...item, count }] : [];
+  });
   const narrowed = query !== "" || lifecycle !== "" || vendor !== "" || only !== null;
   const items = inProjectOrder((loaded.data?.items ?? []).filter((item) => only === null || only.has(item.id)), lines, sort);
   // A line that matches no part has nothing to search or filter by, so it shows only while nothing narrows the list.
@@ -73,9 +79,18 @@ export function ProjectPartsList({ projectId, parts, only, shortAt8Weeks, chance
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
+        {chips.length > 0 ? (
+          <div role="group" aria-label="Needs a look" className="flex gap-1">
+            {chips.map((item) => (
+              <Button key={item.key} size="sm" variant={chip === item.key ? "secondary" : "ghost"} aria-pressed={chip === item.key} onClick={() => setChip(chip === item.key ? null : item.key)}>
+                {item.label}<span className="tabular-nums text-muted-foreground">{item.count.toLocaleString()}</span>
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        <Button variant={sort === "runout" ? "default" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setSort(sort === "runout" ? "" : "runout")}>Runs out first</Button>
         <LifecycleSelect only={lifecycle} onChange={setLifecycle} />
         <VendorSelect vendor={vendor} onChange={setVendor} />
-        <Button variant={sort === "runout" ? "default" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setSort(sort === "runout" ? "" : "runout")}>Runs out first</Button>
         <SearchBox key={query} initial={query} onSearch={setQuery} />
         <div className="ml-auto"><LayoutToggle layout={layout} onChange={setLayout} /></div>
       </div>
@@ -92,10 +107,13 @@ export function ProjectPartsList({ projectId, parts, only, shortAt8Weeks, chance
         items.length === 0 && unmatched.length === 0 ? (
           <p className="border border-dashed p-6 text-center text-sm text-muted-foreground">{narrowed ? "No part matches" : "No part of this BOM is known to Prism yet"}</p>
         ) : (
-          <PartsTable
-            stickyHead layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} showProjects={false}
-            forecastState={loaded.data.forecast_state} sort={sort} onSort={setSort} lines={lines} unmatched={unmatched}
-          />
+          // The filters stay where they are and the list scrolls under them, as on the Parts tab; its column names stay at its top.
+          <div className="themed-scrollbar max-h-[calc(100vh-12rem)] min-h-64 overflow-auto">
+            <PartsTable
+              stickyHead layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} showProjects={false}
+              forecastState={loaded.data.forecast_state} sort={sort} onSort={setSort} lines={lines} unmatched={unmatched}
+            />
+          </div>
         )
       ) : null}
       {loaded.data && loaded.data.total > LIMIT ? <p className="text-xs text-muted-foreground">The first {LIMIT} of {loaded.data.total.toLocaleString()} parts. Search to narrow them.</p> : null}

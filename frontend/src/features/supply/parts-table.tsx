@@ -42,7 +42,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
     const direction = on?.column === column ? on.direction : null;
     const aria = onSort ? { "aria-sort": ariaSort(direction) } : {};
     return (
-      <th className={cn("px-3 py-2", right && "text-right")} {...aria}>
+      <th className={cn("whitespace-nowrap px-3 py-2", right && "text-right")} {...aria}>
         {onSort ? <SortHeader label={label} direction={direction} align={right ? "right" : "left"} onSort={() => onSort(clickColumn(sort, column))} /> : label}
       </th>
     );

@@ -416,7 +416,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((page["build_quantity"], page["usual_build"]), (1, 1), "without a size the page opens at the usual build")
         self.assertEqual([point["cost_per_board"] for point in page["cost_history"]], ["0.5000", "0.5000"], "the 100-board days are another series")
 
-    def test_the_cost_export_prices_the_bom_and_names_nothing_to_order_from(self) -> None:
+    def test_the_cost_export_prices_the_bom_and_names_the_distributor_and_its_part_number_but_no_link(self) -> None:
         from app.services.supply import usage
 
         self.part("GOOD-1", stock=5000)
@@ -434,8 +434,10 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertIn("GOOD-1", text)
         self.assertIn("Total", text)
         self.assertIn("10.00", text, "2 per board x 10 boards x 0.50")
-        for word in ("S-GOOD", "sku", "http", "Distributor"):
-            self.assertNotIn(word.lower(), text.lower().replace("list prices without", ""), word)
+        header = text.splitlines()[0]
+        self.assertIn("Distributor,Distributor part number", header)
+        self.assertIn("S-GOOD", text, "the distributor's part number for the line")
+        self.assertNotIn("http", text.lower())
         self.assertEqual(missing.status, 404)
 
     def test_the_trade_classification_lists_what_distributors_state_and_what_is_missing(self) -> None:

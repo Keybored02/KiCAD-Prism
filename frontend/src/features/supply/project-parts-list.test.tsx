@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,7 +18,7 @@ const mocked = vi.mocked(api);
 afterEach(cleanup);
 
 const line = (key: string, mpn: string, part_id: string | null): ProjectSupplyPart => ({
-  key, manufacturer: "Acme", mpn, quantity: 1, references: "R1", part_id, state: "tracked", status: "ok", stock: 100, lifecycle: "active",
+  key, manufacturer: "Acme", mpn, quantity: 1, references: "R1", part_id, state: "tracked", status: "ok", stock: key === "ka" ? 0 : 100, lifecycle: "active",
   lead_time_days: null, short: false, unit_price: "0.1", tier: 1, waiting: false, notes: 0, need: 10, line_cost: "1.00",
 } as ProjectSupplyPart);
 
@@ -35,10 +35,10 @@ beforeEach(() => {
   } as never);
 });
 
-const show = (only: ReadonlySet<string> | null = null) => render(
+const show = () => render(
   <MemoryRouter>
     <ProjectPartsList
-      projectId="prj" only={only} shortAt8Weeks={{ ka: 0.8, kb: 0.1 }} chance={0.5} currency="EUR" selectedId={null} onOpen={() => undefined}
+      projectId="prj" shortAt8Weeks={{ ka: 0.8, kb: 0.1 }} chance={0.5} currency="EUR" selectedId={null} onOpen={() => undefined}
       parts={[line("ka", "RISKY-1", "a"), line("kb", "SAFE-1", "b"), line("kc", "NOPN", null)]}
     />
   </MemoryRouter>,
@@ -53,12 +53,11 @@ describe("a project's parts list", () => {
   });
 
   it("lists a line that matches no part after the parts, until something narrows the list", async () => {
-    const view = show();
+    show();
     expect(await screen.findByText("NOPN")).toBeTruthy();
-    view.unmount();
-    show(new Set(["a"]));
-    expect(await screen.findByText("RISKY-1")).toBeTruthy();
-    expect(screen.queryByText("SAFE-1")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
     expect(screen.queryByText("NOPN")).toBeNull();
+    expect(screen.queryByText("SAFE-1")).toBeNull();
+    expect(screen.getByText("RISKY-1")).toBeTruthy();
   });
 });

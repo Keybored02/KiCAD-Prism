@@ -30,7 +30,7 @@ export function ProjectCostCards({ supply, boards, onOpenPart }: { supply: Proje
         </ChartCard>
       ) : null}
       {money ? (
-        <ChartCard title="Where the money goes" answer={`${money.lines.length} of the lines cost ${percent(1 - money.other.share)} of ${formatPrice(money.total, currency)}`}>
+        <ChartCard title="Cost allocation" answer={`${money.lines.length} of the lines cost ${percent(1 - money.other.share)} of ${formatPrice(money.total, currency)}`}>
           <BarList
             labelWidth="11rem"
             rows={[

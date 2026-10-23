@@ -106,9 +106,9 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               </Button>
             ))}
           </div>
+          <Button variant={sort === "runout" ? "default" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setParams({ partsSort: sort === "runout" ? null : "runout" })}>Runs out first</Button>
           <LifecycleSelect only={only} onChange={(next) => setParams({ partsOnly: next })} />
           <VendorSelect vendor={vendor} onChange={(next) => setParams({ partsVendor: next })} />
-          <Button variant={sort === "runout" ? "default" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setParams({ partsSort: sort === "runout" ? null : "runout" })}>Runs out first</Button>
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
           <ActiveFilterChip only={only} onClear={() => setParams({ partsOnly: null })} />
           <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ partsLayout: next === "compact" ? null : next })} /></div>

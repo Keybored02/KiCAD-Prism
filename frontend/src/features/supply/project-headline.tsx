@@ -1,18 +1,22 @@
+import { Pencil } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { ProjectForecast, ProjectSupply, SupplyStatus } from "@/types/supply";
 import { chanceText } from "./forecast-text";
 import { forecastWord } from "./forecast-words";
-import { CHIPS, LIKELY_OUT_CHANCE, type Chip } from "./project-part-filters";
+import { BoardCount } from "./project-forecast";
 import { StatusBar } from "./project-row-summary";
+import { StatusDot } from "./status-dot";
 import { formatPrice, STATUS_LABEL } from "./supply-format";
 
 const WEEKS = 8;
 
-function Tile({ label, bad, children }: { label: string; bad?: boolean; children: ReactNode }) {
+function Tile({ label, bad, action, children }: { label: string; bad?: boolean; action?: ReactNode; children: ReactNode }) {
   return (
     <div className={`space-y-1 border p-3 ${bad ? "border-destructive/40" : ""}`}>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">{label}{action}</p>
       {children}
     </div>
   );
@@ -20,13 +24,31 @@ function Tile({ label, bad, children }: { label: string; bad?: boolean; children
 
 const big = (bad: boolean | undefined) => `text-xl font-semibold tabular-nums ${bad ? "text-destructive" : ""}`;
 
-function BuildTile({ supply, boards, onOpenPart }: { supply: ProjectSupply; boards: number; onOpenPart: (partId: string) => void }) {
+/** The pencil on the Build tile: the number of boards the page is for, and a way to keep it as the project's usual build. */
+function BoardsEditor({ boards, usualBuild, onBoards, onKeepUsual }: { boards: number; usualBuild: number | null | undefined; onBoards: (next: number) => void; onKeepUsual: () => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Change the number of boards" title="Change the number of boards"><Pencil className="h-3.5 w-3.5" /></Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-2 p-3">
+        <BoardCount key={boards} boards={boards} onChange={onBoards} />
+        <p className="text-xs normal-case tracking-normal text-muted-foreground">The costing, the forecast and the download use it. It is not saved unless you keep it.</p>
+        {usualBuild != null && usualBuild !== boards ? (
+          <Button size="sm" variant="outline" onClick={onKeepUsual}>Keep {boards.toLocaleString()} as the usual build</Button>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BuildTile({ supply, boards, onOpenPart, editor }: { supply: ProjectSupply; boards: number; onOpenPart: (partId: string) => void; editor: ReactNode }) {
   const rollup = supply.rollup!;
   const limiting = (supply.parts ?? []).find((part) => part.key === rollup.limited_by);
   const covered = rollup.can_build;
   const short = covered !== null && covered < boards;
   return (
-    <Tile label="Build" bad={short}>
+    <Tile label="Build" bad={short} action={editor}>
       <p className={big(short)}>{covered === null ? "Not known" : `${Math.min(covered, boards).toLocaleString()} of ${boards.toLocaleString()} boards`}</p>
       <p className="text-xs text-muted-foreground">
         {covered === null ? "No stock figure yet." : short && limiting ? (
@@ -45,17 +67,19 @@ function CostTile({ supply, boards }: { supply: ProjectSupply; boards: number })
     return <Tile label="Cost"><p className={big(false)}>No total</p><p className="text-xs text-muted-foreground">Nothing is priced, or the prices cannot be added.</p></Tile>;
   }
   const waste = rollup.waste_cost && Number(rollup.waste_cost) > 0 ? `${formatPrice(rollup.waste_cost, currency)} left over from minimum orders` : "";
+  const notes = [waste, rollup.lines_priced < rollup.lines ? `${rollup.lines_priced} of ${rollup.lines} lines priced` : ""].filter(Boolean);
   return (
     <Tile label="Cost">
-      <p className={big(false)}>{formatPrice(rollup.cost_build, currency)}</p>
-      <p className="text-xs text-muted-foreground">
-        for {boards.toLocaleString()} boards{rollup.cost_per_board ? `, ${formatPrice(rollup.cost_per_board, currency)} a board` : ""}
-        {waste ? `, ${waste}` : ""}
-        {rollup.lines_priced < rollup.lines ? `, ${rollup.lines_priced} of ${rollup.lines} lines priced` : ""}
-      </p>
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+        <p><span className={big(false)}>{formatPrice(rollup.cost_build, currency)}</span> <span className="text-xs text-muted-foreground">for {boards.toLocaleString()} boards</span></p>
+        {rollup.cost_per_board ? <p><span className={big(false)}>{formatPrice(rollup.cost_per_board, currency)}</span> <span className="text-xs text-muted-foreground">a board</span></p> : null}
+      </div>
+      {notes.length > 0 ? <p className="text-xs text-muted-foreground">{notes.join(", ")}</p> : null}
     </Tile>
   );
 }
+
+const LEGEND: readonly SupplyStatus[] = ["fatal", "error", "warning", "ok", "unknown"];
 
 function HealthTile({ supply }: { supply: ProjectSupply }) {
   const rollup = supply.rollup!;
@@ -75,6 +99,12 @@ function HealthTile({ supply }: { supply: ProjectSupply }) {
         {rollup.health === null ? null : <span className="ml-2 text-xs font-normal text-muted-foreground">{STATUS_LABEL[rollup.health_status]}</span>}
       </p>
       <StatusBar group={{ statuses, count: seen.size }} className="w-full" />
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+        {LEGEND.filter((status) => (statuses[status] ?? 0) > 0).map((status) => (
+          <span key={status} className="flex items-center gap-1"><StatusDot status={status} className="h-2 w-2" />{statuses[status]}</span>
+        ))}
+        <span>of {seen.size} {seen.size === 1 ? "part" : "parts"}</span>
+      </p>
       <p className="text-xs text-muted-foreground">{rollup.at_risk} at risk, {looks} more need a look, {rollup.not_tracked} not tracked</p>
     </Tile>
   );
@@ -91,45 +121,18 @@ function WeeksTile({ forecast, learning }: { forecast: ProjectForecast | undefin
 }
 
 /** Four tiles that answer "can we build N boards, and what stops us": the build, its cost, the health of the parts and the next 8 weeks. */
-export function ProjectHeadline({ supply, boards, forecast, onOpenPart }: {
+export function ProjectHeadline({ supply, boards, forecast, onOpenPart, onBoards, onKeepUsual }: {
   supply: ProjectSupply; boards: number; forecast: ProjectForecast | undefined; onOpenPart: (partId: string) => void;
+  onBoards: (next: number) => void; onKeepUsual: () => void;
 }) {
   if (!supply.rollup) return null;
   const learning = !forecast || forecast.models.can_buy_8w?.state !== "shown";
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Headline">
-      <BuildTile supply={supply} boards={boards} onOpenPart={onOpenPart} />
+      <BuildTile supply={supply} boards={boards} onOpenPart={onOpenPart} editor={supply.available ? <BoardsEditor boards={boards} usualBuild={supply.usual_build} onBoards={onBoards} onKeepUsual={onKeepUsual} /> : null} />
       <CostTile supply={supply} boards={boards} />
       <HealthTile supply={supply} />
       <WeeksTile forecast={forecast} learning={learning} />
-    </div>
-  );
-}
-
-/** Counts of the parts that need a look, only the non-zero ones; a click filters the parts table to them and a second click clears it. */
-export function NeedsALookChips({ supply, forecast, chip, onChip }: {
-  supply: ProjectSupply; forecast: ProjectForecast | undefined; chip: Chip | null; onChip: (next: Chip | null) => void;
-}) {
-  const counts = supply.counts;
-  if (!counts) return null;
-  const chance = supply.likely_out_chance ?? LIKELY_OUT_CHANCE;
-  const likely = Object.values(forecast?.by_line ?? {}).filter((share) => share >= chance).length;
-  const shown = CHIPS.flatMap((item) => {
-    const count = item.key === "likely_out" ? likely : (counts[item.key as keyof typeof counts] as number | undefined) ?? 0;
-    return count > 0 ? [{ ...item, count }] : [];
-  });
-  if (shown.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Needs a look">
-      {shown.map((item) => (
-        <button
-          key={item.key} type="button" aria-pressed={chip === item.key}
-          className={`border px-2 py-1 text-xs ${chip === item.key ? "border-primary bg-primary/10" : "hover:bg-muted/40"}`}
-          onClick={() => onChip(chip === item.key ? null : item.key)}
-        >
-          <span className="font-semibold tabular-nums">{item.count.toLocaleString()}</span> {item.label}
-        </button>
-      ))}
     </div>
   );
 }

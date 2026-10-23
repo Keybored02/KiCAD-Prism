@@ -178,7 +178,7 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
   Prism changes nothing in the project, and a person applies it in KiCad. A symbol with only an LCSC number now shows as a
   line of its own ("not tracked") instead of being dropped.
 - **Costing.** The line drawer shows the pieces bought beyond the need and the next price break. The project tab follows the cost of a
-  board over time, shows the rounding waste, and downloads a costing CSV that names no distributor, SKU or link. Spares can be set
+  board over time, shows the rounding waste, and downloads a costing CSV that names, for each line, the distributor its price comes from and that distributor's part number (no link, no cart). Spares can be set
   **by package** (small passives get 2%, other parts none).
 - **Alternatives.** On the part sheet, **Find alternatives** lists what distributors suggest first (LCSC's alternate parts and Mouser's
   suggested replacement come with the answers Prism already reads; **Ask DigiKey for substitutes** asks DigiKey, one call, once an hour
@@ -408,15 +408,17 @@ A project's Supply tab answers, in this order: can we build N boards and what st
 - **Controls:** the design variant, **Boards**, **Spares** (a percent, or by package) and, for a tracked project, a button to keep the chosen
   size as its **usual build** (set in the Track dialog; 100 until said). Boards and Spares drive everything below, the costing file included.
   The page opens on the project's usual build and on the workspace's spares (Supply settings).
-- **Headline:** the build ("0 of 100 boards, limited by ..."), its cost (total, per board, what minimum orders leave over, lines priced), health with
-  the parts by status, and the chance every part can be bought in 8 weeks.
-- **Needs a look:** counts of out of stock, short for this build, end of life, one distributor, runs out within 2 weeks, likely out in 8 weeks,
-  open alerts, waiting for room and not priced; a click filters the parts table. "At risk" is error or fatal everywhere (the Projects view, the
+- **Headline:** the build ("0 of 100 boards, limited by ..."; the pencil on it sets the number of boards and can keep it as the usual build), its cost
+  (the price for the boards and the price of one, with what minimum orders leave over and the lines priced), health with the parts by status as a bar
+  and a legend of counts, and the chance every part can be bought in 8 weeks. "At risk" is error or fatal everywhere (the Projects view, the
   Dashboard and here); a warning only needs a look.
-- **Cost:** per board by build size (1 to 10,000 boards), where the money goes (the ten dearest lines), and the cost over time. A day that priced
+- **Cost:** per board by build size (1 to 10,000 boards), cost allocation (the ten dearest lines), and the cost over time. A day that priced
   fewer lines than today, or one that read a price wrong, is left out of the history and named. The daily cost is worked out for the usual build.
-- **Parts:** the same list as the Parts tab (compact or a row for each vendor, search, lifecycle and vendor menus, "Runs out first") with the pieces a board uses, the pieces needed and the line cost added. Part, stock and price sort on the server, the three project columns where the list is; a row opens the part's sheet over the page. A BOM line that matches no part shows after the parts until something narrows the list.
-- **Folded:** releases, line notes, suggestions for the BOM and trade classification, then the downloads.
+- **Parts (last on the page):** the same list as the Parts tab (compact or a row for each vendor, search, lifecycle and vendor menus, "Runs out first") with the pieces a board uses, the pieces needed and the line cost added. Part, stock and price sort on the server, the three project columns where the list is; a row opens the part's sheet over the page. A BOM line that matches no part shows after the parts until something narrows the list.
+- **Filters:** out of stock, short for this build, not priced, end of life and open alerts sit with the list's other filters, with their counts.
+  The list scrolls under its filters, as the Parts tab does.
+- **Above the list:** releases, line notes, suggestions for the BOM and trade classification, the draft declaration. The costing CSV is a button beside
+  Track.
 
 ## BOM file
 

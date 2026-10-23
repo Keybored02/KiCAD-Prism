@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Download } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,12 +12,12 @@ import type { ProjectSupply } from "@/types/supply";
 import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
 import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
-import { NeedsALookChips, ProjectHeadline } from "./project-headline";
-import { LIKELY_OUT_CHANCE, matchesChip, type Chip } from "./project-part-filters";
+import { ProjectHeadline } from "./project-headline";
+import { LIKELY_OUT_CHANCE } from "./project-part-filters";
 import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectPartsList } from "./project-parts-list";
-import { BoardCount, ProjectForecastSection, useProjectForecast } from "./project-forecast";
+import { ProjectForecastSection, useProjectForecast } from "./project-forecast";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
@@ -46,19 +47,29 @@ function SparesControl({ percent, onChange }: { percent: number | null; onChange
   );
 }
 
-/** The BOM costed at the tab's board count and spares, as a file. It names no distributor or link: a costing, not an order. */
-function Downloads({ projectId, variant, boards, spares }: { projectId: string; variant: string; boards: number; spares: string }) {
+function costingUrl(projectId: string, variant: string, boards: number, spares: string): string {
   const query = new URLSearchParams({ build_quantity: String(boards) });
   if (variant) query.set("variant", variant);
   if (spares) query.set("spares", spares);
-  const base = `/api/supply/projects/${encodeURIComponent(projectId)}`;
+  return `/api/supply/projects/${encodeURIComponent(projectId)}/cost-export?${query.toString()}`;
+}
+
+/** The BOM costed at the tab's board count and spares, as a file: each line with the distributor its price comes from and its part number. A costing, not an order. */
+function CostingButton({ projectId, variant, boards, spares }: { projectId: string; variant: string; boards: number; spares: string }) {
   return (
-    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      <a href={`${base}/cost-export?${query.toString()}`} className="text-primary hover:underline">Download the costing for {boards.toLocaleString()} boards as CSV</a>
-      <span>
-        <a href={`${base}/compliance-draft?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`} className="text-primary hover:underline">Download a draft RoHS and REACH declaration</a>{" "}
-        (a working document with the gaps listed, not a declaration)
-      </span>
+    <Button asChild variant="outline" size="sm">
+      <a href={costingUrl(projectId, variant, boards, spares)} aria-label={`Download the costing for ${boards.toLocaleString()} boards as CSV`} title={`The costing for ${boards.toLocaleString()} boards, as CSV`}>
+        <Download className="h-4 w-4" />Costing CSV
+      </a>
+    </Button>
+  );
+}
+
+/** A working document with the gaps listed, for the project's BOM. */
+function ComplianceLink({ projectId, variant }: { projectId: string; variant: string }) {
+  return (
+    <p className="text-xs">
+      <a href={`/api/supply/projects/${encodeURIComponent(projectId)}/compliance-draft?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`} className="text-primary hover:underline">Download a draft RoHS and REACH declaration</a>
     </p>
   );
 }
@@ -71,7 +82,6 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
   const [boardsChoice, setBoards] = useState<number | null>(null);
   // The spares a person chose; until then the page shows the workspace's (Supply settings), which the server applies.
   const [attritionChoice, setAttrition] = useState<number | null | undefined>(undefined);
-  const [chip, setChip] = useState<Chip | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const spares = attritionChoice === undefined ? "" : attritionChoice === null ? "auto" : String(attritionChoice);
   const fetcher = useCallback(
@@ -101,8 +111,6 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
   // A part opens its sheet over the page, with `part` in the address so Back closes it.
   const open = (partId: string) => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("part", partId); return next; });
   const everyPart = supply.parts ?? [];
-  const chipParts = chip === null ? null : everyPart.filter((part) => matchesChip(part, chip, forecast.data?.by_line, supply.likely_out_chance));
-  const chipIds = chipParts ? new Set(chipParts.flatMap((part) => (part.part_id ? [part.part_id] : []))) : null;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -112,34 +120,26 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
             {supply.variants.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         ) : null}
-        {supply.available ? <BoardCount key={boards} boards={boards} onChange={setBoards} /> : null}
-        {supply.available && supply.usual_build != null && supply.usual_build !== boards ? (
-          <Button size="sm" variant="outline" onClick={() => void keepUsualBuild(projectId, boards).then(() => loaded.refresh())}>
-            Keep {boards.toLocaleString()} as the usual build
-          </Button>
-        ) : null}
         {supply.available ? <SparesControl percent={attrition} onChange={setAttrition} /> : null}
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <SettleBadge projectId={projectId} onChanged={loaded.retry} />
+          {supply.available ? <CostingButton projectId={projectId} variant={variant} boards={boards} spares={spares} /> : null}
           <TrackProjectButton projectId={projectId} onChanged={loaded.retry} />
         </span>
       </div>
-      {loaded.status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading the project's supply" /> : supply.available ? (
-        <>
-          <ProjectHeadline supply={supply} boards={boards} forecast={forecast.data ?? undefined} onOpenPart={open} />
-          <NeedsALookChips supply={supply} forecast={forecast.data ?? undefined} chip={chip} onChip={setChip} />
+      {supply.available ? (
+        // A change of boards or spares reloads the page: the old figures stay, dimmed, so the pencil and the filters keep their place.
+        <div className={`space-y-6 transition-opacity ${loaded.status === "loading" ? "opacity-50" : ""}`} aria-busy={loaded.status === "loading"}>
+          <ProjectHeadline
+            supply={supply} boards={boards} forecast={forecast.data ?? undefined} onOpenPart={open} onBoards={setBoards}
+            onKeepUsual={() => void keepUsualBuild(projectId, boards).then(() => loaded.refresh())}
+          />
           <ProjectCostCards supply={supply} boards={boards} onOpenPart={open} />
           <ProjectCostHistory supply={supply} />
           <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={open} />
-          <section aria-label="Parts" className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts{chipParts ? ` (${chipParts.length} of ${everyPart.length})` : ""}</h3>
-            <ProjectPartsList
-              projectId={projectId} parts={everyPart} only={chipIds} shortAt8Weeks={forecast.data?.by_line ?? NONE} chance={supply.likely_out_chance ?? LIKELY_OUT_CHANCE}
-              currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
-            />
-          </section>
-        </>
-      ) : (
+        </div>
+      ) : null}
+      {supply.available ? null : (
         <p className="border border-dashed p-6 text-sm text-muted-foreground">
           This project's BOM has not been read yet. Open it in the Visualizer, or track the project, and its parts appear here.
         </p>
@@ -148,7 +148,16 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? <ProjectSuggestions projectId={projectId} variant={variant} /> : null}
       {supply.available ? <ProjectTrade projectId={projectId} variant={variant} /> : null}
-      {supply.available ? <Downloads projectId={projectId} variant={variant} boards={boards} spares={spares} /> : null}
+      {supply.available ? <ComplianceLink projectId={projectId} variant={variant} /> : null}
+      {supply.available ? (
+        <section aria-label="Parts" className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
+          <ProjectPartsList
+            projectId={projectId} parts={everyPart} shortAt8Weeks={forecast.data?.by_line ?? NONE} chance={supply.likely_out_chance ?? LIKELY_OUT_CHANCE}
+            currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
+          />
+        </section>
+      ) : null}
       <OpenPartSheet user={user} active />
     </div>
   );

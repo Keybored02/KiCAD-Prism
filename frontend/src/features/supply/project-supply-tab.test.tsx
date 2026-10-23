@@ -55,6 +55,14 @@ const listed = (...ids: string[]) => ({
   forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
 });
 
+/** The boards are set from the pencil on the Build tile. */
+async function boardsTo(count: number) {
+  fireEvent.click(await screen.findByRole("button", { name: "Change the number of boards" }));
+  const field = await screen.findByLabelText("Boards to forecast and cost");
+  fireEvent.change(field, { target: { value: String(count) } });
+  fireEvent.blur(field);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.getProjectSupply.mockResolvedValue(supply());
@@ -121,7 +129,7 @@ describe("the project Supply tab", () => {
     renderTab();
     const curve = await screen.findByRole("region", { name: "Cost per board by build size" });
     expect(within(curve).getByText(/for one board/)).toBeTruthy();
-    const money = screen.getByRole("region", { name: "Where the money goes" });
+    const money = screen.getByRole("region", { name: "Cost allocation" });
     expect(within(money).getByText("Other 4 lines · 28%")).toBeTruthy();
     expect(within(money).getByRole("button", { name: /FLAKY-1 · 72%/ })).toBeTruthy();
     expect(screen.getByText(/Left out as one price read wrong: 2026-09-15/)).toBeTruthy();
@@ -156,9 +164,7 @@ describe("the project Supply tab", () => {
 
   it("sends the boards and the spares to the costing, and the file follows them", async () => {
     renderTab();
-    const boards = await screen.findByLabelText("Boards to forecast and cost");
-    fireEvent.change(boards, { target: { value: "250" } });
-    fireEvent.blur(boards);
+    await boardsTo(250);
     await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "", expect.anything()));
     fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "10" } });
     await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "10", expect.anything()));
@@ -176,7 +182,7 @@ describe("the project Supply tab", () => {
     expect(await screen.findByText("0 of 100 boards")).toBeTruthy();
     expect(within(screen.getByLabelText("Headline")).getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
     expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /One distributor/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Not priced/ })).toBeNull();
     const parts = screen.getByRole("region", { name: "Parts" });
     await within(parts).findByText("GOOD-1");
     expect(within(parts).getAllByRole("row")).toHaveLength(3);
@@ -191,12 +197,10 @@ describe("the project Supply tab", () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ build_quantity: 50, usual_build: 50 }));
     vi.mocked(keepUsualBuild).mockResolvedValue({ project_id: "prj", build_quantity: 200 });
     renderTab();
-    expect(await screen.findByDisplayValue("50")).toBeTruthy();
+    expect(await screen.findByText(/of 50 boards/)).toBeTruthy();
     expect(mocked.getProjectSupply).toHaveBeenCalledWith("prj", "", undefined, "", expect.anything());
     expect(screen.queryByRole("button", { name: /as the usual build/ })).toBeNull();
-    const boards = screen.getByLabelText("Boards to forecast and cost");
-    fireEvent.change(boards, { target: { value: "200" } });
-    fireEvent.blur(boards);
+    await boardsTo(200);
     fireEvent.click(await screen.findByRole("button", { name: "Keep 200 as the usual build" }));
     await waitFor(() => expect(keepUsualBuild).toHaveBeenCalledWith("prj", 200));
   });
@@ -213,9 +217,7 @@ describe("the project Supply tab", () => {
 
   it("offers the costing as a file for a build size", async () => {
     renderTab();
-    const boards = await screen.findByLabelText("Boards to forecast and cost");
-    fireEvent.change(boards, { target: { value: "250" } });
-    fireEvent.blur(boards);
+    await boardsTo(250);
     expect(screen.getByRole("link", { name: "Download the costing for 250 boards as CSV" }).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
   });
 
