@@ -17,7 +17,7 @@ export function LifecycleSelect({ only, onChange }: { only: PartsFilter; onChang
       <SelectContent>
         <SelectItem value={ANY}>Any lifecycle</SelectItem>
         <SelectItem value="lifecycle">Ending (not active)</SelectItem>
-        {LIFECYCLE_FILTERS.filter((item) => item !== "lifecycle").map((item) => <SelectItem key={item} value={item}>{FILTER_LABEL[item]}</SelectItem>)}
+        {LIFECYCLE_FILTERS.flatMap((item) => (item === "lifecycle" ? [] : [<SelectItem key={item} value={item}>{FILTER_LABEL[item]}</SelectItem>]))}
       </SelectContent>
     </Select>
   );

@@ -79,7 +79,8 @@ export function historyRows(history: PartHistory, kind: HistoryKind, hidden: Rea
  * and does not squeeze the real lines together. Null when nothing is drawn.
  */
 export function readingsDomain(base: HistoryRows, kind: HistoryKind, extra: number | null = null): [number, number] | null {
-  const values = base.rows.flatMap((row) => base.keys.map((item) => row[item.key])).filter((value): value is number => typeof value === "number");
+  const values: number[] = [];
+  for (const row of base.rows) for (const item of base.keys) { const value = row[item.key]; if (typeof value === "number") values.push(value); }
   if (extra !== null) values.push(extra);
   if (values.length === 0) return null;
   const low = Math.min(...values);
@@ -157,7 +158,7 @@ export function withDistributorForecasts(
     const lastReading = readings[readings.length - 1];
     if (!lastReading) return [];
     const future: Array<[string, number]> = "path" in item
-      ? item.path.filter((point) => point.day > lastReading[0]).map((point) => [point.day, point.median])
+      ? item.path.flatMap((point): Array<[string, number]> => (point.day > lastReading[0] ? [[point.day, point.median]] : []))
       // The price is known at 30 and 90 days; a value for every day between lets the hover find one wherever the pointer is.
       : dailyBetween([[lastReading[0], lastReading[1]], [item.h30.date, item.h30.median], [item.h90.date, item.h90.median]]);
     let ranges: Array<[string, number, number]> = [];

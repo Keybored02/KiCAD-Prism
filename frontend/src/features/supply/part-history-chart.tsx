@@ -26,6 +26,8 @@ interface TipProps {
 
 const PROJECTED = /~f$/;
 
+const has = (item: { value?: unknown }) => item.value !== null && item.value !== undefined && !Array.isArray(item.value);
+
 /**
  * Every distributor's value on the hovered day, one line each. A dashed continuation of a reading is not listed twice. After a
  * distributor's last reading its projection is listed, marked "projected", with its range where it has one, and the total's forecast
@@ -34,9 +36,9 @@ const PROJECTED = /~f$/;
 export function makeTip(format: (value: number) => string) {
   return function Tip({ active, label, payload }: TipProps) {
     if (!active || !payload?.length) return null;
-    const has = (item: { value?: unknown }) => item.value !== null && item.value !== undefined && !Array.isArray(item.value);
     const row = payload[0]?.payload ?? {};
-    const read = new Set(payload.filter((item) => has(item) && !String(item.dataKey).includes("~")).map((item) => String(item.dataKey)));
+    const read = new Set<string>();
+    for (const item of payload) if (has(item) && !String(item.dataKey).includes("~")) read.add(String(item.dataKey));
     // A projection shows only where its distributor has no reading of its own that day.
     const rows = payload.filter((item) => has(item) && (!String(item.dataKey).includes("~") || (PROJECTED.test(String(item.dataKey)) && !read.has(String(item.dataKey).replace(PROJECTED, "")))));
     const band = payload.find((item) => Array.isArray(item.value) && !read.has(TOTAL_KEY));
@@ -78,6 +80,7 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
   const forecastLines = withDistributorForecasts(history, kind, rows, forecast, hidden);
   // A price forecast is drawn per distributor; the stock one keeps its range for the total beside them.
   const ownLines = kind === "price" && forecastLines.length > 0;
+  const forecasted = new Set(forecastLines);
   const config: ChartConfig = Object.fromEntries(keys.map((item) => [item.key, { label: item.name, color: item.color }]));
   const format = kind === "stock" ? (value: number) => value.toLocaleString() : (value: number) => formatPrice(String(value), history.currency);
   const Tip = makeTip(format);
@@ -120,7 +123,7 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
               dot={false} connectNulls isAnimationActive={false}
             />
           ))}
-          {keys.flatMap((item) => (forecastLines.includes(item.key)
+          {keys.flatMap((item) => (forecasted.has(item.key)
             ? [<Line key={forecastKeyOf(item.key)} dataKey={forecastKeyOf(item.key)} name={item.name} type="monotone" stroke={item.color} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />]
             : []))}
           {keys.flatMap((item) => (item.dashed

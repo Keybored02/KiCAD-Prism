@@ -25,7 +25,7 @@ function Group({ group, canDecide, onDecided }: { group: SupplyOtherNumberGroup;
         {canDecide ? (
           <Button size="sm" disabled={busy} onClick={() => void run(async () => {
             // The ones left ticked are confirmed: the part is also sold under their number, so they leave this list.
-            for (const item of group.listings.filter((entry) => !dropped.has(entry.id))) await pinSupplyListing(item.id, true);
+            await Promise.all(group.listings.flatMap((item) => (dropped.has(item.id) ? [] : [pinSupplyListing(item.id, true)])));
             if (taking.length > 0) await rejectSupplyListings(taking.map((item) => item.id));
             await onDecided();
           })}>

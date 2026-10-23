@@ -35,15 +35,13 @@ export function MakerCombobox({ id, value, options, onChange }: { id: string; va
       >
         <ul role="listbox" aria-label="Known manufacturers" className="max-h-56 overflow-y-auto">
           {matches.map((name) => (
-            <li key={name} role="option" aria-selected={false}>
-              <button
-                type="button"
-                className={cn("w-full px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground")}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => { onChange(name); setOpen(false); }}
-              >
-                {name}
-              </button>
+            <li
+              key={name} role="option" aria-selected={false}
+              className={cn("w-full cursor-pointer px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { onChange(name); setOpen(false); }}
+            >
+              {name}
             </li>
           ))}
         </ul>

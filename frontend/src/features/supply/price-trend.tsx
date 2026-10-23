@@ -54,13 +54,13 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
             <PriceQuantity partId={partId} quantity={quantity} standard={price.default ?? 100} own={Boolean(price.own)} canEdit={canEdit} onChanged={onChanged ?? (() => undefined)} />
           ) : null}
         </p>
-        <p className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
+        <div className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
           {formatPrice(latest, currency)}
           <HoverDetails label="Show what the price is">
             <p className="text-xs text-muted-foreground">{hints.join(" ")}</p>
             {details}
           </HoverDetails>
-        </p>
+        </div>
       </div>
       {children}
       {note ? <p className="text-xs text-warning">{note}</p> : null}

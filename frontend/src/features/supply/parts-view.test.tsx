@@ -616,7 +616,7 @@ describe("the watch settings", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
     await waitFor(() => expect(mocked.listSupplyManufacturers).toHaveBeenCalled());
     fireEvent.change(await screen.findByLabelText("Manufacturer (optional)"), { target: { value: "texas" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Texas Instruments" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Texas Instruments" }));
     expect((screen.getByLabelText("Manufacturer (optional)") as HTMLInputElement).value).toBe("Texas Instruments");
     expect(container).toBeTruthy();
   });

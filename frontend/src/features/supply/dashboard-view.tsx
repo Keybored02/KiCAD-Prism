@@ -25,6 +25,12 @@ const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
   out_now: "out_of_stock", runs_out_2w: "runs_out_2w", runs_out_8w: "runs_out_8w", runs_out_later: "runs_out_later", steady: "steady", few_readings: "few_readings",
 };
 
+function showAlerts() {
+  const section = document.getElementById("dashboard-alerts");
+  if (section instanceof HTMLDetailsElement) section.open = true;
+  section?.scrollIntoView?.();
+}
+
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
 export function DashboardView({ user, active = true }: { user: User | null; active?: boolean }) {
   const overview = useSupplyOverview();
@@ -36,11 +42,6 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
   const data = dashboard.data;
   const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
   const history = (name: string) => data?.figure_history[name];
-  const showAlerts = () => {
-    const section = document.getElementById("dashboard-alerts");
-    if (section instanceof HTMLDetailsElement) section.open = true;
-    section?.scrollIntoView?.();
-  };
   const likely = likelyOutTile(data?.forecast);
   const tiles: Tile[] = [
     { label: "Tracked", value: data?.figures.watched, icon: Eye, history: history("watched"), onClick: parts("") },

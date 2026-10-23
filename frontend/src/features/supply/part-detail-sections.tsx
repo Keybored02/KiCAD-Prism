@@ -48,7 +48,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
       <section aria-label="Stock" className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="flex h-8 items-center gap-1.5 text-2xl font-semibold leading-none tabular-nums">
+          <div className="flex h-8 items-center gap-1.5 text-2xl font-semibold leading-none tabular-nums">
             {formatStock(detail.stock.total)}
             {trend || restock ? (
               <HoverDetails label="Show the stock trend and restock promises">
@@ -58,7 +58,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
                 </div>
               </HoverDetails>
             ) : null}
-          </p>
+          </div>
           {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
