@@ -4,7 +4,9 @@ For each metered connector: the listings that would be polled, by the tier they 
 turned into calls a day by ``quota.estimate_capacity`` (a provider that needs two calls for a
 batch of offers counts twice), against what the budget allows once the interactive reserve is
 held back. Searches for watched parts not yet looked up are one-off calls and are reported
-apart: they are spent first and then the steady load remains.
+apart: they are spent first and then the steady load remains. What a connector is said to search and to give
+a price for counts only the parts it reads: the pairs admitted to it (an assembly-only connector reads the parts of the
+projects that chose it, not every tracked part).
 """
 
 from __future__ import annotations
@@ -44,20 +46,27 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         for row in conn.execute(
             """
             SELECT c.id AS connector_id, COUNT(*) AS n
-            FROM connectors c CROSS JOIN part_tiers w
+            FROM connectors c JOIN admissions a ON a.connector_id = c.id AND a.state = 'admitted'
+            JOIN part_tiers w ON w.part_id = a.part_id
             LEFT JOIN discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
             WHERE d.part_id IS NULL GROUP BY c.id
             """
         ).fetchall()
     }
 
-    tracked_total = int(conn.execute("SELECT COUNT(*) AS n FROM part_tiers").fetchone()["n"])
+    read = {
+        row["connector_id"]: int(row["n"])
+        for row in conn.execute(
+            "SELECT a.connector_id, COUNT(*) AS n FROM admissions a JOIN part_tiers w ON w.part_id = a.part_id WHERE a.state = 'admitted' GROUP BY a.connector_id"
+        ).fetchall()
+    }
     quoted = {
         row["connector_id"]: int(row["n"])
         for row in conn.execute(
             """
             SELECT l.connector_id, COUNT(DISTINCT l.part_id) AS n
             FROM listings l JOIN part_tiers w ON w.part_id = l.part_id
+            JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
             JOIN offers o ON o.listing_id = l.id
             WHERE l.match_state IN ('exact', 'manual') AND NOT o.marketplace AND o.currency <> '' AND o.price_breaks <> '[]'::jsonb
             GROUP BY l.connector_id
@@ -89,7 +98,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
             "shortfall_pct": estimate.shortfall_pct,
             "fits": estimate.fits,
             "searches_pending": unsearched.get(row["id"], 0),
-            # Of the tracked parts, how many this connector gives a price for.
-            "quotes": {"parts": quoted.get(row["id"], 0), "of": tracked_total},
+            # Of the parts it reads, how many this connector gives a price for.
+            "quotes": {"parts": quoted.get(row["id"], 0), "of": read.get(row["id"], 0)},
         })
     return result

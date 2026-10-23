@@ -281,6 +281,16 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual(row["listings"], 3)
         self.assertAlmostEqual(row["calls_per_day"], 1.0, places=3, msg="one call a day reads all of a part's listings")
 
+    def test_a_connector_is_said_to_search_and_price_only_the_parts_it_reads(self) -> None:
+        from app.services.supply import capacity
+
+        records = [self.watch(mpn) for mpn in ("AAA", "BBB", "CCC")]
+        with self.store.connection() as conn:
+            conn.execute("UPDATE admissions SET state = 'waiting' WHERE part_id = %s", (records[2].part_id,))
+            (row,) = [item for item in capacity.connector_capacity(conn) if item["connector_id"] == self.cid]
+        self.assertEqual(row["searches_pending"], 2, "the part that waits for room is not counted as unsearched")
+        self.assertEqual(row["quotes"]["of"], 2, "nor as a part this connector should price")
+
     # --- searching by group ---------------------------------------------------
 
     def test_a_group_of_parts_is_one_search_call_and_each_part_is_recorded(self) -> None:
