@@ -159,43 +159,21 @@ describe("supply columns on the BOM", () => {
     expect(await screen.findByText("No part number")).toBeTruthy();
   });
 
-  it("sums up the build above the table", async () => {
-    renderTable("designer");
-    expect(await screen.findByText("Stock covers 1 board")).toBeTruthy();
-    expect(screen.getByText("1 at risk")).toBeTruthy();
-    expect(screen.getByText("2 not tracked")).toBeTruthy();
-  });
-
-  it("looks the BOM up again for a different build size", async () => {
-    renderTable("admin");
+  it("has no build size or spares to type above the table, and links to the project's supply as an icon", async () => {
+    renderTable("admin", "prj_1");
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
-    fireEvent.change(screen.getByLabelText("Boards to build"), { target: { value: "50" } });
-    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 50, expect.anything()));
-    expect(await screen.findByText("Can build 3 of 50, limited by C-100N")).toBeTruthy();
-  });
-
-  it("asks for spares on top of the build and looks the BOM up again", async () => {
-    renderTable("admin");
-    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
-    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "10" } });
-    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.objectContaining({ attritionPercent: 10 })));
-    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "150" } });
-    expect((screen.getByLabelText("Spare parts, percent") as HTMLInputElement).value).toBe("10");
-  });
-
-  it("can ask for spares by package instead of one percent", async () => {
-    renderTable("admin");
-    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByLabelText("Spares by package"));
-    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.objectContaining({ attritionPercent: null })));
-    expect((screen.getByLabelText("Spare parts, percent") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByLabelText("Boards to build")).toBeNull();
+    expect(screen.queryByLabelText("Spare parts, percent")).toBeNull();
+    expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.anything());
+    expect(screen.getByRole("link", { name: "Project supply" }).getAttribute("href")).toBe("/?section=supply");
+    expect(screen.queryByText("Project supply")).toBeNull();
   });
 
   it("is plain at a commit checked out from History, and looks nothing up", async () => {
     renderTable("designer", undefined, false);
     expect(screen.getByText("Supply data shows on the latest revision only.")).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
-    expect(screen.queryByLabelText("Boards to build")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
     expect(mocked.lookupSupplyBom).not.toHaveBeenCalled();
   });
 
@@ -203,7 +181,7 @@ describe("supply columns on the BOM", () => {
     for (const role of ["viewer", null] as const) {
       renderTable(role);
       expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
-      expect(screen.queryByLabelText("Boards to build")).toBeNull();
+      expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
       cleanup();
     }
     expect(mocked.lookupSupplyBom).not.toHaveBeenCalled();
@@ -224,7 +202,8 @@ describe("actions on the BOM", () => {
     renderTable("designer");
     expect(await screen.findByText("Backend is down")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("1 at risk")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Backend is down")).toBeNull());
+    expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(2);
   });
 });
 

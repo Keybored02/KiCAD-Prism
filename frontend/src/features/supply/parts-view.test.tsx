@@ -690,3 +690,13 @@ describe("sorting by a column", () => {
     expect(screen.getByRole("button", { name: "Runs out first" }).getAttribute("aria-pressed")).toBe("false");
   });
 });
+
+describe("the detailed layout's column names", () => {
+  it("drops In stock, Price and Vendors, which have nothing under them there, and keeps the rest", async () => {
+    renderView("designer", "/?section=supply&partsLayout=detailed");
+    await screen.findByRole("columnheader", { name: /Part/ });
+    expect(screen.queryByRole("button", { name: "Sort by In stock" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sort by Price" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sort by Part" })).toBeTruthy();
+  });
+});

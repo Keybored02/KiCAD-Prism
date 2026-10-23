@@ -1,8 +1,7 @@
-import { AlertTriangle, Ban, Banknote, Boxes, EyeOff, Layers, HeartPulse, Star, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Ban, Layers, Star, Hourglass, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { JlcClass, SupplyLifecycle } from "@/types/supply";
-import type { RollupKind, RollupSentence } from "./bom-rollup-text";
 import { LIFECYCLE_LABEL } from "./supply-format";
 
 /** One vocabulary of small icons for lists, tables, bars and cards. Each carries its words as the accessible name and tooltip. */
@@ -21,29 +20,6 @@ export function LifecycleIcon({ lifecycle }: { lifecycle: SupplyLifecycle }) {
   if (lifecycle === "active" || lifecycle === "unknown") return null;
   const { icon, tone } = LIFECYCLE_ICON[lifecycle];
   return <Glyph icon={icon} label={LIFECYCLE_LABEL[lifecycle]} className={tone} />;
-}
-
-const ROLLUP_ICON: Record<RollupKind, LucideIcon> = {
-  build: Boxes,
-  cost: Banknote,
-  risk: AlertTriangle,
-  health: HeartPulse,
-  short: PackageMinus,
-  untracked: EyeOff,
-};
-
-const TONE_CLASS = { plain: "", warn: "text-warning", bad: "text-destructive" } as const;
-
-/** A rollup finding as a chip: an icon and a number, with the sentence as its tooltip and its text for screen readers. */
-export function RollupChip({ sentence }: { sentence: RollupSentence }) {
-  const Icon = ROLLUP_ICON[sentence.kind];
-  return (
-    <span title={sentence.text} className={cn("inline-flex items-center gap-1 tabular-nums", TONE_CLASS[sentence.tone])}>
-      <Icon aria-hidden className="h-3.5 w-3.5" />
-      <span aria-hidden>{sentence.short}</span>
-      <span className="sr-only">{sentence.text}</span>
-    </span>
-  );
 }
 
 /** A BOM row holds several different parts. */

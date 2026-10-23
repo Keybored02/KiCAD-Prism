@@ -39,6 +39,8 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
   const detailed = layout === "detailed";
   const on = columnOf(sort);
   const header = (column: SortColumn | ProjectColumn, label: string, right = true) => {
+    // The detailed layout moves stock, price and vendors to the rows below each part, so their column names have nothing under them.
+    if (detailed && (column === "stock" || column === "price")) return <th className="px-3 py-2"><span className="sr-only">{label}</span></th>;
     const direction = on?.column === column ? on.direction : null;
     const aria = onSort ? { "aria-sort": ariaSort(direction) } : {};
     return (
@@ -59,7 +61,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             {header("stock", "In stock")}
             {header("price", "Price")}
             {lines ? header("cost", "Line cost") : null}
-            <th className="px-3 py-2 text-right">Vendors</th>
+            <th className="px-3 py-2 text-right">{detailed ? <span className="sr-only">Vendors</span> : "Vendors"}</th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>
           </tr>

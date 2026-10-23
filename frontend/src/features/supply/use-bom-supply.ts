@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { canEditSupply, canOpenSupply } from "@/lib/roles";
 import type { SemanticComponent } from "@/types/prism-selection";
@@ -17,11 +17,10 @@ export interface BomSupply {
   /** False for roles that cannot read supply data: the table then shows nothing extra. */
   enabled: boolean;
   canWatch: boolean;
+  /** The boards the figures are for: one. */
   buildQuantity: number;
-  setBuildQuantity: (quantity: number) => void;
-  /** Spares on top of what the boards use, as a percentage; null is by kind of part (small passives get some). */
+  /** Spares on top of what the boards use, as a percentage; null is by kind of part (small passives get some). The workspace's setting. */
   attritionPercent: number | null;
-  setAttritionPercent: (percent: number | null) => void;
   /** The project the BOM is from; empty when it is not known. */
   projectId: string;
   lines: BomLineDetail[];
@@ -37,30 +36,29 @@ export interface BomSupply {
   refresh: () => Promise<void>;
 }
 
+const BUILD_QUANTITY = 1;
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
 
 /** Supply figures for the fitted parts of a BOM, looked up once per change of parts or build size. */
 export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null, projectId = ""): BomSupply {
   const enabled = canOpenSupply(user?.role);
-  const [buildQuantity, setBuildQuantity] = useState(1);
-  // The spares a person typed; until then the workspace's own (Supply settings), which the lookup waits for.
-  const [attritionChoice, setAttritionPercent] = useState<number | null | undefined>(undefined);
+  // The figures are for one board, with the workspace's spares (Supply settings), which the lookup waits for.
   const settingsFetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
   const workspace = useLoaded("assessment-settings", settingsFetcher, "Could not load the settings", "supply");
   const fallback = workspace.data?.settings;
-  const attritionPercent = attritionChoice !== undefined ? attritionChoice : fallback ? (fallback.spares_mode === "package" ? null : fallback.spares_percent) : 0;
+  const attritionPercent = fallback ? (fallback.spares_mode === "package" ? null : fallback.spares_percent) : 0;
   const allLines = useMemo(() => (enabled ? buildLines(fitted) : []), [enabled, fitted]);
   const lines = useMemo(() => allLines.slice(0, MAX_LINES), [allLines]);
   const fittedKeys = useMemo(() => (lines.length ? new Set(lines.map((line) => line.key)) : EMPTY_KEYS), [lines]);
 
   const requestKey = useMemo(
-    () => (enabled && lines.length > 0 && (attritionChoice !== undefined || workspace.status !== "loading") ? `${buildQuantity}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
-    [enabled, lines, buildQuantity, attritionPercent, attritionChoice, workspace.status],
+    () => (enabled && lines.length > 0 && workspace.status !== "loading" ? `${BUILD_QUANTITY}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
+    [enabled, lines, attritionPercent, workspace.status],
   );
   const fetcher = useCallback(
     (signal: AbortSignal) =>
-      lookupSupplyBom(lines.map(lineInput), buildQuantity, { signal, attritionPercent }),
-    [lines, buildQuantity, attritionPercent],
+      lookupSupplyBom(lines.map(lineInput), BUILD_QUANTITY, { signal, attritionPercent }),
+    [lines, attritionPercent],
   );
   const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
 
@@ -86,10 +84,8 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   return {
     enabled,
     canWatch: canEditSupply(user?.role),
-    buildQuantity,
-    setBuildQuantity,
+    buildQuantity: BUILD_QUANTITY,
     attritionPercent,
-    setAttritionPercent,
     projectId,
     lines,
     fittedKeys,
