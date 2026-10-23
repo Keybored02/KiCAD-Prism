@@ -94,7 +94,8 @@ def _due(r) -> DueListing:
 
 
 def due_listings(
-    conn, connector_id: str, now: datetime, limit: int, only_part: str | Sequence[str] | None = None, *, metered: bool = True
+    conn, connector_id: str, now: datetime, limit: int, only_part: str | Sequence[str] | None = None, *, metered: bool = True,
+    fresh_since: datetime | None = None,
 ) -> list[DueListing]:
     """Counted listings of followed parts that have never been polled or whose time has come.
 
@@ -102,7 +103,8 @@ def due_listings(
     only the listing a person picked when one is picked.
 
     ``only_part`` (a part id, or several) asks for the counted listings of those parts whatever their schedule, tracked or not:
-    it is a person asking to read one part now.
+    it is a person asking to read one part now. ``fresh_since`` leaves out those whose offer was fetched at or after it (a search that
+    brings the offer has just read them).
     """
 
     if only_part is not None:
@@ -111,11 +113,12 @@ def due_listings(
             SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                    COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
                    COALESCE((SELECT pt.tier FROM part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
-            FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
+            FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id LEFT JOIN offers o ON o.listing_id = l.id
             WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
+              AND (%s::timestamptz IS NULL OR o.fetched_at IS NULL OR o.fetched_at < %s)
             ORDER BY l.part_id, l.sku LIMIT %s
             """,
-            (connector_id, [only_part] if isinstance(only_part, str) else list(only_part), limit),
+            (connector_id, [only_part] if isinstance(only_part, str) else list(only_part), fresh_since, fresh_since, limit),
         ).fetchall()
         return [
             _due(r)
@@ -290,7 +293,7 @@ class Poller:
 
     def poll_connector(
         self, connector_id: str, *, interactive: bool = False, only_part: str | Sequence[str] | None = None, spare: str | None = None,
-        oneoff: bool = False,
+        oneoff: bool = False, fresh_since: datetime | None = None,
     ) -> PollSummary:
         """Read what is due. With ``spare`` (a kind from ``spare_listings``) read that spare work instead, from spare budget.
 
@@ -314,7 +317,7 @@ class Poller:
             limit = (GROUP_LISTINGS * spec.max_batch if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN
             due = (
                 spare_listings(conn, connector_id, now, limit, spare) if spare
-                else due_listings(conn, connector_id, now, limit, only_part, metered=spec.metered)
+                else due_listings(conn, connector_id, now, limit, only_part, metered=spec.metered, fresh_since=fresh_since)
             )
             if spec.groups_by_part:
                 due = with_siblings(conn, connector_id, due)

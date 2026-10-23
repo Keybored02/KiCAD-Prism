@@ -132,7 +132,7 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
 
     with store.connection() as conn:
         rows = conn.execute(
-            "SELECT w.request_id, w.part_id FROM read_request_work w JOIN read_requests q ON q.id = w.request_id "
+            "SELECT w.request_id, w.part_id, q.created_at FROM read_request_work w JOIN read_requests q ON q.id = w.request_id "
             "WHERE w.connector_id = %s AND w.state = 'pending' AND q.finished_at IS NULL ORDER BY q.created_at, w.part_id LIMIT %s",
             (connector_id, limit),
         ).fetchall()
@@ -140,7 +140,8 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
         return {"parts": 0, "done": 0}
     part_ids = list(dict.fromkeys(r["part_id"] for r in rows))
     _searched, search_stop = discoverer.search_parts(connector_id, part_ids)
-    summary = poller.poll_connector(connector_id, only_part=part_ids, oneoff=True)
+    # What the search just read (a provider whose search answer carries the offer) is not read again.
+    summary = poller.poll_connector(connector_id, only_part=part_ids, oneoff=True, fresh_since=min(r["created_at"] for r in rows))
     # Waiting for budget or a rest is not a failed try: the work stays for the next run.
     waiting = {"budget", "cooling_down", "inactive"}
     resting = search_stop in waiting or summary.stopped in waiting

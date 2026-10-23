@@ -88,6 +88,37 @@ class OneOffTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT 1 FROM watches"), [])
         self.assertEqual({r["purpose"] for r in self.rows("SELECT purpose FROM call_counts")}, {"oneoff"})
 
+    def test_a_check_at_a_provider_whose_search_brings_the_offer_costs_one_call_a_part(self) -> None:
+        from dataclasses import replace
+
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        outer = self
+
+        class Reading(self.FakeProvider):
+            def lookup_mpn(self, mpn, manufacturer=None):
+                return [replace(match, offer=self.get_offers([match.sku])[0]) for match in super().lookup_mpn(mpn, manufacturer)]
+
+        registry.register(ProviderSpec(
+            key="demo_reads", label="Reads", capabilities=frozenset({"offers", "search"}), max_batch=1, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: Reading(config), default_daily_budget=100, search_reads_offers=True), replace=True)
+        try:
+            cid = self.connector(provider="demo_reads")
+            made = self.ask([("Acme", "ABC123"), ("Acme", "DEF456"), ("Acme", "GHI789")])
+            with self.store.connection() as conn:
+                conn.execute("UPDATE read_requests SET created_at = %s", (self.now - timedelta(minutes=1),))  # the test's clock, not the database's
+            clock = lambda: outer.now  # noqa: E731
+            provider = lambda connector_id: Reading(self.ProviderConfig(connector_id=connector_id, currency="EUR"), clock=clock)  # noqa: E731
+            discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=provider, clock=clock)
+            poller = self.poller.Poller(self.connectors, store=self.store, provider_for=provider, clock=clock)
+            self.oneoff.run(discoverer, poller, self.store, cid)
+            self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM quota_ledger")[0]["n"], 3, "the search was the read: no second call")
+            self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 3)
+            self.assertTrue(self.progress(made["id"])["finished"])
+        finally:
+            registry.unregister("demo_reads")
+
     def test_a_part_that_is_already_tracked_is_left_to_its_schedule(self) -> None:
         self.connector()
         with self.store.connection() as conn:
