@@ -416,6 +416,40 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((page["build_quantity"], page["usual_build"]), (1, 1), "without a size the page opens at the usual build")
         self.assertEqual([point["cost_per_board"] for point in page["cost_history"]], ["0.5000", "0.5000"], "the 100-board days are another series")
 
+    def test_a_changed_usual_build_works_today_out_again_and_a_project_keeps_its_own_spares(self) -> None:
+        from app.services.supply import project_supply, tracking, usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_45")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            usage.store_project(conn, "prj_45", "Forty five", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+            conn.execute("INSERT INTO tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_45', '{\"\"}', 'a@example.com', 1)")
+            project_supply.snapshot_costs(conn, NOW)
+            tracking.set_usual_build(conn, "prj_45", 100, "a@example.com")
+            project_supply.snapshot_costs(conn, NOW)
+            rows = conn.execute("SELECT build_quantity, cost_per_board FROM bom_cost_history").fetchall()
+            self.assertEqual([(row["build_quantity"], float(row["cost_per_board"])) for row in rows], [(100, 0.25)], "today's row is for the new size")
+            for bad in ("-1", "101", "lots"):
+                with self.assertRaises(tracking.TrackingError):
+                    tracking._spares_text(bad)
+            self.assertEqual((tracking._spares_text(""), tracking._spares_text("AUTO"), tracking._spares_text("10")), (None, "auto", "10"))
+            conn.execute("UPDATE tracked_projects SET spares = '10' WHERE project_id = 'prj_45'")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            own = self.request("prj_45/supply").json
+            asked = self.request("prj_45/supply", query="spares=0").json
+        self.assertEqual((own["attrition_percent"], own["usual_spares"]), (10.0, "10"), "the page opens on the project's own spares")
+        self.assertEqual(asked["attrition_percent"], 0.0, "and a request can still name others")
+        self.assertEqual(own["parts"][0]["need"], 110, "10% spares on 100 boards")
+
     def test_the_cost_export_prices_the_bom_and_names_the_distributor_and_its_part_number_but_no_link(self) -> None:
         from app.services.supply import usage
 

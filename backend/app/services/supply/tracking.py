@@ -49,7 +49,7 @@ def check_tier(tier: Any, rate: Any) -> tuple[int, str]:
 # --- projects ---------------------------------------------------------------
 
 
-_PROJECT_COLUMNS = "project_id, variants, all_variants, packaging, build_quantity, excluded_ids, assembly_ids, tracked_by, tracked_at"
+_PROJECT_COLUMNS = "project_id, variants, all_variants, packaging, build_quantity, spares, excluded_ids, assembly_ids, tracked_by, tracked_at"
 
 
 def _kinds(conn) -> tuple[set[str], set[str]]:
@@ -133,10 +133,12 @@ def track_project(
     all_variants: bool = False,
     packaging: str = "cut_tape",
     build_quantity: int | None = None,
+    spares: str | None = None,
 ) -> dict[str, Any]:
     """Track a project: its chosen variants' parts join tier 1. Returns what was tracked and what was skipped.
 
     ``build_quantity`` is the project's usual build, in boards (the cost is worked out for it each day); None keeps the one it has, or 100.
+    ``spares`` is what the cost is worked out with: "" the workspace's setting, "auto" by package, else a percent; None keeps the one it has.
 
     ``variants`` names the designs; ``''`` is the base design. ``connector_ids`` limits the distributors the project's
     parts are read at (None: every distributor but those that are assembly-only). It is stored as what is left out, so a
@@ -148,6 +150,7 @@ def track_project(
     if packaging not in packaging_auto.PACKAGINGS:
         raise TrackingError("The packaging is cut tape, custom reel, full reel, tube or tray, or the smallest order.")
     chosen = list(dict.fromkeys(variants)) or [BASE_VARIANT]
+    kept_spares = None if spares is None else _spares_text(spares)
     if not conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone():
         raise TrackingError("Prism has not read this project's BOM yet. Open its Visualizers once so the BOM is built.")
     stored = _stored_variants(conn, project_id)
@@ -184,12 +187,13 @@ def track_project(
         excluded, built_at = sorted(regular - named), sorted(named & assembly)
     conn.execute(
         """
-        INSERT INTO tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, build_quantity)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, 100))
+        INSERT INTO tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, build_quantity, spares)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, 100), %s)
         ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, all_variants = EXCLUDED.all_variants, packaging = EXCLUDED.packaging, excluded_ids = EXCLUDED.excluded_ids,
-            assembly_ids = EXCLUDED.assembly_ids, build_quantity = COALESCE(%s, tracked_projects.build_quantity)
+            assembly_ids = EXCLUDED.assembly_ids, build_quantity = COALESCE(%s, tracked_projects.build_quantity),
+            spares = CASE WHEN %s THEN EXCLUDED.spares ELSE tracked_projects.spares END
         """,
-        (project_id, chosen, all_variants, packaging, excluded, built_at, actor, build_quantity, build_quantity),
+        (project_id, chosen, all_variants, packaging, excluded, built_at, actor, build_quantity, kept_spares, build_quantity, spares is not None),
     )
     write_audit(conn, actor, "tracking.project", project_id,
                 {"variants": chosen, "all_variants": all_variants, "packaging": packaging, "connector_ids": list(connector_ids) if connector_ids is not None else None},
@@ -288,6 +292,23 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
     recompute(conn)
     admission.sync(conn)
     return {"parts_created": created}
+
+
+def _spares_text(spares: str) -> str | None:
+    """What is kept of a spares choice: None for the workspace's setting, "auto", or a percent from 0 to 100."""
+
+    text = (spares or "").strip().lower()
+    if not text:
+        return None
+    if text == "auto":
+        return "auto"
+    try:
+        percent = float(text)
+    except ValueError:
+        percent = -1.0
+    if not 0 <= percent <= 100:
+        raise TrackingError("Spares are the workspace's setting, by package, or a percent from 0 to 100.")
+    return format(percent, "g")
 
 
 def set_usual_build(conn, project_id: str, build_quantity: int, actor: str) -> dict[str, Any]:

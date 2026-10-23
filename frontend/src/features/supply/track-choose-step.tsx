@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyConnector, TrackingPreview } from "@/types/supply";
 import { TrackCostBars } from "./track-cost-bars";
+import { TrackSpares } from "./track-spares";
 
 export type ProjectPackaging = "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest";
 
@@ -20,6 +21,9 @@ interface ChooseProps {
   onPackaging: (next: ProjectPackaging) => void;
   buildQuantity: number;
   onBuildQuantity: (next: number) => void;
+  /** "" the workspace's setting, "auto" by package, else a percent. */
+  spares: string;
+  onSpares: (next: string) => void;
   preview: TrackingPreview | null;
   onRaise?: (connectorId: string) => void;
 }
@@ -86,6 +90,8 @@ export function TrackChooseStep(props: ChooseProps) {
         />
         <p className="text-xs text-muted-foreground">The project's cost is worked out for this many boards each day, and its page opens on it.</p>
       </section>
+
+      <TrackSpares spares={props.spares} onChange={props.onSpares} />
 
       {preview ? (
         <section aria-label="Cost" className="space-y-1">

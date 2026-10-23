@@ -66,13 +66,14 @@ function CostTile({ supply, boards }: { supply: ProjectSupply; boards: number })
   if (!rollup.cost_build || !currency) {
     return <Tile label="Cost"><p className={big(false)}>No total</p><p className="text-xs text-muted-foreground">Nothing is priced, or the prices cannot be added.</p></Tile>;
   }
-  const waste = rollup.waste_cost && Number(rollup.waste_cost) > 0 ? `${formatPrice(rollup.waste_cost, currency)} left over from minimum orders` : "";
-  const notes = [waste, rollup.lines_priced < rollup.lines ? `${rollup.lines_priced} of ${rollup.lines} lines priced` : ""].filter(Boolean);
+  const waste = rollup.waste_cost && Number(rollup.waste_cost) > 0 ? `${formatPrice(rollup.waste_cost, currency, 2)} left over from minimum orders` : "";
+  const spares = supply.attrition_percent === null ? "spares by package" : supply.attrition_percent ? `${supply.attrition_percent}% spares` : "";
+  const notes = [waste, spares, rollup.lines_priced < rollup.lines ? `${rollup.lines_priced} of ${rollup.lines} lines priced` : ""].filter(Boolean);
   return (
     <Tile label="Cost">
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-        <p><span className={big(false)}>{formatPrice(rollup.cost_build, currency)}</span> <span className="text-xs text-muted-foreground">for {boards.toLocaleString()} boards</span></p>
-        {rollup.cost_per_board ? <p><span className={big(false)}>{formatPrice(rollup.cost_per_board, currency)}</span> <span className="text-xs text-muted-foreground">a board</span></p> : null}
+        <p><span className={big(false)}>{formatPrice(rollup.cost_build, currency, 2)}</span> <span className="text-xs text-muted-foreground">for {boards.toLocaleString()} boards</span></p>
+        {rollup.cost_per_board ? <p><span className={big(false)}>{formatPrice(rollup.cost_per_board, currency, 2)}</span> <span className="text-xs text-muted-foreground">a board</span></p> : null}
       </div>
       {notes.length > 0 ? <p className="text-xs text-muted-foreground">{notes.join(", ")}</p> : null}
     </Tile>

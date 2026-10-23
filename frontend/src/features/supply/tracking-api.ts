@@ -18,6 +18,8 @@ export interface ProjectChoice {
   connector_ids: string[] | null;
   /** The usual build, in boards: the project's cost is worked out for it each day. */
   build_quantity?: number;
+  /** What the cost is worked out with: "" the workspace's setting, "auto" by package, else a percent. */
+  spares?: string;
 }
 
 /** Say which of several parts a BOM line's maker spelling names. */

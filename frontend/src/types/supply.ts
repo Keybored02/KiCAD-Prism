@@ -1215,7 +1215,7 @@ export interface TrackProgress {
 }
 
 export interface ProjectTrackingState {
-  tracked: { project_id: string; variants: string[]; all_variants: boolean; packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest"; build_quantity?: number; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
+  tracked: { project_id: string; variants: string[]; all_variants: boolean; packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest"; build_quantity?: number; spares?: string | null; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
   has_usage: boolean;
   variants: string[];
 }

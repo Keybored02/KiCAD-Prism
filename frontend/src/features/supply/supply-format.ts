@@ -77,13 +77,13 @@ export const PROBLEM_LABEL: Record<SupplyProblem, string> = {
   gone: "Every listing for this part has disappeared",
 };
 
-/** `0.52` and `EUR` as a price. Falls back to plain text for a currency the browser does not know. */
-export function formatPrice(price: string | null, currency: string): string {
+/** `0.52` and `EUR` as a price, to at most `digits` decimals (a unit price needs four, a total two). Falls back to plain text for a currency the browser does not know. */
+export function formatPrice(price: string | null, currency: string, digits = 4): string {
   if (price === null || price === "") return "";
   const amount = Number(price);
   if (!currency || Number.isNaN(amount)) return price;
   try {
-    return amount.toLocaleString(undefined, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    return amount.toLocaleString(undefined, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, digits) });
   } catch {
     return `${currency} ${price}`;
   }

@@ -37,6 +37,8 @@ class ProjectIn(BaseModel):
     packaging: Literal["cut_tape", "custom_reel", "tape_reel", "tube_tray", "smallest"] = "cut_tape"
     # The usual build, in boards: the project's cost is worked out for it each day. Null keeps the one it has (100 for a new project).
     build_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
+    # What the project's cost is worked out with: "" the workspace's setting, "auto" by package, or a percent. Null keeps the one it has.
+    spares: str | None = Field(default=None, max_length=12)
 
 
 class BuildIn(BaseModel):
@@ -87,7 +89,7 @@ def _read_project_bom(conn, project_id: str) -> str:
 def _track(project_id: str, body: ProjectIn, actor: str) -> Callable[[Any], Any]:
     def change(conn) -> dict[str, Any]:
         _read_project_bom(conn, project_id)
-        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants, packaging=body.packaging, build_quantity=body.build_quantity)
+        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants, packaging=body.packaging, build_quantity=body.build_quantity, spares=body.spares)
 
     return change
 

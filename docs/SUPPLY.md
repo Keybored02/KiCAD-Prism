@@ -405,9 +405,11 @@ section.
 
 A project's Supply tab answers, in this order: can we build N boards and what stops us, what it costs, what needs a look, and the parts.
 
-- **Controls:** the design variant, **Boards**, **Spares** (a percent, or by package) and, for a tracked project, a button to keep the chosen
-  size as its **usual build** (set in the Track dialog; 100 until said). Boards and Spares drive everything below, the costing file included.
-  The page opens on the project's usual build and on the workspace's spares (Supply settings).
+- **Controls:** the design variant and, on the Build tile, a pencil for the number of **Boards** (it drives everything below, the costing file included,
+  and a tracked project can keep it as its **usual build**). A tracked project's **spares** (the workspace's setting, a percent, or by package) are set
+  in its Track dialog beside the usual build; the page, the daily cost and the costing file use them. The page opens on the usual build.
+  The prices of the Cost tile and the charts are rounded to the cent; a unit price keeps its four decimals. The cost over time is worked out for the
+  usual build and says so; a day written before the usual build changed is written again the same day.
 - **Headline:** the build ("0 of 100 boards, limited by ..."; the pencil on it sets the number of boards and can keep it as the usual build), its cost
   (the price for the boards and the price of one, with what minimum orders leave over and the lines priced), health with the parts by status as a bar
   and a legend of counts, and the chance every part can be bought in 8 weeks. "At risk" is error or fatal everywhere (the Projects view, the

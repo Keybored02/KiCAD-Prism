@@ -4,7 +4,6 @@ import { useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
@@ -26,39 +25,17 @@ import { useLoaded } from "./use-loaded";
 
 const NONE: Record<string, number> = {};
 
-/** Spares for the costing: a percent for every part, or by package (small passives 2%, the rest none). Sent as `spares`. */
-function SparesControl({ percent, onChange }: { percent: number | null; onChange: (next: number | null) => void }) {
-  return (
-    <span className="flex items-center gap-3 text-sm">
-      <label className="flex items-center gap-1.5" title="Extra parts to order on top of what the boards use">
-        Spares
-        <Input
-          type="number" min={0} max={100} step={1} className="h-8 w-16" aria-label="Spare parts, percent"
-          value={percent ?? ""} disabled={percent === null}
-          onChange={(event) => { const next = Number(event.target.value); if (Number.isFinite(next) && next >= 0 && next <= 100) onChange(next); }}
-        />
-        %
-      </label>
-      <label className="flex items-center gap-1.5 text-muted-foreground" title="Small passives get 2% spares, other parts none">
-        <input type="checkbox" checked={percent === null} aria-label="Spares by package" onChange={(event) => onChange(event.target.checked ? null : 0)} />
-        by package
-      </label>
-    </span>
-  );
-}
-
-function costingUrl(projectId: string, variant: string, boards: number, spares: string): string {
+function costingUrl(projectId: string, variant: string, boards: number): string {
   const query = new URLSearchParams({ build_quantity: String(boards) });
   if (variant) query.set("variant", variant);
-  if (spares) query.set("spares", spares);
   return `/api/supply/projects/${encodeURIComponent(projectId)}/cost-export?${query.toString()}`;
 }
 
-/** The BOM costed at the tab's board count and spares, as a file: each line with the distributor its price comes from and its part number. A costing, not an order. */
-function CostingButton({ projectId, variant, boards, spares }: { projectId: string; variant: string; boards: number; spares: string }) {
+/** The BOM costed at the tab's board count and the project's spares, as a file: each line with the distributor its price comes from and its part number. A costing, not an order. */
+function CostingButton({ projectId, variant, boards }: { projectId: string; variant: string; boards: number }) {
   return (
     <Button asChild variant="outline" size="sm">
-      <a href={costingUrl(projectId, variant, boards, spares)} aria-label={`Download the costing for ${boards.toLocaleString()} boards as CSV`} title={`The costing for ${boards.toLocaleString()} boards, as CSV`}>
+      <a href={costingUrl(projectId, variant, boards)} aria-label={`Download the costing for ${boards.toLocaleString()} boards as CSV`} title={`The costing for ${boards.toLocaleString()} boards, as CSV`}>
         <Download className="h-4 w-4" />Costing CSV
       </a>
     </Button>
@@ -80,20 +57,16 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
   const [variant, setVariant] = useState("");
   // The boards a person typed; until then the page is for the project's usual build (100 when it has none).
   const [boardsChoice, setBoards] = useState<number | null>(null);
-  // The spares a person chose; until then the page shows the workspace's (Supply settings), which the server applies.
-  const [attritionChoice, setAttrition] = useState<number | null | undefined>(undefined);
   const [searchParams, setSearchParams] = useSearchParams();
-  const spares = attritionChoice === undefined ? "" : attritionChoice === null ? "auto" : String(attritionChoice);
   const fetcher = useCallback(
-    (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, spares, signal),
-    [projectId, variant, boardsChoice, spares],
+    (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, "", signal),
+    [projectId, variant, boardsChoice],
   );
-  const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}:${boardsChoice ?? "usual"}:${spares}` : null, fetcher, "Could not load the project's supply");
+  const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}:${boardsChoice ?? "usual"}` : null, fetcher, "Could not load the project's supply");
   // The controls stay while a change reloads the page, so a person can go on typing.
   const [last, setLast] = useState<ProjectSupply | null>(null);
   if (loaded.data && loaded.data !== last) setLast(loaded.data);
   const boards = boardsChoice ?? loaded.data?.build_quantity ?? last?.build_quantity ?? 100;
-  const attrition = attritionChoice !== undefined ? attritionChoice : (loaded.data ?? last)?.attrition_percent ?? null;
   const forecast = useProjectForecast(projectId, variant, boards, allowed && loaded.data?.available === true);
   if (!allowed) return <p className="text-sm text-muted-foreground">Supply data is not available to your role.</p>;
   if (loaded.status === "error" && !loaded.data) {
@@ -120,15 +93,14 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
             {supply.variants.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         ) : null}
-        {supply.available ? <SparesControl percent={attrition} onChange={setAttrition} /> : null}
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <SettleBadge projectId={projectId} onChanged={loaded.retry} />
-          {supply.available ? <CostingButton projectId={projectId} variant={variant} boards={boards} spares={spares} /> : null}
+          {supply.available ? <CostingButton projectId={projectId} variant={variant} boards={boards} /> : null}
           <TrackProjectButton projectId={projectId} onChanged={loaded.retry} />
         </span>
       </div>
       {supply.available ? (
-        // A change of boards or spares reloads the page: the old figures stay, dimmed, so the pencil and the filters keep their place.
+        // A change of boards reloads the page: the old figures stay, dimmed, so the pencil and the filters keep their place.
         <div className={`space-y-6 transition-opacity ${loaded.status === "loading" ? "opacity-50" : ""}`} aria-busy={loaded.status === "loading"}>
           <ProjectHeadline
             supply={supply} boards={boards} forecast={forecast.data ?? undefined} onOpenPart={open} onBoards={setBoards}

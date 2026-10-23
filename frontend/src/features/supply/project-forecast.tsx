@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,31 +81,34 @@ export function useProjectForecast(projectId: string, variant: string, boards: n
   return useLoaded<ProjectForecast>(enabled ? `project-forecast:${projectId}:${variant}:${boards}` : null, fetcher, "Could not load the forecast");
 }
 
+/** The forecast folded, closed until opened: the chance of building is also in the headline, so the detail waits for someone who wants it. */
+function Folded({ boards, chip, grey, children }: { boards: number; chip?: ReactNode; grey?: boolean; children: ReactNode }) {
+  return (
+    <details aria-label="Forecast" className={grey ? "text-muted-foreground" : ""}>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Forecast for {boards.toLocaleString()} boards{chip ? <span className="ml-2 normal-case tracking-normal">{chip}</span> : null}
+      </summary>
+      <div className="mt-2 space-y-2">{children}</div>
+    </details>
+  );
+}
+
 export function ProjectForecastSection({ projectId, variant, boards, currency, onOpenPart }: {
   projectId: string; variant: string; boards: number; currency: string; onOpenPart: (partId: string) => void;
 }) {
   const loaded = useProjectForecast(projectId, variant, boards);
-  if (loaded.status === "loading") return <Skeleton className="h-32 w-full" aria-label="Loading the forecast" />;
-  if (loaded.status === "error" || !loaded.data) return <p role="alert" className="text-sm text-destructive">{loaded.error}</p>;
+  if (loaded.status === "loading") return <Folded boards={boards}><Skeleton className="h-32 w-full" aria-label="Loading the forecast" /></Folded>;
+  if (loaded.status === "error" || !loaded.data) return <Folded boards={boards}><p role="alert" className="text-sm text-destructive">{loaded.error}</p></Folded>;
   const forecast = loaded.data;
   const model = forecast.models.can_buy_8w;
   const grey = !model || model.state !== "shown";
   if (!forecast.available) {
-    return (
-      <section aria-label="Forecast" className="space-y-1">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forecast for {boards.toLocaleString()} boards</h3>
-        <p className="text-sm text-muted-foreground">Forecasts start after a week of readings of the tracked parts.</p>
-      </section>
-    );
+    return <Folded boards={boards}><p className="text-sm text-muted-foreground">Forecasts start after a week of readings of the tracked parts.</p></Folded>;
   }
   const at8 = forecast.weeks[SHOWN_WEEKS];
   const cost = costLine(forecast, currency);
   return (
-    <section aria-label="Forecast" className={`space-y-2 ${grey ? "text-muted-foreground" : ""}`}>
-      <div className="flex flex-wrap items-baseline gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forecast for {boards.toLocaleString()} boards</h3>
-        <ModelChip model={model ? { state: model.state, checks: model.checks, needs: model.needs, reason: "" } : undefined} />
-      </div>
+    <Folded boards={boards} grey={grey} chip={<ModelChip model={model ? { state: model.state, checks: model.checks, needs: model.needs, reason: "" } : undefined} />}>
       <p className="text-sm">
         Buildable in {SHOWN_WEEKS} weeks: <strong>{chanceText(forecastWord(at8))}</strong>
         {forecast.unknown_lines > 0 ? <span className="text-xs text-muted-foreground"> (of the {forecast.lines - forecast.unknown_lines} lines Prism can speak about; {forecast.unknown_lines} not tracked or too new)</span> : null}
@@ -132,6 +135,6 @@ export function ProjectForecastSection({ projectId, variant, boards, currency, o
       ) : <p className="text-xs">No part is likely to hold the build back.</p>}
       {cost ? <p className="text-sm">{cost}</p> : null}
       <p className="text-xs text-muted-foreground">Describes the parts as they stand: it plans no build and saves nothing.</p>
-    </section>
+    </Folded>
   );
 }

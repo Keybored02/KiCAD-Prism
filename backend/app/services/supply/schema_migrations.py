@@ -1950,6 +1950,12 @@ def _m091_remove_approved_parts(conn) -> None:
     )
 
 
+def _m093_usual_spares(conn) -> None:
+    """The spares a tracked project is costed with: empty is the workspace's setting, "auto" is by package, else a percent."""
+
+    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS spares TEXT", prepare=False)
+
+
 def _m092_usual_build(conn) -> None:
     """The usual build of a tracked project (boards), which its cost is worked out for each day; a cost history row says which size it is
     for (the rows kept until now are for one board), and a changed usual build starts a new series."""
@@ -2116,6 +2122,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (90, "jlcpcb_budget", _m090_jlcpcb_budget),
     (91, "remove_approved_parts", _m091_remove_approved_parts),
     (92, "usual_build", _m092_usual_build),
+    (93, "usual_spares", _m093_usual_spares),
 ]
 
 

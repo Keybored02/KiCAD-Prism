@@ -16,6 +16,7 @@ export function useTrackProject(projectId: string) {
   const [allVariants, setAllVariants] = useState(false);
   const [packaging, setPackaging] = useState<ProjectPackaging>("cut_tape");
   const [buildQuantity, setBuildQuantity] = useState(100);
+  const [spares, setSpares] = useState("");
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [preview, setPreview] = useState<TrackingPreview | null>(null);
   const [error, setError] = useState("");
@@ -35,6 +36,7 @@ export function useTrackProject(projectId: string) {
           setChosen(tracking.tracked.connector_ids);
           setPackaging(tracking.tracked.packaging ?? "cut_tape");
           setBuildQuantity(tracking.tracked.build_quantity ?? 100);
+          setSpares(tracking.tracked.spares ?? "");
         }
       })
       .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
@@ -88,8 +90,8 @@ export function useTrackProject(projectId: string) {
   }, [connectors, order]);
   const ids = chosen ?? defaults;
   const choice = useMemo(
-    () => ({ variants, all_variants: allVariants, packaging, connector_ids: chosen, build_quantity: buildQuantity }),
-    [variants, allVariants, packaging, chosen, buildQuantity],
+    () => ({ variants, all_variants: allVariants, packaging, connector_ids: chosen, build_quantity: buildQuantity, spares }),
+    [variants, allVariants, packaging, chosen, buildQuantity, spares],
   );
 
   useEffect(() => {
@@ -103,7 +105,7 @@ export function useTrackProject(projectId: string) {
 
   return {
     state, connectors, setError, error, needsRead, preview, choice, assembly, regular, ids,
-    variants, allVariants, packaging, buildQuantity, setAllVariants, setPackaging, setBuildQuantity,
+    variants, allVariants, packaging, buildQuantity, spares, setAllVariants, setPackaging, setBuildQuantity, setSpares,
     recheck: () => setAgain((count) => count + 1),
     reload: () => { setReloads((count) => count + 1); setAgain((count) => count + 1); },
     toggleVariant: (name: string, on: boolean) => setVariants((current) => (on ? [...current, name] : current.filter((item) => item !== name))),

@@ -24,13 +24,13 @@ export function ProjectCostCards({ supply, boards, onOpenPart }: { supply: Proje
       {first && last && first !== last ? (
         <ChartCard
           title="Cost per board by build size"
-          answer={`${formatPrice(first.cost_per_board as string, currency)} for one board, ${formatPrice(last.cost_per_board as string, currency)} at ${last.boards.toLocaleString()}`}
+          answer={`${formatPrice(first.cost_per_board as string, currency, 2)} for one board, ${formatPrice(last.cost_per_board as string, currency, 2)} at ${last.boards.toLocaleString()}`}
         >
           <Suspense fallback={<Skeleton className="h-44 w-full" />}><CostCurveChart curve={curve} chosen={boards} currency={currency} /></Suspense>
         </ChartCard>
       ) : null}
       {money ? (
-        <ChartCard title="Cost allocation" answer={`${money.lines.length} of the lines cost ${percent(1 - money.other.share)} of ${formatPrice(money.total, currency)}`}>
+        <ChartCard title="Cost allocation" answer={`${money.lines.length} of the lines cost ${percent(1 - money.other.share)} of ${formatPrice(money.total, currency, 2)}`}>
           <BarList
             labelWidth="11rem"
             rows={[
@@ -59,12 +59,12 @@ export function ProjectCostHistory({ supply }: { supply: ProjectSupply }) {
   return (
     <ChartCard
       title="Cost over time"
-      answer={`${formatPrice(last.cost_per_board, currency)} a board now, ${change === 0 ? "unchanged" : `${change > 0 ? "up" : "down"} ${formatPrice(String(Math.abs(change)), currency)}`} since ${first.day}`}
+      answer={`${formatPrice(last.cost_per_board, currency, 2)} a board at ${last.boards.toLocaleString()} ${last.boards === 1 ? "board" : "boards"} now, ${change === 0 ? "unchanged" : `${change > 0 ? "up" : "down"} ${formatPrice(String(Math.abs(change)), currency, 2)}`} since ${first.day}`}
     >
       <Suspense fallback={<Skeleton className="h-32 w-full" />}><CostHistoryChart points={points} currency={currency} /></Suspense>
       {left.length > 0 ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          Left out as one price read wrong: {left.map((point) => `${point.day} (${formatPrice(point.cost_per_board, currency)})`).join(", ")}.
+          Left out as one price read wrong: {left.map((point) => `${point.day} (${formatPrice(point.cost_per_board, currency, 2)})`).join(", ")}.
         </p>
       ) : null}
     </ChartCard>

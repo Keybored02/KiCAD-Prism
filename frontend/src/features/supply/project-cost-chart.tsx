@@ -27,7 +27,7 @@ export default function CostCurveChart({ curve, chosen, currency }: { curve: rea
               return (
                 <div className="border bg-background px-2.5 py-1.5 text-xs shadow-md">
                   <p className="mb-1 font-medium">{row.boards.toLocaleString()} boards</p>
-                  <p>{formatPrice(String(row.cost), currency)} a board{row.total ? `, ${formatPrice(row.total, currency)} in all` : ""}</p>
+                  <p>{formatPrice(String(row.cost), currency, 2)} a board{row.total ? `, ${formatPrice(row.total, currency, 2)} in all` : ""}</p>
                   <p className="text-muted-foreground">{row.short === 0 ? "No part is short" : `${row.short} ${row.short === 1 ? "part is" : "parts are"} short`}</p>
                 </div>
               );
@@ -51,7 +51,7 @@ export function CostHistoryChart({ points, currency }: { points: ReadonlyArray<{
           <CartesianGrid vertical={false} />
           <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickFormatter={formatDay} />
           <YAxis width={56} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(value: number) => formatPrice(String(value), currency)} />
-          <Tooltip cursor={false} formatter={(value) => formatPrice(String(value), currency)} labelFormatter={(label) => formatDay(String(label))} />
+          <Tooltip cursor={false} formatter={(value) => formatPrice(String(value), currency, 2)} labelFormatter={(label) => formatDay(String(label))} />
           <Line dataKey="cost" type="monotone" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={false} />
         </LineChart>
       </ChartContainer>

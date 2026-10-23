@@ -80,14 +80,14 @@ describe("tracking a project", () => {
     expect(await screen.findByRole("progressbar", { name: "DigiKey committed calls" })).toBeTruthy();
     expect(screen.getByText("+120 calls a day")).toBeTruthy();
     expect(tracking.previewTrackProject).toHaveBeenLastCalledWith(
-      "prj_1", { variants: [""], all_variants: false, packaging: "cut_tape", connector_ids: null, build_quantity: 100 }, expect.anything(),
+      "prj_1", { variants: [""], all_variants: false, packaging: "cut_tape", connector_ids: null, build_quantity: 100, spares: "" }, expect.anything(),
     );
     expect(screen.getByLabelText("Built at JLCPCB")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Lite"));
     fireEvent.change(screen.getByRole("combobox", { name: "Packaging" }), { target: { value: "tape_reel" } });
     fireEvent.click(await screen.findByRole("button", { name: "Track (104)" }));
     await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith(
-      "prj_1", { variants: ["", "Lite"], all_variants: false, packaging: "tape_reel", connector_ids: null, build_quantity: 100 },
+      "prj_1", { variants: ["", "Lite"], all_variants: false, packaging: "tape_reel", connector_ids: null, build_quantity: 100, spares: "" },
     ));
     expect(await screen.findByRole("progressbar", { name: "DigiKey searched" })).toBeTruthy();
     expect(screen.getByText("40 of 100")).toBeTruthy();
@@ -114,7 +114,7 @@ describe("tracking a project", () => {
     fireEvent.click(await screen.findByLabelText("Also designs added later"));
     fireEvent.click(await screen.findByRole("button", { name: "Track (104)" }));
     await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith(
-      "prj_1", { variants: [""], all_variants: true, packaging: "cut_tape", connector_ids: null, build_quantity: 100 },
+      "prj_1", { variants: [""], all_variants: true, packaging: "cut_tape", connector_ids: null, build_quantity: 100, spares: "" },
     ));
   });
 
@@ -126,7 +126,20 @@ describe("tracking a project", () => {
     fireEvent.change(await screen.findByLabelText("Usual build, in boards"), { target: { value: "250" } });
     fireEvent.click(await screen.findByRole("button", { name: /^Track/ }));
     await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith(
-      "prj_1", { variants: [""], all_variants: false, packaging: "cut_tape", connector_ids: null, build_quantity: 250 },
+      "prj_1", { variants: [""], all_variants: false, packaging: "cut_tape", connector_ids: null, build_quantity: 250, spares: "" },
+    ));
+  });
+
+  it("tracks with the spares the person picks", async () => {
+    tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
+    tracking.previewTrackProject.mockResolvedValue(preview());
+    tracking.trackProject.mockResolvedValue(preview());
+    await open();
+    fireEvent.change(await screen.findByLabelText("Spares"), { target: { value: "percent" } });
+    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "5" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^Track/ }));
+    await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith(
+      "prj_1", { variants: [""], all_variants: false, packaging: "cut_tape", connector_ids: null, build_quantity: 100, spares: "5" },
     ));
   });
 

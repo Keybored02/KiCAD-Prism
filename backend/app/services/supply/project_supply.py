@@ -157,16 +157,20 @@ def snapshot_costs(conn, now: datetime) -> int:
     written = 0
     for project in tracking.list_tracked_projects(conn):
         for variant in project["variants"]:
-            if conn.execute(
-                "SELECT 1 FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
-            ).fetchone():
+            boards = int(project["build_quantity"])
+            kept = conn.execute(
+                "SELECT build_quantity FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
+            ).fetchone()
+            if kept and kept["build_quantity"] == boards:
                 continue
+            if kept:
+                # The usual build changed since today's row was written: the row is for another size, so it is worked out again.
+                conn.execute("DELETE FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today))
             rows = usage.project_rows(conn, project["project_id"], variant)
             if not rows:
                 continue
             lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-            boards = int(project["build_quantity"])
-            rollup = bom_lookup.lookup(conn, lines, boards, settings_store.load(conn).default_attrition())["rollup"]
+            rollup = bom_lookup.lookup(conn, lines, boards, usual_attrition(conn, project))["rollup"]
             if rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
@@ -210,13 +214,21 @@ def _where_the_money_goes(parts: list[dict[str, Any]]) -> dict[str, Any] | None:
     }
 
 
+def usual_attrition(conn, tracked: dict[str, Any] | None) -> float | None:
+    """The spares a project is costed with when nothing asks for others: its own when it is tracked and has them, else the workspace's."""
+
+    chosen = attrition_of((tracked or {}).get("spares") or "")
+    return settings_store.load(conn).default_attrition() if chosen == DEFAULT else chosen
+
+
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
-    """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the workspace's spares."""
+    """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the project's own
+    spares when it is tracked and has them, else the workspace's."""
 
     settings = settings_store.load(conn)
-    if attrition_percent == DEFAULT:
-        attrition_percent = settings.default_attrition()
     tracked = tracking.tracked_project(conn, project_id)
+    if attrition_percent == DEFAULT:
+        attrition_percent = usual_attrition(conn, tracked)
     usual = int(tracked["build_quantity"]) if tracked else None
     if build_quantity is None:
         build_quantity = usual or 100
@@ -232,7 +244,7 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int | Non
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     part_ids = sorted(status_now)
     return {
-        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent,
+        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent, "usual_spares": (tracked or {}).get("spares"),
         # The chance of being short at 8 weeks that the "likely out" chip counts: the same as the alert's, from the settings.
         "likely_out_chance": settings.alert_likely_out_percent / 100, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
         "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
@@ -256,7 +268,7 @@ def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, 
     from app.services.supply.compliance_draft import _safe
 
     if attrition_percent == DEFAULT:
-        attrition_percent = settings_store.load(conn).default_attrition()
+        attrition_percent = usual_attrition(conn, tracking.tracked_project(conn, project_id))
     rows = usage.project_rows(conn, project_id, variant)
     if not rows:
         return None

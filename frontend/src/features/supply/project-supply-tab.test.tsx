@@ -162,15 +162,11 @@ describe("the project Supply tab", () => {
     await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "flaky", expect.anything(), "", 0, 200, "prj", ""));
   });
 
-  it("sends the boards and the spares to the costing, and the file follows them", async () => {
+  it("sends the boards to the costing, and the file follows them", async () => {
     renderTab();
     await boardsTo(250);
     await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "", expect.anything()));
-    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "10" } });
-    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "10", expect.anything()));
-    fireEvent.click(screen.getByLabelText("Spares by package"));
-    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "auto", expect.anything()));
-    expect((await screen.findByRole("link", { name: "Download the costing for 250 boards as CSV" })).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250&spares=auto");
+    expect((await screen.findByRole("link", { name: "Download the costing for 250 boards as CSV" })).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
   });
 
   it("answers whether the boards can be built and what stops it, and a chip filters the parts", async () => {
@@ -205,14 +201,12 @@ describe("the project Supply tab", () => {
     await waitFor(() => expect(keepUsualBuild).toHaveBeenCalledWith("prj", 200));
   });
 
-  it("starts from the workspace's spares and sends a person's own, even none", async () => {
+  it("leaves the spares to the project's tracking settings, and says which the cost has", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ attrition_percent: 10 }));
     renderTab();
-    const spares = await screen.findByLabelText("Spare parts, percent");
-    expect((spares as HTMLInputElement).value).toBe("10");
+    expect(await screen.findByText(/10% spares/)).toBeTruthy();
+    expect(screen.queryByLabelText("Spare parts, percent")).toBeNull();
     expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", undefined, "", expect.anything());
-    fireEvent.change(spares, { target: { value: "0" } });
-    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", undefined, "0", expect.anything()));
   });
 
   it("offers the costing as a file for a build size", async () => {
