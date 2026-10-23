@@ -79,7 +79,39 @@ describe("the project Supply tab", () => {
     renderTab();
     const history = await screen.findByRole("region", { name: "Cost over time" });
     expect(within(history).getByText(/up .*1\.5.* since 2026-09-01/)).toBeTruthy();
-    expect(screen.getByText("Left over")).toBeTruthy();
+    expect(screen.getByText(/3\.20.* left over from minimum orders/)).toBeTruthy();
+  });
+
+  it("sends the boards and the spares to the costing, and the file follows them", async () => {
+    renderTab();
+    const boards = await screen.findByLabelText("Boards to forecast and cost");
+    fireEvent.change(boards, { target: { value: "250" } });
+    fireEvent.blur(boards);
+    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "", expect.anything()));
+    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "10" } });
+    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "10", expect.anything()));
+    fireEvent.click(screen.getByLabelText("Spares by package"));
+    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", 250, "auto", expect.anything()));
+    expect((await screen.findByRole("link", { name: "Download the costing for 250 boards as CSV" })).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250&spares=auto");
+  });
+
+  it("answers whether the boards can be built and what stops it, and a chip filters the parts", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({
+      rollup: { ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 },
+      counts: { at_risk: 1, needs_a_look: 2, out: 1, short: 1, end_of_life: 1, one_distributor: 0, runs_out_soon: 0, alerts: 0, waiting: 1, not_priced: 0 },
+    }));
+    renderTab();
+    expect(await screen.findByText("0 of 100 boards")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
+    expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /One distributor/ })).toBeNull();
+    const parts = screen.getByRole("region", { name: "Parts" });
+    expect(within(parts).getAllByRole("row")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
+    expect(within(parts).getAllByRole("row")).toHaveLength(2);
+    expect(within(parts).getByText("FLAKY-1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
+    expect(within(parts).getAllByRole("row")).toHaveLength(3);
   });
 
   it("offers the costing as a file for a build size", async () => {
@@ -101,7 +133,7 @@ describe("the project Supply tab", () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ variants: ["Lite"] }));
     renderTab();
     fireEvent.change(await screen.findByLabelText("Design variant"), { target: { value: "Lite" } });
-    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "Lite", expect.anything()));
+    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "Lite", 100, "", expect.anything()));
   });
 
   it("is closed to a role without supply access, and never asks", () => {

@@ -250,6 +250,36 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_0")):
             self.assertFalse(self.request("prj_0/supply").json["available"])
 
+    def test_the_page_costs_the_boards_and_spares_it_is_given_and_counts_at_risk_as_error_or_fatal(self) -> None:
+        from app.services.supply import usage
+
+        self.part("GOOD-1", stock=5000)
+        self.part("WARN-1", stock=900, lifecycle="nrnd")
+        self.part("OBS-1", stock=0, lifecycle="obsolete")
+        project = SimpleNamespace(id="prj_55", name="Fifty five")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            usage.store_project(conn, "prj_55", "Fifty five", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("U1", "Acme", "WARN-1"), component("U2", "Acme", "OBS-1"),
+            ]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            plain = self.request("prj_55/supply", query="build_quantity=10").json
+            spared = self.request("prj_55/supply", query="build_quantity=10&spares=10").json
+            by_package = self.request("prj_55/supply", query="build_quantity=10&spares=auto").json
+            bad = self.request("prj_55/supply", query="spares=lots")
+        self.assertEqual(bad.status, 422)
+        good = next(part for part in plain["parts"] if part["mpn"] == "GOOD-1")
+        self.assertEqual((plain["build_quantity"], good["need"]), (10, 20))
+        self.assertEqual(next(part for part in spared["parts"] if part["mpn"] == "GOOD-1")["need"], 22, "20 and 10% spares")
+        self.assertGreater(float(spared["rollup"]["cost_build"]), float(plain["rollup"]["cost_build"]), "the spares are bought")
+        self.assertEqual(next(part for part in by_package["parts"] if part["mpn"] == "GOOD-1")["need"], 20, "not a small passive: no spares by package")
+        self.assertEqual((plain["rollup"]["at_risk"], plain["rollup"]["needs_a_look"]), (1, 2), "a warning needs a look and is not at risk")
+        counts = plain["counts"]
+        self.assertEqual((counts["at_risk"], counts["needs_a_look"], counts["out"], counts["end_of_life"]), (1, 2, 1, 2))
+        self.assertEqual(counts["short"], plain["rollup"]["short"])
+        self.assertEqual(float(good["line_cost"]), 10.0, "20 pieces at 0.50")
+        self.assertEqual((good["alerts"], good["holders"], good["days_to_zero"]), (0, None, None))
+
     def test_a_tracked_projects_cost_is_stored_once_a_day_and_shown_on_its_page(self) -> None:
         from app.services.supply import project_supply, usage
 

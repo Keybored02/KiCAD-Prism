@@ -365,7 +365,10 @@ export interface SupplyBomRollup {
   tracked: number;
   not_tracked: number;
   watched: number;
+  /** Parts whose status is error or fatal. */
   at_risk: number;
+  /** Parts with a warning as well: at risk and those that only need a look. */
+  needs_a_look?: number;
   short: number;
   priced: number;
   /** How many lines the cost covers. */
@@ -1407,6 +1410,29 @@ export interface ProjectSupplyPart {
   tier: 1 | 2 | null;
   waiting: boolean;
   notes: number;
+  /** Pieces the build needs, spares included. */
+  need?: number | null;
+  /** What the line costs for the build, in the total's currency; null when bought with another line or not priced. */
+  line_cost?: string | null;
+  /** Distributors holding stock, and days until the stock runs out at the recent rate. */
+  holders?: number | null;
+  days_to_zero?: number | null;
+  /** Open alerts on the part. */
+  alerts?: number;
+}
+
+/** The counts the page's chips show, over distinct parts; the same definitions as the Projects view. */
+export interface ProjectSupplyCounts {
+  at_risk: number;
+  needs_a_look: number;
+  out: number;
+  short: number;
+  end_of_life: number;
+  one_distributor: number;
+  runs_out_soon: number;
+  alerts: number;
+  waiting: number;
+  not_priced: number;
 }
 
 export interface ProjectSupplyRelease {
@@ -1425,7 +1451,9 @@ export interface ProjectSupply {
   available: boolean;
   variant: string;
   variants: string[];
+  build_quantity?: number;
   rollup?: SupplyBomRollup;
+  counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];
   /** The cost of one board a day, oldest first. */
   cost_history?: Array<{ day: string; cost_per_board: string; currency: string; complete: boolean }>;

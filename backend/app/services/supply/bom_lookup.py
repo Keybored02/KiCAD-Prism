@@ -43,6 +43,8 @@ from app.services.supply.identity import alias_key, match_key
 MAX_LINES = 2000
 MAX_WATCH_LINES = 200
 _NEEDS_A_LOOK = frozenset({"warning", "error", "fatal"})
+# "At risk" is error or fatal everywhere (the Projects view, the Dashboard, this rollup); a warning only needs a look.
+_AT_RISK = frozenset({"error", "fatal"})
 
 NO_MPN, UNKNOWN, AMBIGUOUS, TRACKED = "no_mpn", "unknown", "ambiguous", "tracked"
 
@@ -404,7 +406,7 @@ def _rollup(
     base: str = "EUR",
 ) -> dict[str, Any]:
     """Counts of lines (``lines``, ``tracked``, ``not_tracked``, ``watched``) and of distinct parts
-    (``at_risk``, ``short``, ``priced``, ``without_stock_data``);
+    (``at_risk`` is error or fatal, ``needs_a_look`` adds warnings; ``short``, ``priced``, ``without_stock_data``);
     ``lines_priced`` is how many lines the cost covers, so one part on two lines counts once."""
 
     tracked = [results[line.key] for line in lines if results[line.key]["state"] == TRACKED]
@@ -448,7 +450,8 @@ def _rollup(
         "tracked": len(tracked),
         "not_tracked": len(lines) - len(tracked),
         "watched": sum(1 for entry in tracked if entry["watched"]),
-        "at_risk": sum(1 for entry in leaders if entry["status"] in _NEEDS_A_LOOK),
+        "at_risk": sum(1 for entry in leaders if entry["status"] in _AT_RISK),
+        "needs_a_look": sum(1 for entry in leaders if entry["status"] in _NEEDS_A_LOOK),
         "short": sum(1 for entry in leaders if entry["short"]),
         "priced": len(priced),
         "lines_priced": lines_priced,

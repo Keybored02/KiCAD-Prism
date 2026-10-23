@@ -11,7 +11,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from app.services.supply import bom_comments, bom_lookup, tracking, usage
+from app.services.supply import bom_comments, bom_lookup, part_insights, parts_view, tracking, usage
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
@@ -21,9 +21,28 @@ _GOOD = ("ok", "warning", None)
 _BAD = ("error", "fatal")
 
 
-def _parts(conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[str, int]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def attrition_of(spares: str) -> float | None:
+    """The spares a request asks for: "auto" is by package (None), a number is that percent for every part, empty is none."""
+
+    text = (spares or "").strip().lower()
+    if text == "auto":
+        return None
+    if not text:
+        return 0
+    try:
+        percent = float(text)
+    except ValueError as exc:
+        raise ValueError("Spares are \"auto\" or a percent from 0 to 100.") from exc
+    if not 0 <= percent <= 100:
+        raise ValueError("Spares are \"auto\" or a percent from 0 to 100.")
+    return percent
+
+
+def _parts(
+    conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[str, int], attrition_percent: float | None = 0,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, int]]:
     lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-    result = bom_lookup.lookup(conn, lines, build_quantity)
+    result = bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
     tiers = {
         row["part_id"]: row["tier"]
@@ -37,19 +56,55 @@ def _parts(conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[st
         row["part_id"]
         for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (part_ids,)).fetchall()
     } if part_ids else set()
+    kept = part_insights.of_parts(conn, part_ids) if part_ids else {}
+    alerts = {
+        row["part_id"]: int(row["n"])
+        for row in conn.execute(
+            "SELECT part_id, COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (part_ids,)
+        ).fetchall()
+    } if part_ids else {}
+    converted = bool(result["rollup"]["converted"])
     parts = []
     for row in rows:
         entry = result["lines"][row["key"]]
         part_id = entry.get("part_id")
+        buy = entry.get("buy") or {}
         parts.append({
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "lead_time_days": entry.get("lead_time_days"),
             "short": bool(entry.get("short")), "jlc": entry.get("jlc"), "fetched_at": entry.get("fetched_at"), "unit_price": (entry.get("buy") or {}).get("unit_price"),
             "tier": tiers.get(part_id), "first_seen": first_seen.get(part_id), "waiting": part_id in waiting, "notes": notes.get(row["key"], 0),
+            "need": entry.get("need"),
+            # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
+            "line_cost": None if entry.get("bought_with") or not buy else (buy.get("in_base") if converted else buy.get("extended")),
+            "holders": (kept.get(part_id) or {}).get("holders"), "days_to_zero": (kept.get(part_id) or {}).get("days_to_zero"),
+            "alerts": alerts.get(part_id, 0),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
-    return parts, result["rollup"]
+    return parts, result["rollup"], alerts
+
+
+def _counts(parts: list[dict[str, Any]], rollup: dict[str, Any], alerts: dict[str, int], facts: dict[str, dict[str, Any]]) -> dict[str, int]:
+    """What the page's chips count, over distinct parts: the shared ``parts_view.status_counts`` and what only a project knows."""
+
+    first: dict[str, dict[str, Any]] = {}
+    for part in parts:
+        if part["part_id"] and part["status"] and part["part_id"] not in first:
+            first[part["part_id"]] = part
+    members = list(first.values())
+    counts = parts_view.status_counts(
+        [{"status": part["status"], "stock": part["stock"], "lifecycle": part["lifecycle"] or "unknown"} for part in members],
+        [facts.get(part_id) or {} for part_id in first],
+    )
+    return {
+        **counts,
+        "needs_a_look": rollup["needs_a_look"],
+        "short": rollup["short"],
+        "alerts": sum(alerts.values()),
+        "waiting": sum(1 for part in members if part["waiting"]),
+        "not_priced": sum(1 for part in members if part["unit_price"] is None),
+    }
 
 
 def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[dict[str, Any]]:
@@ -77,7 +132,7 @@ def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[
 
 
 # What of the day's rollup is kept with its cost: the boards the stock covers, the money out and what is left over.
-KEPT_ROLLUP = ("can_build", "cost_build", "waste_cost", "at_risk", "short", "tracked", "lines")
+KEPT_ROLLUP = ("can_build", "cost_build", "waste_cost", "at_risk", "needs_a_look", "short", "tracked", "lines")
 
 
 def snapshot_costs(conn, now: datetime) -> int:
@@ -120,7 +175,7 @@ def _cost_history(conn, project_id: str, variant: str) -> list[dict[str, Any]]:
     ]
 
 
-def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1) -> dict[str, Any]:
+def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None = 0) -> dict[str, Any]:
     rows = usage.project_rows(conn, project_id, variant)
     notes_by_line: dict[str, int] = {}
     notes = bom_comments.for_project(conn, project_id)
@@ -128,10 +183,12 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1) 
         notes_by_line[note["line_key"]] = notes_by_line.get(note["line_key"], 0) + 1
     if not rows:
         return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "releases": [], "notes": notes}
-    parts, rollup = _parts(conn, rows, build_quantity, notes_by_line)
+    parts, rollup, alerts = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
+    part_ids = sorted(status_now)
     return {
-        "available": True, "variant": variant, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
+        "available": True, "variant": variant, "build_quantity": build_quantity, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
+        "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
         "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "releases": _releases(conn, project_id, status_now), "notes": notes,
     }
 
@@ -142,7 +199,7 @@ COST_HEADER = (
 )
 
 
-def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1) -> str | None:
+def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None = 0) -> str | None:
     """The BOM costed at a build size, as a CSV. It is a costing, not an order: it names no distributor, SKU or link, and says
     which pieces the smallest orders add. None when the BOM has not been read."""
 
@@ -155,7 +212,7 @@ def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1) 
     if not rows:
         return None
     lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-    result = bom_lookup.lookup(conn, lines, build_quantity)
+    result = bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(COST_HEADER)

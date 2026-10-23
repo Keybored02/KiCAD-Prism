@@ -72,15 +72,21 @@ async def project_overview(
     project_id: str,
     build_quantity: int = Query(default=1, ge=1, le=1_000_000),
     variant: str = Query(default="", max_length=120),
+    spares: str = Query(default="", max_length=12),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
-    """The project's parts, planned builds, releases (with what changed since) and line notes, from its stored BOM. Calls no distributor."""
+    """The project's parts, planned builds, releases (with what changed since) and line notes, from its stored BOM. Calls no distributor.
+    ``spares`` is "auto" (by package) or a percent."""
 
     get_project_for_role_or_404(project_id, user.role)
+    try:
+        attrition = project_supply.attrition_of(spares)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return project_supply.overview(conn, project_id, variant, build_quantity)
+            return project_supply.overview(conn, project_id, variant, build_quantity, attrition)
 
     return await _run(read)
 
@@ -90,15 +96,20 @@ async def cost_export(
     project_id: str,
     build_quantity: int = Query(default=1, ge=1, le=1_000_000),
     variant: str = Query(default="", max_length=120),
+    spares: str = Query(default="", max_length=12),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> Response:
     """The stored BOM costed at a build size, as a CSV: a costing with no distributor, SKU or link, so nothing to order from."""
 
     project = get_project_for_role_or_404(project_id, user.role)
+    try:
+        attrition = project_supply.attrition_of(spares)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     def read() -> str | None:
         with _store().connection() as conn:
-            return project_supply.cost_csv(conn, project_id, variant, build_quantity)
+            return project_supply.cost_csv(conn, project_id, variant, build_quantity, attrition)
 
     text = await _run(read)
     if text is None:

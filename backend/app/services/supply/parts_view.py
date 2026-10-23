@@ -399,18 +399,29 @@ def part_groups(
     return {"groups": ordered, "total": len(items)}
 
 
+SOON_DAYS = 14
+
+
+def status_counts(members: list[dict[str, Any]], facts: list[dict[str, Any]]) -> dict[str, int]:
+    """The counts a project shows of its parts, one definition for the Projects view, the Dashboard's tiles and the project page: parts
+    at risk (error or fatal), out of stock, ending, held by one distributor, and running out within two weeks. ``members`` carry
+    ``status``, ``stock`` and ``lifecycle``; ``facts`` are the kept insights of the same parts, in the same order."""
+
+    return {
+        "at_risk": sum(1 for item in members if item["status"] in ("error", "fatal")),
+        "out": sum(1 for item in members if item["stock"] == 0),
+        "end_of_life": sum(1 for item in members if item["lifecycle"] not in ("active", "unknown")),
+        "one_distributor": sum(1 for data in facts if data.get("holders") == 1),
+        "runs_out_soon": sum(1 for data in facts if data.get("days_to_zero") is not None and data["days_to_zero"] <= SOON_DAYS),
+    }
+
+
 def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
 
     members = group["members"]
     facts = [kept.get(item["id"]) or {} for item in members]
-    stats: dict[str, Any] = {
-        "at_risk": sum(1 for item in members if item["status"] in ("error", "fatal")),
-        "out": sum(1 for item in members if item["stock"] == 0),
-        "end_of_life": sum(1 for item in members if item["lifecycle"] not in ("active", "unknown")),
-        "one_distributor": sum(1 for data in facts if data.get("holders") == 1),
-        "runs_out_soon": sum(1 for data in facts if data.get("days_to_zero") is not None and data["days_to_zero"] <= 14),
-    }
+    stats: dict[str, Any] = status_counts(members, facts)
     project_id = group["project_id"]
     if project_id == NO_PROJECT:
         return stats
