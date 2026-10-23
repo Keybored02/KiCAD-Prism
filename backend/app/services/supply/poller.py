@@ -398,6 +398,7 @@ class Poller:
             by_id = {listing_id: offer for listing_id, offer in items}
             offers = [replace(by_id[row.id], sku=row.sku) for row in batch if row.id in by_id]
             self._record_answer(conn, batch, offers, now)
+            alerts.evaluate_parts(conn, (row.part_id for row in batch), now)
 
     # --- recording --------------------------------------------------------
 

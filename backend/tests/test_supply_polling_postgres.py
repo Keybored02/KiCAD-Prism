@@ -113,6 +113,17 @@ class PollingTests(unittest.TestCase):
 
     # --- watches ----------------------------------------------------------
 
+    def test_a_search_that_is_a_read_evaluates_the_part_alerts(self) -> None:
+        from app.services.supply.models import Offer
+
+        cid = self.connector()
+        watch = self.watch(threshold=100)
+        listing = self.add_listing(watch.part_id, cid, "SR-1")
+        offer = Offer(provider="fake", sku="SR-1", mpn="ABC123", manufacturer="Acme", stock=40, fetched_at=self.clock.now)
+        self.poller().record_search_offers(cid, [(listing, offer)])
+        (alert,) = self.rows("SELECT kind, seen_count FROM alerts WHERE part_id = %s", watch.part_id)
+        self.assertEqual((alert["kind"], alert["seen_count"]), ("below_threshold", 1), "the first look is counted; the alert opens after the second")
+
     def test_watching_creates_the_part_and_is_idempotent(self) -> None:
         first = self.watch("LM358-D", threshold=100)
         again = self.watch("lm358d")
@@ -171,18 +182,19 @@ class PollingTests(unittest.TestCase):
 
     # --- stock across listings --------------------------------------------
 
-    def _offer(self, listing_id: str, stock: int, *, marketplace: bool = False) -> None:
+    def _offer(self, listing_id: str, stock: int, *, marketplace: bool = False, packaging: str = "unknown") -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, marketplace) VALUES (%s, %s, %s, %s)",
-                (listing_id, START, stock, marketplace))
+                "INSERT INTO offers (listing_id, fetched_at, stock, marketplace, packaging) VALUES (%s, %s, %s, %s, %s)",
+                (listing_id, START, stock, marketplace, packaging))
 
     def test_stock_counts_pooled_packaging_once_and_separate_stock_together(self) -> None:
         watch = self.watch()
         pooled, separate = self.connector("fake"), self.connector("demo_small")
         for connector_id, skus in ((pooled, ("CT", "RL")), (separate, ("A", "B"))):
             for sku in skus:
-                self._offer(self.add_listing(watch.part_id, connector_id, sku), 1000 if sku in ("CT", "RL", "A") else 500)
+                self._offer(self.add_listing(watch.part_id, connector_id, sku), 1000 if sku in ("CT", "RL", "A") else 500,
+                            packaging={"A": "tray", "B": "tape_reel"}.get(sku, "unknown"))
         with self.store.connection() as conn:
             result = self.stock.part_stock(conn, watch.part_id)
         self.assertEqual(result.by_connector, {pooled: 1000, separate: 1500})
@@ -193,7 +205,7 @@ class PollingTests(unittest.TestCase):
         cid = self.connector("demo_small")
         for sku, state, marketplace in (("OK", "exact", False), ("MKT", "exact", True), ("NEAR", "near", False),
                                         ("GONE", "gone", False), ("PIN", "manual", False)):
-            self._offer(self.add_listing(watch.part_id, cid, sku, state), 100, marketplace=marketplace)
+            self._offer(self.add_listing(watch.part_id, cid, sku, state), 100, marketplace=marketplace, packaging="tray" if sku == "OK" else "tube")
         with self.store.connection() as conn:
             result = self.stock.part_stock(conn, watch.part_id)
         self.assertEqual((result.total, result.listings), (200, 2))
