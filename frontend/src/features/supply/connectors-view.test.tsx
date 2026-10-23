@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { toast } from "sonner";
@@ -302,11 +302,10 @@ describe("capacity notes", () => {
     expect(screen.queryByText(/needs about/)).toBeNull();
   });
 
-  it("opens the settings page from a gear for everyone who reads supply, beside Add connector", async () => {
+  it("opens the settings window from a gear for everyone who reads supply, beside Add connector", async () => {
     load();
-    function Where() { return <p data-testid="where">{useLocation().search}</p>; }
-    render(<MemoryRouter><SupplyConnectorsView user={designer} /><Where /></MemoryRouter>);
+    render(<MemoryRouter><SupplyConnectorsView user={designer} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: "Supply settings" }));
-    expect(screen.getByTestId("where").textContent).toContain("supplyView=settings");
+    expect(await screen.findByRole("dialog", { name: "Supply settings" })).toBeTruthy();
   });
 });

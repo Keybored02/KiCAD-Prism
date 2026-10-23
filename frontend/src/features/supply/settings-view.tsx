@@ -1,7 +1,9 @@
 import { useCallback, useState, type ReactNode } from "react";
+import { Bell, Calculator, Database, Link2, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@/types/auth";
 import type { AssessmentSettingsView } from "@/types/supply";
@@ -18,13 +20,13 @@ import { useLoaded } from "./use-loaded";
 
 type GroupId = "costing" | "checks" | "alerts" | "reading" | "matching" | "reference";
 
-const GROUPS: ReadonlyArray<{ id: GroupId; label: string; about: string }> = [
-  { id: "costing", label: "Costing", about: "What a price is worked out with." },
-  { id: "checks", label: "Health checks", about: "What counts as a finding and how serious each one is. A change applies to every health figure and status from now on, and is recorded." },
-  { id: "alerts", label: "Alerts", about: "When an alert is raised for a part that has no rule of its own." },
-  { id: "reading", label: "Reading", about: "Which spare work may run. Budgets are on each connector's card." },
-  { id: "matching", label: "Matching", about: "How makers and part numbers are matched. These save as they change." },
-  { id: "reference", label: "Reference data", about: "Exchange rates and the REACH Candidate List. These save as they change." },
+const GROUPS: ReadonlyArray<{ id: GroupId; label: string; about: string; icon: LucideIcon }> = [
+  { id: "costing", label: "Costing", about: "What a price is worked out with.", icon: Calculator },
+  { id: "checks", label: "Health checks", about: "What counts as a finding and how serious each one is. A change applies to every health figure and status from now on, and is recorded.", icon: ShieldCheck },
+  { id: "alerts", label: "Alerts", about: "When an alert is raised for a part that has no rule of its own.", icon: Bell },
+  { id: "reading", label: "Reading", about: "Which spare work may run. Budgets are on each connector's card.", icon: RefreshCw },
+  { id: "matching", label: "Matching", about: "How makers and part numbers are matched. These save as they change.", icon: Link2 },
+  { id: "reference", label: "Reference data", about: "Exchange rates and the REACH Candidate List. These save as they change.", icon: Database },
 ];
 
 /** A group of lists that save as they change, shown read-only to anyone who is not an administrator. */
@@ -48,16 +50,21 @@ function Group({ id, view, readOnly, onSaved }: { id: GroupId; view: AssessmentS
   }
 }
 
-/** Supply settings: a page of groups, each saved on its own. Everyone who reads supply sees it; administrators change it. */
-export function SettingsView({ user }: { user: User | null }) {
+/** The groups as the nav shows them: the figures Prism works out, then the data they come from. */
+const NAV: ReadonlyArray<{ title: string; ids: readonly GroupId[] }> = [
+  { title: "Figures", ids: ["costing", "checks", "alerts"] },
+  { title: "Data", ids: ["reading", "matching", "reference"] },
+];
+
+function Body({ user }: { user: User | null }) {
   const fetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
   const loaded = useLoaded<AssessmentSettingsView>("assessment-settings", fetcher, "Could not load the settings");
   const [group, setGroup] = useState<GroupId>("costing");
   const [saved, setSaved] = useState<AssessmentSettingsView | null>(null);
-  if (loaded.status === "loading") return <div className="p-4"><Skeleton className="h-60 w-full" aria-label="Loading the settings" /></div>;
+  if (loaded.status === "loading") return <div className="flex-1 p-6"><Skeleton className="h-60 w-full" aria-label="Loading the settings" /></div>;
   if (loaded.status === "error" || !loaded.data) {
     return (
-      <div className="p-4">
+      <div className="flex-1 p-6">
         <Alert variant="destructive">
           <AlertDescription className="flex items-center justify-between gap-3">
             {loaded.error}
@@ -71,25 +78,48 @@ export function SettingsView({ user }: { user: User | null }) {
   const view = saved ?? loaded.data;
   const current = GROUPS.find((item) => item.id === group) ?? GROUPS[0];
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:flex-row">
-      <nav aria-label="Settings groups" className="flex shrink-0 gap-1 md:w-48 md:flex-col">
-        {GROUPS.map((item) => (
-          <button
-            key={item.id} type="button" aria-current={item.id === group ? "page" : undefined}
-            className={`px-3 py-2 text-left text-sm ${item.id === group ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/50"}`}
-            onClick={() => setGroup(item.id)}
-          >
-            {item.label}
-          </button>
+    <>
+      <nav className="flex w-60 shrink-0 flex-col gap-4 border-r bg-muted/30 p-4" aria-label="Settings groups">
+        <h2 className="px-2 text-lg font-semibold tracking-tight">Supply settings</h2>
+        {NAV.map((part) => (
+          <div key={part.title} className="flex flex-col gap-1">
+            <p className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{part.title}</p>
+            {part.ids.map((id) => {
+              const item = GROUPS.find((entry) => entry.id === id) ?? GROUPS[0];
+              return (
+                <Button
+                  key={id} variant={id === group ? "secondary" : "ghost"} className="justify-start"
+                  aria-current={id === group ? "page" : undefined} onClick={() => setGroup(id)}
+                >
+                  <item.icon className="mr-2 h-4 w-4" />{item.label}
+                </Button>
+              );
+            })}
+          </div>
         ))}
       </nav>
-      <section aria-label={current.label} className="min-w-0 max-w-2xl flex-1 space-y-3">
+      <section aria-label={current.label} className="themed-scrollbar min-w-0 flex-1 space-y-4 overflow-y-auto p-6">
         <div>
-          <h3 className="text-sm font-semibold">{current.label}</h3>
-          <p className="text-xs text-muted-foreground">{current.about}</p>
+          <h3 className="text-lg font-medium">{current.label}</h3>
+          <p className="text-sm text-muted-foreground">{current.about}</p>
         </div>
-        <Group key={`${group}:${JSON.stringify(view.settings)}`} id={group} view={view} readOnly={user?.role !== "admin"} onSaved={setSaved} />
+        <div className="max-w-2xl">
+          <Group key={`${group}:${JSON.stringify(view.settings)}`} id={group} view={view} readOnly={user?.role !== "admin"} onSaved={setSaved} />
+        </div>
       </section>
-    </div>
+    </>
+  );
+}
+
+/** Supply settings in a window, as the workspace settings are: groups on the left, each saved on its own. Everyone who reads supply sees it; administrators change it. */
+export function SettingsDialog({ open, onOpenChange, user }: { open: boolean; onOpenChange: (open: boolean) => void; user: User | null }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[85vh] max-h-[720px] w-[90vw] max-w-5xl overflow-hidden p-0">
+        <DialogTitle className="sr-only">Supply settings</DialogTitle>
+        <DialogDescription className="sr-only">What supply costing, health checks, alerts, reading, matching and reference data use.</DialogDescription>
+        {open ? <Body user={user} /> : null}
+      </DialogContent>
+    </Dialog>
   );
 }

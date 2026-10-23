@@ -16,7 +16,7 @@ vi.mock("./number-endings", () => ({ NumberEndings: () => <div>Number endings</d
 vi.mock("./exchange-rates", () => ({ ExchangeRates: () => <div>Exchange rates</div> }));
 vi.mock("./svhc-list-upload", () => ({ SvhcListUpload: () => <div>REACH list</div> }));
 
-import { SettingsView } from "./settings-view";
+import { SettingsDialog } from "./settings-view";
 import * as api from "./supply-api";
 
 const mocked = vi.mocked(api);
@@ -43,7 +43,7 @@ const view = (settings: AssessmentSettings = defaults): AssessmentSettingsView =
 const person = (role: UserRole): User => ({ name: role, email: `${role}@example.com`, role });
 
 function open(role: UserRole = "admin") {
-  render(<SettingsView user={person(role)} />);
+  render(<SettingsDialog open onOpenChange={() => undefined} user={person(role)} />);
 }
 
 beforeEach(() => {
@@ -54,7 +54,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("the Supply settings page", () => {
+describe("the Supply settings window", () => {
   it("shows a reader every setting and no way to change it", async () => {
     open("designer");
     const currency = await screen.findByLabelText(/Currency for comparing/);

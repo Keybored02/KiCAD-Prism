@@ -1,5 +1,4 @@
-import { useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { lazy, Suspense, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plug, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +23,8 @@ import { useConnectorSubmit } from "./use-connector-submit";
 import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
 
+const SettingsDialog = lazy(() => import("./settings-view").then((module) => ({ default: module.SettingsDialog })));
+
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
 
@@ -35,7 +36,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
   const budgets = useBudget();
   const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [, setSearchParams] = useSearchParams();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const quick = useQuickConnectorActions(apply);
   const deletion = useConnectorSubmit();
   const clearing = useConnectorSubmit();
@@ -104,7 +105,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
       </PermissionHint>
       <Button
         variant="outline" size="icon" aria-label="Supply settings" title="Supply settings"
-        onClick={() => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("section", "supply"); next.set("supplyView", "settings"); return next; })}
+        onClick={() => setSettingsOpen(true)}
       >
         <Settings className="h-4 w-4" />
       </Button>
@@ -186,6 +187,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
         busy={clearing.busy}
         onConfirm={() => void confirmClear()}
       />
+      {settingsOpen ? <Suspense fallback={null}><SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} user={user} /></Suspense> : null}
       <ConfirmDialog
         open={dialog?.kind === "delete" && target !== null}
         onOpenChange={(open) => { if (!open) closeDialog(); }}
