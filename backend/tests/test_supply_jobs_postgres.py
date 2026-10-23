@@ -463,12 +463,34 @@ class SupplyJobTests(unittest.TestCase):
                 self.admission.sync(conn)
         self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM admissions WHERE state = 'waiting'")[0]["n"], 1)
         self.assertEqual(self.clock.now.weekday(), 6, "a Sunday: no working hours")
-        self.assertEqual(self.work(), [cid], "spare budget is open, and a part waits for room")
+        self.assertEqual(self.work(), [], "a part waits, but nothing of it is due: no job for it")
+        with self.store.connection() as conn:
+            conn.execute(
+                "UPDATE poll_state SET next_poll_at = %s WHERE listing_id IN "
+                "(SELECT l.id FROM listings l JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id WHERE a.state = 'waiting')",
+                (self.clock.now - timedelta(hours=1),))
+        self.assertEqual(self.work(), [cid], "spare budget is open, and a part waiting for room is due a read")
         self.clock.advance(days=1, hours=-1)  # Monday 11:00, working hours: free calls are spare whatever the hour
         self.assertEqual(self.work(), [cid])
         with self.store.connection() as conn:
             conn.execute("UPDATE quota_ledger SET spent = 4")
         self.assertEqual(self.work(), [], "nothing is free once the day is spent")
+
+    def test_tier_two_parts_are_spare_work_only_once_a_listing_is_older_than_the_early_gap(self) -> None:
+        cid = self.connector()
+        record = self.watch("T2", tier=2, rate="weekly")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, cid, self.clock.now))
+            conn.execute(
+                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "VALUES ('t2l', %s, 'SKU-T2', %s, 'x', 'Acme', 'exact')", (cid, record.part_id))
+            conn.execute("INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at) VALUES ('t2l', 'weekly', %s, %s)",
+                         (self.clock.now + timedelta(days=5), self.clock.now - timedelta(hours=6)))
+            self.admission.sync(conn)
+        self.assertEqual(self.work(), [], "read six hours ago: nothing early to read")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET last_polled_at = %s", (self.clock.now - timedelta(days=2),))
+        self.assertEqual(self.work(), [cid], "read two days ago and not due for five: an early read")
 
     def test_the_scan_does_its_housekeeping_even_when_no_connector_has_work_and_not_every_time(self) -> None:
         queue = RecordingJobs()

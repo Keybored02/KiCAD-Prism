@@ -19,8 +19,8 @@ from app.services.supply import (
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
-from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
-from app.services.supply.poller import Poller
+from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs, pending_waiting
+from app.services.supply.poller import Poller, spare_listings
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANCES
 from app.services.supply.store import SupplyStore, supply_store
@@ -34,6 +34,7 @@ SCAN_SECONDS = 60
 # Housekeeping runs from the scanner too, so it goes on when every budget is used up and no poll job is queued.
 HOUSEKEEPING_EVERY = 600
 _housekeeping_at: float | None = None
+_pruned_at: float | None = None
 SYSTEM_REQUESTER = "system:supply-scheduler"
 
 
@@ -93,6 +94,23 @@ def _has_spare(conn, row, now: datetime) -> bool:
         (account.ledger_id, day),
     ).fetchone()
     return ledger.free_calls(conn, account.ledger_id, state, ledger_row, now, reset_time=account.reset_time, reset_tz=account.reset_tz) > 0
+
+
+def _spare_work_due(conn, row, now: datetime, kinds: list[str]) -> bool:
+    """Whether a connector has spare work that is due, for the kinds switched on: a part waiting for room that is due a search or a read,
+    a tier-2 listing old enough to read early, a notice to read. Each is a single-row look. Late committed reads (``overdue``) are not
+    asked here: the main "due" query queues them already."""
+
+    cid = row["id"]
+    if "waiting" in kinds and (pending_waiting(conn, cid, now, 1) or spare_listings(conn, cid, now, 1, "waiting")):
+        return True
+    if "tier2_early" in kinds and spare_listings(conn, cid, now, 1, "tier2_early"):
+        return True
+    try:
+        has_notices = CAP_PCN in registry.get_spec(row["provider"]).capabilities
+    except registry.UnknownProvider:
+        return False
+    return "notices" in kinds and has_notices and bool(details.due(conn, cid, "notices", now, 1, untracked=True))
 
 
 def _has_pool_or_spare(conn, row, now: datetime) -> bool:
@@ -172,18 +190,17 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         "SELECT id, provider, daily_budget, interactive_reserve_pct FROM connectors WHERE id = ANY(%s)", (ids,)
     ).fetchall()
     result = {row["id"] for row in funded if _has_budget(conn, row, now)}
-    # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget.
+    # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget: a connector is queued for it only
+    # when some of it is due and free calls are open.
+    kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
     spare = conn.execute(
         f"""
-        SELECT DISTINCT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM connectors c
-        WHERE {active} AND c.id <> ALL(%(known)s) AND (
-            EXISTS (SELECT 1 FROM admissions a WHERE a.connector_id = c.id AND a.state = 'waiting')
-            OR EXISTS (SELECT 1 FROM admissions a JOIN part_tiers pt ON pt.part_id = a.part_id
-                       WHERE a.connector_id = c.id AND a.state = 'admitted' AND pt.tier = 2))
+        SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM connectors c
+        WHERE {active} AND c.id <> ALL(%(known)s)
         """,
         {"now": now, "known": sorted(result)},
-    ).fetchall()
-    result |= {row["id"] for row in spare if _has_spare(conn, row, now)}
+    ).fetchall() if kinds else []
+    result |= {row["id"] for row in spare if _spare_work_due(conn, row, now, kinds) and _has_spare(conn, row, now)}
     # Notices and substances come due on their own: a connector with some is work whatever its reads are doing.
     result |= _connectors_with_details(conn, now, result)
     # Checks someone asked for once: served from the pool, then from spare budget.
@@ -260,6 +277,22 @@ def _housekeeping_if_due(store: SupplyStore) -> None:
         logging.getLogger(__name__).info("Housekeeping failed", exc_info=True)
 
 
+def _prune_finished_jobs(job_service: Any) -> None:
+    """The scanner queues a job for each connector with work many times a day; finished ones older than a week are dropped, at the
+    housekeeping rhythm. Best effort."""
+
+    global _pruned_at
+    if _pruned_at is not None and time.monotonic() - _pruned_at < HOUSEKEEPING_EVERY:
+        return
+    _pruned_at = time.monotonic()
+    try:
+        prune = getattr(job_service, "prune_finished", None)
+        if prune is not None:
+            prune(POLL_JOB_KIND, older_than_seconds=7 * 24 * 60 * 60)
+    except Exception:  # noqa: BLE001 - the next scan tries again
+        logging.getLogger(__name__).info("Finished supply jobs not pruned", exc_info=True)
+
+
 def schedule_due_supply_jobs(
     *,
     job_service: Any | None = None,
@@ -275,6 +308,7 @@ def schedule_due_supply_jobs(
     with store.connection() as conn:
         connector_ids = connectors_with_work(conn, moment)
     _housekeeping_if_due(store)
+    _prune_finished_jobs(job_service)
     # One job per account: connectors on the same credentials are one caller to the provider, so they take turns.
     by_account: dict[str, list[str]] = {}
     with store.connection() as conn:
@@ -419,9 +453,12 @@ def _sync_tracking(conn) -> None:
 
 def _spend_spare(
     connectors: ConnectorService, connector_id: str, *, poller: Poller | None = None, discoverer: Discoverer | None = None
-) -> None:
+) -> tuple[int, int]:
     """Use budget that would otherwise go unused, once all committed work is done. In order: searches and reads for parts
-    late committed reads, then those waiting for room, then tier-2 parts ahead of their time. Best effort, and each stops where the spare allowance does."""
+    late committed reads, then those waiting for room, then tier-2 parts ahead of their time. Best effort, and each stops where the spare allowance does.
+    Returns the calls it spent and the listings it read."""
+
+    calls = listings = 0
 
     try:
         with connectors.store.connection() as conn:
@@ -429,16 +466,20 @@ def _spend_spare(
         poller = poller or Poller(connectors)
         discoverer = discoverer or Discoverer(connectors)
         # Late committed reads come first, whatever the switches say: they are work the budget promised.
-        poller.poll_connector(connector_id, spare="overdue")
+        late = poller.poll_connector(connector_id, spare="overdue")
+        calls, listings = late.calls, late.polled
         if "waiting" in kinds:
-            discoverer.run(connector_id, waiting=True)
-            poller.poll_connector(connector_id, spare="waiting")
+            calls += discoverer.run(connector_id, waiting=True).searched
+            waiting = poller.poll_connector(connector_id, spare="waiting")
+            calls, listings = calls + waiting.calls, listings + waiting.polled
         if "tier2_early" in kinds:
-            poller.poll_connector(connector_id, spare="tier2_early")
+            early = poller.poll_connector(connector_id, spare="tier2_early")
+            calls, listings = calls + early.calls, listings + early.polled
         if "notices" in kinds:
-            details.run_spare(connectors, connector_id)
+            calls += details.run_spare(connectors, connector_id).read
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Spare work not done", exc_info=True)
+    return calls, listings
 
 
 def run_supply_poll_job(context: Any) -> Any:
@@ -453,7 +494,7 @@ def run_supply_poll_job(context: Any) -> Any:
         connectors.refresh_account_keys()
     except Exception:  # noqa: BLE001 - a stale key only splits a shared budget; the poll goes on
         logging.getLogger(__name__).info("Account keys not refreshed", exc_info=True)
-    searched = listings = calls = polled_count = gone = 0
+    searched = listings = calls = polled_count = gone = spare_calls = 0
     discovery_stopped = poll_stopped = None
     for connector_id in connector_ids:
         try:
@@ -475,14 +516,14 @@ def run_supply_poll_job(context: Any) -> Any:
                     refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
             except Exception:  # noqa: BLE001
                 logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
-            _spend_spare(connectors, connector_id)
+            spare_calls += _spend_spare(connectors, connector_id)[0]
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
     details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,
-        "calls": calls, "polled": polled_count, "gone": gone, "poll_stopped": poll_stopped,
+        "calls": calls, "spare_calls": spare_calls, "polled": polled_count, "gone": gone, "poll_stopped": poll_stopped,
         "details_stopped": details_stopped,
     }
     return JobResult(

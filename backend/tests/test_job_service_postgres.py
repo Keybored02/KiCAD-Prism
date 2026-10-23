@@ -96,6 +96,21 @@ class JobServicePostgresTests(unittest.TestCase):
             )
             conn.commit()
 
+    def test_old_finished_jobs_of_a_kind_are_pruned_and_the_rest_stay(self) -> None:
+        old = self.enqueue("prune-old")["job_id"]
+        recent = self.enqueue("prune-recent")["job_id"]
+        queued = self.enqueue("prune-queued")["job_id"]
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            conn.execute("UPDATE ws_jobs SET status = 'completed', completed_at = NOW() - INTERVAL '8 days' WHERE id = %s", (old,))
+            conn.execute("UPDATE ws_jobs SET status = 'completed', completed_at = NOW() - INTERVAL '1 day' WHERE id = %s", (recent,))
+            conn.commit()
+        self.assertEqual(self.service.prune_finished(self.kind), 1)
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            left = {row["id"] for row in conn.execute("SELECT id FROM ws_jobs WHERE id = ANY(%s)", ([old, recent, queued],)).fetchall()}
+        self.assertEqual(left, {recent, queued})
+
     def test_active_dedup_includes_cancellation(self) -> None:
         first = self.enqueue("same-artifact")
         duplicate = self.enqueue("same-artifact")
