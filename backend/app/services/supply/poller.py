@@ -375,6 +375,30 @@ class Poller:
             self._connectors.record_result(connector_id)
         return PollSummary(connector_id, calls=calls, polled=polled, gone=gone, stopped=stopped, holding=holding)
 
+    def record_search_offers(self, connector_id: str, items: Sequence[tuple[str, Offer]]) -> None:
+        """Record offers that a search brought with its matches, as a read of those listings: for a provider whose search answer carries
+        the whole offer, the first read is the search and the monthly search is a read too."""
+
+        now = self._clock()
+        connector = self._connectors.get(connector_id)
+        self._reset = (connector["reset_time"], connector["reset_tz"])
+        with self._store.connection() as conn:
+            self._account = accounts.resolve(conn, connector_id).ledger_id
+            listing_ids = [listing_id for listing_id, _offer in items]
+            rows = conn.execute(
+                """
+                SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak, COALESCE(ps.missing_streak, 0) AS missing_streak,
+                       ps.last_change_at, COALESCE(pt.tier, 2) AS tier
+                FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id LEFT JOIN part_tiers pt ON pt.part_id = l.part_id
+                WHERE l.id = ANY(%s)
+                """,
+                (listing_ids,),
+            ).fetchall()
+            batch = [_due(row) for row in rows]
+            by_id = {listing_id: offer for listing_id, offer in items}
+            offers = [replace(by_id[row.id], sku=row.sku) for row in batch if row.id in by_id]
+            self._record_answer(conn, batch, offers, now)
+
     # --- recording --------------------------------------------------------
 
     def _record_failure(self, batch: Sequence[DueListing], now: datetime, code: str) -> None:

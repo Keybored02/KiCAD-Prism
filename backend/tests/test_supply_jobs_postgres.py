@@ -210,6 +210,33 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(len(self.rows("SELECT * FROM discovery_runs")), 1)
         self.assertEqual(self.rows("SELECT spent FROM quota_ledger")[0]["spent"], 19)
 
+    def test_a_search_whose_answer_carries_the_offer_is_also_the_first_read(self) -> None:
+        from app.services.supply.models import Offer, PartMatch
+        from app.services.supply.providers.base import ProviderSpec
+
+        self.registry.register(ProviderSpec(
+            key="demo_reads", label="Reads", capabilities=frozenset({"offers", "search"}), max_batch=1, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config), default_daily_budget=100, search_reads_offers=True,
+        ), replace=True)
+        self.addCleanup(self.registry.unregister, "demo_reads")
+        cid = self.connector("demo_reads")
+        record = self.watch("ABC123")
+        clock = self.clock
+
+        class Answering:
+            def lookup_mpn(self, mpn, manufacturer=None):
+                offer = Offer(provider="demo_reads", sku="C1", mpn=mpn, manufacturer="Acme", stock=500, fetched_at=clock.now, marketplace=True)
+                return [PartMatch(provider="demo_reads", sku="C1", mpn=mpn, manufacturer="Acme", offer=offer)]
+
+        discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _id: Answering(), clock=self.clock)
+        self.assertEqual(discoverer.run(cid).searched, 1)
+        (offer,) = self.rows("SELECT o.stock FROM offers o JOIN listings l ON l.id = o.listing_id WHERE l.part_id = %s", record.part_id)
+        self.assertEqual(offer["stock"], 500, "the search recorded the offer")
+        (state,) = self.rows("SELECT next_poll_at, last_polled_at FROM poll_state")
+        self.assertGreater(state["next_poll_at"], self.clock.now, "so the listing is not due for a read")
+        summary = self.poller_().poll_connector(cid)
+        self.assertEqual((summary.calls, summary.polled), (0, 0), "the poller makes no second call for it")
+
     def test_free_connectors_search_without_spending(self) -> None:
         cid = self.connector("csv")
         self.watch()

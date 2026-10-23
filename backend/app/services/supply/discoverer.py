@@ -166,7 +166,7 @@ class Discoverer:
             return DiscoverySummary(connector_id)
 
         provider = self._provider_for(connector_id)
-        service = DiscoveryService(lambda _id: provider, self._store)
+        service = self._service(provider, connector_id, spec)
         searched = listings = 0
         stopped: str | None = None
         # A first search is a one-off cost of taking a part on, paid from the pool; a repeat comes from the committed share.
@@ -226,7 +226,7 @@ class Discoverer:
                 "SELECT part_id FROM discovery_runs WHERE connector_id = %s AND part_id = ANY(%s)", (connector_id, part_ids)).fetchall()}
         todo = [part_id for part_id in part_ids if part_id not in done]
         provider = self._provider_for(connector_id)
-        service = DiscoveryService(lambda _id: provider, self._store)
+        service = self._service(provider, connector_id, spec)
         size = max(spec.search_batch, 1)
         searched = 0
         with self._store.connection() as conn:
@@ -256,6 +256,17 @@ class Discoverer:
                         (part_id, connector_id, now, result.total),
                     )
         return searched, None
+
+    def _service(self, provider: SupplyProvider, connector_id: str, spec) -> DiscoveryService:
+        """The search service. For a provider whose search answer is also a read, the offers it brings are recorded as that read."""
+
+        service = DiscoveryService(lambda _id: provider, self._store)
+        if spec.search_reads_offers:
+            from app.services.supply import poller
+
+            reader = poller.Poller(self._connectors, store=self._store, provider_for=lambda _id: provider, clock=self._clock)
+            service.record_offers = reader.record_search_offers
+        return service
 
     def _spend(self, connector, first: bool, purpose: str, *, spare_only: bool = False) -> bool:
         """A first search is scheduled work, so it is paid from the background allowance while that has room, then from the pool (half of

@@ -53,6 +53,13 @@ class JlcpcbTests(unittest.TestCase):
         matches = provider(client).lookup_mpn("LM358DR")
         self.assertEqual([(m.sku, m.manufacturer) for m in matches], [("C5423", "Texas Instruments")])
 
+    def test_a_search_brings_the_whole_offer_with_each_match_so_it_is_also_a_read(self) -> None:
+        client = FakeClient({PATH: [recorded("lm358dr")]})
+        matches = provider(client).lookup_mpn("LM358DR")
+        self.assertTrue(matches)
+        self.assertTrue(all(match.offer is not None and match.offer.sku == match.sku and match.offer.marketplace for match in matches))
+        self.assertTrue(jlcpcb.SPEC.search_reads_offers)
+
     def test_extended_and_preferred_are_facts(self) -> None:
         client = FakeClient({PATH: [recorded("lm358dr")]})
         (offer,) = provider(client).get_offers(["C5423"])

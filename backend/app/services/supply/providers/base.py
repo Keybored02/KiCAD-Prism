@@ -150,6 +150,8 @@ class ProviderSpec:
     # Stock here is only what the provider can place on a board it assembles; it is never sold to anyone else, and a
     # tracked part is read here only when the project (or a person) chooses it.
     assembly_only: bool = False
+    # The search answer carries the whole offer (stock, prices), so a search is also a read: the poller's first read is not a second call.
+    search_reads_offers: bool = False
     # Calls a day the change-notice API allows, when it has a quota of its own apart from the product API (DigiKey: 50).
     # 0 means notices share the connector's daily budget.
     notice_daily_limit: int = 0

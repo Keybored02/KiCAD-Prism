@@ -129,6 +129,8 @@ class PartMatch:
     datasheet_url: str = ""
     # The distributor's attributes (name, text), when the search answer carries them.
     parameters: tuple[tuple[str, str], ...] = ()
+    # The whole offer, for a provider whose search answer already carries stock and prices (``ProviderSpec.search_reads_offers``).
+    offer: "Offer | None" = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.provider or not self.sku or not self.mpn:

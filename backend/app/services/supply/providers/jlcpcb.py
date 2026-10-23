@@ -95,7 +95,8 @@ class JlcpcbProvider:
         if not wanted:
             return []
         found = [item for item in self._search(mpn.strip()) if not _consignment(item)]
-        return [_match(item) for item in keep_family(found, wanted, lambda item: str(item.get("componentModelEn") or ""))]
+        now = self._clock()
+        return [_match(item, now) for item in keep_family(found, wanted, lambda item: str(item.get("componentModelEn") or ""))]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers = []
@@ -121,7 +122,7 @@ def _url(item: Mapping[str, Any]) -> str:
     return PAGE_URL.format(suffix) if suffix else PAGE_URL.format(str(item["componentCode"]).upper())
 
 
-def _match(item: Mapping[str, Any]) -> PartMatch:
+def _match(item: Mapping[str, Any], now: datetime | None = None) -> PartMatch:
     sku = str(item["componentCode"]).upper()
     return PartMatch(
         provider=KEY,
@@ -131,6 +132,7 @@ def _match(item: Mapping[str, Any]) -> PartMatch:
         description=str(item.get("describe") or item.get("componentTypeEn") or ""),
         product_url=_url(item),
         datasheet_url=str(item.get("dataManualUrl") or ""),
+        offer=_offer(item, now) if now is not None else None,
     )
 
 
@@ -185,4 +187,5 @@ SPEC = ProviderSpec(
     factory=lambda config: JlcpcbProvider(config),
     default_daily_budget=DEFAULT_DAILY_BUDGET,
     assembly_only=True,
+    search_reads_offers=True,
 )

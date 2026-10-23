@@ -18,7 +18,7 @@ from app.services.supply import number_suffixes, parts, settle
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.makers import same_maker
-from app.services.supply.models import PartMatch
+from app.services.supply.models import Offer, PartMatch
 from app.services.supply.providers.base import SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
 
@@ -83,6 +83,8 @@ class DiscoveryService:
     ) -> None:
         self._provider_for = provider_for
         self._store = store
+        # Set for a provider whose search answer is also a read: called with the listing ids and offers of the exact matches.
+        self.record_offers: Callable[[str, list[tuple[str, Offer]]], None] | None = None
 
     def discover(self, part_id: str, connector_id: str, spend: Callable[[], bool] | None = None) -> DiscoveryResult:
         """Search for the part's number, and for each other number a person gave it that the answer did not bring back.
@@ -133,6 +135,16 @@ class DiscoveryService:
                 # The answers may settle who makes it; the listings are sorted again by what they say.
                 settle.settle_part(conn, part.id)
             settle.learn_aliases(conn)
+            read = [
+                (row["id"], match.offer)
+                for match, row in (
+                    (match, conn.execute("SELECT id, match_state FROM listings WHERE connector_id = %s AND sku = %s", (connector_id, match.sku)).fetchone())
+                    for match in matches if match.offer is not None
+                )
+                if row is not None and row["match_state"] in ("exact", "manual")
+            ] if self.record_offers is not None else []
+        if read and self.record_offers is not None:
+            self.record_offers(connector_id, read)
         return DiscoveryResult(part.id, connector_id, counts[EXACT], counts[UNRESOLVED], counts[NEAR])
 
     @staticmethod
