@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, Plug, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, Plug, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
@@ -15,6 +15,7 @@ const InsightsView = lazy(() => import("./insights-view").then((module) => ({ de
 const SupplyConnectorsView = lazy(() => import("./connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
 const ProjectsView = lazy(() => import("./projects-view").then((module) => ({ default: module.ProjectsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
+const SettingsView = lazy(() => import("./settings-view").then((module) => ({ default: module.SettingsView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", title: "Supply Dashboard", icon: LayoutDashboard },
@@ -24,6 +25,9 @@ const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: 
   { id: "insights", label: "Insights", title: "Supply Insights", icon: LineChart },
   { id: "connectors", label: "Connectors", title: "Distributor Connectors", icon: Plug },
 ];
+
+/** The settings page is reached from Connectors; it is not one of the tabs. */
+const SETTINGS_PAGE = { id: "settings" as SupplyTab, label: "Settings", title: "Supply Settings", icon: Settings };
 
 function isSupplyView(value: string): value is SupplyTab {
   return VIEWS.some((view) => view.id === value);
@@ -35,7 +39,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   // Old addresses (overview, inbox, market, planning, bom-file) lead to the tab that took them over.
   const place = resolvePlace(searchParams.get("supplyView"), searchParams.get("tool"));
   const view = place.tab;
-  const current = VIEWS.find((item) => item.id === view) ?? VIEWS[0];
+  const current = view === "settings" ? SETTINGS_PAGE : (VIEWS.find((item) => item.id === view) ?? VIEWS[0]);
   // The Connectors tab puts its buttons here, on the right of the page title.
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
@@ -105,6 +109,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
               {id === "review" && <ReviewView user={user} />}
               {id === "insights" && <InsightsView user={user} active={view === "insights"} />}
               {id === "connectors" && <SupplyConnectorsView user={user} headerSlot={view === "connectors" ? headerSlot : null} />}
+              {id === "settings" && <SettingsView user={user} />}
             </div>
           ))}
         </div>

@@ -130,6 +130,16 @@ describe("the project Supply tab", () => {
     await waitFor(() => expect(keepUsualBuild).toHaveBeenCalledWith("prj", 200));
   });
 
+  it("starts from the workspace's spares and sends a person's own, even none", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({ attrition_percent: 10 }));
+    renderTab();
+    const spares = await screen.findByLabelText("Spare parts, percent");
+    expect((spares as HTMLInputElement).value).toBe("10");
+    expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", undefined, "", expect.anything());
+    fireEvent.change(spares, { target: { value: "0" } });
+    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "", undefined, "0", expect.anything()));
+  });
+
   it("offers the costing as a file for a build size", async () => {
     renderTab();
     const boards = await screen.findByLabelText("Boards to forecast and cost");

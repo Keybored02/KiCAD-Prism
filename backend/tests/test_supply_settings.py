@@ -43,6 +43,10 @@ class ValidationTests(unittest.TestCase):
                 rules.validate({**self.good(), **bad})
             self.assertIn(message, str(caught.exception).replace("The spares", "spares"), bad)
 
+    def test_every_check_is_listed_under_one_area(self) -> None:
+        self.assertEqual(set(rules.CHECK_AREA), set(rules.CHECK_LABELS))
+        self.assertTrue(set(rules.CHECK_AREA.values()) <= set(rules.AREAS))
+
     def test_missing_parts_fall_back_to_the_defaults(self) -> None:
         self.assertEqual(rules.validate({"lead_time_days": 30})["late_hours"], rules.DEFAULTS.late_hours)
 

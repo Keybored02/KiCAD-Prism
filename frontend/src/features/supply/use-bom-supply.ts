@@ -5,7 +5,7 @@ import type { SemanticComponent } from "@/types/prism-selection";
 import type { User } from "@/types/auth";
 import type { SupplyBomLookup, SupplyBomWatchResult } from "@/types/supply";
 import { buildLines, lineInput, type BomLineDetail } from "./bom-supply";
-import { lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
+import { getAssessmentSettings, lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
 // A lookup takes this many lines; a BOM with more shows the first ones and says so.
@@ -43,14 +43,19 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set();
 export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null, projectId = ""): BomSupply {
   const enabled = canOpenSupply(user?.role);
   const [buildQuantity, setBuildQuantity] = useState(1);
-  const [attritionPercent, setAttritionPercent] = useState<number | null>(0);
+  // The spares a person typed; until then the workspace's own (Supply settings), which the lookup waits for.
+  const [attritionChoice, setAttritionPercent] = useState<number | null | undefined>(undefined);
+  const settingsFetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
+  const workspace = useLoaded("assessment-settings", settingsFetcher, "Could not load the settings", "supply");
+  const fallback = workspace.data?.settings;
+  const attritionPercent = attritionChoice !== undefined ? attritionChoice : fallback ? (fallback.spares_mode === "package" ? null : fallback.spares_percent) : 0;
   const allLines = useMemo(() => (enabled ? buildLines(fitted) : []), [enabled, fitted]);
   const lines = useMemo(() => allLines.slice(0, MAX_LINES), [allLines]);
   const fittedKeys = useMemo(() => (lines.length ? new Set(lines.map((line) => line.key)) : EMPTY_KEYS), [lines]);
 
   const requestKey = useMemo(
-    () => (enabled && lines.length > 0 ? `${buildQuantity}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
-    [enabled, lines, buildQuantity, attritionPercent],
+    () => (enabled && lines.length > 0 && (attritionChoice !== undefined || workspace.status !== "loading") ? `${buildQuantity}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
+    [enabled, lines, buildQuantity, attritionPercent, attritionChoice, workspace.status],
   );
   const fetcher = useCallback(
     (signal: AbortSignal) =>

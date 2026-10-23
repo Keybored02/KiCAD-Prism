@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/types/auth";
@@ -59,7 +60,7 @@ afterEach(cleanup);
 describe("a CSV connector", () => {
   it("shows its file instead of a call budget", async () => {
     load([csvConnector({ csv_import: uploaded })]);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     const card = await screen.findByRole("article", { name: "Price list" });
     expect(within(card).getByText("stock.csv")).toBeTruthy();
     expect(within(card).getByText(/1,240 rows/)).toBeTruthy();
@@ -69,7 +70,7 @@ describe("a CSV connector", () => {
 
   it("says when nothing has been uploaded", async () => {
     load();
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     const card = await screen.findByRole("article", { name: "Price list" });
     expect(within(card).getByText("No file uploaded")).toBeTruthy();
     expect(within(card).getByText(/No file uploaded\. Local data/)).toBeTruthy();
@@ -78,7 +79,7 @@ describe("a CSV connector", () => {
   it("uploads the chosen file and shows the result", async () => {
     load();
     mocked.uploadSupplyCsv.mockResolvedValue({ ...uploaded, ignored_columns: ["notes"] });
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     expect(screen.queryByRole("menuitem", { name: "Remove uploaded data" })).toBeNull();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Upload CSV" }));
@@ -101,7 +102,7 @@ describe("a CSV connector", () => {
       [{ line: 3, column: "stock", message: "A whole number, digits only." }, { line: 0, column: "", message: "Odd." }],
       52,
     ));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Upload CSV" }));
     await screen.findByLabelText("CSV file");
@@ -118,7 +119,7 @@ describe("a CSV connector", () => {
 
   it("refuses a file over 5 MB before sending it", async () => {
     load();
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Upload CSV" }));
     await screen.findByLabelText("CSV file");
@@ -132,7 +133,7 @@ describe("a CSV connector", () => {
 
   it("offers the template", async () => {
     load();
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Upload CSV" }));
     const link = (await screen.findByRole("link", { name: "Download a template" })) as HTMLAnchorElement;
@@ -142,7 +143,7 @@ describe("a CSV connector", () => {
   it("removes uploaded data after confirmation", async () => {
     load([csvConnector({ csv_import: uploaded })]);
     mocked.clearSupplyCsv.mockResolvedValue(undefined);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove uploaded data" }));
     expect(mocked.clearSupplyCsv).not.toHaveBeenCalled();
@@ -155,7 +156,7 @@ describe("a CSV connector", () => {
   it("asks for no budget when adding or editing", async () => {
     load([], [csvProvider]);
     mocked.createSupplyConnector.mockResolvedValue(csvConnector());
-    const { unmount } = render(<SupplyConnectorsView user={admin} />);
+    const { unmount } = render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /Add connector/ }));
     expect(await screen.findByLabelText("Currency")).toBeTruthy();
     expect(screen.queryByLabelText("Daily call budget")).toBeNull();
@@ -166,7 +167,7 @@ describe("a CSV connector", () => {
     unmount();
 
     load();
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Edit settings" }));
     expect(await screen.findByLabelText("Currency")).toBeTruthy();
@@ -175,7 +176,7 @@ describe("a CSV connector", () => {
 
   it("does not offer credentials for a provider that takes none", async () => {
     load();
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     await screen.findByRole("menuitem", { name: "Upload CSV" });
     expect(screen.queryByRole("menuitem", { name: "Replace credentials" })).toBeNull();

@@ -1,5 +1,5 @@
-/** The six Supply tabs, and where the old addresses lead. */
-export type SupplyTab = "dashboard" | "parts" | "projects" | "review" | "insights" | "connectors";
+/** The six Supply tabs and the settings page (reached from Connectors, not a tab), and where the old addresses lead. */
+export type SupplyTab = "dashboard" | "parts" | "projects" | "review" | "insights" | "connectors" | "settings";
 
 export interface SupplyPlace {
   tab: SupplyTab;
@@ -14,6 +14,7 @@ export function resolvePlace(view: string | null, tool: string | null): SupplyPl
     case "projects":
     case "review":
     case "connectors":
+    case "settings":
     case "insights":
     case "dashboard":
       return { tab: view, tool: view === "parts" && tool === "bom-file" ? "bom-file" : null };

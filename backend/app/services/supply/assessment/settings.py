@@ -129,6 +129,17 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     ENDING_WITHIN_2_YEARS: "The signals say the part ends within 2 years",
 })
 
+# Where each check is listed in the settings: one area for every check.
+AREAS = ("Lifecycle", "Sourcing", "Stock", "Compliance", "BOM line")
+CHECK_AREA: Mapping[str, str] = MappingProxyType({
+    OBSOLETE: "Lifecycle", NRND: "Lifecycle", LAST_TIME_BUY: "Lifecycle", DISTRIBUTOR_DISCONTINUED: "Lifecycle",
+    LIFECYCLE_DISAGREEMENT: "Lifecycle", ENDING_WITHIN_2_YEARS: "Lifecycle",
+    PART_NOT_FOUND: "Sourcing", SINGLE_SOURCE: "Sourcing", LEAD_TIME_OVER_THRESHOLD: "Sourcing", DATA_STALE: "Sourcing", PRICE_OUTLIER: "Sourcing",
+    NO_DISTRIBUTOR_STOCK: "Stock", INSUFFICIENT_STOCK: "Stock",
+    ROHS_NONCOMPLIANT: "Compliance", REACH_SVHC: "Compliance",
+    MANUFACTURER_MISSING: "BOM line", NOT_IN_LIBRARY: "BOM line", PARAMETER_MISMATCH: "BOM line", PACKAGE_MISMATCH: "BOM line",
+})
+
 # What a workspace may set. "ok" turns a check into a note that does not count against health.
 SEVERITY_CHOICES = (Status.OK, Status.WARNING, Status.ERROR, Status.FATAL)
 LEAD_TIME_RANGE = (1, 730)

@@ -1140,6 +1140,14 @@ export interface AssessmentSettings {
   last_buy_error_days: number;
   /** A read is late when it is this many hours past when the part's schedule wanted it. */
   late_hours: number;
+  /** Spares a costing orders: one percent for every part ("flat"), or by kind of part ("package"). */
+  spares_mode: "flat" | "package";
+  spares_percent: number;
+  spares_small_passives: number;
+  spares_others: number;
+  /** The price rise, and the chance of running out within four weeks, that raise an alert when a part has no rule of its own. */
+  alert_price_rise_percent: number;
+  alert_likely_out_percent: number;
   /** Prices in other currencies are converted to this one. */
   base_currency: string;
   /** Lists and price history price at this quantity, unless a part has its own. */
@@ -1154,8 +1162,11 @@ export interface AssessmentSettings {
 export interface AssessmentSettingsView {
   settings: AssessmentSettings;
   defaults: AssessmentSettings;
-  checks: Array<{ id: string; label: string }>;
-  ranges: { lead_time_days: [number, number]; last_buy_error_days: [number, number]; late_hours: [number, number]; price_quantity: [number, number] };
+  checks: Array<{ id: string; label: string; area: string }>;
+  ranges: {
+    lead_time_days: [number, number]; last_buy_error_days: [number, number]; late_hours: [number, number]; price_quantity: [number, number];
+    spares: [number, number]; alert_price_rise_percent: [number, number]; alert_likely_out_percent: [number, number];
+  };
 }
 
 /** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */
@@ -1448,6 +1459,8 @@ export interface ProjectSupply {
   /** The boards the page is worked out for, and the tracked project's usual build (null when it is not tracked). */
   build_quantity?: number;
   usual_build?: number | null;
+  /** The spares the page is worked out with, in percent; null is by kind of part. */
+  attrition_percent?: number | null;
   rollup?: SupplyBomRollup;
   counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];

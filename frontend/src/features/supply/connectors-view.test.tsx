@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { toast } from "sonner";
@@ -26,7 +27,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listSupplyCapacity: vi.fn(),
 }));
 
-vi.mock("./supply-settings-dialog", () => ({ SupplySettingsDialog: () => <div>Settings dialog</div> }));
 
 import * as api from "./supply-api";
 import { SupplyConnectorsView } from "./connectors-view";
@@ -55,7 +55,7 @@ afterEach(cleanup);
 describe("connectors list", () => {
   it("shows each connector with its state, budget and which credentials are set", async () => {
     load([connectorFixture({ credentials: { api_key: true, secret: false } })]);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     const card = await screen.findByRole("article", { name: "Demo EU" });
     expect(within(card).getByText("Needs credentials")).toBeTruthy();
     expect(within(card).getByText("Demo distributor · EUR")).toBeTruthy();
@@ -69,7 +69,7 @@ describe("connectors list", () => {
     const guess = { from: "22:20", to: "22:55", suggested: "22:55", tz: "UTC", windows: 2 };
     load([connectorFixture({ reset_suggestion: guess, rate_limits: { products: { "x-ratelimit-remaining": "9" } }, rate_limits_at: "2026-10-15T10:00:00Z" })]);
     mocked.updateSupplyConnector.mockResolvedValue(connectorFixture({ reset_from_provider: true, reset_time: "22:55", reset_tz: "UTC" }));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     const card = await screen.findByRole("article", { name: "Demo EU" });
     expect(within(card).getByText(/between 22:20 and 22:55 UTC/)).toBeTruthy();
     fireEvent.click(within(card).getByRole("button", { name: "Use 22:55" }));
@@ -78,7 +78,7 @@ describe("connectors list", () => {
 
   it("lets readers look but not change", async () => {
     load();
-    render(<SupplyConnectorsView user={designer} />);
+    render(<MemoryRouter><SupplyConnectorsView user={designer} /></MemoryRouter>);
     await screen.findByRole("article", { name: "Demo EU" });
     expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull();
     expect((screen.getByRole("button", { name: /Add connector/ }) as HTMLButtonElement).disabled).toBe(true);
@@ -86,13 +86,13 @@ describe("connectors list", () => {
 
   it("explains an empty list, with and without providers", async () => {
     load([], []);
-    const { unmount } = render(<SupplyConnectorsView user={admin} />);
+    const { unmount } = render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     expect(await screen.findByText(/No distributor providers are installed/)).toBeTruthy();
     expect((screen.getByRole("button", { name: /Add connector/ }) as HTMLButtonElement).disabled).toBe(true);
     unmount();
 
     load([], [providerFixture()]);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     expect(await screen.findByText(/Add a distributor to start/)).toBeTruthy();
     expect((screen.getByRole("button", { name: /Add connector/ }) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -102,7 +102,7 @@ describe("connectors list", () => {
       .mockRejectedValueOnce(new Error("Could not load providers"))
       .mockResolvedValue([providerFixture()]);
     mocked.listSupplyConnectors.mockResolvedValue([connectorFixture()]);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     expect(await screen.findByText("Could not load providers")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("article", { name: "Demo EU" })).toBeTruthy();
@@ -113,7 +113,7 @@ describe("adding a connector", () => {
   it("sends the form and shows the new connector", async () => {
     load([], [providerFixture()]);
     mocked.createSupplyConnector.mockResolvedValue(connectorFixture({ id: "c2", display_name: "Demo distributor" }));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /Add connector/ }));
     const submit = await screen.findByRole("button", { name: "Add connector", hidden: false });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
@@ -140,7 +140,7 @@ describe("adding a connector", () => {
   it("keeps the dialog open and shows the server's reason", async () => {
     load([], [providerFixture()]);
     mocked.createSupplyConnector.mockRejectedValue(new ApiHttpError(409, "A connector for this provider and storefront already exists.", "duplicate"));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /Add connector/ }));
     fireEvent.change(await screen.findByLabelText("API key"), { target: { value: "KEY-1" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Add connector" }).at(-1)!);
@@ -153,7 +153,7 @@ describe("changing a connector", () => {
   it("pauses with a reason", async () => {
     load();
     mocked.pauseSupplyConnector.mockResolvedValue(connectorFixture({ paused_reason: "over budget" }));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pause" }));
     const pause = await screen.findByRole("button", { name: "Pause" });
@@ -169,7 +169,7 @@ describe("changing a connector", () => {
   it("offers resume for a paused connector and applies the result", async () => {
     load([connectorFixture({ paused_reason: "over budget" })]);
     mocked.resumeSupplyConnector.mockResolvedValue(connectorFixture());
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     expect(screen.queryByRole("menuitem", { name: "Pause" })).toBeNull();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Resume" }));
@@ -180,7 +180,7 @@ describe("changing a connector", () => {
   it("saves only the fields that changed", async () => {
     load();
     mocked.updateSupplyConnector.mockResolvedValue(connectorFixture({ daily_budget: 500 }));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Edit settings" }));
     const save = await screen.findByRole("button", { name: "Save" });
@@ -193,7 +193,7 @@ describe("changing a connector", () => {
   it("never prefills credentials when replacing them", async () => {
     load();
     mocked.setSupplyConnectorCredentials.mockResolvedValue(connectorFixture());
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Replace credentials" }));
     const input = (await screen.findByLabelText("API key")) as HTMLInputElement;
@@ -206,7 +206,7 @@ describe("changing a connector", () => {
   it("deletes after confirmation", async () => {
     load();
     mocked.deleteSupplyConnector.mockResolvedValue(undefined);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     expect(mocked.deleteSupplyConnector).not.toHaveBeenCalled();
@@ -226,7 +226,7 @@ describe("testing a connection", () => {
   it("makes one call, says the provider answered, and reloads the numbers", async () => {
     load();
     mocked.testSupplyConnector.mockResolvedValue({ ok: true, code: "ok", message: "The provider accepted the credentials and answered.", took_ms: 812, checked_at: "2026-03-01T10:00:00Z" });
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await clickTest();
     await waitFor(() => expect(mocked.testSupplyConnector).toHaveBeenCalledWith("c1"));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
@@ -239,7 +239,7 @@ describe("testing a connection", () => {
   it("shows why a test failed", async () => {
     load();
     mocked.testSupplyConnector.mockResolvedValue({ ok: false, code: "auth_failed", message: "The provider rejected the credentials.", took_ms: 90, checked_at: "2026-03-01T10:00:00Z" });
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await clickTest();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
       "Demo EU failed",
@@ -251,7 +251,7 @@ describe("testing a connection", () => {
     load();
     let finish!: (value: Awaited<ReturnType<typeof api.testSupplyConnector>>) => void;
     mocked.testSupplyConnector.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await clickTest();
     await clickTest();
     expect(mocked.testSupplyConnector).toHaveBeenCalledTimes(1);
@@ -262,7 +262,7 @@ describe("testing a connection", () => {
   it("reports a test that could not run at all", async () => {
     load();
     mocked.testSupplyConnector.mockRejectedValue(new ApiHttpError(503, "Credential encryption is not set up"));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await clickTest();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
       "The test could not run",
@@ -272,7 +272,7 @@ describe("testing a connection", () => {
 
   it("is for administrators: others get no menu", async () => {
     load();
-    render(<SupplyConnectorsView user={designer} />);
+    render(<MemoryRouter><SupplyConnectorsView user={designer} /></MemoryRouter>);
     await screen.findByRole("article", { name: "Demo EU" });
     expect(screen.queryByRole("button", { name: "Actions for Demo EU" })).toBeNull();
   });
@@ -282,7 +282,7 @@ describe("capacity notes", () => {
   it("no longer says what the watchlist needs against what the budget allows: the day's bar and the room table do", async () => {
     load();
     mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 300, calls_per_day: 1840, usable_per_day: 900, fits: false, shortfall_pct: 51 })]);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     const card = await screen.findByRole("article", { name: "Demo EU" });
     expect(within(card).queryByText(/needs about/)).toBeNull();
     expect(within(card).queryByRole("alert")).toBeNull();
@@ -291,25 +291,22 @@ describe("capacity notes", () => {
   it("stays quiet with nothing watched and when capacity cannot be loaded", async () => {
     load();
     mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 0, calls_per_day: 0 })]);
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     const card = await screen.findByRole("article", { name: "Demo EU" });
     expect(within(card).queryByText(/needs about/)).toBeNull();
     cleanup();
     load();
     mocked.listSupplyCapacity.mockRejectedValue(new Error("down"));
-    render(<SupplyConnectorsView user={admin} />);
+    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     expect(await screen.findByRole("article", { name: "Demo EU" })).toBeTruthy();
     expect(screen.queryByText(/needs about/)).toBeNull();
   });
 
-  it("gives only administrators the settings button, beside Add connector", async () => {
+  it("opens the settings page from a gear for everyone who reads supply, beside Add connector", async () => {
     load();
-    render(<SupplyConnectorsView user={admin} />);
+    function Where() { return <p data-testid="where">{useLocation().search}</p>; }
+    render(<MemoryRouter><SupplyConnectorsView user={designer} /><Where /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: "Supply settings" }));
-    expect(await screen.findByText("Settings dialog")).toBeTruthy();
-    cleanup();
-    render(<SupplyConnectorsView user={designer} />);
-    await screen.findByRole("article", { name: "Demo EU" });
-    expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
+    expect(screen.getByTestId("where").textContent).toContain("supplyView=settings");
   });
 });

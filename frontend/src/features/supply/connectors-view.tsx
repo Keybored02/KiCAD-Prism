@@ -1,4 +1,5 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { Plug, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
@@ -25,7 +26,6 @@ import { useSupplyConnectors } from "./use-supply-connectors";
 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
-const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then((module) => ({ default: module.SupplySettingsDialog })));
 
 /** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
 export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
@@ -35,7 +35,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
   const budgets = useBudget();
   const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [, setSearchParams] = useSearchParams();
   const quick = useQuickConnectorActions(apply);
   const deletion = useConnectorSubmit();
   const clearing = useConnectorSubmit();
@@ -102,11 +102,12 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
           <Plus className="h-4 w-4" />Add connector
         </Button>
       </PermissionHint>
-      {isAdmin ? (
-        <Button variant="outline" size="icon" aria-label="Supply settings" onClick={() => setSettingsOpen(true)}>
-          <Settings className="h-4 w-4" />
-        </Button>
-      ) : null}
+      <Button
+        variant="outline" size="icon" aria-label="Supply settings" title="Supply settings"
+        onClick={() => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("section", "supply"); next.set("supplyView", "settings"); return next; })}
+      >
+        <Settings className="h-4 w-4" />
+      </Button>
     </>
   );
 
@@ -142,11 +143,6 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
         ) : null}
       </div>
 
-      {settingsOpen ? (
-        <Suspense fallback={null}>
-          <SupplySettingsDialog open onOpenChange={setSettingsOpen} />
-        </Suspense>
-      ) : null}
       <CreateConnectorDialog
         open={dialog?.kind === "create"}
         onOpenChange={(open) => { if (!open) closeDialog(); }}

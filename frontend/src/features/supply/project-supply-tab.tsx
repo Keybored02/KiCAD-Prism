@@ -80,10 +80,11 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
   const [variant, setVariant] = useState("");
   // The boards a person typed; until then the page is for the project's usual build (100 when it has none).
   const [boardsChoice, setBoards] = useState<number | null>(null);
-  const [attrition, setAttrition] = useState<number | null>(0);
+  // The spares a person chose; until then the page shows the workspace's (Supply settings), which the server applies.
+  const [attritionChoice, setAttrition] = useState<number | null | undefined>(undefined);
   const [chip, setChip] = useState<Chip | null>(null);
   const navigate = useNavigate();
-  const spares = attrition === null ? "auto" : attrition === 0 ? "" : String(attrition);
+  const spares = attritionChoice === undefined ? "" : attritionChoice === null ? "auto" : String(attritionChoice);
   const fetcher = useCallback(
     (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, spares, signal),
     [projectId, variant, boardsChoice, spares],
@@ -93,6 +94,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
   const [last, setLast] = useState<ProjectSupply | null>(null);
   if (loaded.data && loaded.data !== last) setLast(loaded.data);
   const boards = boardsChoice ?? loaded.data?.build_quantity ?? last?.build_quantity ?? 100;
+  const attrition = attritionChoice !== undefined ? attritionChoice : (loaded.data ?? last)?.attrition_percent ?? null;
   const forecast = useProjectForecast(projectId, variant, boards, allowed && loaded.data?.available === true);
   if (!allowed) return <p className="text-sm text-muted-foreground">Supply data is not available to your role.</p>;
   if (loaded.status === "error" && !loaded.data) {
