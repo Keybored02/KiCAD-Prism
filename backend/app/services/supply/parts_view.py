@@ -433,22 +433,14 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     stats["variants"] = list(tracked["variants"]) if tracked else []
     stats["all_variants"] = bool(tracked and tracked["all_variants"])
     stats["packaging"] = tracked["packaging"] if tracked else None
-    latest = conn.execute(
-        "SELECT day, cost_per_board, currency, rollup, build_quantity FROM bom_cost_history WHERE project_id = %s AND variant = %s ORDER BY day DESC LIMIT 1",
-        (project_id, (tracked["variants"] or [""])[0] if tracked else ""),
-    ).fetchone()
-    if latest:
-        before = conn.execute(
-            "SELECT cost_per_board FROM bom_cost_history WHERE project_id = %s AND variant = %s AND build_quantity = %s AND day <= %s "
-            "ORDER BY day DESC LIMIT 1",
-            (project_id, (tracked["variants"] or [""])[0], latest["build_quantity"], latest["day"] - timedelta(days=30)),
-        ).fetchone()
+    from app.services.supply import cost_history
+
+    kept, _left_out = cost_history.series(conn, project_id, (tracked["variants"] or [""])[0] if tracked else "", 120)
+    if kept:
+        latest = kept[-1]
         stats["cost_per_board"] = format(latest["cost_per_board"], "f")
         stats["currency"] = latest["currency"]
-        stats["cost_change_percent"] = (
-            round((float(latest["cost_per_board"]) - float(before["cost_per_board"])) / float(before["cost_per_board"]) * 100, 1)
-            if before and before["cost_per_board"] else None
-        )
+        stats["cost_change_percent"] = cost_history.change_percent(kept)
         stats["boards"] = (latest["rollup"] or {}).get("can_build")
     stats["alerts"] = int(conn.execute(
         "SELECT COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])

@@ -11,18 +11,16 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from app.services.supply import bom_comments, bom_lookup, part_insights, parts_view, tracking, usage
+from app.services.supply import bom_comments, bom_lookup, cost_history, part_insights, parts_view, tracking, usage
 from app.services.supply.assessment import settings_store
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
 COST_HISTORY_DAYS = 180
-# The rows of the series the project is on now: the build size of the newest row. A changed usual build starts a new series, as a
-# currency change does for prices. ``h`` is the history table.
-SAME_SERIES = (
-    "h.build_quantity = (SELECT l.build_quantity FROM bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
-    "ORDER BY l.day DESC LIMIT 1)"
-)
+# Build sizes the page's cost curve is worked out for, and the chosen one.
+CURVE_SIZES = (1, 10, 100, 1_000, 10_000)
+# Lines the "where the money goes" list names before it says "other".
+TOP_LINES = 10
 # What changed since a release is told for parts that were fine then and are not now.
 _GOOD = ("ok", "warning", None)
 _BAD = ("error", "fatal")
@@ -52,9 +50,13 @@ def attrition_of(spares: str) -> float | None | str:
 
 def _parts(
     conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[str, int], attrition_percent: float | None = 0,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, int], list[dict[str, Any]]]:
     lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-    result = bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
+    # What is read does not depend on the build size: it is read once, and priced for the chosen size and for the curve.
+    loaded = bom_lookup.load(conn, lines)
+    result = bom_lookup.price(conn, loaded, build_quantity, attrition_percent)
+    sizes = sorted({*CURVE_SIZES, build_quantity})
+    curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
     tiers = {
         row["part_id"]: row["tier"]
@@ -94,7 +96,7 @@ def _parts(
             "alerts": alerts.get(part_id, 0),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
-    return parts, result["rollup"], alerts
+    return parts, result["rollup"], alerts, curve
 
 
 def _counts(parts: list[dict[str, Any]], rollup: dict[str, Any], alerts: dict[str, int], facts: dict[str, dict[str, Any]]) -> dict[str, int]:
@@ -177,16 +179,35 @@ def snapshot_costs(conn, now: datetime) -> int:
     return written
 
 
-def _cost_history(conn, project_id: str, variant: str) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        f"SELECT day, cost_per_board, currency, lines, lines_priced FROM bom_cost_history h WHERE project_id = %s AND variant = %s AND {SAME_SERIES} "
-        "ORDER BY day DESC LIMIT %s", (project_id, variant, COST_HISTORY_DAYS),
-    ).fetchall()
-    return [
-        {"day": row["day"].isoformat(), "cost_per_board": format(row["cost_per_board"], "f"), "currency": row["currency"],
-         "complete": row["lines_priced"] >= row["lines"]}
-        for row in reversed(rows)
+def _cost_history(conn, project_id: str, variant: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The days to draw, and the days left out as one price read wrong (see ``cost_history``)."""
+
+    kept, left_out = cost_history.series(conn, project_id, variant, COST_HISTORY_DAYS)
+
+    def shown(row: dict[str, Any]) -> dict[str, Any]:
+        return {"day": row["day"].isoformat(), "cost_per_board": format(row["cost_per_board"], "f"), "currency": row["currency"], "boards": row["build_quantity"]}
+
+    return [shown(row) for row in kept], [shown(row) for row in left_out]
+
+
+def _where_the_money_goes(parts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The lines that cost the most for the build, with their share, then what all the other lines cost. None when nothing is priced."""
+
+    priced = sorted(
+        ((float(part["line_cost"]), part) for part in parts if part.get("line_cost") not in (None, "")), key=lambda pair: -pair[0],
+    )
+    total = sum(cost for cost, _part in priced)
+    if not priced or total <= 0:
+        return None
+    top = [
+        {"key": part["key"], "part_id": part["part_id"], "mpn": part["mpn"], "manufacturer": part["manufacturer"], "cost": format(cost, ".2f"), "share": round(cost / total, 4)}
+        for cost, part in priced[:TOP_LINES]
     ]
+    rest = priced[TOP_LINES:]
+    return {
+        "lines": top, "other": {"count": len(rest), "cost": format(sum(cost for cost, _part in rest), ".2f"), "share": round(sum(cost for cost, _part in rest) / total, 4)},
+        "total": format(total, ".2f"),
+    }
 
 
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
@@ -205,13 +226,14 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int | Non
         notes_by_line[note["line_key"]] = notes_by_line.get(note["line_key"], 0) + 1
     if not rows:
         return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "releases": [], "notes": notes}
-    parts, rollup, alerts = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)
+    parts, rollup, alerts, curve = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)
+    history, left_out = _cost_history(conn, project_id, variant)
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     part_ids = sorted(status_now)
     return {
         "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
         "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
-        "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "releases": _releases(conn, project_id, status_now), "notes": notes,
+        "parts": parts, "cost_curve": curve, "money": _where_the_money_goes(parts), "cost_history": history, "cost_history_left_out": left_out, "releases": _releases(conn, project_id, status_now), "notes": notes,
     }
 
 

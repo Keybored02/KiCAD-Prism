@@ -272,14 +272,32 @@ def with_library_identity(lines: Sequence[BomLine], library: Mapping[str, tuple[
     return [replace(line, manufacturer=library[line.prism_id][0], mpn=library[line.prism_id][1]) if line.prism_id in library else line for line in lines]
 
 
-def lookup(
+@dataclass(frozen=True)
+class Loaded:
+    """What a lookup reads from the database, which does not depend on how many boards are built: pricing it for another build size
+    reads nothing again."""
+
+    lines: list[BomLine]
+    known: Mapping[str, tuple[str, str]]
+    resolved: Mapping[str, tuple[str, str | None, str]]
+    items: list[dict[str, Any]]
+    offers: Mapping[str, Sequence[Mapping[str, Any]]]
+    summary: Mapping[str, dict[str, Any]]
+    per_board: Mapping[str, int]
+    first_line: Mapping[str, str]
+    by_key: Mapping[str, BomLine]
+    settings: Any
+    extras: Mapping[str, list]
+    rates: fx.Rates | None
+    preferred_of: Mapping[str, Any]
+
+
+def load(
     conn,
     lines: Sequence[BomLine],
-    build_quantity: int,
-    attrition_percent: float | None = 0,
     identities: usage.Identities | None = None,
     in_library: Callable[[Iterable[tuple[str, str]]], set[tuple[str, str]]] | None = None,
-) -> dict[str, Any]:
+) -> Loaded:
     if len(lines) > MAX_LINES:
         raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
     known = library_identities(lines, identities)
@@ -298,32 +316,42 @@ def lookup(
         if part_id:
             per_board[part_id] = per_board.get(part_id, 0) + line.quantity
             first_line.setdefault(part_id, line.key)
-
-    # `None` asks for spares by kind of part, taken from the footprint on the part's first line; a number is for every part.
-    by_key = {line.key: line for line in lines}
     settings = settings_store.load(conn)
-    table = settings.spares_table()
-    percents = {
-        part_id: attrition.percent_for(by_key[first_line[part_id]].footprint, table) if attrition_percent is None else attrition_percent
-        for part_id in per_board
-    }
-    needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in per_board.items()}
     extras: dict[str, list] = {}
     _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings, extras)
-    assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
+    return Loaded(
+        lines=list(lines), known=known, resolved=resolved, items=items, offers=offers, summary=summary, per_board=per_board,
+        first_line=first_line, by_key={line.key: line for line in lines}, settings=settings, extras=extras,
+        rates=fx.latest(conn), preferred_of=preferences.of_parts(conn, list(per_board)),
+    )
 
-    rates = fx.latest(conn)
-    preferred_of = preferences.of_parts(conn, list(per_board))
+
+def _percents(loaded: Loaded, attrition_percent: float | None) -> dict[str, float]:
+    """Spares per part. `None` asks for spares by kind of part, taken from the footprint on the part's first line; a number is for every part."""
+
+    table = loaded.settings.spares_table()
+    return {
+        part_id: attrition.percent_for(loaded.by_key[loaded.first_line[part_id]].footprint, table) if attrition_percent is None else attrition_percent
+        for part_id in loaded.per_board
+    }
+
+
+def _entries(
+    loaded: Loaded, build_quantity: int, attrition_percent: float | None, percents: Mapping[str, float], needs: Mapping[str, int],
+    assessed: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    """The result of each line for a build size. Without ``assessed`` (a cost curve asks only for prices and stock) a line has no assessment."""
+
     results: dict[str, dict[str, Any]] = {}
-    for line in lines:
-        state, part_id, how = resolved[line.key]
+    for line in loaded.lines:
+        state, part_id, how = loaded.resolved[line.key]
         entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": needed(line.quantity, build_quantity, percents.get(part_id, attrition_percent or 0) if part_id else (attrition_percent or 0))}
         if part_id:
-            item = summary[part_id]
-            offers_here = offers.get(part_id, [])
+            item = loaded.summary[part_id]
+            offers_here = loaded.offers.get(part_id, [])
             stock = item["stock"]
             part_need = needs[part_id]
-            leader = first_line[part_id]
+            leader = loaded.first_line[part_id]
             entry |= {
                 "watched": item["tracking"] is not None,
                 "jlc": item.get("jlc"),
@@ -336,21 +364,59 @@ def lookup(
                 "part_need": part_need,
                 "short": stock is not None and stock < part_need,
                 # Only the first line of a part carries the purchase; the others say where it is.
-                "buy": _best_purchase(offers_here, part_need, rates, settings.base_currency, _preferred_for(part_id, preferred_of, settings)) if line.key == leader else None,
+                "buy": _best_purchase(offers_here, part_need, loaded.rates, loaded.settings.base_currency, _preferred_for(part_id, loaded.preferred_of, loaded.settings)) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
                 # The distributor a person prefers for this part, with what it holds, shown first in the drawer.
-                "preferred": _preferred_standing(offers_here, preferred_of.get(part_id)),
-                "assessment": _assessment_line(assessed[part_id]),
+                "preferred": _preferred_standing(offers_here, loaded.preferred_of.get(part_id)),
+                "assessment": _assessment_line(assessed[part_id]) if assessed is not None else None,
             }
         results[line.key] = entry
+    return results
+
+
+def price(conn, loaded: Loaded, build_quantity: int, attrition_percent: float | None = 0) -> dict[str, Any]:
+    """The lookup for a build size, from what ``load`` read."""
+
+    percents = _percents(loaded, attrition_percent)
+    needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in loaded.per_board.items()}
+    assessed = assessment.assess_summaries(conn, loaded.items, loaded.offers, needs, datetime.now(timezone.utc), loaded.settings, loaded.extras)
+    results = _entries(loaded, build_quantity, attrition_percent, percents, needs, assessed)
     return {
         "build_quantity": build_quantity,
         "attrition_percent": attrition_percent,
         "attrition_by_part": percents if attrition_percent is None else None,
         "lines": results,
-        "rollup": _rollup(lines, results, build_quantity, per_board, first_line, percents, rates, settings.base_currency)
+        "rollup": _rollup(loaded.lines, results, build_quantity, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.base_currency)
         | _health_rollup(assessed, needs),
     }
+
+
+def cost_curve(loaded: Loaded, sizes: Sequence[int], attrition_percent: float | None = 0) -> list[dict[str, Any]]:
+    """What the BOM costs at each build size, from one load: the cost of a board, the money out and the parts the stock cannot cover. It
+    assesses nothing, so it is the pricing alone."""
+
+    curve = []
+    for boards in sizes:
+        percents = _percents(loaded, attrition_percent)
+        needs = {part_id: needed(count, boards, percents[part_id]) for part_id, count in loaded.per_board.items()}
+        results = _entries(loaded, boards, attrition_percent, percents, needs, None)
+        rollup = _rollup(loaded.lines, results, boards, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.base_currency)
+        curve.append({
+            "boards": boards, "cost_per_board": rollup["cost_per_board"], "cost_build": rollup["cost_build"], "currency": rollup["currency"],
+            "short": rollup["short"], "lines_priced": rollup["lines_priced"], "lines": rollup["lines"],
+        })
+    return curve
+
+
+def lookup(
+    conn,
+    lines: Sequence[BomLine],
+    build_quantity: int,
+    attrition_percent: float | None = 0,
+    identities: usage.Identities | None = None,
+    in_library: Callable[[Iterable[tuple[str, str]]], set[tuple[str, str]]] | None = None,
+) -> dict[str, Any]:
+    return price(conn, load(conn, lines, identities, in_library), build_quantity, attrition_percent)
 
 
 def _line_findings(conn, lines, resolved, summary, first_line, placed, in_library, settings, extras) -> None:

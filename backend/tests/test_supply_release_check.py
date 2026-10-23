@@ -302,7 +302,7 @@ class ReleaseCheckTests(unittest.TestCase):
             self.assertEqual(project_supply.snapshot_costs(conn, NOW), 0, "once a day")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             history = self.request("prj_7/supply").json["cost_history"]
-        self.assertEqual([(point["cost_per_board"], point["complete"]) for point in history], [("0.5000", True)])
+        self.assertEqual([(point["cost_per_board"], point["boards"]) for point in history], [("0.5000", 100)])
 
     def test_the_workspaces_spares_are_the_pages_unless_it_names_its_own(self) -> None:
         from app.services.supply import usage
@@ -321,6 +321,66 @@ class ReleaseCheckTests(unittest.TestCase):
         with self.store.connection() as conn:
             settings_store.save(conn, {"spares_mode": "package"}, "admin@example.com")
             self.assertIsNone(settings_store.load(conn).default_attrition())
+
+    def test_the_cost_curve_equals_single_lookups_and_the_money_goes_to_the_biggest_lines(self) -> None:
+        from app.services.supply import bom_lookup, usage
+
+        self.part("GOOD-1", stock=5000)
+        self.part("WARN-1", stock=50)
+        project = SimpleNamespace(id="prj_57", name="Fifty seven")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.4\"], [1000, \"0.2\"]]'::jsonb")
+            usage.store_project(conn, "prj_57", "Fifty seven", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("U1", "Acme", "WARN-1"),
+            ]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            page = self.request("prj_57/supply", query="build_quantity=250").json
+        curve = {point["boards"]: point for point in page["cost_curve"]}
+        self.assertEqual(sorted(curve), [1, 10, 100, 250, 1000, 10000], "the usual sizes and the chosen one")
+        lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in self.rows_of("prj_57")]
+        with self.store.connection() as conn:
+            for boards, point in curve.items():
+                single = bom_lookup.lookup(conn, lines, boards, 0)["rollup"]
+                self.assertEqual((point["cost_per_board"], point["cost_build"], point["short"]), (single["cost_per_board"], single["cost_build"], single["short"]), boards)
+        money = page["money"]
+        self.assertEqual(len(money["lines"]), 2)
+        self.assertEqual(money["other"]["count"], 0)
+        self.assertAlmostEqual(sum(item["share"] for item in money["lines"]) + money["other"]["share"], 1.0, places=3)
+
+    def rows_of(self, project_id: str):
+        from app.services.supply import usage
+
+        with self.store.connection() as conn:
+            return usage.project_rows(conn, project_id, "")
+
+    def test_the_cost_history_leaves_out_a_day_that_priced_fewer_lines_and_one_price_read_wrong(self) -> None:
+        from datetime import date, timedelta
+
+        from app.services.supply import cost_history
+
+        project = SimpleNamespace(id="prj_58", name="Fifty eight")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        today = date(2026, 3, 1)
+        rows = [(0, "130.0600", 24), (1, "1476446.1400", 147), (2, "300.0000", 147), (3, "310.0000", 147), (4, "305.0000", 147)]
+        with self.store.connection() as conn:
+            from app.services.supply import usage
+
+            usage.store_project(conn, "prj_58", "Fifty eight", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+            for back, cost, priced in rows:
+                conn.execute(
+                    "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                    "VALUES ('prj_58', '', %s, %s, 'EUR', 150, %s, '{}'::jsonb, 100)", (today - timedelta(days=4 - back), cost, priced))
+            kept, left_out = cost_history.series(conn, "prj_58", "", 30)
+        self.assertEqual([float(row["cost_per_board"]) for row in kept], [300.0, 310.0, 305.0], "the 24-line day and the day that read one price wrong are out")
+        self.assertEqual([(row["day"], float(row["cost_per_board"])) for row in left_out], [(today - timedelta(days=3), 1476446.14)])
+        self.assertIsNone(cost_history.change_percent(kept), "no kept day is 30 days before the latest")
 
     def test_a_tracked_project_is_costed_for_its_usual_build_and_a_changed_one_starts_a_new_series(self) -> None:
         from datetime import timedelta

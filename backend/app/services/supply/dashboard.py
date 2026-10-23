@@ -72,21 +72,22 @@ def _alerts_by_day(conn, today: date) -> list[dict[str, Any]]:
 def _project_costs(conn, today: date) -> list[dict[str, Any]]:
     """The cost of one board a day for each tracked project (the base design), 90 days."""
 
-    rows = conn.execute(
-        """
-        SELECT h.project_id, COALESCE(u.project_name, h.project_id) AS project_name, h.day, h.cost_per_board, h.currency
-        FROM bom_cost_history h LEFT JOIN bom_usage_projects u ON u.project_id = h.project_id
-        WHERE h.variant = '' AND h.day >= %s AND h.build_quantity = (
-            SELECT l.build_quantity FROM bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant ORDER BY l.day DESC LIMIT 1)
-        ORDER BY h.project_id, h.day
-        """,
+    from app.services.supply import cost_history
+
+    projects = conn.execute(
+        "SELECT DISTINCT h.project_id, COALESCE(u.project_name, h.project_id) AS project_name FROM bom_cost_history h "
+        "LEFT JOIN bom_usage_projects u ON u.project_id = h.project_id WHERE h.variant = '' AND h.day >= %s ORDER BY 1",
         (today - timedelta(days=COST_DAYS),),
     ).fetchall()
-    found: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        entry = found.setdefault(row["project_id"], {"project_id": row["project_id"], "project_name": row["project_name"], "currency": row["currency"], "points": []})
-        entry["points"].append([row["day"].isoformat(), float(row["cost_per_board"])])
-    return list(found.values())
+    found: list[dict[str, Any]] = []
+    for project in projects:
+        kept, _left_out = cost_history.series(conn, project["project_id"], "", COST_DAYS)
+        if kept:
+            found.append({
+                "project_id": project["project_id"], "project_name": project["project_name"], "currency": kept[-1]["currency"],
+                "points": [[row["day"].isoformat(), float(row["cost_per_board"])] for row in kept],
+            })
+    return found
 
 
 def build(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
