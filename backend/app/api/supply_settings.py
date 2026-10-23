@@ -28,6 +28,12 @@ class AssessmentSettingsBody(BaseModel):
     lead_time_days: int
     last_buy_error_days: int = 180
     late_hours: int = 48
+    spares_mode: str = "flat"
+    spares_percent: float = 0.0
+    spares_small_passives: float = 2.0
+    spares_others: float = 0.0
+    alert_price_rise_percent: int = 20
+    alert_likely_out_percent: int = 70
     base_currency: str = "EUR"
     price_quantity: int = 100
     prefer_distributors: bool = False
@@ -46,6 +52,8 @@ def _view(current: rules.AssessmentSettings) -> dict[str, Any]:
         "defaults": rules.to_dto(rules.DEFAULTS),
         "checks": [{"id": check, "label": label} for check, label in rules.CHECK_LABELS.items()],
         "ranges": {"lead_time_days": list(rules.LEAD_TIME_RANGE), "last_buy_error_days": list(rules.LAST_BUY_ERROR_RANGE), "late_hours": list(rules.LATE_HOURS_RANGE),
+                   "spares": list(rules.SPARES_RANGE), "alert_price_rise_percent": list(rules.ALERT_PRICE_RISE_RANGE),
+                   "alert_likely_out_percent": list(rules.ALERT_LIKELY_OUT_RANGE),
                    "price_quantity": list(rules.PRICE_QUANTITY_RANGE)},
     }
 

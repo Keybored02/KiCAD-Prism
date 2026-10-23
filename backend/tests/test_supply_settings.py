@@ -28,6 +28,21 @@ class ValidationTests(unittest.TestCase):
         stored = rules.validate(self.good())
         self.assertEqual(rules.to_dto(rules.from_dto(stored)), self.good())
 
+    def test_spares_and_alert_defaults_are_kept_and_the_spares_become_a_table_or_a_percent(self) -> None:
+        flat = rules.from_dto(rules.validate({**self.good(), "spares_percent": 5}))
+        self.assertEqual((flat.default_attrition(), flat.spares_table()), (5.0, {"small_passive": 2.0, "other": 0.0}))
+        package = rules.from_dto(rules.validate({**self.good(), "spares_mode": "package", "spares_small_passives": 3, "spares_others": 1}))
+        self.assertEqual((package.default_attrition(), package.spares_table()), (None, {"small_passive": 3.0, "other": 1.0}))
+        for bad, message in (
+            ({"spares_mode": "lots"}, "one percent for every part or by kind of part"),
+            ({"spares_percent": 101}, "spares must be a percent"),
+            ({"alert_price_rise_percent": 0}, "price rise that raises an alert must be a whole number from 1 to 500"),
+            ({"alert_likely_out_percent": 49}, "chance of running out that raises an alert must be a whole number from 50 to 99"),
+        ):
+            with self.assertRaises(ValueError) as caught:
+                rules.validate({**self.good(), **bad})
+            self.assertIn(message, str(caught.exception).replace("The spares", "spares"), bad)
+
     def test_missing_parts_fall_back_to_the_defaults(self) -> None:
         self.assertEqual(rules.validate({"lead_time_days": 30})["late_hours"], rules.DEFAULTS.late_hours)
 

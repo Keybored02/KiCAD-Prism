@@ -301,12 +301,13 @@ def lookup(
 
     # `None` asks for spares by kind of part, taken from the footprint on the part's first line; a number is for every part.
     by_key = {line.key: line for line in lines}
+    settings = settings_store.load(conn)
+    table = settings.spares_table()
     percents = {
-        part_id: attrition.percent_for(by_key[first_line[part_id]].footprint) if attrition_percent is None else attrition_percent
+        part_id: attrition.percent_for(by_key[first_line[part_id]].footprint, table) if attrition_percent is None else attrition_percent
         for part_id in per_board
     }
     needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in per_board.items()}
-    settings = settings_store.load(conn)
     extras: dict[str, list] = {}
     _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings, extras)
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)

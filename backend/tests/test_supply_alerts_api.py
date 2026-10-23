@@ -279,6 +279,21 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual((alert["detail"]["was"], alert["detail"]["now"], alert["detail"]["currency"]), ("1", "1.3", "EUR"))
         self.assertEqual(alert["detail"]["change_percent"], 30.0)
 
+    def test_the_workspaces_price_rise_decides_and_a_parts_own_rule_wins(self) -> None:
+        from app.services.supply.assessment import settings_store
+
+        rising = self.priced_part("PRICEY", "1.00", "1.30")
+        with self.store.connection() as conn:
+            settings_store.save(conn, {"alert_price_rise_percent": 40}, "admin@example.com")
+        for later in (timedelta(0), timedelta(hours=1)):
+            self.evaluate(rising["part_id"], after=later)
+        self.assertEqual(self.listed(), [], "30% is under the workspace's 40%")
+        path = f"/api/supply/parts/{rising['part_id']}/alert-rules"
+        self.assertEqual(self.call("PUT", path, body={"muted": [], "price_rise_percent": 25}).status, 200)
+        for later in (timedelta(hours=2), timedelta(hours=3)):
+            self.evaluate(rising["part_id"], after=later)
+        self.assertEqual([item["kind"] for item in self.listed()], ["price_up"], "the part asked for 25%")
+
     def test_a_threshold_already_crossed_is_the_alert_not_also_a_projection(self) -> None:
         watch = self.falling_part(threshold=1000)
         for later in (timedelta(0), timedelta(hours=1)):

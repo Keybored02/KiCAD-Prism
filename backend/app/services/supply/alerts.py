@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any, Iterable, Mapping
 
 from app.services.supply import alert_rules, insights, parts_view, pcn, prices
+from app.services.supply.assessment import settings_store
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Lifecycle, Status
 
@@ -80,6 +81,7 @@ def conditions_for(
     assessed: str | None = None,
     mark: str | None = None,
     likely: Mapping[str, Any] | None = None,
+    price_rise_default: int = PRICE_RISE_PERCENT,
 ) -> dict[str, Condition]:
     """The lines a tracked part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
@@ -106,7 +108,7 @@ def conditions_for(
         found.pop(RUPTURE_SOON, None)
         if likely["chance"] is not None:
             found[LIKELY_OUT] = Condition(Status.WARNING.value, {"chance": likely["chance"], "weeks": 4})
-    if price is not None and price["change_percent"] >= (rules.price_rise_percent or PRICE_RISE_PERCENT):
+    if price is not None and price["change_percent"] >= (rules.price_rise_percent or price_rise_default):
         found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
     if notice is not None:
         found[PCN] = Condition(Status.ERROR.value if notice["soon"] else Status.WARNING.value, dict(notice))
@@ -147,7 +149,11 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
     current = {}
     rules = alert_rules.for_parts(conn, ids)
     assessed, marks = _assessment_states(conn, ids, now)
-    likely = _likely_out(conn, ids, {part_id: rule.likely_out_percent for part_id, rule in rules.items() if rule.likely_out_percent})
+    defaults = settings_store.load(conn)
+    likely = _likely_out(
+        conn, ids, {part_id: rule.likely_out_percent for part_id, rule in rules.items() if rule.likely_out_percent},
+        defaults.alert_likely_out_percent / 100,
+    )
     for item in parts_view.summaries_for(conn, ids):
         tracked = item["tracking"] is not None
         # A projection needs history, which costs queries: only for tracked parts with stock to lose.
@@ -160,7 +166,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if tracked else None
         current[item["id"]] = conditions_for(
             item, insight, price, notice, rules.get(item["id"], alert_rules.NONE), assessed.get(item["id"]), marks.get(item["id"]),
-            likely.get(item["id"]) if tracked else None,
+            likely.get(item["id"]) if tracked else None, defaults.alert_price_rise_percent,
         )
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
@@ -182,9 +188,9 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
                 _update(conn, row, kind, condition, now)
 
 
-def _likely_out(conn, ids: list[str], percent: dict[str, int] | None = None) -> dict[str, dict[str, Any]]:
+def _likely_out(conn, ids: list[str], percent: dict[str, int] | None = None, default: float = LIKELY_OUT_CHANCE) -> dict[str, dict[str, Any]]:
     """For tracked daily parts, once the four-week model is shown: the chance they are out everywhere within four weeks, if the last two
-    runs both said at least the part's own chance (``percent``, else ``LIKELY_OUT_CHANCE``); else None, which clears the alert. Empty
+    runs both said at least the part's own chance (``percent``, else the workspace's ``default``); else None, which clears the alert. Empty
     while the model is learning."""
 
     from app.services.supply import forecasting
@@ -202,7 +208,7 @@ def _likely_out(conn, ids: list[str], percent: dict[str, int] | None = None) -> 
         (ids,),
     ).fetchall():
         lately = [float(value) for value in row["lately"]]
-        needed = (percent or {}).get(row["subject_id"], 0) / 100 or LIKELY_OUT_CHANCE
+        needed = (percent or {}).get(row["subject_id"], 0) / 100 or default
         found[row["subject_id"]] = {"chance": min(lately) if len(lately) == 2 and min(lately) >= needed else None}
     return found
 

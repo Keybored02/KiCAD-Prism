@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.supply import bom_comments, bom_lookup, part_insights, parts_view, tracking, usage
+from app.services.supply.assessment import settings_store
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
@@ -27,14 +28,19 @@ _GOOD = ("ok", "warning", None)
 _BAD = ("error", "fatal")
 
 
-def attrition_of(spares: str) -> float | None:
-    """The spares a request asks for: "auto" is by package (None), a number is that percent for every part, empty is none."""
+# "Spares as the workspace has them set", until the request names its own.
+DEFAULT = "default"
+
+
+def attrition_of(spares: str) -> float | None | str:
+    """The spares a request asks for: "auto" is by package (None), a number is that percent for every part, empty is the workspace's
+    setting (``DEFAULT``)."""
 
     text = (spares or "").strip().lower()
     if text == "auto":
         return None
     if not text:
-        return 0
+        return DEFAULT
     try:
         percent = float(text)
     except ValueError as exc:
@@ -158,7 +164,7 @@ def snapshot_costs(conn, now: datetime) -> int:
                 continue
             lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
             boards = int(project["build_quantity"])
-            rollup = bom_lookup.lookup(conn, lines, boards)["rollup"]
+            rollup = bom_lookup.lookup(conn, lines, boards, settings_store.load(conn).default_attrition())["rollup"]
             if rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
@@ -183,9 +189,11 @@ def _cost_history(conn, project_id: str, variant: str) -> list[dict[str, Any]]:
     ]
 
 
-def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None = 0) -> dict[str, Any]:
-    """``build_quantity`` None is the tracked project's usual build, else 100."""
+def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
+    """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the workspace's spares."""
 
+    if attrition_percent == DEFAULT:
+        attrition_percent = settings_store.load(conn).default_attrition()
     tracked = tracking.tracked_project(conn, project_id)
     usual = int(tracked["build_quantity"]) if tracked else None
     if build_quantity is None:
@@ -201,7 +209,7 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int | Non
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     part_ids = sorted(status_now)
     return {
-        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
+        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
         "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
         "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "releases": _releases(conn, project_id, status_now), "notes": notes,
     }
@@ -213,7 +221,7 @@ COST_HEADER = (
 )
 
 
-def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None = 0) -> str | None:
+def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> str | None:
     """The BOM costed at a build size, as a CSV. It is a costing, not an order: it names no distributor, SKU or link, and says
     which pieces the smallest orders add. None when the BOM has not been read."""
 
@@ -222,6 +230,8 @@ def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, 
 
     from app.services.supply.compliance_draft import _safe
 
+    if attrition_percent == DEFAULT:
+        attrition_percent = settings_store.load(conn).default_attrition()
     rows = usage.project_rows(conn, project_id, variant)
     if not rows:
         return None
