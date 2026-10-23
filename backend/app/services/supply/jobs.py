@@ -442,7 +442,8 @@ def _spend_spare(
 
 
 def run_supply_poll_job(context: Any) -> Any:
-    """Job handler: search for new listings, then ask about the ones that are due."""
+    """Job handler: ask about the listings that are due, then search for new ones, so a big project's first searches never hold back the
+    day's reads."""
 
     from app.services.job_runtime import JobResult
 
@@ -460,10 +461,10 @@ def run_supply_poll_job(context: Any) -> Any:
                 refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
         except Exception:  # noqa: BLE001 - without the figure no call counts as free; the job's own work goes on
             logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
-        context.progress(stage="supply-discover", message="Searching for listings", percent=10, force=True)
-        found = Discoverer(connectors).run(connector_id)
-        context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
+        context.progress(stage="supply-poll", message="Reading stock and prices", percent=10, force=True)
         polled = Poller(connectors).poll_connector(connector_id)
+        context.progress(stage="supply-discover", message="Searching for listings", percent=50, force=True)
+        found = Discoverer(connectors).run(connector_id)
         try:
             oneoff.run(Discoverer(connectors), Poller(connectors), connectors.store, connector_id)
         except Exception:  # noqa: BLE001 - a check that fails is tried again; it never fails the job

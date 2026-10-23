@@ -169,21 +169,25 @@ class Discoverer:
         service = self._service(provider, connector_id, spec)
         searched = listings = 0
         stopped: str | None = None
-        # A first search is a one-off cost of taking a part on, paid from the pool; a repeat comes from the committed share.
+        # Asked once, before searching: the listings the searches find are read by the next job, not ahead of what was due already.
+        reads_due = any(item.first for item in pending) and self._read_is_due(connector_id, now)
+        # A first search is scheduled work, paid from the background allowance unless a read is due, then the pool; a repeat comes from the committed share.
         for first in (True, False):
             todo = [item for item in pending if item.first is first]
             with self._store.connection() as conn:
                 by_id = {item.part_id: item for item in todo}
                 groups = [[by_id[part_id] for part_id in ids] for ids in cut_groups(conn, list(by_id), group_size)]
             for group in groups:
-                purpose = ledger.PURPOSE_ONE_OFF if first else f"tier{min(item.tier for item in group)}"
-                if spec.metered and not self._spend(connector, first, purpose, spare_only=waiting):
-                    stopped = STOPPED_BUDGET
-                    break
+                paid = (ledger.PURPOSE_ONE_OFF, True)
+                if spec.metered:
+                    paid = self._spend(connector, first, min(item.tier for item in group), reads_due=reads_due, spare_only=waiting)
+                    if paid is None:
+                        stopped = STOPPED_BUDGET
+                        break
                 try:
                     results = self._search(
                         service, provider, [item.part_id for item in group], connector_id, batched=group_size > 1,
-                        charge=lambda extra, purpose=purpose, first=first: self._charge_extra(connector_id, extra, purpose, interactive=first),
+                        charge=lambda extra, paid=paid: self._charge_extra(connector_id, extra, paid[0], interactive=paid[1]),
                     )
                 except ProviderError as exc:
                     return DiscoverySummary(
@@ -268,19 +272,34 @@ class Discoverer:
             service.record_offers = reader.record_search_offers
         return service
 
-    def _spend(self, connector, first: bool, purpose: str, *, spare_only: bool = False) -> bool:
-        """A first search is scheduled work, so it is paid from the background allowance while that has room, then from the pool (half of
-        which stays for people), then from free calls; a repeat from the committed share."""
+    def _read_is_due(self, connector_id: str, now: datetime) -> bool:
+        from app.services.supply import poller
+
+        with self._store.connection() as conn:
+            return bool(poller.due_listings(conn, connector_id, now, 1, metered=True))
+
+    def _spend(self, connector, first: bool, tier: int, *, reads_due: bool = False, spare_only: bool = False) -> tuple[str, bool] | None:
+        """Pay for one search. A first search is scheduled work: while no committed read is due (``reads_due``) it is paid from the background allowance
+        (counted as the tier's tracking), else from the pool (half of which stays for people), then from free calls; a repeat from the
+        committed share. Returns what paid, as (purpose, from the pool), or None when nothing could."""
 
         now = self._clock()
+        tracking = f"tier{tier}"
         if spare_only:
-            return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)
-        if first:
-            return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose) or ledger.spend_call(
-                self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=purpose,
-                keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
-            ) or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose, spare=True)
-        return ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=purpose)
+            paid = ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)
+            return (ledger.PURPOSE_SPARE, False) if paid else None
+        if not first:
+            return (tracking, False) if ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=tracking) else None
+        if not reads_due and ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=tracking):
+            return tracking, False
+        if ledger.spend_call(
+            self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF,
+            keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
+        ):
+            return ledger.PURPOSE_ONE_OFF, True
+        if ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True):
+            return ledger.PURPOSE_SPARE, False
+        return None
 
     def _charge_extra(self, connector_id: str, extra: int, purpose: str, *, interactive: bool) -> None:
         """Calls a search made beyond the one it paid for are counted, so the day's figure stays the provider's."""

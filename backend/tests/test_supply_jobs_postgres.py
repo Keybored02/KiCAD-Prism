@@ -171,14 +171,14 @@ class SupplyJobTests(unittest.TestCase):
         self.clock.advance(days=51)
         self.assertEqual(self.discoverer_().run(cid).searched, 1)
 
-    def test_a_first_search_comes_from_the_pool_and_a_repeat_from_the_committed_share(self) -> None:
+    def test_a_first_search_with_no_read_due_and_a_repeat_come_from_the_committed_share(self) -> None:
         cid = self.connector()
         self.watch()
         self.discoverer_().run(cid)
         self.clock.advance(days=31)
         self.discoverer_().run(cid)
         got = {(r["purpose"], r["kind"]): int(r["n"]) for r in self.rows("SELECT purpose, kind, SUM(calls) AS n FROM call_counts GROUP BY purpose, kind")}
-        self.assertEqual(got, {("oneoff", "search"): 1, ("tier1", "search"): 1})
+        self.assertEqual(got, {("tier1", "search"): 2}, "both are tracking work; neither touched the pool")
 
     def test_a_part_the_distributor_does_not_carry_is_not_searched_again_at_once(self) -> None:
         cid = self.connector()
@@ -471,7 +471,7 @@ class SupplyJobTests(unittest.TestCase):
 
     # --- the job ----------------------------------------------------------
 
-    def test_the_job_searches_then_polls(self) -> None:
+    def test_the_job_polls_what_is_due_then_searches_and_the_next_job_reads_what_was_found(self) -> None:
         cid = self.connector()
         self.watch()
         progress = []
@@ -482,9 +482,10 @@ class SupplyJobTests(unittest.TestCase):
             mock.patch.object(self.jobs, "Poller", lambda connectors: self.poller_()),
         ):
             result = self.jobs.run_supply_poll_job(context)
-        self.assertEqual(result.details["searched"], 1)
+            self.assertEqual((result.details["searched"], result.details["polled"]), (1, 0), "nothing was due yet: the search found the listing")
+            self.assertEqual(progress, ["supply-poll", "supply-discover"], "reads come before searches")
+            result = self.jobs.run_supply_poll_job(context)
         self.assertEqual((result.details["calls"], result.details["polled"]), (1, 1))
-        self.assertEqual(progress, ["supply-discover", "supply-poll"])
         self.assertEqual(len(self.rows("SELECT * FROM offers")), 1)
         self.assertIn("polled 1 listing", result.message)
 

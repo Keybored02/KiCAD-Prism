@@ -366,6 +366,28 @@ class SchedulingTests(unittest.TestCase):
         summary = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).run(self.cid)
         self.assertEqual((summary.searched, summary.stopped), (3, "budget"))
 
+    def test_a_first_search_leaves_the_background_allowance_to_due_reads_and_is_charged_to_what_paid_it(self) -> None:
+        reads = [self.watch(mpn) for mpn in ("AAA", "BBB")]
+        for record, sku in zip(reads, ("A-1", "B-1")):
+            self.listing(record.part_id, sku)
+        with self.store.connection() as conn:
+            for record in reads:
+                conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
+            conn.execute("UPDATE connectors SET daily_budget = 10")
+        for index in range(30):
+            self.watch(f"NEW-{index}")
+        discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)
+        connector = self.connectors.get(self.cid)
+        self.assertEqual(discoverer._spend(connector, True, 1, reads_due=True), ("oneoff", True), "reads are due: the pool pays, the committed share is kept for them")  # noqa: SLF001
+        self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).poll_connector(self.cid)
+        self.assertEqual(len(self.rows("SELECT 1 FROM poll_state")), 2, "every due listing was read")
+        self.assertEqual(discoverer._spend(connector, True, 1, reads_due=False), ("tier1", False), "nothing due: the background allowance pays")  # noqa: SLF001
+        summary = discoverer.run(self.cid)
+        self.assertGreater(summary.searched, 0)
+        got = {row["purpose"]: int(row["n"]) for row in self.rows("SELECT purpose, SUM(calls) AS n FROM call_counts WHERE kind = 'search' GROUP BY purpose")}
+        self.assertIn("tier1", got, "searches paid from the committed share are counted as tracking")
+        self.assertNotIn("oneoff", got, "the pool was not touched")
+
     def test_tier_one_parts_are_searched_again_after_two_weeks_when_not_found_and_a_month_when_found(self) -> None:
         self.watch("AAA")
         self.watch("NONE-1")
