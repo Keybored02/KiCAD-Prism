@@ -93,22 +93,40 @@ _DATED = frozenset({ids.LAST_TIME_BUY, ids.ENDING_WITHIN_2_YEARS})
 _RANK = {Status.OK: 0, Status.WARNING: 1, Status.ERROR: 2, Status.FATAL: 3}
 
 
-def _by_last_buy(configured: Status, facts: Facts, settings: AssessmentSettings) -> Status:
-    """The check's own severity, raised to fatal once the last date to buy has passed and to error within ``last_buy_error_days`` of it.
-    A date only raises: a workspace that set the check to "ok" keeps it a note."""
+def _by_last_buy(configured: Status, facts: Facts, settings: AssessmentSettings, held: int = 0) -> Status:
+    """The check's own severity, raised to error within ``last_buy_error_days`` of the last date to buy, and once it has passed to fatal
+    when no distributor holds stock (``held``) and to error when some does: the date is the last day to order from the maker, and
+    distributors can still sell what they have. A date only raises: a workspace that set the check to "ok" keeps it a note."""
 
     if facts.last_buy is None or configured is Status.OK:
         return configured
     days = (facts.last_buy - facts.now.date()).days
-    wanted = Status.FATAL if days < 0 else Status.ERROR if days <= settings.last_buy_error_days else configured
+    if days < 0:
+        wanted = Status.ERROR if held > 0 else Status.FATAL
+    else:
+        wanted = Status.ERROR if days <= settings.last_buy_error_days else configured
     return wanted if _RANK[wanted] > _RANK[configured] else configured
+
+
+def _passed_text(facts: Facts, held: int) -> str:
+    """What the dated findings add once the last date to buy has passed: whether distributors still have stock."""
+
+    if facts.last_buy is None or facts.last_buy >= facts.now.date():
+        return ""
+    return " The last date to buy has passed" + (f"; distributors still have {held:,}." if held > 0 else " and no distributor has stock.")
 
 
 def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     found: list[Finding] = []
 
+    held = stock_of(facts.offers) or 0
+
     def add(check: str, text: str, scope: str) -> None:
-        found.append(Finding(check, _by_last_buy(settings.severity_of(check), facts, settings) if check in _DATED else settings.severity_of(check), text, scope))
+        dated = check in _DATED
+        found.append(Finding(
+            check, _by_last_buy(settings.severity_of(check), facts, settings, held) if dated else settings.severity_of(check),
+            text + (_passed_text(facts, held) if dated else ""), scope,
+        ))
 
     if facts.problem:
         add(ids.PART_NOT_FOUND, "No distributor carries this part number.", "not_found")

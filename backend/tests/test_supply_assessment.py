@@ -195,16 +195,27 @@ class OutlookFindingTests(unittest.TestCase):
 
 
 class LastBuyDateTests(unittest.TestCase):
-    def severity(self, last_buy, lifecycle=Lifecycle.LAST_TIME_BUY, settings=DEFAULTS, outlook=""):
-        found = checks.evaluate(facts(lifecycle=lifecycle, last_buy=last_buy, outlook=outlook), settings)
+    def severity(self, last_buy, lifecycle=Lifecycle.LAST_TIME_BUY, settings=DEFAULTS, outlook="", stock=0):
+        found = checks.evaluate(facts([offer(stock=stock)], lifecycle=lifecycle, last_buy=last_buy, outlook=outlook), settings)
         return {f.check: f.severity for f in found}
 
     def test_a_last_time_buy_is_fatal_once_its_date_has_passed_an_error_within_the_limit_and_a_warning_beyond_or_with_no_date(self) -> None:
         today = NOW.date()
-        self.assertEqual(self.severity(today - timedelta(days=1))["last_time_buy"], Status.FATAL)
+        self.assertEqual(self.severity(today - timedelta(days=1))["last_time_buy"], Status.FATAL, "no distributor has stock")
         self.assertEqual(self.severity(today + timedelta(days=180))["last_time_buy"], Status.ERROR, "the limit itself is inside")
         self.assertEqual(self.severity(today + timedelta(days=181))["last_time_buy"], Status.WARNING)
         self.assertEqual(self.severity(None)["last_time_buy"], Status.WARNING)
+
+    def test_a_passed_date_is_only_an_error_while_a_distributor_still_has_stock_and_the_text_says_which(self) -> None:
+        passed = NOW.date() - timedelta(days=30)
+        self.assertEqual(self.severity(passed, stock=500)["last_time_buy"], Status.ERROR)
+        self.assertEqual(self.severity(passed, stock=500, lifecycle=Lifecycle.ACTIVE, outlook="under_2_years")["ending_within_2_years"], Status.ERROR)
+        with_stock = {f.check: f.text for f in checks.evaluate(facts([offer(stock=500)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=passed), DEFAULTS)}
+        self.assertTrue(with_stock["last_time_buy"].endswith("The last date to buy has passed; distributors still have 500."))
+        none = {f.check: f.text for f in checks.evaluate(facts([offer(stock=0)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=passed), DEFAULTS)}
+        self.assertTrue(none["last_time_buy"].endswith("The last date to buy has passed and no distributor has stock."))
+        coming = {f.check: f.text for f in checks.evaluate(facts([offer(stock=0)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=NOW.date() + timedelta(days=5)), DEFAULTS)}
+        self.assertNotIn("has passed", coming["last_time_buy"])
 
     def test_the_limit_is_a_setting(self) -> None:
         from dataclasses import replace
