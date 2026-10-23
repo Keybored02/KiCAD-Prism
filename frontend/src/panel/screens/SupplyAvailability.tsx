@@ -29,7 +29,7 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">{summaryText(summary)}</p>
           {supply.outlook && supply.outlook !== "Not enough to say" ? (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">Outlook: {supply.outlook} (rule-based)</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Outlook: {supply.outlook}</p>
           ) : null}
           {supply.forecast ? (
             <p className={`mt-0.5 text-[11px] leading-snug ${supply.forecast.tone === "warning" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>{supply.forecast.text}</p>
@@ -39,8 +39,8 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
           ))}
         </div>
         {supply.links ? (
-          <a href={supply.links.supply} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-primary hover:underline">
-            Open in Prism <ExternalLink className="h-3 w-3" />
+          <a href={supply.links.supply} target="_blank" rel="noopener noreferrer" aria-label="Open in Prism" title="Open in Prism" className="inline-flex shrink-0 text-muted-foreground hover:text-primary">
+            <ExternalLink className="h-3.5 w-3.5" />
           </a>
         ) : null}
       </div>
