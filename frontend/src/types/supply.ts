@@ -750,22 +750,6 @@ export interface PartForecast {
   end_of_life?: { p12: ForecastChance; p24: ForecastChance; changes: number; needs: number; state: ForecastModelState };
 }
 
-/** Whether every part of a project can be bought for a number of boards, week by week, and what a board may cost. */
-export interface ProjectForecast {
-  available: boolean;
-  reason?: "no_bom" | null;
-  boards: number;
-  lines: number;
-  unknown_lines: number;
-  /** The chance every forecast line can be bought, now (0) and at the end of each of 12 weeks. */
-  weeks: number[];
-  /** The chance each forecast line is short at 8 weeks, by BOM line key. */
-  by_line?: Record<string, number>;
-  holding_back: Array<{ key: string; part_id: string; mpn: string; manufacturer: string; per_board: number; need: number; short_share: number; short_ever: number; reason: string }>;
-  cost?: { now: number; lines_priced: number; h30: { low: number; median: number; high: number }; h90: { low: number; median: number; high: number } };
-  models: Record<string, { state: ForecastState; checks: number; needs: number }>;
-}
-
 export interface ForecastEvent {
   kind: "runout" | "price";
   date: string;
@@ -1480,8 +1464,6 @@ export interface ProjectSupply {
   usual_build?: number | null;
   /** The spares the page is worked out with, in percent; null is by kind of part. */
   attrition_percent?: number | null;
-  /** The chance of being short at 8 weeks that counts as "likely out"; the alert's, from the settings. */
-  likely_out_chance?: number;
   rollup?: SupplyBomRollup;
   counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];
@@ -1495,16 +1477,6 @@ export interface ProjectSupply {
   money?: ProjectMoney | null;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];
-}
-
-/** The export control class and tariff codes distributors give for a project's parts. */
-export interface TradeReport {
-  parts: Array<{
-    key: string; manufacturer: string; mpn: string; quantity: number; part_id: string | null;
-    eccn: string[]; control: "none" | "controlled" | "disputed" | "unknown";
-    hts_us: string[]; hts_eu: string[]; gaps: string[];
-  }>;
-  summary: { parts: number; controlled: number; unknown: number; disputed: number; with_gaps: number; note: string };
 }
 
 /** Alternatives to a part, graded by how close they are, from what Prism holds. */

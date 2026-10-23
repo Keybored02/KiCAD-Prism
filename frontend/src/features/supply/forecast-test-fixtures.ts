@@ -1,4 +1,4 @@
-import type { ForecastModelState, PartForecast, ProjectForecast } from "@/types/supply";
+import type { ForecastModelState, PartForecast } from "@/types/supply";
 
 export const learning: ForecastModelState = { state: "learning", checks: 23, needs: 60, reason: "23 of 60 checks" };
 export const shown: ForecastModelState = { state: "shown", checks: 80, needs: 60, reason: "" };
@@ -26,20 +26,6 @@ export function partForecastFixture(over: Partial<PartForecast> = {}, state: For
       h90: { low: 0.4, median: 0.43, high: 0.47, flat: false, date: "2027-02-18", state },
     },
     end_of_life: { p12: chance(0.12, "Unlikely"), p24: chance(0.22, "Unlikely"), changes: 9, needs: 30, state: learning },
-    ...over,
-  };
-}
-
-export function projectForecastFixture(over: Partial<ProjectForecast> = {}): ProjectForecast {
-  return {
-    available: true,
-    boards: 100,
-    lines: 5,
-    unknown_lines: 1,
-    weeks: [1, 1, 0.98, 0.95, 0.9, 0.86, 0.84, 0.83, 0.82, 0.7, 0.6, 0.5, 0.4],
-    holding_back: [{ key: "k1", part_id: "p1", mpn: "LM358DR", manufacturer: "TI", per_board: 2, need: 200, short_share: 0.34, short_ever: 0.4, reason: "Mouser draining" }],
-    cost: { now: 12.85, lines_priced: 4, h30: { low: 12.8, median: 12.9, high: 13.1 }, h90: { low: 12.4, median: 13.0, high: 13.9 } },
-    models: { can_buy_8w: { state: "learning", checks: 23, needs: 60 } },
     ...over,
   };
 }

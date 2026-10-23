@@ -7,7 +7,6 @@ import type { ProjectSupply, SupplyBomRollup } from "@/types/supply";
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getProjectSupply: vi.fn(),
-  getProjectForecast: vi.fn(() => new Promise(() => undefined)),
   listSupplyParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
 }));

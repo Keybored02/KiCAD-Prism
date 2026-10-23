@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { ProjectSupply, SupplyStatus } from "@/types/supply";
-import { BoardCount } from "./project-forecast";
+import { BoardCount } from "./board-count";
 import { StatusBar } from "./project-row-summary";
 import { StatusDot } from "./status-dot";
 import { formatPrice, STATUS_LABEL } from "./supply-format";

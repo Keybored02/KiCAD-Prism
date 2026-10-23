@@ -159,21 +159,20 @@ describe("supply columns on the BOM", () => {
     expect(await screen.findByText("No part number")).toBeTruthy();
   });
 
-  it("has no build size or spares to type above the table, and links to the project's supply as an icon", async () => {
+  it("has no build size, spares, tracking or link to the project's supply above the table", async () => {
     renderTable("admin", "prj_1");
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
     expect(screen.queryByLabelText("Boards to build")).toBeNull();
     expect(screen.queryByLabelText("Spare parts, percent")).toBeNull();
     expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.anything());
-    expect(screen.getByRole("link", { name: "Project supply" }).getAttribute("href")).toBe("/?section=supply");
-    expect(screen.queryByText("Project supply")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Track|Tracking settings/ })).toBeNull();
   });
 
   it("is plain at a commit checked out from History, and looks nothing up", async () => {
     renderTable("designer", undefined, false);
     expect(screen.getByText("Supply data shows on the latest revision only.")).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
     expect(mocked.lookupSupplyBom).not.toHaveBeenCalled();
   });
 
@@ -181,7 +180,6 @@ describe("supply columns on the BOM", () => {
     for (const role of ["viewer", null] as const) {
       renderTable(role);
       expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
-      expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
       cleanup();
     }
     expect(mocked.lookupSupplyBom).not.toHaveBeenCalled();
@@ -189,14 +187,6 @@ describe("supply columns on the BOM", () => {
 });
 
 describe("actions on the BOM", () => {
-  it("offers Track this project to a reader who may track, and to nobody else", async () => {
-    renderTable("qa", "prj_1");
-    expect(await screen.findByRole("button", { name: /Track this project/ })).toBeTruthy();
-    cleanup();
-    renderTable("viewer", "prj_1");
-    expect(screen.queryByRole("button", { name: /Track this project/ })).toBeNull();
-  });
-
   it("reports a lookup that failed and retries", async () => {
     mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async (_lines, build) => lookupFor(build));
     renderTable("designer");

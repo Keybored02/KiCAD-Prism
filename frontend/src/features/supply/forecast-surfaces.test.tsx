@@ -1,16 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./supply-api", () => ({ getProjectForecast: vi.fn(), getForecastInsights: vi.fn(), getPartForecast: vi.fn() }));
+vi.mock("./supply-api", () => ({ getForecastInsights: vi.fn(), getPartForecast: vi.fn() }));
 
 import type { ForecastInsights, PartHistory } from "@/types/supply";
 import { BomForecastLine } from "./bom-forecast-line";
 import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { ForecastInsightsSection } from "./forecast-insights";
-import { learning, partForecastFixture, projectForecastFixture, shown } from "./forecast-test-fixtures";
+import { learning, partForecastFixture, shown } from "./forecast-test-fixtures";
 import { historyRows, withForecast } from "./part-history-model";
 import { RowRunout } from "./part-row-forecast";
-import { BoardCount, ProjectForecastSection } from "./project-forecast";
 import { partRowFixture } from "./supply-test-fixtures";
 import * as api from "./supply-api";
 
@@ -86,41 +85,6 @@ describe("the dashboard's forecast", () => {
     expect(screen.getByText(/Likely \(80%\)/)).toBeTruthy();
     fireEvent.click(screen.getByText("LM358DR"));
     expect(open).toHaveBeenCalledWith("p1");
-  });
-});
-
-describe("the project's forecast", () => {
-  it("answers whether it can be built, names what holds it back and gives a cost range", async () => {
-    mocked.getProjectForecast.mockResolvedValue(projectForecastFixture());
-    const open = vi.fn();
-    render(<ProjectForecastSection projectId="prj" variant="" boards={100} currency="EUR" onOpenPart={open} />);
-    expect(await screen.findByText(/Buildable in 8 weeks/)).toBeTruthy();
-    expect(screen.getByText("Likely (82%)")).toBeTruthy();
-    expect(screen.getByText(/of the 4 lines Prism can speak about; 1 not tracked or too new/)).toBeTruthy();
-    expect(screen.getByText("Learning")).toBeTruthy();
-    expect(screen.getByText(/One board in 90 days/)).toBeTruthy();
-    fireEvent.click(screen.getByText(/short in 34%/));
-    expect(open).toHaveBeenCalledWith("p1");
-    expect(mocked.getProjectForecast).toHaveBeenCalledWith("prj", 100, "", expect.anything());
-  });
-
-  it("says when nothing can be said yet", async () => {
-    mocked.getProjectForecast.mockResolvedValueOnce(projectForecastFixture({ available: false, weeks: [], holding_back: [] }));
-    render(<ProjectForecastSection projectId="prj" variant="" boards={50} currency="EUR" onOpenPart={vi.fn()} />);
-    expect(await screen.findByText(/Forecasts start after a week of readings/)).toBeTruthy();
-  });
-
-  it("takes a board count and refuses nonsense", () => {
-    const change = vi.fn();
-    render(<BoardCount boards={100} onChange={change} />);
-    const box = screen.getByLabelText("Boards to forecast and cost") as HTMLInputElement;
-    fireEvent.change(box, { target: { value: "2,500" } });
-    fireEvent.blur(box);
-    expect(change).toHaveBeenCalledWith(2500);
-    fireEvent.change(box, { target: { value: "-4" } });
-    fireEvent.blur(box);
-    expect(change).toHaveBeenCalledTimes(1);
-    expect(box.value).toBe("100");
   });
 });
 

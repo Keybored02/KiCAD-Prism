@@ -387,39 +387,6 @@ class ForecastDbTests(unittest.TestCase):
             forecasting.store(conn, "part", self.part_id, "out_4w", (START + timedelta(days=1)).date(), 28, model="t", probability=0.2)
             self.assertIsNone(alerts._likely_out(conn, [self.part_id])[self.part_id]["chance"], "one calm run clears it")
 
-    # --- a project ----------------------------------------------------------
-
-    def test_a_project_is_judged_on_every_line_and_names_what_holds_it_back(self) -> None:
-        from app.services.supply import forecast_project
-
-        self.falling(self.listing(self.cid, "FALL-SKU"))
-        from app.services.supply import parts
-
-        with self.store.connection() as conn:
-            steady = parts.ensure_part(conn, "Acme", "STEADY-1", ADMIN).id
-            conn.execute("INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES ('p1', 'Board', 'r', 2, NOW())")
-            for key, mpn in (("a", "FALL-1"), ("b", "STEADY-1"), ("c", "UNTRACKED")):
-                conn.execute(
-                    "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES ('p1', %s, 'Acme', %s, 'acme', %s, 2)",
-                    (key, mpn, mpn.upper().replace("-", "")),
-                )
-            conn.execute("INSERT INTO watches (id, part_id, owner) VALUES ('w1', %s, 'x') ON CONFLICT DO NOTHING", (steady,)) if False else None
-        steady_listing = self.listing(self.other, "STEADY-SKU", steady)
-        self.readings(steady_listing, [9000] * 21, START - timedelta(days=20), fetched_at=START)
-        with self.store.connection() as conn:
-            conn.execute("INSERT INTO part_tiers (part_id, tier, rate, reasons) VALUES (%s, 1, 'daily', '[]'::jsonb) ON CONFLICT DO NOTHING", (steady,))
-            small = forecast_project.forecast(conn, "p1", "", 100, START)
-            big = forecast_project.forecast(conn, "p1", "", 600, START)
-        self.assertTrue(small["available"])
-        self.assertEqual(small["lines"], 3)
-        self.assertEqual(small["unknown_lines"], 1, "the number nobody tracks is left out and counted")
-        self.assertGreater(small["weeks"][1], 0.9, "200 pieces of the falling part are there next week")
-        self.assertLess(small["weeks"][8], 0.1, "but not in two months")
-        self.assertEqual(small["holding_back"][0]["mpn"], "FALL-1")
-        self.assertTrue(small["by_line"], "every forecast line has its chance of being short at 8 weeks")
-        self.assertTrue(all(0.0 <= share <= 1.0 for share in small["by_line"].values()))
-        self.assertLess(big["weeks"][2], small["weeks"][2] + 1e-9, "more boards are never easier")
-        self.assertEqual(big["boards"], 600)
 
 
 if __name__ == "__main__":

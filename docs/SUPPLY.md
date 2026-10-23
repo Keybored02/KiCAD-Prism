@@ -59,7 +59,7 @@ Prism follows a part at one of two tiers. **Tier 1** is read every day; **tier 2
 (tier 3) is read only when someone asks. A part is in the highest tier any reason gives it, and the part sheet says why: a
 tracked project, someone's choice, a watched component, or a watch from before tiers (tier 2).
 
-- **Track a project:** on the BOM (Visualizers) or in Project > Supply choose **Track this project**. One dialog asks everything:
+- **Track a project:** in Project > Supply choose **Track this project**. One dialog asks everything:
   the designs (and **Also designs added later**), the distributors you buy from (an assembly-only one such as JLCPCB shows
   as "Built at ..." and is read only when ticked) and the **Packaging** you prefer: cut tape (the default), custom reel (Digi-Reel, MouseReel), full reel, tube or tray,
   or the smallest order. Where a distributor does not offer it, the nearest is followed. Each distributor's call budget shows as a bar:
@@ -201,8 +201,8 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
   part's own quantity once price breaks have been kept.
 - **Mouser's suggestion.** Mouser names its suggested replacement by Mouser number; **Ask DigiKey for substitutes** also reads each such number
   at Mouser (one call each, from the interactive reserve) and shows the part number, which stays when Mouser is read again.
-- **Trade classification.** The project tab lists the export control class (ECCN) and tariff codes distributors state for each part,
-  flags disputes and gaps, and downloads them as CSV. It is what they say, not a classification.
+- **Trade classification.** Prism reads the export control class (ECCN) and tariff codes distributors state for each part, with the disputes and
+  gaps. It has no screen of its own: the project's Costing zip carries it as a CSV. It is what they say, not a classification.
 - **RoHS exemptions.** A person names the exemptions a part relies on (such as 7(a)); they go into the draft declaration.
 - **Parameters** now cover the common ones of voltage regulators, connectors and microcontrollers as well as passives.
 - **MCP.** `POST /api/supply/mcp` is a read-only Model Context Protocol endpoint (parts at risk in a project, part status, best
@@ -232,8 +232,7 @@ chance, always with the number beside the word: Almost certain (90% and up), Lik
   has a record before it shows anything.
 - **Where it shows.** Part sheet: a Forecast section (the chance it can be bought, a twelve-week strip, runout and return ranges, the price
   range, the end-of-life chance, a Why on each line) and a dashed band continuing the stock and price charts. Parts list: "out ~14 Dec" under
-  the stock once the runout model is shown, and the filters Likely out within 4 or 8 weeks. Project tab: one **Boards** count for the forecast,
-  the costing and the CSV; the chance the project is buildable week by week, what holds it back, and a cost range. Dashboard: a "Likely out in
+  the stock once the runout model is shown, and the filters Likely out within 4 or 8 weeks. Dashboard: a "Likely out in
   4 weeks" tile (greyed, with how far along the model is, while learning) and, once shown, a Coming up card. An alert "Likely out" replaces
   the straight-line running-out alert once the four-week model is shown (a tier 1 part, 70% or more on two runs in a row). The KiCad panel and
   the BOM line drawer carry one line each, from a shown model only.
@@ -299,7 +298,7 @@ remembered):
 - **Matched by Prism:** spellings Prism learned (Undo) and parts whose maker the distributors settled (Undo asks about the
   part again). Administrators can read and edit the built-in spellings of large makers in Supply settings.
 
-A project with open questions shows a **N to settle** badge on Project > Supply and on the BOM bar; it opens the same
+A project with open questions shows a **N to settle** badge on Project > Supply; it opens the same
 answers for that project. Pinning a listing that is numbered otherwise than the part asks whether to add the number to the
 part or only pin the listing.
 
@@ -362,9 +361,8 @@ shows the same phrase.
 
 ## Project BOMs
 
-The Visualizer's BOM tab gets Supply, Stock, Unit price, Extended and Lead time columns. Set the build size and the
-spares percentage. Lines resolve by the `Prism ID` field on a placed symbol first, then by manufacturer and part
-number. The header shows the cost of the build, parts at risk and short, and how many boards the stock allows.
+The Visualizer's BOM tab gets Supply, Stock, Unit price, Extended and Lead time columns. The figures are for one board, with the workspace's spares. Lines resolve by the `Prism ID` field on a placed symbol first, then by manufacturer and part
+number. The BOM has no tracking buttons or link to the project's supply; those are on Project > Supply.
 Prices are list prices, without VAT or shipping. Offers in different currencies are converted to the base currency (a Supply setting, EUR by default) with the European Central Bank's daily rates, and the total says which day's rates it used. Without a route to the ECB, an administrator can enter rates (`POST /api/supply/fx/rates`); without rates there is no total across currencies. Lines without a part number are
 counted as *not tracked*. "Read project BOMs" queues the BOM reading of projects nobody has opened yet, so Where Used and Parts in use are complete.
 
@@ -409,14 +407,14 @@ A project's Supply tab answers, in this order: can we build N boards and what st
 - **Search:** the list's search also finds a reference on the board (C80, R14, U3), exactly.
 - **Headline:** the build ("0 of 100 boards, limited by ..."; the pencil on it sets the number of boards and can keep it as the usual build), its cost
   (the price for the boards and the price of one, with what minimum orders leave over and the lines priced), health with the parts by status as a bar
-  and a legend of counts, and the stock coverage (the share of lines in stock for the boards). "At risk" is error or fatal everywhere (the Projects view, the
+  and a legend of counts, and the stock coverage (the share of lines in stock for the boards). There is no project forecast. "At risk" is error or fatal everywhere (the Projects view, the
   Dashboard and here); a warning only needs a look.
 - **Cost:** per board by build size (1 to 10,000 boards), cost allocation (the ten dearest lines), and the cost over time. A day that priced
   fewer lines than today, or one that read a price wrong, is left out of the history and named. The daily cost is worked out for the usual build.
 - **Parts (last on the page):** the same list as the Parts tab (compact or a row for each vendor, search, lifecycle and vendor menus, "Runs out first") with the pieces a board uses, the pieces needed and the line cost added. Part, stock and price sort on the server, the three project columns where the list is; a row opens the part's sheet over the page. A BOM line that matches no part shows after the parts until something narrows the list.
-- **Filters:** out of stock, short for this build, not priced, end of life and open alerts sit with the list's other filters, with their counts.
+- **Filters:** out of stock, short for this build, limiting the build (the lines whose stock covers the fewest boards), not priced, end of life and open alerts sit with the list's other filters, with their counts.
   The list scrolls under its filters, as the Parts tab does.
-- **Above the list:** releases, line notes and trade classification. **Costing** and **Track** are buttons on the page's title row. Costing is a zip: the whole
+- **Above the list:** releases and line notes. **Costing** and **Track** are buttons on the page's title row. Costing is a zip: the whole
   costing (each line with the distributor its price comes from and that distributor's part number; no link, no cart), the costing by distributor, the draft
   RoHS and REACH declaration and the trade classification, each a CSV.
 

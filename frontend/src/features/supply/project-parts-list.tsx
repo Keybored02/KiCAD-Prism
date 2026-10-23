@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PartsFilter, ProjectSupplyPart, SupplyPartRow } from "@/types/supply";
 import { LayoutToggle } from "./layout-toggle";
 import { LifecycleSelect } from "./lifecycle-filter";
-import { CHIPS, matchesChip, type Chip } from "./project-part-filters";
+import { CHIPS, limitingKeys, matchesChip, type Chip } from "./project-part-filters";
 import type { PartsLayout } from "./parts-layout";
 import { PartsTable } from "./parts-table";
 import { columnOf, serverSort, type PartsSort } from "./parts-sort";
@@ -50,12 +50,10 @@ function inProjectOrder(items: SupplyPartRow[], lines: ProjectLines, sort: Parts
  * A project's parts, as the Parts tab lists them (compact or a row for each vendor, search, lifecycle and vendor menus, runs out
  * first, sortable columns) with the pieces a board uses, the pieces the build needs and each line's cost added.
  */
-export function ProjectPartsList({ projectId, parts, shortAt8Weeks, chance, currency, selectedId, onOpen }: {
+export function ProjectPartsList({ projectId, parts, currency, selectedId, onOpen }: {
   projectId: string;
   /** The project's lines of the BOM. */
   parts: ProjectSupplyPart[];
-  shortAt8Weeks: Record<string, number>;
-  chance: number;
   currency: string;
   selectedId: string | null;
   onOpen: (partId: string) => void;
@@ -71,13 +69,14 @@ export function ProjectPartsList({ projectId, parts, shortAt8Weeks, chance, curr
   const byReference = useMemo(() => (parts.some((part) => hasReference(part, wanted)) ? new Set(parts.flatMap((part) => (part.part_id && hasReference(part, wanted) ? [part.part_id] : []))) : null), [parts, wanted]);
   const loaded = useSupplyPartsList("all", byReference !== null ? "" : query, lifecycle, LIMIT, projectId, vendor, serverSort(sort));
   const lines = useMemo<ProjectLines>(() => ({
-    byPart: new Map(parts.flatMap((part) => (part.part_id ? [[part.part_id, part] as const] : []))), currency, shortAt8Weeks, chance,
-  }), [parts, currency, shortAt8Weeks, chance]);
+    byPart: new Map(parts.flatMap((part) => (part.part_id ? [[part.part_id, part] as const] : []))), currency,
+  }), [parts, currency]);
   // The parts a chip keeps, by part: a line that matches no part cannot be one of them.
-  const byChip = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip) ? [part.part_id] : [])))), [parts, chip]);
+  const limiting = useMemo(() => limitingKeys(parts), [parts]);
+  const byChip = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip, limiting) ? [part.part_id] : [])))), [parts, chip, limiting]);
   const only = byChip && byReference ? new Set([...byChip].filter((id) => byReference.has(id))) : byChip ?? byReference;
   const chips = CHIPS.flatMap((item) => {
-    const count = parts.filter((part) => matchesChip(part, item.key)).length;
+    const count = parts.filter((part) => matchesChip(part, item.key, limiting)).length;
     return count > 0 ? [{ ...item, count }] : [];
   });
   const narrowed = query !== "" || lifecycle !== "" || vendor !== "" || only !== null;

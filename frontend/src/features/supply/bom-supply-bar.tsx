@@ -1,13 +1,7 @@
-import { ExternalLink } from "lucide-react";
-import { Link } from "react-router-dom";
-
-import { Button } from "@/components/ui/button";
 import { CheckOnceButton } from "./check-once-button";
-import { SettleBadge } from "./settle-badge";
-import { TrackProjectButton } from "./track-project-dialog";
 import type { BomSupply } from "./use-bom-supply";
 
-/** What the BOM's supply says when it cannot be read, and the actions on the project: its supply page, a check, settling lines, tracking. */
+/** What the BOM's supply says while it reads or when it cannot, and a one-off check of the lines nobody reads. Tracking is on the project's Supply page. */
 export function BomSupplyBar({ supply }: { supply: BomSupply }) {
   const { lookup, status, lines } = supply;
 
@@ -29,18 +23,9 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
         </span>
       ) : null}
       {supply.truncated ? <span className="text-warning">Only the first 2,000 distinct parts are looked up.</span> : null}
-      <span className="ml-auto flex items-center gap-1.5">
-        {supply.projectId ? (
-          <Button asChild size="icon" variant="outline" className="h-8 w-8">
-            <Link to="?section=supply" aria-label="Project supply" title="Project supply"><ExternalLink className="h-4 w-4" /></Link>
-          </Button>
-        ) : null}
-        {supply.projectId && unread.length > 0 ? (
-          <CheckOnceButton projectId={supply.projectId} lines={unread} onFinished={supply.refresh} />
-        ) : null}
-        {supply.projectId ? <SettleBadge projectId={supply.projectId} onChanged={supply.refresh} /> : null}
-        {supply.projectId ? <TrackProjectButton projectId={supply.projectId} onChanged={supply.refresh} /> : null}
-      </span>
+      {supply.projectId && unread.length > 0 ? (
+        <span className="ml-auto"><CheckOnceButton projectId={supply.projectId} lines={unread} onFinished={supply.refresh} /></span>
+      ) : null}
     </div>
   );
 }

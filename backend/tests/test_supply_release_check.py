@@ -318,7 +318,6 @@ class ReleaseCheckTests(unittest.TestCase):
             own = self.request("prj_56/supply", query="build_quantity=10&spares=0").json
         self.assertEqual((page["attrition_percent"], page["parts"][0]["need"]), (10.0, 11), "10 pieces and 10%")
         self.assertEqual((own["attrition_percent"], own["parts"][0]["need"]), (0.0, 10))
-        self.assertEqual(page["likely_out_chance"], 0.7, "the alert's chance, which the page's chip counts too")
         with self.store.connection() as conn:
             settings_store.save(conn, {"spares_mode": "package"}, "admin@example.com")
             self.assertIsNone(settings_store.load(conn).default_attrition())

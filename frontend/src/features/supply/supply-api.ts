@@ -4,7 +4,6 @@ import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
   ForecastInsights,
   PartForecast,
-  ProjectForecast,
   AddWatchInput,
   BomLineInput,
   ConfirmAliasInput,
@@ -19,7 +18,6 @@ import type {
   SupplyAlert,
   SupplyAssessment,
   CrossReference,
-  TradeReport,
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
@@ -352,12 +350,6 @@ export function getPartForecast(partId: string, quantity: number | null, signal?
   return fetchJson<PartForecast>(`${BASE}/parts/${encodeURIComponent(partId)}/forecast${query}`, { signal }, "Could not load the forecast");
 }
 
-/** Whether a project can be built for this many boards. The count is a question; nothing is saved. */
-export function getProjectForecast(projectId: string, boards: number, variant: string, signal?: AbortSignal): Promise<ProjectForecast> {
-  const query = new URLSearchParams({ boards: String(boards), ...(variant ? { variant } : {}) });
-  return fetchJson<ProjectForecast>(`${BASE}/projects/${encodeURIComponent(projectId)}/forecast?${query}`, { signal }, "Could not load the forecast");
-}
-
 export function getForecastInsights(signal?: AbortSignal): Promise<ForecastInsights> {
   return fetchJson<ForecastInsights>(`${BASE}/forecasts/insights`, { signal }, "Could not load the forecasts");
 }
@@ -546,11 +538,6 @@ export function getProjectSupply(projectId: string, variant = "", boards?: numbe
   if (variant) query.set("variant", variant);
   if (spares) query.set("spares", spares);
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply?${query.toString()}`, { signal }, "Could not load the project's supply");
-}
-
-export function getProjectTrade(projectId: string, variant = "", signal?: AbortSignal): Promise<{ available: boolean; report: TradeReport | null }> {
-  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
-  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/trade${query}`, { signal }, "Could not load the trade classification");
 }
 
 export function getProjectBomHealth(

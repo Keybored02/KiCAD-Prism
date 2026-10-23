@@ -38,20 +38,13 @@ beforeEach(() => {
 const show = () => render(
   <MemoryRouter>
     <ProjectPartsList
-      projectId="prj" shortAt8Weeks={{ ka: 0.8, kb: 0.1 }} chance={0.5} currency="EUR" selectedId={null} onOpen={() => undefined}
+      projectId="prj" currency="EUR" selectedId={null} onOpen={() => undefined}
       parts={[line("ka", "RISKY-1", "a"), line("kb", "SAFE-1", "b"), line("kc", "NOPN", null)]}
     />
   </MemoryRouter>,
 );
 
 describe("a project's parts list", () => {
-  it("marks the lines likely to be short within 8 weeks, from the forecast, and no others", async () => {
-    show();
-    expect(await screen.findByText("RISKY-1")).toBeTruthy();
-    expect(screen.getAllByText("Out within 8 weeks")).toHaveLength(1);
-    expect(screen.getByText("Out within 8 weeks").getAttribute("title")).toContain("80%");
-  });
-
   it("finds the lines that carry a reference on the board, exactly, whatever the case", async () => {
     show();
     await screen.findByText("RISKY-1");

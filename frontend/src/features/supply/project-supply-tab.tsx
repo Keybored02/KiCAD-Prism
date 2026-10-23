@@ -9,21 +9,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
-import { ProjectTrade } from "./project-trade";
 import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
 import { ProjectHeadline } from "./project-headline";
-import { LIKELY_OUT_CHANCE } from "./project-part-filters";
 import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectPartsList } from "./project-parts-list";
-import { ProjectForecastSection, useProjectForecast } from "./project-forecast";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
 import { TrackProjectButton } from "./track-project-dialog";
 import { useLoaded } from "./use-loaded";
-
-const NONE: Record<string, number> = {};
 
 function costingUrl(projectId: string, variant: string, boards: number): string {
   const query = new URLSearchParams({ build_quantity: String(boards) });
@@ -58,7 +53,6 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
   const [last, setLast] = useState<ProjectSupply | null>(null);
   if (loaded.data && loaded.data !== last) setLast(loaded.data);
   const boards = boardsChoice ?? loaded.data?.build_quantity ?? last?.build_quantity ?? 100;
-  const forecast = useProjectForecast(projectId, variant, boards, allowed && loaded.data?.available === true);
   if (!allowed) return <p className="text-sm text-muted-foreground">Supply data is not available to your role.</p>;
   if (loaded.status === "error" && !loaded.data) {
     return (
@@ -104,7 +98,6 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
           />
           <ProjectCostCards supply={supply} boards={boards} onOpenPart={open} />
           <ProjectCostHistory supply={supply} />
-          <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={open} />
         </div>
       ) : null}
       {supply.available ? null : (
@@ -114,14 +107,10 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
       )}
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
-      {supply.available ? <ProjectTrade projectId={projectId} variant={variant} /> : null}
       {supply.available ? (
         <section aria-label="Parts" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
-          <ProjectPartsList
-            projectId={projectId} parts={everyPart} shortAt8Weeks={forecast.data?.by_line ?? NONE} chance={supply.likely_out_chance ?? LIKELY_OUT_CHANCE}
-            currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
-          />
+          <ProjectPartsList projectId={projectId} parts={everyPart} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open} />
         </section>
       ) : null}
       <OpenPartSheet user={user} active />

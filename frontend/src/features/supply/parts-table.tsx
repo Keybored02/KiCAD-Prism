@@ -89,7 +89,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                   </div>
                   {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
                   {showProjects ? <ProjectNames part={part} /> : null}
-                  {lines ? <LineNotes line={line} lines={lines} /> : null}
+                  {lines ? <LineNotes line={line} /> : null}
                 </td>
                 {lines ? <BoardCells line={line} /> : null}
                 <td className={cn("px-3 py-2 text-right tabular-nums", line?.short && "text-destructive")}>

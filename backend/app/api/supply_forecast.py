@@ -1,7 +1,6 @@
-"""Forecasts: a part's, a project's, the Insights section and the track record.
+"""Forecasts: a part's, the Insights section and the track record.
 
-Everyone who can read supply data may look. Nothing is saved by asking, and no distributor is called: the quantity and board count
-are questions. A project the caller cannot open is not found.
+Everyone who can read supply data may look. Nothing is saved by asking, and no distributor is called: the quantity is a question.
 """
 
 from __future__ import annotations
@@ -12,9 +11,8 @@ from typing import Any, Callable, TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api import supply_connectors
-from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader
-from app.services.supply import forecast_overview, forecast_project, forecast_view, forecasting, parts
+from app.services.supply import forecast_overview, forecast_view, forecasting, parts
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -41,24 +39,6 @@ async def part_forecast(
         with _store().connection() as conn:
             parts.get_part(conn, part_id)
             return forecast_view.part(conn, part_id, quantity=quantity)
-
-    return await _run(read)
-
-
-@router.get("/projects/{project_id}/forecast")
-async def project_forecast(
-    project_id: str,
-    boards: int = Query(default=100, ge=1, le=1_000_000),
-    variant: str = Query(default="", max_length=120),
-    user: AuthenticatedUser = Depends(require_supply_reader),
-) -> dict[str, Any]:
-    get_project_for_role_or_404(project_id, user.role)
-
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            found = forecast_project.forecast(conn, project_id, variant, boards)
-            states = forecasting.model_states(conn)
-            return found | {"models": {name: {"state": item["state"], "checks": item["checks"], "needs": item["needs"]} for name, item in states.items()}}
 
     return await _run(read)
 
