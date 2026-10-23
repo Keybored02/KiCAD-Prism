@@ -14,6 +14,7 @@ import statistics
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
+from app.services.supply import stock
 from app.services.supply.assessment import settings as ids
 from app.services.supply.assessment.settings import AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle, Status
@@ -56,10 +57,10 @@ class Finding:
 
 
 def stock_of(offers: Sequence[Mapping[str, Any]]) -> int | None:
-    """Units on hand across counted, non-marketplace offers; None when none was read."""
+    """Units on hand across counted, non-marketplace offers, by pile at each distributor (``stock.aggregate``); None when none was read."""
 
     usable = [o for o in offers if not o["marketplace"]]
-    return sum(o["stock"] for o in usable) if usable else None
+    return stock.aggregate(usable, "any").total if usable else None
 
 
 def lead_time_of(offers: Sequence[Mapping[str, Any]]) -> int | None:

@@ -18,7 +18,7 @@ NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 
 def offer(**over):
     base = {
-        "connector_id": "c1", "stock": 1000, "marketplace": False, "discontinued": False, "rohs": True,
+        "connector_id": "c1", "provider": "demo", "stock": 1000, "marketplace": False, "discontinued": False, "rohs": True,
         "lead_time_days": None, "fetched_at": NOW - timedelta(hours=1),
     }
     return base | over
@@ -42,6 +42,15 @@ class ComponentCheckTests(unittest.TestCase):
         self.assertIsNone(component_checks.no_approved_source(0, [None]), "an alternate nobody has read")
         self.assertIsNone(component_checks.no_approved_source(None, [0]), "a part nobody has read")
         self.assertIsNone(component_checks.no_approved_source(0, []), "no alternates: the part's own finding says it")
+
+
+class StockOfTests(unittest.TestCase):
+    def test_stock_counts_piles_like_the_part_does(self) -> None:
+        digikey = [offer(provider="digikey", stock=1000, packaging="cut_tape"), offer(provider="digikey", stock=1000, packaging="custom_reel")]
+        self.assertEqual(checks.stock_of(digikey), 1000, "DigiKey's packagings are one pile, not added")
+        farnell = [offer(provider="farnell", stock=500, packaging="cut_tape"), offer(provider="farnell", stock=2000, packaging="tape_reel")]
+        self.assertEqual(checks.stock_of(farnell), 2500, "a full reel adds to the cut tape")
+        self.assertIsNone(checks.stock_of([offer(marketplace=True)]))
 
 
 class LineCheckTests(unittest.TestCase):
