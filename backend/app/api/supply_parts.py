@@ -83,7 +83,7 @@ async def list_parts(
     offset: int = Query(default=0, ge=0, le=parts_view.MAX_CANDIDATES),
     project_id: str = Query(default="", max_length=100),
     vendor: str = Query(default="", max_length=100),
-    sort: Literal["", "runout"] = "",
+    sort: str = Query(default="", pattern=r"^(runout|(part|stock|price):(asc|desc))?$"),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:

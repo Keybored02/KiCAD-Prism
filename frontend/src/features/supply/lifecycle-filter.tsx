@@ -11,7 +11,7 @@ const isLifecycle = (only: PartsFilter) => LIFECYCLE_FILTERS.some((item) => item
 export function LifecycleSelect({ only, onChange }: { only: PartsFilter; onChange: (only: PartsFilter) => void }) {
   return (
     <Select value={isLifecycle(only) ? only : ANY} onValueChange={(next) => onChange(next === ANY ? "" : (next as PartsFilter))}>
-      <SelectTrigger size="sm" className="w-56" aria-label="Lifecycle">
+      <SelectTrigger size="sm" className="w-36" aria-label="Lifecycle">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

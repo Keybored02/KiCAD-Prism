@@ -20,7 +20,7 @@ export function VendorSelect({ vendor, onChange }: { vendor: string; onChange: (
   const known = connectors.some((item) => item.id === vendor);
   return (
     <Select value={vendor || ANY} onValueChange={(next) => onChange(next === ANY ? "" : next)}>
-      <SelectTrigger size="sm" className="w-48" aria-label="Vendor">
+      <SelectTrigger size="sm" className="w-32" aria-label="Vendor">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

@@ -11,6 +11,7 @@ import { LayoutToggle } from "./layout-toggle";
 import { layoutFromParam } from "./parts-layout";
 import { ActiveFilterChip, LifecycleSelect } from "./lifecycle-filter";
 import { filterFromParam } from "./parts-filters";
+import { sortFromParam } from "./parts-sort";
 import { PartSheet } from "./part-sheet";
 import { PartGroups } from "./project-groups";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
@@ -25,6 +26,7 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
   const only = filterFromParam(searchParams.get("projOnly"));
   const layout = layoutFromParam(searchParams.get("projLayout"));
   const vendor = searchParams.get("projVendor") ?? "";
+  const sort = sortFromParam(searchParams.get("projSort"));
   const loaded = useSupplyPartGroups("in_use", query, only, vendor);
   const groups = (loaded.data?.groups ?? []).filter((group) => group.project_id !== "none");
   const setParams = (changes: Record<string, string | null>) => {
@@ -74,6 +76,8 @@ export function ProjectsView({ user, active = true }: { user: User | null; activ
               only={only}
               vendor={vendor}
               layout={layout}
+              sort={sort}
+              onSort={(next) => setParams({ projSort: next })}
               selectedId={openPart}
               onOpen={(partId) => setParams({ part: partId })}
             />

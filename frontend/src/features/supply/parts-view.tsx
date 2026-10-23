@@ -21,6 +21,7 @@ import { LifecycleSelect, ActiveFilterChip } from "./lifecycle-filter";
 import { layoutFromParam } from "./parts-layout";
 import { LoadMore } from "./load-more";
 import { filterFromParam } from "./parts-filters";
+import { sortFromParam } from "./parts-sort";
 import { PartsTable } from "./parts-table";
 import { useSupplyPartsFeed } from "./use-supply-parts";
 import { SearchBox } from "./search-box";
@@ -47,7 +48,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const only = filterFromParam(searchParams.get("partsOnly"));
   const layout = layoutFromParam(searchParams.get("partsLayout"));
   const vendor = searchParams.get("partsVendor") ?? "";
-  const sort = searchParams.get("partsSort") === "runout" ? "runout" : "";
+  const sort = sortFromParam(searchParams.get("partsSort"));
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
   const openPart = active ? searchParams.get("part") : null;
   const canEdit = canEditSupply(user?.role);
@@ -107,7 +108,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
           </div>
           <LifecycleSelect only={only} onChange={(next) => setParams({ partsOnly: next })} />
           <VendorSelect vendor={vendor} onChange={(next) => setParams({ partsVendor: next })} />
-          <Button variant={sort ? "secondary" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setParams({ partsSort: sort ? null : "runout" })}>Runs out first</Button>
+          <Button variant={sort === "runout" ? "default" : "outline"} size="sm" aria-pressed={sort === "runout"} onClick={() => setParams({ partsSort: sort === "runout" ? null : "runout" })}>Runs out first</Button>
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
           <ActiveFilterChip only={only} onClear={() => setParams({ partsOnly: null })} />
           <div className="ml-auto"><LayoutToggle layout={layout} onChange={(next) => setParams({ partsLayout: next === "compact" ? null : next })} /></div>
@@ -130,7 +131,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
               <EmptyState scope={scope} searching={query !== "" || only !== "" || vendor !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
-                <PartsTable stickyHead layout={layout} items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} />
+                <PartsTable stickyHead layout={layout} items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} sort={sort} onSort={(next) => setParams({ partsSort: next })} />
                 <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
                 <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>

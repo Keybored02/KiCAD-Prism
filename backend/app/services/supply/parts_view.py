@@ -495,13 +495,32 @@ def _runs_out_first(conn, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=key)
 
 
+# Columns the list sorts by, as "<column>:<asc|desc>". A part with no figure comes after the others either way.
+SORT_COLUMNS = ("part", "stock", "price")
+
+
+def _by_column(items: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+    column, _, direction = sort.partition(":")
+    if column not in SORT_COLUMNS or direction not in ("asc", "desc"):
+        return items
+
+    def value(item: dict[str, Any]) -> Any:
+        if column == "part":
+            return item["mpn"].lower()
+        figure = item.get("stock") if column == "stock" else item.get("unit_price")
+        return None if figure is None else Decimal(str(figure))
+
+    known = sorted((item for item in items if value(item) is not None), key=value, reverse=direction == "desc")
+    return known + [item for item in items if value(item) is None]
+
+
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter | str = "", offset: int = 0,
     project_id: str = "", vendor: str = "", sort: str = "",
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
     one project (``none`` for those in no project). ``sort`` "runout" puts the parts likeliest to be out within 4 weeks first, then
-    by days to zero."""
+    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column."""
 
     limit = max(1, min(limit, MAX_LIMIT))
     items, total = ranked_parts(conn, scope=scope, query=query, role=role)
@@ -516,6 +535,8 @@ def list_parts(
         total = len(items)
     if sort == "runout":
         items = _runs_out_first(conn, items)
+    elif sort:
+        items = _by_column(items, sort)
     offset = max(0, offset)
     page = items[offset:offset + limit]
     kept = part_insights.of_parts(conn, [item["id"] for item in page])

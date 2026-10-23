@@ -2,6 +2,8 @@ import { cn } from "@/lib/utils";
 import type { ForecastState, SupplyPartRow } from "@/types/supply";
 import { PartOfferRows } from "./part-offer-rows";
 import type { PartsLayout } from "./parts-layout";
+import { columnOf, clickColumn, type PartsSort, type SortColumn } from "./parts-sort";
+import { ariaSort, SortHeader } from "./sort-header";
 import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
 import { formatStock, PROBLEM_LABEL } from "./supply-format";
@@ -22,9 +24,18 @@ interface PartsTableProps {
   layout?: PartsLayout;
   /** Name the projects using each part. Off where the list is already grouped by project. */
   showProjects?: boolean;
+  /** What the list is sorted by, and the choice of a new one; the column names sort only when this is given. */
+  sort?: PartsSort;
+  onSort?: (sort: PartsSort) => void;
 }
 
-export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact", showProjects = true }: PartsTableProps) {
+export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact", showProjects = true, sort = "", onSort }: PartsTableProps) {
+  const on = columnOf(sort);
+  const header = (column: SortColumn, label: string, align: "left" | "right" = "left") => {
+    const direction = on?.column === column ? on.direction : null;
+    return onSort ? <SortHeader label={label} direction={direction} align={align} onSort={() => onSort(clickColumn(sort, column))} /> : label;
+  };
+  const sorted = (column: SortColumn) => (onSort ? { "aria-sort": ariaSort(on?.column === column ? on.direction : null) } : {});
   // The detailed layout gives stock, price and vendors a row each below the part.
   const detailed = layout === "detailed";
   return (
@@ -33,9 +44,9 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
         <thead className={cn("border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground", stickyHead && "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--border)]")}>
           <tr>
             <th className="w-8 px-3 py-2"><span className="sr-only">Status</span></th>
-            <th className="px-3 py-2">Part</th>
-            <th className="px-3 py-2 text-right">In stock</th>
-            <th className="px-3 py-2 text-right">Price</th>
+            <th className="px-3 py-2" {...sorted("part")}>{header("part", "Part")}</th>
+            <th className="px-3 py-2 text-right" {...sorted("stock")}>{header("stock", "In stock", "right")}</th>
+            <th className="px-3 py-2 text-right" {...sorted("price")}>{header("price", "Price", "right")}</th>
             <th className="px-3 py-2 text-right">Vendors</th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>

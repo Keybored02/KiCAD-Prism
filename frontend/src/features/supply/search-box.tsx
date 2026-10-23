@@ -22,7 +22,7 @@ export function SearchBox({ initial, onSearch, label = "Search parts", placehold
       }}
     >
       <div className="relative">
-        <Input aria-label={label} className="h-8 w-64 pr-8" placeholder={placeholder} value={text} onChange={(event) => setText(event.target.value)} />
+        <Input aria-label={label} className="h-8 w-48 pr-8" placeholder={placeholder} value={text} onChange={(event) => setText(event.target.value)} />
         {text ? (
           <button
             type="button" aria-label="Clear search" title="Clear search"

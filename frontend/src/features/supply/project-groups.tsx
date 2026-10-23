@@ -3,6 +3,7 @@ import { CollapsibleSection } from "./collapsible-section";
 import { LoadMore } from "./load-more";
 import type { PartsLayout } from "./parts-layout";
 import { PartsTable } from "./parts-table";
+import type { PartsSort } from "./parts-sort";
 import { OpenProjectButton, ProjectRowSummary, StatusBar } from "./project-row-summary";
 import { StatusDot } from "./status-dot";
 import { useSupplyPartsFeed } from "./use-supply-parts";
@@ -13,6 +14,8 @@ interface ShownProps {
   only: PartsFilter;
   vendor: string;
   layout: PartsLayout;
+  sort: PartsSort;
+  onSort: (sort: PartsSort) => void;
   selectedId: string | null;
   onOpen: (partId: string) => void;
 }
@@ -20,11 +23,11 @@ interface ShownProps {
 const WORST_FIRST: readonly SupplyStatus[] = ["fatal", "error", "warning", "ok", "unknown"];
 
 /** One group's parts, loaded as they scroll into view. Mounted only while its group is open. */
-function GroupParts({ projectId, scope, query, only, vendor, layout, selectedId, onOpen }: ShownProps & { projectId: string }) {
-  const { items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed(scope, query, only, projectId, vendor);
+function GroupParts({ projectId, scope, query, only, vendor, layout, sort, onSort, selectedId, onOpen }: ShownProps & { projectId: string }) {
+  const { items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed(scope, query, only, projectId, vendor, sort);
   return (
     <>
-      <PartsTable showProjects={false} layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} />
+      <PartsTable showProjects={false} layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} sort={sort} onSort={onSort} />
       <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
     </>
   );

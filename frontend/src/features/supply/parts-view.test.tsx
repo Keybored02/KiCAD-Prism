@@ -670,3 +670,23 @@ describe("the runs out first sort", () => {
     await waitFor(() => expect(search()).not.toContain("partsSort"));
   });
 });
+
+describe("sorting by a column", () => {
+  it("sorts by price with the most expensive first, reverses it, and lets go on the third click", async () => {
+    renderView("designer", "/?section=supply");
+    fireEvent.click(await screen.findByRole("button", { name: "Sort by Price" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.anything(), "", 0, 50, "", "", "price:desc"));
+    expect(search()).toContain("partsSort=price%3Adesc");
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Price" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.anything(), "", 0, 50, "", "", "price:asc"));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Price" }));
+    await waitFor(() => expect(search()).not.toContain("partsSort"));
+  });
+
+  it("sorts by stock, and a column replaces the runs out first sort", async () => {
+    renderView("designer", "/?section=supply&partsSort=runout");
+    fireEvent.click(await screen.findByRole("button", { name: "Sort by In stock" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.anything(), "", 0, 50, "", "", "stock:desc"));
+    expect(screen.getByRole("button", { name: "Runs out first" }).getAttribute("aria-pressed")).toBe("false");
+  });
+});
