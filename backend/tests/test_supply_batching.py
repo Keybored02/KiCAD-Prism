@@ -386,7 +386,7 @@ class SchedulingTests(unittest.TestCase):
         self.assertGreater(summary.searched, 0)
         got = {row["purpose"]: int(row["n"]) for row in self.rows("SELECT purpose, SUM(calls) AS n FROM call_counts WHERE kind = 'search' GROUP BY purpose")}
         self.assertIn("tier1", got, "searches paid from the committed share are counted as tracking")
-        self.assertNotIn("oneoff", got, "the pool was not touched")
+        self.assertEqual(got.get("oneoff"), 1, "only the pool call made above; the run itself left the pool alone")
 
     def test_tier_one_parts_are_searched_again_after_two_weeks_when_not_found_and_a_month_when_found(self) -> None:
         self.watch("AAA")
