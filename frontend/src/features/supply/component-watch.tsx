@@ -1,31 +1,26 @@
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import type { SupplyComponentWatch, WatchPackaging } from "@/types/supply";
 import { getComponentWatch, removeComponentWatch, setComponentWatch } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 import { PACKAGINGS } from "./watch-packaging";
 
-/** Watching a component: its own part, and its approved alternates now and as they are approved. */
+/** Watching a component: its own part, counted in the packaging chosen. */
 export function ComponentWatch({ componentId, canEdit, onChanged }: { componentId: string; canEdit: boolean; onChanged: () => void }) {
   const fetcher = useCallback((signal: AbortSignal) => getComponentWatch(componentId, signal), [componentId]);
   const loaded = useLoaded<SupplyComponentWatch | null>(`${componentId}:watch`, fetcher, "Could not load the component watch");
-  const [include, setInclude] = useState<boolean | null>(null);
   const [packaging, setPackaging] = useState<WatchPackaging | null>(null);
   const [error, setError] = useState("");
   if (loaded.status !== "ready") return null;
   const watch = loaded.data ?? null;
   if (!watch && !canEdit) return null;
 
-  const includeNow = include ?? watch?.include_alternates ?? true;
   const packagingNow = packaging ?? watch?.packaging ?? "any";
   const act = async (action: () => Promise<unknown>) => {
     setError("");
     try {
       await action();
-      setInclude(null);
       setPackaging(null);
       await loaded.refresh();
       onChanged();
@@ -35,18 +30,14 @@ export function ComponentWatch({ componentId, canEdit, onChanged }: { componentI
   };
 
   if (!canEdit) {
-    return <p className="text-xs text-muted-foreground">Watched with {watch?.include_alternates ? "its approved alternates" : "no alternates"} by {watch?.owner}.</p>;
+    return watch ? <p className="text-xs text-muted-foreground">Watched by {watch.owner}.</p> : null;
   }
   return (
     <div className="space-y-2 border p-2" aria-label="Watch this component">
       <p className="text-xs text-muted-foreground">
-        {watch ? "This component is watched. Parts approved for it later are watched too." : "Watch the component's part, and its alternates as they are approved."}
+        {watch ? "This component's part is watched." : "Watch the component's part."}
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <span className="flex items-center gap-2">
-          <Checkbox id="component-watch-alternates" checked={includeNow} onCheckedChange={(checked) => setInclude(checked === true)} />
-          <Label htmlFor="component-watch-alternates" className="font-normal">Include approved alternates</Label>
-        </span>
         <select
           aria-label="Count stock of"
           className="h-8 border bg-background px-2 text-xs"
@@ -55,7 +46,7 @@ export function ComponentWatch({ componentId, canEdit, onChanged }: { componentI
         >
           {PACKAGINGS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
         </select>
-        <Button size="sm" onClick={() => void act(() => setComponentWatch(componentId, includeNow, packagingNow))}>
+        <Button size="sm" onClick={() => void act(() => setComponentWatch(componentId, packagingNow))}>
           {watch ? "Update" : "Watch component"}
         </Button>
         {watch ? <Button size="sm" variant="ghost" onClick={() => void act(() => removeComponentWatch(componentId))}>Stop watching</Button> : null}

@@ -41,7 +41,6 @@ import type {
   SupplyBomRollup,
   SupplyCompliance,
   SupplyBomComment,
-  SupplyComponentCheck,
   SupplyComponentWatch,
   SupplyMarket,
   SupplyMarketHistory,
@@ -49,7 +48,6 @@ import type {
   SupplyNoticeKind,
   SupplySignin,
   SupplySvhcList,
-  SupplySource,
   SupplyWatch,
   UpdateSupplyConnectorInput,
   UpdateWatchInput,
@@ -469,33 +467,9 @@ export async function removeSupplyWatch(watchId: string): Promise<void> {
   }
 }
 
-function sourcePath(id: string): string {
-  return `${BASE}/sources/${encodeURIComponent(id)}`;
-}
-
 async function send(url: string, method: string, body: unknown, fallback: string): Promise<void> {
   const response = await fetchApi(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, fallback));
-}
-
-export async function listComponentSources(componentId: string, signal?: AbortSignal): Promise<SupplySource[]> {
-  const url = `${BASE}/components/${encodeURIComponent(componentId)}/sources`;
-  return (await fetchJson<{ items: SupplySource[] }>(url, { signal }, "Could not load the approved parts")).items;
-}
-
-/** What a component's own part and its approved alternates hold together. */
-export function getComponentCoverage(componentId: string, signal?: AbortSignal): Promise<ComponentCoverage> {
-  return fetchJson<ComponentCoverage>(`${BASE}/components/${encodeURIComponent(componentId)}/coverage`, { signal }, "Could not load the component's coverage");
-}
-
-/** What is wrong with a component taken with its approved alternates; empty when nothing is. */
-export function getComponentFindings(componentId: string, signal?: AbortSignal): Promise<SupplyComponentCheck> {
-  const url = `${BASE}/components/${encodeURIComponent(componentId)}/assessment`;
-  return fetchJson<SupplyComponentCheck>(url, { signal }, "Could not load the component check");
-}
-
-export function watchComponentAlternates(componentId: string): Promise<{ watched: number; already_watched: number }> {
-  return post(`${BASE}/components/${encodeURIComponent(componentId)}/watch-alternates`, undefined, "Could not watch the alternates");
 }
 
 export async function getComponentWatch(componentId: string, signal?: AbortSignal): Promise<SupplyComponentWatch | null> {
@@ -503,9 +477,9 @@ export async function getComponentWatch(componentId: string, signal?: AbortSigna
   return (await fetchJson<{ watch: SupplyComponentWatch | null }>(url, { signal }, "Could not load the component watch")).watch;
 }
 
-export async function setComponentWatch(componentId: string, includeAlternates: boolean, packaging: WatchPackaging): Promise<SupplyComponentWatch> {
+export async function setComponentWatch(componentId: string, packaging: WatchPackaging): Promise<SupplyComponentWatch> {
   const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
-  const body = JSON.stringify({ include_alternates: includeAlternates, packaging });
+  const body = JSON.stringify({ packaging });
   return (await fetchJson<{ watch: SupplyComponentWatch }>(url, { method: "PUT", body }, "Could not watch the component")).watch;
 }
 
@@ -533,31 +507,14 @@ export function getCrossReference(partId: string, signal?: AbortSignal): Promise
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/cross-reference`, { signal }, "Could not look for alternatives");
 }
 
-export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {
-  return post(`${BASE}/components/${encodeURIComponent(componentId)}/sources`, { manufacturer, mpn }, "Could not add the part");
-}
-
-export function decideSource(id: string, approve: boolean): Promise<void> {
-  return send(`${sourcePath(id)}/${approve ? "approve" : "reject"}`, "POST", undefined, "Could not save the decision");
-}
-
-export function rankSource(id: string, rank: number): Promise<void> {
-  return send(sourcePath(id), "PATCH", { rank }, "Could not change the rank");
-}
-
-export function removeSource(id: string): Promise<void> {
-  return send(sourcePath(id), "DELETE", undefined, "Could not remove the part");
-}
-
 
 export function getSupplyAssessment(partId: string, quantity?: number, signal?: AbortSignal): Promise<SupplyAssessment> {
   const query = quantity ? `?quantity=${quantity}` : "";
   return fetchJson<SupplyAssessment>(`${BASE}/parts/${encodeURIComponent(partId)}/assessment${query}`, { signal }, "Could not load the assessment");
 }
 
-export function proposeWaiver(partId: string, check: string, reason: string, componentId?: string): Promise<{ id: string; state: string }> {
-  const body = componentId ? { check, reason, component_id: componentId } : { check, reason };
-  return post(`${BASE}/parts/${encodeURIComponent(partId)}/waivers`, body, "Could not propose the waiver");
+export function proposeWaiver(partId: string, check: string, reason: string): Promise<{ id: string; state: string }> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/waivers`, { check, reason }, "Could not propose the waiver");
 }
 
 export function decideWaiver(id: string, approve: boolean): Promise<void> {

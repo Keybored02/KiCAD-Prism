@@ -9,8 +9,6 @@ export interface PartSearchRow {
   manufacturer: string;
   library: { component_id: string; name: string; stage: string } | null;
   supply: { part_id: string; status?: string; stock?: number | null; lifecycle?: string; tracked?: boolean } | null;
-  /** The part number of the component a supply-only row is an approved alternate of. */
-  alternate_of: string | null;
 }
 
 /** Shortest query worth sending. "R" would match everything. */

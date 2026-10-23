@@ -76,7 +76,6 @@ const STAGE_TEXT: Record<string, string> = { released: "released", done: "releas
 
 function detailOf(row: PartSearchRow): string {
   const parts = [row.manufacturer];
-  if (row.alternate_of) parts.push(`alternate of ${row.alternate_of}`);
   if (row.library) parts.push(STAGE_TEXT[row.library.stage] ?? row.library.stage);
   if (row.supply) parts.push(row.supply.stock == null ? "not read yet" : row.supply.stock === 0 ? "out of stock" : `${row.supply.stock.toLocaleString()} in stock`);
   return parts.filter(Boolean).join(" · ");

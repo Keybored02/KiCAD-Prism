@@ -28,7 +28,7 @@ describe("the Supply entries of the command palette", () => {
 });
 
 const both: PartSearchRow = {
-  key: "component:c1", label: "LM358DR", manufacturer: "Texas Instruments", alternate_of: null,
+  key: "component:c1", label: "LM358DR", manufacturer: "Texas Instruments",
   library: { component_id: "c1", name: "LM358", stage: "released" },
   supply: { part_id: "p1", status: "ok", stock: 12500, tracked: true },
 };
@@ -60,9 +60,8 @@ describe("a part row in the command palette", () => {
   });
 
   it("has no second action when the part is in one place only", () => {
-    const supplyOnly = partCommand({ ...both, library: null, alternate_of: "LM358DR" }, options(true));
+    const supplyOnly = partCommand({ ...both, library: null }, options(true));
     expect(supplyOnly.alt).toBeUndefined();
-    expect(supplyOnly.detail).toContain("alternate of LM358DR");
     expect(partCommand({ ...both, supply: null }, options(true)).alt).toBeUndefined();
   });
 
@@ -72,7 +71,7 @@ describe("a part row in the command palette", () => {
   });
 });
 
-const known: PartSearchRow = { key: "part:p1", label: "LM358DR", manufacturer: "TI", library: null, supply: { part_id: "p1" }, alternate_of: null };
+const known: PartSearchRow = { key: "part:p1", label: "LM358DR", manufacturer: "TI", library: null, supply: { part_id: "p1" } };
 
 describe("the other Supply entries of the command palette", () => {
   it("offers to track a number nothing found, to people who can", () => {

@@ -17,13 +17,11 @@ export function SupplyDot({ summary }: { summary: PanelSupplySummary }) {
   return <span role="img" aria-label="Supply status" className={`h-2 w-2 shrink-0 rounded-full ${DOT[summary.status]}`} title={summaryText(summary)} />;
 }
 
-/** The Availability block for a tracked component: standing, what to watch, who has it, alternates. */
+/** The Availability block for a tracked component: standing, what to watch, who has it. */
 export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
   const { summary } = supply;
   if (!summary) return null;
   const offers = supply.offers ?? [];
-  const alternates = supply.alternates ?? [];
-  const inStockAlternates = alternates.filter((item) => (item.stock ?? 0) > 0).length;
   return (
     <div className="flex flex-col gap-1.5" data-testid="supply-availability">
       <div className="flex items-start gap-2 rounded border border-border/50 px-2.5 py-2">
@@ -67,17 +65,6 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
             </li>
           ))}
         </ul>
-      ) : null}
-      {alternates.length > 0 ? (
-        <p className="px-0.5 text-[11px] text-muted-foreground">
-          Alternates: {alternates.length} approved, {inStockAlternates} in stock.
-          {supply.links ? (
-            <>
-              {" "}
-              <a href={supply.links.sourcing} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">See them</a>
-            </>
-          ) : null}
-        </p>
       ) : null}
     </div>
   );

@@ -227,16 +227,12 @@ async def clear_trade_mark(part_id: str, user: AuthenticatedUser = Depends(requi
 
 @router.get("/parts/{part_id}/cross-reference")
 async def cross_reference_of(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """Alternatives to the part, graded by how close they are, and the catalog component that has this part (to propose one to)."""
+    """Alternatives to the part, graded by how close they are."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            part = parts.get_part(conn, part_id)
-            result = cross_reference.candidates(conn, part_id)
-            from app.services.supply.identity import alias_key, match_key
-
-            result["component_id"] = catalog_read.component_ids_by_part().get((alias_key(part.manufacturer_name), match_key(part.mpn)))
-            return result
+            parts.get_part(conn, part_id)
+            return cross_reference.candidates(conn, part_id)
 
     return await _run(read)
 

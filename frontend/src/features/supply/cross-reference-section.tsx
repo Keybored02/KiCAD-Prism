@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
-import { addComponentSource, askSubstitutes, getCrossReference } from "./supply-api";
+import { askSubstitutes, getCrossReference } from "./supply-api";
 import { FoldSection } from "./fold-section";
 import { SuggestionsList } from "./suggestions-list";
 import { formatStock } from "./supply-format";
@@ -15,16 +15,7 @@ const SAME_LABEL: Record<string, string> = {
 };
 const label = (key: string) => SAME_LABEL[key] ?? key.replace(/_/g, " ");
 
-async function propose(componentId: string, manufacturer: string, mpn: string) {
-  try {
-    await addComponentSource(componentId, manufacturer, mpn);
-    toast.success(`${mpn} proposed as an alternate. QA approves it.`);
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : "Could not propose the part");
-  }
-}
-
-/** Alternatives found in what Prism holds, graded by how close they are. Looked up when the section opens or when asked (no distributor is called). A person checks footprint and pins before approving one. */
+/** Alternatives found in what Prism holds, graded by how close they are. Looked up when the section opens or when asked (no distributor is called). A person checks footprint and pins before using one. */
 export function CrossReferenceSection({ partId, canEdit }: { partId: string; canEdit: boolean }) {
   const [found, setFound] = useState<CrossReference | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +57,7 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
     >
       {found ? (
         <>
-          <SuggestionsList suggestions={found.suggestions ?? []} componentId={found.component_id} canEdit={canEdit} onTracked={() => void look()} />
+          <SuggestionsList suggestions={found.suggestions ?? []} canEdit={canEdit} onTracked={() => void look()} />
           {!found.suggestions?.length && found.suggested_by_distributors.length > 0 ? <p className="text-sm">Distributors suggest: {found.suggested_by_distributors.join(", ")}.</p> : null}
           {found.candidates.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -84,14 +75,11 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
                       {item.stock === null ? "Not read yet." : `${formatStock(item.stock)} in stock.`}
                     </span>
                   </span>
-                  {canEdit && found.component_id ? (
-                    <Button type="button" size="sm" variant="outline" onClick={() => void propose(found.component_id as string, item.manufacturer, item.mpn)}>Propose as alternate</Button>
-                  ) : null}
                 </li>
               ))}
             </ul>
           )}
-          <p className="text-xs text-muted-foreground">Compared on {found.judged_on.map(label).join(", ") || "nothing"} as distributors list them. Footprint and pins are not compared: check them before approving.</p>
+          <p className="text-xs text-muted-foreground">Compared on {found.judged_on.map(label).join(", ") || "nothing"} as distributors list them. Footprint and pins are not compared: check them before using one.</p>
         </>
       ) : <p className="text-xs text-muted-foreground">Nothing looked up yet.</p>}
     </FoldSection>

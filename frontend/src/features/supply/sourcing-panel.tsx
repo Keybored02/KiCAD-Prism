@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import { AvlSection } from "./avl-section";
+import { ComponentWatch } from "./component-watch";
 import { PartActions } from "./part-actions";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
@@ -36,7 +36,7 @@ export default function SourcingPanel({ componentId, manufacturer, mpn, user }: 
   }
   return (
     <div className="space-y-6">
-      <AvlSection componentId={componentId} manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
+      <ComponentWatch componentId={componentId} canEdit={canEditSupply(user?.role)} onChanged={() => undefined} />
       <Lookup manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
     </div>
   );

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
-import { addComponentSource, addSupplyWatch } from "./supply-api";
+import { addSupplyWatch } from "./supply-api";
 import { formatStock } from "./supply-format";
 
 type Suggestion = NonNullable<CrossReference["suggestions"]>[number];
@@ -13,7 +13,7 @@ function words(item: Suggestion): string {
   return [...item.notes, item.asked ? "asked at DigiKey" : ""].filter(Boolean).join(", ");
 }
 
-function SuggestionRow({ item, componentId, canEdit, onTracked }: { item: Suggestion; componentId: string | null; canEdit: boolean; onTracked: () => void }) {
+function SuggestionRow({ item, canEdit, onTracked }: { item: Suggestion; canEdit: boolean; onTracked: () => void }) {
   const [busy, setBusy] = useState(false);
   const act = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -42,9 +42,6 @@ function SuggestionRow({ item, componentId, canEdit, onTracked }: { item: Sugges
           {!item.tracked ? (
             <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => addSupplyWatch({ manufacturer: item.manufacturer, mpn: item.mpn }), `${item.mpn} is tracked.`)}>Track</Button>
           ) : null}
-          {componentId ? (
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => addComponentSource(componentId, item.manufacturer, item.mpn), `${item.mpn} proposed as an alternate. QA approves it.`)}>Propose as alternate</Button>
-          ) : null}
         </span>
       ) : null}
     </li>
@@ -52,13 +49,13 @@ function SuggestionRow({ item, componentId, canEdit, onTracked }: { item: Sugges
 }
 
 /** Parts distributors suggest in place of this one, before Prism's own graded candidates. Prism has not compared them with the part. */
-export function SuggestionsList({ suggestions, componentId, canEdit, onTracked }: { suggestions: NonNullable<CrossReference["suggestions"]>; componentId: string | null; canEdit: boolean; onTracked: () => void }) {
+export function SuggestionsList({ suggestions, canEdit, onTracked }: { suggestions: NonNullable<CrossReference["suggestions"]>; canEdit: boolean; onTracked: () => void }) {
   if (suggestions.length === 0) return null;
   return (
     <div className="space-y-1">
       <p className="text-xs font-medium">Suggested by distributors</p>
       <ul className="divide-y border text-sm">
-        {suggestions.map((item) => <SuggestionRow key={`${item.mpn}|${item.sku}`} item={item} componentId={componentId} canEdit={canEdit} onTracked={onTracked} />)}
+        {suggestions.map((item) => <SuggestionRow key={`${item.mpn}|${item.sku}`} item={item} canEdit={canEdit} onTracked={onTracked} />)}
       </ul>
       <p className="text-xs text-muted-foreground">Distributors suggest these. Prism has not compared them with the part: check the function, footprint and pins first.</p>
     </div>

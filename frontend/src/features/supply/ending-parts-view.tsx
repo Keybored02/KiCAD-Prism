@@ -85,11 +85,6 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
       <td className="px-3 py-2 text-sm">
         {item.projects.length === 0 ? <span className="text-muted-foreground">none</span> : item.projects.slice(0, 3).map((project) => project.name).join(", ") + (item.projects.length > 3 ? ` and ${item.projects.length - 3} more` : "")}
       </td>
-      <td className="px-3 py-2 text-sm">
-        {item.alternates.length === 0 ? <span className="text-muted-foreground">no approved alternate</span> : (
-          <ul>{item.alternates.map((alternate) => <li key={alternate.part_id}>{alternate.mpn}<span className="text-xs text-muted-foreground"> {alternate.stock === null ? "not read" : `${formatStock(alternate.stock)} in stock`}</span></li>)}</ul>
-        )}
-      </td>
       <td className="px-3 py-2 text-right">
         {canDecide ? (
           <span className="inline-flex flex-wrap justify-end gap-1">
@@ -137,7 +132,6 @@ export function EndingPartsView({ role, onOpenComponent }: { role: UserRole | nu
                 <th className="px-3 py-2">Why</th>
                 <th className="px-3 py-2 text-right">In stock</th>
                 <th className="px-3 py-2">Used by</th>
-                <th className="px-3 py-2">Approved alternates</th>
                 <th className="px-3 py-2"><span className="sr-only">Decide</span></th>
               </tr>
             </thead>

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { SupplyToApprove } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
-import { decideSource, decideWaiver } from "./supply-api";
+import { decideWaiver } from "./supply-api";
 import { formatAgo } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
 
@@ -30,26 +30,18 @@ function Row({ kind, title, detail, to, decide, canDecide, onDecided }: {
   );
 }
 
-/** Waivers and alternates people proposed and QA decides on, in one list with a link to where each lives. */
+/** Waivers people proposed and QA decides on, with a link to where each lives. */
 export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToApprove | undefined; canDecide: boolean; onDecided: () => Promise<void> }) {
   const waivers = items?.waivers ?? [];
-  const alternates = items?.alternates ?? [];
-  if (waivers.length + alternates.length === 0) return null;
+  if (waivers.length === 0) return null;
   return (
-    <CollapsibleSection id="review-to-approve" title="To approve" count={waivers.length + alternates.length}>
+    <CollapsibleSection id="review-to-approve" title="To approve" count={waivers.length}>
       <ul className="divide-y">
         {waivers.map((item) => (
           <Row
             key={item.id} kind="Waiver" title={`${item.mpn}, ${item.manufacturer}`} detail={`${item.reason} (${item.proposed_by}, ${formatAgo(item.proposed_at)})`}
             to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(item.part_id)}`}
             decide={(approve) => decideWaiver(item.id, approve)} canDecide={canDecide} onDecided={onDecided}
-          />
-        ))}
-        {alternates.map((item) => (
-          <Row
-            key={item.id} kind="Alternate" title={`${item.mpn}, ${item.manufacturer}`} detail={`Proposed by ${item.created_by}, ${formatAgo(item.created_at)}`}
-            to={`/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(item.component_id)}&componentTab=sourcing`}
-            decide={(approve) => decideSource(item.id, approve)} canDecide={canDecide} onDecided={onDecided}
           />
         ))}
       </ul>

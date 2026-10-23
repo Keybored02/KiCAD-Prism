@@ -12,7 +12,7 @@ import { ComponentWatch } from "./component-watch";
 import * as api from "./supply-api";
 
 const mocked = vi.mocked(api);
-const watch = { component_id: "cmp_1", include_alternates: true, packaging: "any" as const, owner: "ana@example.com" };
+const watch = { component_id: "cmp_1", packaging: "any" as const, owner: "ana@example.com" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -28,7 +28,7 @@ describe("the component watch", () => {
     render(<ComponentWatch componentId="cmp_1" canEdit onChanged={changed} />);
     fireEvent.change(await screen.findByLabelText("Count stock of"), { target: { value: "tape_reel" } });
     fireEvent.click(screen.getByRole("button", { name: "Watch component" }));
-    await waitFor(() => expect(mocked.setComponentWatch).toHaveBeenCalledWith("cmp_1", true, "tape_reel"));
+    await waitFor(() => expect(mocked.setComponentWatch).toHaveBeenCalledWith("cmp_1", "tape_reel"));
     await waitFor(() => expect(changed).toHaveBeenCalled());
   });
 

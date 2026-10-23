@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Ban, GitFork, Hourglass, PackageX, ShieldAlert, Star, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, Hourglass, PackageX, ShieldAlert, Star, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -18,7 +18,6 @@ const FLAG: Record<string, { icon: LucideIcon; text: string }> = {
   reach: { icon: ShieldAlert, text: "A distributor says REACH affects it" },
   ncnr: { icon: Ban, text: "Non-cancellable, non-returnable" },
   not_stocked: { icon: PackageX, text: "A distributor does not normally stock it" },
-  no_alternate: { icon: GitFork, text: "At risk and no approved alternate" },
 };
 
 /** The projects using the part: the first two by name, then how many more. */

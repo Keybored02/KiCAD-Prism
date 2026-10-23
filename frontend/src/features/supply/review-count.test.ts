@@ -9,10 +9,10 @@ describe("reviewCountOf", () => {
       aliases: [], listings: [], manufacturers: [],
       counts: { aliases: 2, unresolved: 3, near: 1 },
       choices: [{}, {}],
-      to_approve: { waivers: [{}], alternates: [{}, {}] },
+      to_approve: { waivers: [{}] },
       other_numbers: [{ listings: [{}, {}] }, { listings: [{}] }],
       matched: { aliases: [{}], parts: [{}, {}] },
     } as unknown as SupplyReviewQueue;
-    expect(reviewCountOf(queue)).toBe(2 + 3 + 1 + 2 + 3 + 2 + 3);
+    expect(reviewCountOf(queue)).toBe(2 + 3 + 1 + 2 + 1 + 2 + 3);
   });
 });

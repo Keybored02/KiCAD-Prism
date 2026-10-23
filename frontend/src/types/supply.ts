@@ -217,7 +217,6 @@ export interface EndingPart {
   stock: number | null;
   status: SupplyStatus;
   projects: Array<{ project_id: string; name: string; quantity: number }>;
-  alternates: Array<{ part_id: string; manufacturer: string; mpn: string; stock: number | null; status: SupplyStatus }>;
   restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
 }
 
@@ -281,15 +280,6 @@ export interface SupplySignin {
   redirect_uri: string;
 }
 
-/** A finding about a component as a whole, such as no approved part being in stock. */
-export interface SupplyComponentFinding {
-  check: string;
-  severity: "ok" | "warning" | "error" | "fatal";
-  text: string;
-  scope: string;
-  waiver: SupplyWaiver | null;
-}
-
 /** A note on a line of a project's BOM. */
 export interface SupplyBomComment {
   id: string;
@@ -301,18 +291,11 @@ export interface SupplyBomComment {
 }
 
 
-/** A standing request to watch a component and, when asked, its approved alternates. */
+/** A standing request to watch a component's part. */
 export interface SupplyComponentWatch {
   component_id: string;
-  include_alternates: boolean;
   packaging: WatchPackaging;
   owner: string;
-}
-
-/** A component's findings and the part they are waived on (its own part), or null when it has none tracked. */
-export interface SupplyComponentCheck {
-  part_id: string | null;
-  findings: SupplyComponentFinding[];
 }
 
 /** One distinct part on a BOM: what goes into a lookup. `quantity` is fitted parts per board. */
@@ -478,7 +461,6 @@ export interface SupplyMatched {
 
 export interface SupplyToApprove {
   waivers: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; check_id: string; scope: string; reason: string; proposed_by: string; proposed_at: string }>;
-  alternates: Array<{ id: string; component_id: string; part_id: string; mpn: string; manufacturer: string; created_by: string; created_at: string }>;
 }
 
 export interface SupplyMakerGroup {
@@ -502,7 +484,7 @@ export interface SupplyReviewQueue {
   /** Parts whose maker waits for a person. */
   choices?: SupplyChoice[];
   matched?: SupplyMatched;
-  /** Waivers and alternates proposed and waiting for QA. */
+  /** Waivers proposed and waiting for QA. */
   to_approve?: SupplyToApprove;
   counts: { aliases: number; unresolved: number; near: number };
   manufacturers: SupplyManufacturer[];
@@ -651,7 +633,7 @@ export interface SupplyPartRow {
   price_change_percent?: number | null;
   /** The shortest lead time quoted, in days. */
   lead_days?: number | null;
-  /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked, no_alternate. */
+  /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked. */
   flags?: string[];
   /** The kept forecast: when it likely runs out and the chance of being out within four and eight weeks. */
   forecast?: RowForecast | null;
@@ -882,8 +864,6 @@ export interface SupplyPartDetail {
   market_behaviour?: MarketBehaviour;
   restock_record?: RestockRecord[];
   jlc?: JlcClass | null;
-  /** The catalog components that list this part as an approved alternate, and what their parts hold together. */
-  alternate_for?: ComponentCoverage[];
   part: { id: string; mpn: string; manufacturer: string; first_seen?: string | null };
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
@@ -1068,25 +1048,6 @@ export interface FillDetails {
   category: string;
 }
 
-export type SourceApproval = "pending" | "approved" | "rejected";
-
-/** An alternate on a component's approved parts list. The component's own part is its primary source. */
-export interface SupplySource {
-  id: string;
-  part_id: string;
-  manufacturer: string;
-  mpn: string;
-  approval: SourceApproval;
-  rank: number;
-  created_by: string;
-  decided_by: string;
-  created_at: string | null;
-  decided_at: string | null;
-  status: SupplyStatus;
-  stock: number | null;
-  lifecycle: SupplyLifecycle;
-}
-
 export type FindingSeverity = "warning" | "error" | "fatal" | "ok";
 
 export interface SupplyWaiver {
@@ -1163,7 +1124,6 @@ export interface ReleaseSnapshot {
   health: number | null;
   status: SupplyStatus;
   assessment: { parts: number; tracked: number; not_tracked: number; needing_a_look: number; attention: ReleaseCheckLine[] };
-  avl: Record<string, { manufacturer: string; mpn: string; alternates: Array<{ manufacturer: string; mpn: string }> }>;
   compliance: unknown;
 }
 
@@ -1471,17 +1431,6 @@ export interface ProjectSupply {
   notes: SupplyBomComment[];
 }
 
-/** What a component's own part and its approved alternates hold together, and which part gives how much. */
-export interface ComponentCoverage {
-  component_id: string;
-  /** Null when no part has been read. */
-  stock: number | null;
-  /** Parts nobody has read yet, so the total is not complete. */
-  unread: number;
-  parts: Array<{ part_id: string; manufacturer: string; mpn: string; role: "primary" | "alternate"; stock: number | null }>;
-  component?: string;
-}
-
 /** The export control class and tariff codes distributors give for a project's parts. */
 export interface TradeReport {
   parts: Array<{
@@ -1518,8 +1467,6 @@ export interface CrossReference {
   }>;
   /** The parameters the comparison rested on. */
   judged_on: string[];
-  /** The catalog component that has this part; an alternate is proposed to it. */
-  component_id: string | null;
 }
 
 /** One account's room for more tracked parts, counted in parts like the ones already searched. Null where too few were searched. */

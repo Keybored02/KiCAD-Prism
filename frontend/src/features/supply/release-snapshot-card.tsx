@@ -26,7 +26,6 @@ export function ReleaseSnapshotCard({ projectId, buildId }: { projectId: string;
   if (!taken) return <p className="text-xs text-muted-foreground">{WAITING[state.data.state]}</p>;
   if (snapshot.status !== "ready" || !snapshot.data) return null;
   const data = snapshot.data;
-  const approved = Object.values(data.avl).reduce((count, item) => count + item.alternates.length, 0);
   return (
     <section aria-label="Supply when published" className="space-y-1 border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -35,8 +34,7 @@ export function ReleaseSnapshotCard({ projectId, buildId }: { projectId: string;
         <span className="text-xs text-muted-foreground">{STATUS_LABEL[data.status]}</span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {data.assessment.tracked} of {data.assessment.parts} parts tracked, {data.assessment.needing_a_look} needed a look, {approved} approved
-        alternates. Taken {new Date(data.created_at).toLocaleString()}.
+        {data.assessment.tracked} of {data.assessment.parts} parts tracked, {data.assessment.needing_a_look} needed a look. Taken {new Date(data.created_at).toLocaleString()}.
       </p>
       {data.compliance ? (
         <a className="text-xs underline" href={releaseComplianceCsvUrl(projectId, buildId)}>Compliance draft (CSV, a working document)</a>

@@ -16,7 +16,6 @@ const item = (over: Partial<EndingPart> = {}): EndingPart => ({
   stock: 4200,
   status: "warning",
   projects: [{ project_id: "pr1", name: "Power board", quantity: 2 }],
-  alternates: [{ part_id: "p2", manufacturer: "ST", mpn: "LM358N", stock: 900, status: "ok" }],
   restriction: null,
   ...over,
 });
@@ -31,14 +30,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ending parts in the library manager", () => {
-  it("lists the component with why, where it comes from, last buy date, stock, projects and alternates", async () => {
+  it("lists the component with why, where it comes from, last buy date, stock and projects", async () => {
     render(<EndingPartsView role="qa" onOpenComponent={vi.fn()} />);
     expect(await screen.findByText("Op amp")).toBeTruthy();
     expect(screen.getByText("Not recommended for new designs")).toBeTruthy();
     expect(screen.getByText(/Outlook: under two years/)).toBeTruthy();
     expect(screen.getByText(/Last buy 2027-03-31/)).toBeTruthy();
     expect(screen.getByText("Power board")).toBeTruthy();
-    expect(screen.getByText(/LM358N/)).toBeTruthy();
     expect(screen.getByText(/1 component's part is ending/)).toBeTruthy();
   });
 

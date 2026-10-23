@@ -93,7 +93,6 @@ export interface PanelSupply {
   restriction?: "not_for_new_designs";
   /** Detail only, from here down. */
   offers?: PanelDistributorOffer[];
-  alternates?: Array<{ manufacturer: string; mpn: string; status: PanelSupplySummary["status"]; stock: number | null; rank: number }>;
   health?: { score: number; status: PanelSupplySummary["status"] };
   /** One phrase, rule-based: "No signs of an end of life", "2 to 5 years"... */
   outlook?: string;

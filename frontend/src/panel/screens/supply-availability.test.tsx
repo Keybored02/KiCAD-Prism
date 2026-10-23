@@ -33,14 +33,10 @@ describe("the availability block", () => {
       { connector: "TME", sku: "A", stock: 1200, marketplace: false, unit_price: "3.40", currency: "EUR", moq: 10, lead_time_days: null, product_url: "https://tme.example/a", fetched_at: null },
       { connector: "Mouser", sku: "B", stock: 9880, marketplace: true, unit_price: null, currency: "", moq: 1, lead_time_days: null, product_url: "", fetched_at: null },
     ],
-    alternates: [
-      { manufacturer: "Acme", mpn: "ALT-1", status: "ok", stock: 100, rank: 1 },
-      { manufacturer: "Acme", mpn: "ALT-2", status: "error", stock: 0, rank: 2 },
-    ],
     links: { component: "https://p/c", sourcing: "https://p/s", supply: "https://p/u" },
   };
 
-  it("shows the standing, what to watch, who holds it and the alternates, with links out", () => {
+  it("shows the standing, what to watch, who holds it, with a link out", () => {
     render(<SupplyAvailability supply={supply} />);
     expect(screen.getByText(/38\.2k at 3 distributors/)).toBeTruthy();
     expect(screen.getByText("Could run out in about 11 days at the recent rate.")).toBeTruthy();
@@ -48,9 +44,7 @@ describe("the availability block", () => {
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByRole("link", { name: "Open TME product page" }).getAttribute("href")).toBe("https://tme.example/a");
     expect(within(rows[1]).getByText("marketplace")).toBeTruthy();
-    expect(screen.getByText(/Alternates: 2 approved, 1 in stock\./)).toBeTruthy();
     expect(screen.getByRole("link", { name: /Open in Prism/ }).getAttribute("href")).toBe("https://p/u");
-    expect(screen.getByRole("link", { name: "See them" }).getAttribute("href")).toBe("https://p/s");
   });
 
   it("shows nothing for a component Prism does not track", () => {
