@@ -8,9 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
-import { Sparkline } from "./sparkline";
 import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
+import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
 import { NeedsALookChips, ProjectHeadline } from "./project-headline";
 import { matchesChip, type Chip } from "./project-part-filters";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
@@ -19,7 +19,6 @@ import { BoardCount, ProjectForecastSection, useProjectForecast } from "./projec
 import { supplyPartPath } from "@/components/command-palette-supply";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
-import { formatPrice } from "./supply-format";
 import { SettleBadge } from "./settle-badge";
 import { TrackProjectButton } from "./track-project-dialog";
 import { useLoaded } from "./use-loaded";
@@ -55,22 +54,6 @@ function CostExport({ projectId, variant, boards, spares }: { projectId: string;
     <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <a href={href} className="text-primary hover:underline">Download the costing for {boards.toLocaleString()} boards as CSV</a>
     </p>
-  );
-}
-
-function CostHistory({ points }: { points: NonNullable<ProjectSupply["cost_history"]> }) {
-  if (points.length < 2) return null;
-  const first = points[0];
-  const last = points[points.length - 1];
-  const change = Number(last.cost_per_board) - Number(first.cost_per_board);
-  return (
-    <section aria-label="Cost over time" className="flex flex-wrap items-center gap-3 border p-2 text-sm">
-      <Sparkline values={points.map((point) => Number(point.cost_per_board))} label="Cost of one board over time" />
-      <span>
-        {formatPrice(last.cost_per_board, last.currency)} a board now, {change === 0 ? "unchanged" : `${change > 0 ? "up" : "down"} ${formatPrice(String(Math.abs(change)), last.currency)}`} since {first.day}.
-      </span>
-      {points.some((point) => !point.complete) ? <span className="text-xs text-muted-foreground">Some days price fewer lines than others.</span> : null}
-    </section>
   );
 }
 
@@ -136,7 +119,8 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
         <>
           <ProjectHeadline supply={supply} boards={boards} forecast={forecast.data ?? undefined} onOpenPart={open} />
           <NeedsALookChips supply={supply} forecast={forecast.data ?? undefined} chip={chip} onChip={setChip} />
-          <CostHistory points={supply.cost_history ?? []} />
+          <ProjectCostCards supply={supply} boards={boards} onOpenPart={open} />
+          <ProjectCostHistory supply={supply} />
           <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={open} />
           <section aria-label="Parts" className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts{chip ? ` (${shown.length} of ${(supply.parts ?? []).length})` : ""}</h3>

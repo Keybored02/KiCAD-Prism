@@ -74,14 +74,39 @@ describe("the project Supply tab", () => {
     mocked.getProjectSupply.mockResolvedValue(supply({
       rollup: { ...rollup, waste_cost: "3.20" },
       cost_history: [
-        { day: "2026-09-01", cost_per_board: "12.0000", currency: "EUR", complete: true },
-        { day: "2026-10-01", cost_per_board: "13.5000", currency: "EUR", complete: true },
+        { day: "2026-09-01", cost_per_board: "12.0000", currency: "EUR", boards: 100 },
+        { day: "2026-10-01", cost_per_board: "13.5000", currency: "EUR", boards: 100 },
       ],
     }));
     renderTab();
     const history = await screen.findByRole("region", { name: "Cost over time" });
     expect(within(history).getByText(/up .*1\.5.* since 2026-09-01/)).toBeTruthy();
     expect(screen.getByText(/3\.20.* left over from minimum orders/)).toBeTruthy();
+  });
+
+  it("shows what the build costs at other sizes and where the money goes, and a bar opens the part", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({
+      cost_curve: [
+        { boards: 1, cost_per_board: "20.0000", cost_build: "20.00", currency: "EUR", short: 1, lines_priced: 2, lines: 3 },
+        { boards: 100, cost_per_board: "12.5000", cost_build: "1250.00", currency: "EUR", short: 0, lines_priced: 2, lines: 3 },
+      ],
+      money: {
+        lines: [{ key: "k1", part_id: "p1", mpn: "FLAKY-1", manufacturer: "Acme", cost: "900.00", share: 0.72 }],
+        other: { count: 4, cost: "350.00", share: 0.28 }, total: "1250.00",
+      },
+      cost_history: [
+        { day: "2026-09-01", cost_per_board: "12.0000", currency: "EUR", boards: 100 },
+        { day: "2026-10-01", cost_per_board: "13.5000", currency: "EUR", boards: 100 },
+      ],
+      cost_history_left_out: [{ day: "2026-09-15", cost_per_board: "99999.0000", currency: "EUR", boards: 100 }],
+    }));
+    renderTab();
+    const curve = await screen.findByRole("region", { name: "Cost per board by build size" });
+    expect(within(curve).getByText(/for one board/)).toBeTruthy();
+    const money = screen.getByRole("region", { name: "Where the money goes" });
+    expect(within(money).getByText("Other 4 lines · 28%")).toBeTruthy();
+    expect(within(money).getByRole("button", { name: /FLAKY-1 · 72%/ })).toBeTruthy();
+    expect(screen.getByText(/Left out as one price read wrong: 2026-09-15/)).toBeTruthy();
   });
 
   it("sends the boards and the spares to the costing, and the file follows them", async () => {

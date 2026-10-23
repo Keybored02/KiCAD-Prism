@@ -1426,6 +1426,23 @@ export interface ProjectSupplyPart {
   alerts?: number;
 }
 
+export interface ProjectCostPoint {
+  boards: number;
+  cost_per_board: string | null;
+  cost_build: string | null;
+  currency: string | null;
+  /** Parts the stock cannot cover at this size. */
+  short: number;
+  lines_priced: number;
+  lines: number;
+}
+
+export interface ProjectMoney {
+  lines: Array<{ key: string; part_id: string | null; mpn: string; manufacturer: string; cost: string; share: number }>;
+  other: { count: number; cost: string; share: number };
+  total: string;
+}
+
 /** The counts the page's chips show, over distinct parts; the same definitions as the Projects view. */
 export interface ProjectSupplyCounts {
   at_risk: number;
@@ -1464,8 +1481,14 @@ export interface ProjectSupply {
   rollup?: SupplyBomRollup;
   counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];
-  /** The cost of one board a day, oldest first. */
-  cost_history?: Array<{ day: string; cost_per_board: string; currency: string; complete: boolean }>;
+  /** The cost of one board a day, oldest first: the days that price every line and are not one price read wrong. */
+  cost_history?: Array<{ day: string; cost_per_board: string; currency: string; boards: number }>;
+  /** The days left out because one price was read wrong. */
+  cost_history_left_out?: Array<{ day: string; cost_per_board: string; currency: string; boards: number }>;
+  /** The cost at 1, 10, 100, 1,000 and 10,000 boards and the chosen size. */
+  cost_curve?: ProjectCostPoint[];
+  /** The lines that cost the most for the build, with their share, and what all the others cost. */
+  money?: ProjectMoney | null;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];
 }
