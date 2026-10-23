@@ -70,7 +70,7 @@ export function TrackingControl({
           </select>
           {pending ? <Button size="sm" onClick={() => finish(setPartTier(partId, pending.choice))}>Apply</Button> : null}
           {!pending && tracking && tracking.reasons.some((item) => item.kind !== "project") ? (
-            <Button size="sm" variant="outline" onClick={() => finish(stopTrackingPart(partId))}>Stop tracking</Button>
+            <Button size="sm" variant="destructive" onClick={() => finish(stopTrackingPart(partId))}>Stop tracking</Button>
           ) : null}
         </div>
       ) : null}

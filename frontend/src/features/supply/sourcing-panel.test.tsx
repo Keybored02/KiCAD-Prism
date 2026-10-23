@@ -12,7 +12,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   findSupplyPart: vi.fn(),
   getSupplyPart: vi.fn(),
   addSupplyWatch: vi.fn(),
-  listComponentSources: vi.fn(),
+  getComponentWatch: vi.fn(),
   getSupplyAssessment: vi.fn(),
 }));
 
@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.findSupplyPart.mockResolvedValue("p1");
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
-  mocked.listComponentSources.mockResolvedValue([]);
+  mocked.getComponentWatch.mockResolvedValue(null);
 });
 afterEach(cleanup);
 
@@ -49,6 +49,17 @@ describe("the Supply tab", () => {
     expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything());
     const link = screen.getByRole("link", { name: "Open in Supply" });
     expect(link.getAttribute("href")).toBe("/?section=supply&supplyView=parts&part=p1");
+  });
+
+  it("offers to watch the component's part only while nobody follows it", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: null }));
+    renderPanel();
+    expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
+    cleanup();
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: { tier: 1, rate: "daily" } }));
+    renderPanel();
+    await screen.findByRole("region", { name: "Stock" });
+    expect(screen.queryByLabelText("Watch this component")).toBeNull();
   });
 
   it("offers to watch a part Prism does not know yet, then shows it", async () => {

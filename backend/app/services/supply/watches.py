@@ -218,6 +218,11 @@ def remove_watch(conn, watch_id: str, actor: str) -> None:
     actor = actor_text(actor)
     current = get_watch(conn, watch_id)
     conn.execute("DELETE FROM watches WHERE id = %s", (watch_id,))
+    if current.origin == "component":
+        # A watch a component asked for comes back with the next sync unless the component watch goes too.
+        from app.services.supply import component_watches
+
+        component_watches.forget_part(conn, current.part_id)
     tracking.recompute(conn, [current.part_id])
     # Without a watch every condition is false, so its alerts clear.
     alerts.evaluate_parts(conn, [current.part_id], datetime.now(timezone.utc))

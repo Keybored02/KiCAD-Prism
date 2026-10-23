@@ -36,20 +36,19 @@ export default function SourcingPanel({ componentId, manufacturer, mpn, user }: 
   }
   return (
     <div className="space-y-6">
-      <ComponentWatch componentId={componentId} canEdit={canEditSupply(user?.role)} onChanged={() => undefined} />
-      <Lookup manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
+      <Lookup componentId={componentId} manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
     </div>
   );
 }
 
-function Lookup({ manufacturer, mpn, user }: Omit<SourcingPanelProps, "componentId">) {
+function Lookup({ componentId, manufacturer, mpn, user }: SourcingPanelProps) {
   const lookup = useSupplyPartFor(manufacturer, mpn);
   if (lookup.status === "loading") return <Skeleton className="h-40 w-full" aria-label="Looking the part up" />;
   if (lookup.status === "error") return <Failure message={lookup.error} onRetry={lookup.retry} />;
   if (lookup.data === null) {
     return <Untracked manufacturer={manufacturer} mpn={mpn} canEdit={canEditSupply(user?.role)} onTracked={lookup.retry} />;
   }
-  return <Tracked key={lookup.data} partId={lookup.data} user={user} />;
+  return <Tracked key={lookup.data} partId={lookup.data} componentId={componentId} user={user} />;
 }
 
 function Failure({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -94,7 +93,7 @@ function Untracked({ manufacturer, mpn, canEdit, onTracked }: { manufacturer: st
   );
 }
 
-function Tracked({ partId, user }: { partId: string; user: User | null }) {
+function Tracked({ partId, componentId, user }: { partId: string; componentId: string; user: User | null }) {
   const part = useSupplyPart(partId);
   if (part.status === "loading") return <Skeleton className="h-40 w-full" aria-label="Loading the part" />;
   if (part.status === "error" || !part.data) return <Failure message={part.error} onRetry={part.retry} />;
@@ -102,6 +101,8 @@ function Tracked({ partId, user }: { partId: string; user: User | null }) {
   const canEdit = canEditSupply(user?.role);
   return (
     <div className="space-y-6">
+      {/* A followed part is managed with its tracking settings (the clock); only one nobody follows is offered a watch here. */}
+      {detail.tracking ? null : <ComponentWatch componentId={componentId} canEdit={canEdit} onChanged={part.refresh} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
           <StatusDot status={detail.status} />

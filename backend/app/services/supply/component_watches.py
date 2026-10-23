@@ -64,6 +64,28 @@ def remove_watch(conn, component_id: str, actor: str) -> None:
     write_audit(conn, actor, "component_watch.remove", component_id, {}, subject_kind="component")
 
 
+def forget_part(conn, part_id: str) -> int:
+    """Drop the component watches whose component is this part, so stopping a part's tracking is not undone by the next sync. Returns how many."""
+
+    from app.services.supply import catalog_read, parts
+
+    ids = [row["component_id"] for row in conn.execute("SELECT component_id FROM component_watches").fetchall()]
+    if not ids:
+        return 0
+    try:
+        named = catalog_read.identities(ids)
+    except Exception:  # noqa: BLE001 - the catalog may be unavailable; the watch stays and can be stopped from the component
+        return 0
+    gone = []
+    for component_id, (maker, mpn) in named.items():
+        part = parts.find_part(conn, maker, mpn) if maker and mpn else None
+        if part is not None and part.id == part_id:
+            gone.append(component_id)
+    if gone:
+        conn.execute("DELETE FROM component_watches WHERE component_id = ANY(%s)", (gone,))
+    return len(gone)
+
+
 def sync_component(conn, component_id: str, identities: Identities, actor: str = SYSTEM, *, apply_packaging: bool = False) -> int:
     """Make sure the component's part is watched. Returns how many part watches were added (0 or 1).
 

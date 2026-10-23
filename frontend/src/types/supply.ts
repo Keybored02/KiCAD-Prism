@@ -861,6 +861,8 @@ export interface MarketBehaviour {
 }
 
 export interface SupplyPartDetail {
+  /** Why and how often Prism follows the part; null when nobody does. */
+  tracking?: { tier: number; rate: string } | null;
   market_behaviour?: MarketBehaviour;
   restock_record?: RestockRecord[];
   jlc?: JlcClass | null;

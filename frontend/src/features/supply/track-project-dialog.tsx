@@ -111,7 +111,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
         {step === "tracking" ? <TrackProgressStep projectId={projectId} result={result} onFinished={finished} /> : null}
 
         <div className="flex justify-end gap-2">
-          {state?.tracked && step === "choose" ? <Button variant="outline" disabled={busy} onClick={stop}>Stop tracking</Button> : null}
+          {state?.tracked && step === "choose" ? <Button variant="destructive" disabled={busy} onClick={stop}>Stop tracking</Button> : null}
           {step === "tracking" ? (
             <Button onClick={onClose}>Close</Button>
           ) : (

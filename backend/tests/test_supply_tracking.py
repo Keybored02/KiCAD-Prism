@@ -201,6 +201,20 @@ class TrackingTests(unittest.TestCase):
         got = self.tier("Acme", "OWN-1")
         self.assertEqual((got["tier"], [r["kind"] for r in got["reasons"]]), (1, ["component"]))
 
+    def test_stopping_the_tracking_of_a_component_s_part_stops_the_component_watch_too(self) -> None:
+        from unittest import mock
+
+        from app.services.supply import catalog_read
+
+        identities = lambda ids: {i: ("Acme", "OWN-2") for i in ids}  # noqa: E731
+        with self.store.connection() as conn:
+            self.component_watches.set_watch(conn, "cmp-2", ACTOR, identities, tier=1)
+            watch = conn.execute("SELECT id FROM watches").fetchone()
+            with mock.patch.object(catalog_read, "identities", identities):
+                self.watches.stop_tracking(conn, conn.execute("SELECT part_id FROM watches WHERE id = %s", (watch["id"],)).fetchone()["part_id"], ACTOR)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM component_watches").fetchone()["n"], 0, "else the next sync would watch it again")
+            self.assertEqual(self.component_watches.sync_all(conn, identities), 0)
+
     def test_a_part_raised_to_daily_is_due_a_day_after_its_last_read_not_when_its_old_rate_said(self) -> None:
         from datetime import timedelta
 
