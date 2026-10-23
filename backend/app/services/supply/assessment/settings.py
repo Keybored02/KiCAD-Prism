@@ -25,7 +25,6 @@ LEAD_TIME_OVER_THRESHOLD = "lead_time_over_threshold"
 ROHS_NONCOMPLIANT = "rohs_noncompliant"
 DATA_STALE = "data_stale"
 SINGLE_SOURCE = "single_source"
-NO_APPROVED_SOURCE = "no_approved_source"
 MANUFACTURER_MISSING = "manufacturer_missing"
 NOT_IN_LIBRARY = "not_in_library"
 REACH_SVHC = "reach_svhc"
@@ -47,7 +46,6 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     ROHS_NONCOMPLIANT: Status.ERROR,
     DATA_STALE: Status.WARNING,
     SINGLE_SOURCE: Status.WARNING,
-    NO_APPROVED_SOURCE: Status.ERROR,
     MANUFACTURER_MISSING: Status.WARNING,
     # The plan says error; a manufacturer spelled differently in the library would flood a BOM, so it starts as a warning.
     NOT_IN_LIBRARY: Status.WARNING,
@@ -105,7 +103,6 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     ROHS_NONCOMPLIANT: "Not RoHS compliant",
     DATA_STALE: "Distributor data is out of date",
     SINGLE_SOURCE: "Only one distributor has it in stock",
-    NO_APPROVED_SOURCE: "No approved part for the component is in stock",
     MANUFACTURER_MISSING: "The BOM line has no manufacturer",
     NOT_IN_LIBRARY: "No library component has this part",
     REACH_SVHC: "Affected by REACH (substance of very high concern)",

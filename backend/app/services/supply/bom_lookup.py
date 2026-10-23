@@ -33,7 +33,7 @@ from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from app.services.supply import attrition, ending_parts, fx, parts, parts_view, preferences, pricing, usage, watches
-from app.services.supply.assessment import component_checks, line_checks, settings_store
+from app.services.supply.assessment import line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
@@ -306,11 +306,6 @@ def lookup(
     needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in per_board.items()}
     settings = settings_store.load(conn)
     extras: dict[str, list] = {}
-    for component_id in sorted({line.prism_id for line in lines if line.prism_id in known}):
-        # The part on the line is the component's own part; alternates and the rest are judged with it.
-        leader = next(resolved[line.key][1] for line in lines if line.prism_id == component_id)
-        if leader:
-            extras.setdefault(leader, []).extend(component_checks.for_component(conn, component_id, leader, settings))
     _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings, extras)
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 

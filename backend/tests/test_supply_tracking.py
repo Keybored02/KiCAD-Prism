@@ -194,10 +194,10 @@ class TrackingTests(unittest.TestCase):
             self.watches.remove_watch(conn, watch.id, ACTOR)
         self.assertIsNone(self.tier("Acme", "R-1"))
 
-    def test_a_component_watch_follows_its_tier_and_its_alternates_follow_tier_two(self) -> None:
+    def test_a_component_watch_follows_its_tier(self) -> None:
         identities = lambda ids: {i: ("Acme", "OWN-1") for i in ids}  # noqa: E731
         with self.store.connection() as conn:
-            self.component_watches.set_watch(conn, "cmp-1", ACTOR, identities, include_alternates=False, tier=1)
+            self.component_watches.set_watch(conn, "cmp-1", ACTOR, identities, tier=1)
         got = self.tier("Acme", "OWN-1")
         self.assertEqual((got["tier"], [r["kind"] for r in got["reasons"]]), (1, ["component"]))
 

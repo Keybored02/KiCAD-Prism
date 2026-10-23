@@ -101,7 +101,7 @@ class SettingsApiTests(unittest.TestCase):
         response = self.call("GET", role="qa")
         self.assertEqual(response.status, 200)
         self.assertEqual(response.json["settings"], response.json["defaults"])
-        self.assertEqual(len(response.json["checks"]), 20)
+        self.assertEqual(len(response.json["checks"]), 19)
         self.assertEqual(self.call("GET", role="viewer").status, 403)
 
     def test_the_known_spellings_of_makers_are_listed_and_an_administrator_changes_them(self) -> None:

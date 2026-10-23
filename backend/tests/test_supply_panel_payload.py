@@ -24,12 +24,12 @@ class PanelPayloadTests(unittest.TestCase):
         from app.api import remote_provider
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
-        from app.services.supply import panel_payload, parts, sources
+        from app.services.supply import panel_payload, parts
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
 
-        cls.database, cls.remote_provider, cls.panel_payload, cls.parts, cls.sources = database, remote_provider, panel_payload, parts, sources
+        cls.database, cls.remote_provider, cls.panel_payload, cls.parts = database, remote_provider, panel_payload, parts
         cls.users = {
             role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             for role in ("viewer", "qa", "designer", "admin")
@@ -49,7 +49,7 @@ class PanelPayloadTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("component_sources", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
@@ -102,16 +102,14 @@ class PanelPayloadTests(unittest.TestCase):
         self.assertEqual((summary["status"], summary["stock"], summary["distributors"], summary["lifecycle"]), ("ok", 900, 1, "active"))
         self.assertEqual((summary["unit_price"], summary["currency"], summary["price_quantity"], summary["watched"]), ("0.3", "EUR", 100, False))
 
-    def test_detail_adds_sources_alternates_insight_and_links(self) -> None:
+    def test_detail_adds_sources_insight_and_links(self) -> None:
         self.listing(stock=900)
         with self.store.connection() as conn:
-            self.sources.add_source(conn, "cmp-1", "Acme", "ALT-1", "qa@example.com", approver=True)
-            self.sources.add_source(conn, "cmp-1", "Acme", "ALT-2", "designer@example.com", approver=False)
             detail = self.panel_payload.detail(conn, self.component(), "designer", ORIGIN, now=datetime(2026, 3, 1, 2, tzinfo=timezone.utc))
         self.assertEqual(detail["summary"]["stock"], 900)
         (source,) = detail["offers"]
         self.assertEqual((source["connector"], source["sku"], source["stock"], source["unit_price"], source["currency"]), ("Sim", "A", 900, "0.3", "EUR"))
-        self.assertEqual([a["mpn"] for a in detail["alternates"]], ["ALT-1"], "only approved alternates")
+        self.assertNotIn("alternates", detail)
         self.assertIn("confidence", detail["insight"])
         self.assertEqual(detail["health"]["status"], "ok")
         self.assertEqual(detail["outlook"], "No signs of an end of life")

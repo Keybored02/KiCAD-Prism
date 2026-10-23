@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import bom_lookup, compliance_draft, sources, usage
+from app.services.supply import bom_lookup, compliance_draft, usage
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
@@ -86,26 +86,6 @@ def _assess(conn, lines: Sequence[usage.UsageLine], now: datetime) -> dict[str, 
     }
 
 
-def avl_for(conn, rows: Iterable[Mapping[str, Any]], component_ids: Mapping[tuple[str, str], str]) -> dict[str, Any]:
-    """Each BOM part's catalog component and the approved parts on its list, by component id."""
-
-    found: dict[str, Any] = {}
-    for row in rows:
-        component_id = component_ids.get((alias_key(row["manufacturer"]), match_key(row["mpn"])))
-        if component_id is None or component_id in found:
-            continue
-        found[component_id] = {
-            "manufacturer": row["manufacturer"],
-            "mpn": row["mpn"],
-            "alternates": [
-                {key: item[key] for key in ("manufacturer", "mpn", "rank", "approval")}
-                for item in sources.list_sources(conn, component_id)
-                if item["approval"] == sources.APPROVED
-            ],
-        }
-    return found
-
-
 def freeze(
     conn,
     project_id: str,
@@ -114,11 +94,10 @@ def freeze(
     commit_sha: str,
     actor: str,
     lines: Sequence[usage.UsageLine],
-    component_ids: Mapping[tuple[str, str], str],
     now: datetime | None = None,
     without_number: int = 0,
 ) -> str | None:
-    """Record the BOM check and the approved parts as they stand now. Returns the id, or None if already recorded."""
+    """Record the BOM check as it stands now. Returns the id, or None if already recorded."""
 
     result = check(conn, lines, now, without_number)
     snapshot_id = uuid.uuid4().hex
@@ -136,13 +115,12 @@ def freeze(
         draft = None
     created = conn.execute(
         """
-        INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, avl, compliance)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
+        INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, compliance)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
         ON CONFLICT (build_id) DO NOTHING RETURNING id
         """,
         (snapshot_id, project_id, build_id, tag, commit_sha, actor, result["health"], result["status"],
-         json.dumps(result), json.dumps(avl_for(conn, result["lines"], component_ids)),
-         json.dumps(draft) if draft is not None else None),
+         json.dumps(result), json.dumps(draft) if draft is not None else None),
     ).fetchone()
     if created is None:
         return None
@@ -162,5 +140,5 @@ def get_snapshot(conn, project_id: str, build_id: str) -> dict[str, Any]:
         "id": row["id"], "project_id": row["project_id"], "build_id": row["build_id"], "tag": row["tag"],
         "commit_sha": row["commit_sha"], "created_by": row["created_by"], "created_at": row["created_at"].isoformat(),
         "health": float(row["health"]) if row["health"] is not None else None, "status": row["status"],
-        "assessment": row["assessment"], "avl": row["avl"], "compliance": row["compliance"],
+        "assessment": row["assessment"], "compliance": row["compliance"],
     }

@@ -23,10 +23,10 @@ def info(*ids: str, tracked: bool = False) -> dict:
     return {part_id: {"part_id": part_id, "status": "ok", "stock": 100, "lifecycle": "active", "tracked": tracked} for part_id in ids}
 
 
-def merge(library, supply, *, supply_of=None, component_of=None, known=(), alternate_of=None, query="LM358"):
+def merge(library, supply, *, supply_of=None, component_of=None, known=(), query="LM358"):
     return part_search.merge(
         query, library, supply, supply_of or (lambda maker, mpn: None), component_of or (lambda maker, mpn: None),
-        info(*known), alternate_of or {},
+        info(*known),
     )
 
 
@@ -53,10 +53,6 @@ class MergeTests(unittest.TestCase):
         rows = merge([LM358, LM358_DRAFT], [hit("p1", "LM358DR")], supply_of=lambda maker, mpn: "p1", known=["p1"])
         self.assertEqual(sorted(row["key"] for row in rows), ["component:c1", "component:c2"])
         self.assertEqual([row["key"] for row in rows if row["supply"]], ["component:c1"], "the supply badge is on one row, not both")
-
-    def test_an_approved_alternate_is_its_own_row_named_for_what_it_stands_in_for(self) -> None:
-        rows = merge([], [hit("p2", "LM358ADR")], known=["p2"], alternate_of={"p2": "LM358DR"})
-        self.assertEqual(rows[0]["alternate_of"], "LM358DR")
 
     def test_an_exact_number_comes_first_then_released_then_tracked(self) -> None:
         rows = merge(

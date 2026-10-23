@@ -40,12 +40,12 @@ class ReleaseCheckTests(unittest.TestCase):
         from app.api import supply_connectors, supply_release
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
-        from app.services.supply import parts, release_check, sources
+        from app.services.supply import parts, release_check
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
 
-        cls.database, cls.parts, cls.release_check, cls.sources = database, parts, release_check, sources
+        cls.database, cls.parts, cls.release_check = database, parts, release_check
         cls.users = {
             role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             for role in ("viewer", "qa", "designer", "admin")
@@ -68,7 +68,7 @@ class ReleaseCheckTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("component_sources", "waivers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("waivers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
@@ -122,24 +122,20 @@ class ReleaseCheckTests(unittest.TestCase):
     def test_a_draft_that_cannot_be_built_does_not_cost_the_snapshot(self) -> None:
         self.part("GOOD-1", stock=5000)
         with self.store.connection() as conn, mock.patch.object(self.release_check.compliance_draft, "build", side_effect=RuntimeError("boom")):
-            made = self.release_check.freeze(conn, "prj_1", "bld_nodraft", "vx", "c" * 40, "qa@example.com", lines([component("R1", "Acme", "GOOD-1")]), {}, NOW)
+            made = self.release_check.freeze(conn, "prj_1", "bld_nodraft", "vx", "c" * 40, "qa@example.com", lines([component("R1", "Acme", "GOOD-1")]), NOW)
             snapshot = self.release_check.get_snapshot(conn, "prj_1", "bld_nodraft")
         self.assertIsNotNone(made)
         self.assertEqual((snapshot["status"], snapshot["compliance"]), ("ok", None))
 
-    def test_the_snapshot_keeps_the_check_and_the_approved_parts_and_can_never_change(self) -> None:
+    def test_the_snapshot_keeps_the_check_and_can_never_change(self) -> None:
         self.part("GOOD-1", stock=5000)
         with self.store.connection() as conn:
-            self.sources.add_source(conn, "cmp-1", "Acme", "ALT-1", "qa@example.com", approver=True)
-            self.sources.add_source(conn, "cmp-1", "Acme", "ALT-2", "designer@example.com", approver=False)
-            ids = {("acme", "GOOD1"): "cmp-1"}
-            first = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", lines([component("R1", "Acme", "GOOD-1")]), ids, NOW)
-            again = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", [], {}, NOW)
+            first = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", lines([component("R1", "Acme", "GOOD-1")]), NOW)
+            again = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", [], NOW)
             snapshot = self.release_check.get_snapshot(conn, "prj_1", "bld_1")
         self.assertIsNotNone(first)
         self.assertIsNone(again, "a build is frozen once")
         self.assertEqual((snapshot["tag"], snapshot["status"], snapshot["assessment"]["parts"]), ("v1", "ok", 1))
-        self.assertEqual([(a["mpn"], a["approval"]) for a in snapshot["avl"]["cmp-1"]["alternates"]], [("ALT-1", "approved")])
         draft = snapshot["compliance"]
         self.assertEqual([(item["mpn"], item["quantity"]) for item in draft["parts"]], [("GOOD-1", 1)])
         project = SimpleNamespace(id="prj_1", name="One")
@@ -237,8 +233,8 @@ class ReleaseCheckTests(unittest.TestCase):
                 component("R1", "Acme", "GOOD-1"), component("U1", "Acme", "FLAKY-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
             conn.execute(
-                "INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, avl) "
-                "VALUES ('s1', 'prj_8', 'b1', 'v1', 'abc', 'a@example.com', 9.0, 'ok', %s::jsonb, '{}'::jsonb)",
+                "INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment) "
+                "VALUES ('s1', 'prj_8', 'b1', 'v1', 'abc', 'a@example.com', 9.0, 'ok', %s::jsonb)",
                 ('{"parts": 2, "needing_a_look": 0, "lines": [{"part_id": "%s", "manufacturer": "Acme", "mpn": "FLAKY-1", "status": "ok"}]}' % flaky,),
             )
             conn.execute("UPDATE offers SET lifecycle = 'obsolete', stock = 0 WHERE listing_id IN (SELECT id FROM listings WHERE part_id = %s)", (flaky,))

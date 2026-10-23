@@ -2,8 +2,8 @@
 
 Supply knows a part is ending (not recommended for new designs, last time buy, obsolete, dropped by every distributor, or an
 outlook under two years). The library decides what that means for a component. This module only proposes: it lists the
-components, the reason and its source, the last-time-buy date, stock, the projects that use the part and the approved
-alternates. Nothing here changes the catalog.
+components, the reason and its source, the last-time-buy date, stock and the projects that use the part. Nothing here changes
+the catalog.
 
 Two decisions, both for QA and administrators, kept in ``component_restrictions`` (supply data never enters the revision hash):
 
@@ -113,18 +113,6 @@ def _components_of(item: Mapping[str, Any]) -> list[dict[str, Any]]:
     return found
 
 
-def _alternates(conn, component_id: str, standing: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT part_id FROM component_sources WHERE component_id = %s AND approval = 'approved' ORDER BY rank", (component_id,)
-    ).fetchall()
-    found = []
-    for row in rows:
-        item = standing.get(row["part_id"])
-        if item:
-            found.append({"part_id": item["id"], "manufacturer": item["manufacturer"], "mpn": item["mpn"], "stock": item["stock"], "status": item["status"]})
-    return found
-
-
 _COUNT_FOR = 300.0
 _counted: tuple[float, int] | None = None
 
@@ -156,10 +144,6 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
     ending = [(item, reasons_of(item, bands.get(item["id"]))) for item in items.values()]
     ending = [(item, reasons) for item, reasons in ending if reasons]
     ending.sort(key=lambda pair: (-len(pair[1]), pair[0]["mpn"].lower()))
-    approved_alternates = {
-        row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM component_sources WHERE approval = 'approved'").fetchall()
-    }
-    alternate_standing = {item["id"]: item for item in parts_view.summaries_for(conn, sorted(approved_alternates))} if approved_alternates else {}
     rows: list[dict[str, Any]] = []
     for item, reasons in ending[:limit]:
         last_buy = [
@@ -175,7 +159,7 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
                 "component": {"id": str(component["id"]), "name": str(component.get("name") or ""), "mpn": str(component.get("mpn") or ""),
                               "manufacturer": str(component.get("manufacturer") or ""), "stage": stage},
                 "part_id": item["id"], "reasons": reasons, "last_buy": last_buy, "stock": item["stock"], "status": item["status"],
-                "projects": used, "alternates": _alternates(conn, str(component["id"]), alternate_standing), "restriction": None,
+                "projects": used, "restriction": None,
             })
     marks = restrictions_of(conn, [row["component"]["id"] for row in rows])
     kept = []

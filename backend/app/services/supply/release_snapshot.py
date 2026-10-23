@@ -96,7 +96,7 @@ def take(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str, 
         return "failed"
     with supply_store.connection() as conn:
         release_check.freeze(
-            conn, project_id, build_id, tag, commit_sha, actor, read.lines, catalog_read.component_ids_by_part(), now, read.without_number
+            conn, project_id, build_id, tag, commit_sha, actor, read.lines, now, read.without_number
         )
         _state(conn, project_id, build_id, "done")
     return "taken"

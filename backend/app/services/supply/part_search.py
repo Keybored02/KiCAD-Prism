@@ -73,13 +73,11 @@ def merge(
     supply_of: Callable[[str, str], str | None],
     component_of: Callable[[str, str], str | None],
     info: Mapping[str, Mapping[str, Any]],
-    alternate_of: Mapping[str, str],
 ) -> list[dict[str, Any]]:
     """Rows for the palette.
 
     ``supply_of(maker, mpn)`` is the supply part id of a library component, ``component_of(maker, mpn)`` the library component
-    id of a supply part (both None when there is none), ``info`` the status and stock of each supply part, and ``alternate_of``
-    names, per supply part, the component it is an approved alternate for.
+    id of a supply part (both None when there is none) and ``info`` the status and stock of each supply part.
     """
 
     rows: dict[str, dict[str, Any]] = {}
@@ -92,7 +90,7 @@ def merge(
             "label": str(component.get("mpn") or component.get("name") or component.get("value") or "Untitled component"),
             "manufacturer": str(component.get("manufacturer") or ""),
             "library": {"component_id": str(component["id"]), "name": str(component.get("name") or ""), "stage": _stage(component)},
-            "supply": None, "alternate_of": None, "rank": _library_rank(query, component),
+            "supply": None, "rank": _library_rank(query, component),
         }
         rows[row["key"]] = row
         if part_id and part_id not in by_part:
@@ -113,7 +111,7 @@ def merge(
             continue
         rows[f"part:{part_id}"] = {
             "key": f"part:{part_id}", "label": hit["mpn"], "manufacturer": hit["manufacturer"], "library": None,
-            "supply": dict(info.get(part_id) or {"part_id": part_id}), "alternate_of": alternate_of.get(part_id), "rank": hit["rank"],
+            "supply": dict(info.get(part_id) or {"part_id": part_id}), "rank": hit["rank"],
         }
     return sorted(rows.values(), key=_order)
 
@@ -134,18 +132,6 @@ def _supply_info(conn, part_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
             "tracked": item["tracking"] is not None or item["watch"] is not None,
         }
     return found
-
-
-def _alternates(conn, part_ids: Sequence[str]) -> dict[str, str]:
-    """For supply parts that are approved alternates of a component, the part number of that component."""
-
-    if not part_ids:
-        return {}
-    rows = conn.execute(
-        "SELECT part_id, component_id FROM component_sources WHERE approval = 'approved' AND part_id = ANY(%s)", (list(part_ids),)
-    ).fetchall()
-    names = catalog_read.identities([row["component_id"] for row in rows])
-    return {row["part_id"]: names[row["component_id"]][1] for row in rows if row["component_id"] in names and names[row["component_id"]][1]}
 
 
 def _with_claimed(components: list[dict[str, Any]], hits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -189,11 +175,4 @@ def search(conn, query: str, limit: int = 8, *, library: bool = True, supply: bo
     part_ids = {supply_of(str(c.get("manufacturer") or ""), str(c.get("mpn") or "")) for c in components} | {h["part_id"] for h in hits}
     part_ids.discard(None)
     info = _supply_info(conn, sorted(part_ids)) if supply else {}
-    # Only a supply row no component claims is looked at for being an alternate, after the merge decided which those are.
-    rows = merge(text, components, hits, supply_of, component_of, info, {})
-    alone = [row["supply"]["part_id"] for row in rows if row["library"] is None and row["supply"]]
-    named = _alternates(conn, alone)
-    for row in rows:
-        if row["library"] is None and row["supply"]:
-            row["alternate_of"] = named.get(row["supply"]["part_id"])
-    return rows[:limit]
+    return merge(text, components, hits, supply_of, component_of, info)[:limit]

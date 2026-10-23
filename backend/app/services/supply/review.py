@@ -56,7 +56,7 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
 
 
 def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
-    """What QA and administrators have been asked to approve: waivers proposed on a finding, and alternates proposed for a component."""
+    """What QA and administrators have been asked to approve: waivers proposed on a finding."""
 
     waivers = conn.execute(
         """
@@ -66,18 +66,7 @@ def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
         """,
         (limit,),
     ).fetchall()
-    sources = conn.execute(
-        """
-        SELECT s.id, s.component_id, s.part_id, p.mpn, m.name AS manufacturer, s.created_by, s.created_at
-        FROM component_sources s JOIN parts p ON p.id = s.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        WHERE s.approval = 'pending' ORDER BY s.created_at LIMIT %s
-        """,
-        (limit,),
-    ).fetchall()
-    return {
-        "waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers],
-        "alternates": [{**dict(row), "created_at": row["created_at"].isoformat()} for row in sources],
-    }
+    return {"waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers]}
 
 
 def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:

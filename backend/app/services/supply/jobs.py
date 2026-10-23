@@ -378,9 +378,9 @@ _component_sync_at: float | None = None
 
 
 def _sync_component_watches(conn, force: bool = False) -> None:
-    """Watch the parts of watched components, so alternates approved elsewhere are picked up. Best effort.
+    """Watch the parts of watched components, so a component whose maker or number changed is picked up. Best effort.
 
-    Once an hour per process: approving a source and setting a component watch already sync at once.
+    Once an hour per process: setting a component watch already syncs at once.
     """
 
     global _component_sync_at

@@ -1935,6 +1935,21 @@ def _m090_jlcpcb_budget(conn) -> None:
     conn.execute("UPDATE connectors SET daily_budget = 1000 WHERE provider = 'jlcpcb' AND daily_budget = 300", prepare=False)
 
 
+def _m091_remove_approved_parts(conn) -> None:
+    """The approved parts list (alternates approved for a catalog component) is gone: its table, a component watch's alternates option and a
+    release snapshot's frozen list are dropped, and the kept list summaries are worked out again without the findings it made."""
+
+    conn.execute(
+        """
+        DROP TABLE IF EXISTS component_sources;
+        ALTER TABLE component_watches DROP COLUMN IF EXISTS include_alternates;
+        ALTER TABLE release_snapshots DROP COLUMN IF EXISTS avl;
+        DELETE FROM part_summaries;
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2086,6 +2101,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (88, "recompute_health", _m088_recompute_health),
     (89, "likely_out_percent", _m089_likely_out_percent),
     (90, "jlcpcb_budget", _m090_jlcpcb_budget),
+    (91, "remove_approved_parts", _m091_remove_approved_parts),
 ]
 
 

@@ -528,22 +528,6 @@ def list_parts(
     }
 
 
-def _parts_with_alternate(conn) -> set[str]:
-    """The parts that are the primary of a catalog component with at least one approved alternate."""
-
-    from app.services.supply import catalog_read
-
-    components = [row["component_id"] for row in conn.execute("SELECT DISTINCT component_id FROM component_sources WHERE approval = 'approved'").fetchall()]
-    if not components:
-        return set()
-    found = set()
-    for maker, mpn in catalog_read.identities(components).values():
-        primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
-        if primary:
-            found.add(primary.id)
-    return found
-
-
 def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> dict[str, dict[str, Any]]:
     """What a row shows beyond the summary: the first projects, the distributors that list the part, the price move, the lead time, flags."""
 
@@ -564,7 +548,6 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         "SELECT part_id, name, value FROM part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
     ).fetchall():
         stated.setdefault(row["part_id"], {}).setdefault(row["name"], set()).add(row["value"].strip().lower())
-    with_alternate = _parts_with_alternate(conn)
     extras = {}
     for item in page:
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
@@ -586,8 +569,6 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
             flags.append("ncnr")
         if "no" in stated.get(item["id"], {}).get("normally_stocking", set()):
             flags.append("not_stocked")
-        if item["status"] in ("error", "fatal") and item["id"] not in with_alternate:
-            flags.append("no_alternate")
         facts_here = kept.get(item["id"]) or {}
         projects_here = sorted(names.get(project) or project for project in projects.get(item["id"], set()))
         extras[item["id"]] = {
@@ -706,19 +687,6 @@ def lead_time_trend(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
     if abs(after - before) < LEAD_TREND_MIN_CHANGE_DAYS:
         return None
     return {"before": round(before), "after": round(after), "since": rows[0]["sampled_at"].date().isoformat()}
-
-
-def _alternate_for(conn, part_id: str) -> list[dict[str, Any]]:
-    """For each catalog component that lists this part as an approved alternate, what its parts hold together."""
-
-    from app.services.supply import catalog_read, sources
-
-    found = []
-    for component_id in sources.components_with_alternate(conn, part_id):
-        maker, mpn = catalog_read.identities([component_id]).get(component_id, ("", ""))
-        primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
-        found.append(sources.coverage(conn, component_id, primary.id if primary else None) | {"component": f"{maker} {mpn}".strip()})
-    return found
 
 
 def _first_seen(conn, part_id: str) -> str | None:
@@ -943,7 +911,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "outlook": ahead,
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
-        "alternate_for": _alternate_for(conn, part_id),
         "market_behaviour": price_behaviour.load(conn, part_id, now) | {"arrivals": promises.reliability(conn, part_id, now.date())},
         "restock_record": scorecard.for_part(conn, part_id, now.date()),
         "insight": _with_lead_gap(insight, listings, lead_time_trend(conn, part_id, now)),

@@ -15,11 +15,10 @@ from decimal import Decimal
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode
 
-from app.services.supply import bom_lookup, forecast_overview, insights, parts_view, pricing, sources
+from app.services.supply import bom_lookup, forecast_overview, insights, parts_view, pricing
 from app.services.supply.assessment import service as assessment
 from app.services.supply.bom_lookup import BomLine
 
-MAX_ALTERNATES = 10
 MAX_RISKS = 2
 _SEVERITY_ORDER = {"fatal": 0, "error": 1, "warning": 2, "ok": 3}
 
@@ -131,18 +130,12 @@ def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, no
     if not items:
         return None
     here = offers.get(part_id, [])
-    alternates = [
-        {key: item[key] for key in ("manufacturer", "mpn", "status", "stock", "rank")}
-        for item in sources.list_sources(conn, component_id)
-        if item["approval"] == sources.APPROVED
-    ][:MAX_ALTERNATES]
     detail_view = parts_view.part_detail(conn, part_id, now=now, role=role)
     insight = detail_view["insight"]
     assessed = assessment.assess_summaries(conn, items, offers, {}, now)[part_id]
     return {
         "summary": _summary(items[0], here),
         "offers": _source_rows(here),
-        "alternates": alternates,
         "insight": insight,
         "outlook": detail_view["outlook"]["label"],
         "health": {"score": assessed["health"], "status": assessed["status"]},
