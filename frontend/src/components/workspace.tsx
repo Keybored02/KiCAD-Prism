@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Boxes, CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
+import { CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -13,7 +13,8 @@ import { canManageProjects as roleCanManageProjects, canOpenLibraryManager, canO
 import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
-import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { isAbortError, throwIfJobFailed, type PrismJobStatus } from "@/lib/jobs";
+import { useJobWatcher } from "@/hooks/use-job-watcher";
 import { WorkspaceSectionHeading } from "./workspace/workspace-section-heading";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
@@ -27,7 +28,6 @@ import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
 import { SupplyWorkspace } from "@/features/supply/supply-workspace";
 import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
-import { WorkspaceSystemsSection, systemPath, systemsForLevel } from "@/features/system-builder/workspace-systems-section";
 
 const WORKSPACE_PAGE_SIZE = 25;
 
@@ -49,9 +49,6 @@ const DeleteProjectDialog = lazy(() =>
 const MoveProjectDialog = lazy(() =>
   import("./workspace/move-project-dialog").then((module) => ({ default: module.MoveProjectDialog }))
 );
-const CreateSystemDialog = lazy(() =>
-  import("@/features/system-builder/create-system-dialog").then((module) => ({ default: module.CreateSystemDialog }))
-);
 const RenameFolderDialog = lazy(() =>
   import("./workspace/rename-folder-dialog").then((module) => ({ default: module.RenameFolderDialog }))
 );
@@ -64,12 +61,29 @@ interface WorkspaceProps {
 // Closes over nothing in the component.
 const getProjectDisplayName = (project: Project) => project.display_name || project.name;
 
+// A render can queue behind other work on the worker pool. Past this long with
+// no progress the toast stops waiting; the render may still land later.
+const THUMBNAIL_STALL_MS = 10 * 60_000;
+
+/** Wait for thumbnail renders, then throw the first failure. */
+async function awaitThumbnailJobs(
+  watchJob: ReturnType<typeof useJobWatcher>,
+  jobIds: string[],
+): Promise<void> {
+  const jobs: PrismJobStatus[] = [];
+  for (const jobId of jobIds) {
+    // react-doctor-disable-next-line async-await-in-loop - one poller at a time on purpose: the renders were queued together, so the next is underway when one settles
+    jobs.push(await watchJob(jobId, { stallTimeoutMs: THUMBNAIL_STALL_MS }));
+  }
+  jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+}
+
 // react-doctor-disable-next-line no-giant-component - multi-surface shell whose modals and tabs share session state
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, systems, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
     useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
   const requestedSectionParam = searchParams.get("section");
@@ -80,7 +94,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [isCreateSystemOpen, setIsCreateSystemOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -106,6 +119,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   // Paging belongs to the list being paged. Carrying that scope on the value
   // replaces both a reset effect and the clamp effect chained behind it.
   const [pageState, setPageState] = useState({ scope: "", page: 1 });
+  const watchJob = useJobWatcher();
   const canManageProjects = roleCanManageProjects(user?.role);
   // Everyone has personal settings (connected accounts, password); the
   // dialog itself hides workspace pages from non-admins.
@@ -186,10 +200,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   }, [projects, currentFolderId]);
 
   const { isSearching, searchResults } = useWorkspaceSearch(projects, folderById, searchQuery);
-  const levelSystems = useMemo(
-    () => systemsForLevel(systems, currentFolderId, isSearching ? searchQuery : ""),
-    [systems, currentFolderId, isSearching, searchQuery],
-  );
 
   const breadcrumbs = useMemo(() => {
     const trail: FolderTreeItem[] = [];
@@ -271,7 +281,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       commands.push(
         { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
         { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
-        { id: "workspace:new-system", label: "New system", group: "Workspace", icon: Boxes, keywords: "system builder multi-board harness interconnect", run: () => setIsCreateSystemOpen(true) },
       );
     }
     commands.push({
@@ -433,14 +442,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       // The render runs on a worker rather than in the request, so the result
       // arrives with the job rather than with this response.
       const { job_id: jobId } = (await response.json()) as { job_id?: string };
-      if (jobId) {
-        const job = await watchPrismJob(jobId);
-        throwIfJobFailed(job, "Failed to render thumbnail");
-      }
+      if (jobId) await awaitThumbnailJobs(watchJob, [jobId]);
 
       toast.success("Thumbnail rendered", { id: toastId });
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to render thumbnail", { id: toastId });
     }
   };
@@ -468,9 +478,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       }
 
       const payload = (await response.json()) as { job_ids?: string[]; count?: number };
-      const jobIds = payload.job_ids ?? [];
-      const jobs = await Promise.all(jobIds.map((jobId) => watchPrismJob(jobId)));
-      jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+      await awaitThumbnailJobs(watchJob, payload.job_ids ?? []);
 
       toast.success(`Rendered ${payload.count ?? count} thumbnail${(payload.count ?? count) === 1 ? "" : "s"}`, {
         id: toastId,
@@ -478,6 +486,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       setBulkSelectedProjectIds(new Set());
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to render thumbnails", { id: toastId });
     } finally {
       setIsRegeneratingThumbnails(false);
@@ -531,14 +543,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       // Nothing had been rendered for this project yet, so the server queued
       // the render this is reverting to.
       const { job_id: jobId } = (await response.json()) as { job_id?: string | null };
-      if (jobId) {
-        const job = await watchPrismJob(jobId);
-        throwIfJobFailed(job, "Failed to render thumbnail");
-      }
+      if (jobId) await awaitThumbnailJobs(watchJob, [jobId]);
 
       toast.success("Using the rendered board image", { id: toastId });
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to restore the rendered image", { id: toastId });
     }
   };
@@ -547,9 +560,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
 
-  const systemsSection = (
-    <WorkspaceSystemsSection systems={levelSystems} dense={selectedProject !== null} showHeading />
-  );
+
   const projectsToolbar = (
     <>
 <>
@@ -646,7 +657,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 onImport={() => canManageProjects && setIsImportOpen(true)}
-                onCreateSystem={() => canManageProjects && setIsCreateSystemOpen(true)}
                 onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
                 onRefresh={() => void refresh()}
                 onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
@@ -694,10 +704,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           : ""
                       }`}
                     >
-                      {viewMode === "list" && <div className="mb-8">{systemsSection}</div>}
                       {viewMode === "gallery" ? (
                         <WorkspaceGalleryView
-                          systemsSection={systemsSection}
                           projectsToolbar={projectsToolbar}
                           projectCount={allListProjects.length}
                           searchQuery={searchQuery}
@@ -776,29 +784,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
         </div>
       </div>
 
-      {isCreateSystemOpen && (
-        <Suspense fallback={null}>
-          <CreateSystemDialog
-            open={isCreateSystemOpen}
-            projects={projects}
-            folderId={currentFolderId}
-            folderName={currentFolderId ? folderById.get(currentFolderId)?.name ?? null : null}
-            onOpenChange={setIsCreateSystemOpen}
-            onCreated={({ systemId, failures }) => {
-              setIsCreateSystemOpen(false);
-              if (failures.length > 0) {
-                toast.error(`System created, but ${failures.length} board(s) could not be added`, {
-                  description: failures.map((failure) => `${failure.label}: ${failure.error}`).join("\n"),
-                });
-              } else {
-                toast.success("System created");
-              }
-              void refresh();
-              navigate(systemPath(systemId));
-            }}
-          />
-        </Suspense>
-      )}
       {isImportOpen && (
         <Suspense fallback={null}>
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import admission, bom_lookup, catalog_read, usage
+from app.services.supply import admission, bom_lookup, catalog_read, project_bom, usage
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -98,7 +98,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
 
     def run() -> dict[str, int]:
         # Imported here so the supply API loads without the project services in tests that do not need them.
-        from app.services import project_service, semantic_index_service
+        from app.services import project_service
         from app.services.workspace_service import workspace
 
         # Every project, whatever its folder allows: usage is a cache, and reads filter by the caller's role.
@@ -110,7 +110,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
         }
         with _store().connection() as conn:
             return usage.refresh(
-                conn, projects, semantic_index_service.get_existing, datetime.now(timezone.utc), visible, catalog_read.identities,
+                conn, projects, project_bom.existing_index, datetime.now(timezone.utc), visible, catalog_read.identities,
             )
 
     return await _run(run)
@@ -129,17 +129,17 @@ async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)
     """
 
     def run() -> dict[str, int]:
-        from app.services import project_service, semantic_index_service
+        from app.services import project_service
         from app.services.workspace_service import workspace
 
         rows = workspace.get_all_projects(None)
         missing = []
         for row in rows:
-            if semantic_index_service.get_existing(project_service._workspace_row_to_project(row)) is None:
+            if project_bom.existing_index(project_service._workspace_row_to_project(row)) is None:
                 missing.append(str(row["id"]))
         queued = 0
         for project_id in missing[:MAX_BUILDS_PER_REQUEST]:
-            project_service.start_semantic_index_job(project_id, requested_by=writer.email)
+            project_bom.queue_index(project_id, requested_by=writer.email)
             queued += 1
         return {"projects": len(rows), "missing": len(missing), "queued": queued}
 

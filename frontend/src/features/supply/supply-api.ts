@@ -205,7 +205,8 @@ export async function uploadSupplyCsv(id: string, file: File): Promise<SupplyCsv
       rejected.error_count ?? rejected.errors?.length ?? 0,
     );
   }
-  throw new ApiHttpError(response.status, await readApiError(response, "Could not upload the file"));
+  const said = detail && typeof detail === "object" ? (detail as { message?: unknown }).message : undefined;
+  throw new ApiHttpError(response.status, typeof said === "string" && said ? said : await readApiError(response, "Could not upload the file"));
 }
 
 export async function clearSupplyCsv(id: string): Promise<void> {

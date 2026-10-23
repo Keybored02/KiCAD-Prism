@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
+from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
     accounts, budget, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
@@ -26,9 +27,6 @@ from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANC
 from app.services.supply.store import SupplyStore, supply_store
 
 POLL_JOB_KIND = "supply_poll"
-SUPPLY_RESOURCE = "supply"
-# Leave a slot for everything else on a small worker, as the tracker scheduler does.
-SUPPLY_RESOURCE_CAPACITY = min(2, max(1, settings.PRISM_WORKER_CONCURRENCY - 1))
 SUPPLY_PRIORITY = 200
 SCAN_SECONDS = 60
 # Housekeeping runs from the scanner too, so it goes on when every budget is used up and no poll job is queued.
@@ -530,3 +528,6 @@ def run_supply_poll_job(context: Any) -> Any:
         message=f"Searched {searched} part(s), polled {polled_count} listing(s)",
         details=details,
     )
+
+
+JOB_KINDS = (JobKind(POLL_JOB_KIND, run_supply_poll_job, resources={SUPPLY_RESOURCE: 1}, priority=SUPPLY_PRIORITY, max_attempts=2),)

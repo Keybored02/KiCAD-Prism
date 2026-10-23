@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchJson } from "@/lib/api";
+import { convertModels, listMates, listModels, modelPreviewUrl, saveModelAlignment } from "./catalog-client";
+import { pollUntil } from "@/lib/server-state";
 
 import type { MatingPart } from "./library-component-mates";
 
@@ -29,7 +30,6 @@ export interface CatalogModel {
   alignment: ModelAlignment;
 }
 
-const base = (componentId: string) => `/api/catalog/components/${encodeURIComponent(componentId)}`;
 const VIEWS = ["front", "side", "top"] as const;
 const AXES = ["X", "Y", "Z"] as const;
 
@@ -39,7 +39,7 @@ export function previewUrl(componentId: string, assetId: string, alignment: Mode
     view, offset: alignment.offsetMm.join(","), rotation: alignment.rotationDeg.join(","), scale: String(alignment.scale),
   });
   if (partner) params.set("partner", partner);
-  return `${base(componentId)}/models/${encodeURIComponent(assetId)}/preview.svg?${params.toString()}`;
+  return modelPreviewUrl(componentId, assetId, params);
 }
 
 function size(bounds: { minMm: Triple; maxMm: Triple }): string {
@@ -80,9 +80,8 @@ function AlignmentEditor({ componentId, model, partners, canMutate, onSaved }: {
   const save = async () => {
     setBusy(true);
     try {
-      const body = await fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models/${encodeURIComponent(model.assetId)}/alignment`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offsetMm: draft.offsetMm, rotationDeg: draft.rotationDeg, scale: draft.scale }),
+      const body = await saveModelAlignment(componentId, model.assetId, {
+        offsetMm: draft.offsetMm, rotationDeg: draft.rotationDeg, scale: draft.scale,
       });
       onSaved(body.items);
       setEdits(null);
@@ -149,35 +148,42 @@ function AlignmentEditor({ componentId, model, partners, canMutate, onSaved }: {
 }
 
 /**
+ * Queue the GLB conversion of the current revision's STEP models, or of `revisionId`'s (a revision a system
+ * pins), and poll until every one has a GLB or two minutes pass (CONTRACTS_P2 §18.2). `onModels` gets each
+ * listing; resolves whether every model was converted.
+ */
+export async function convertModelsAndWait(componentId: string, onModels: (models: CatalogModel[]) => void,
+  revisionId?: string): Promise<boolean> {
+  await convertModels(componentId, revisionId);
+  return pollUntil(async () => {
+    const body = await listModels(componentId, undefined, revisionId);
+    onModels(body.items);
+    return body.items.every((model) => model.glb);
+  }, { intervalMs: 2000, delayFirst: true, maxTicks: 60 });
+}
+
+/**
  * A part's 3D models for System Builder: the STEP converted to GLB with Geometer (bounds, colours) and the
  * alignment that places it in the part's mating frame, previewed alone or mated to a partner (CONTRACTS_P2 §18.2).
  */
-export function ModelsPanel({ componentId, canMutate, mates = true }: { componentId: string; canMutate: boolean; mates?: boolean }) {
+export function ModelsPanel({ componentId, canMutate }: { componentId: string; canMutate: boolean }) {
   const [state, setState] = useState<{ id: string; models: CatalogModel[]; partners: MatingPart[] } | null>(null);
   const [converting, setConverting] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
-      fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models`, { signal: controller.signal }),
-      // Only parts mate with parts (§18); a module's models have no partner to preview against.
-      mates ? fetchJson<{ items: MatingPart[] }>(`${base(componentId)}/mates-with`, { signal: controller.signal })
-        : Promise.resolve({ items: [] as MatingPart[] }),
+      listModels(componentId, controller.signal),
+      listMates(componentId, controller.signal),
     ]).then(([models, mates]) => setState({ id: componentId, models: models.items, partners: mates.items }))
       .catch(() => !controller.signal.aborted && setState({ id: componentId, models: [], partners: [] }));
     return () => controller.abort();
-  }, [componentId, mates]);
+  }, [componentId]);
 
   const convert = async () => {
     setConverting(true);
     try {
-      await fetchJson(`${base(componentId)}/models/convert`, { method: "POST" });
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 2000));
-        const body = await fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models`);
-        setState((current) => current && { ...current, models: body.items });
-        if (body.items.every((model) => model.glb)) break;
-      }
+      await convertModelsAndWait(componentId, (models) => setState((current) => current && { ...current, models }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not convert the models");
     } finally {

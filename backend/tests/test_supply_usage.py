@@ -345,7 +345,7 @@ class UsageDatabaseTests(unittest.TestCase):
 
         with mock.patch.object(workspace, "get_all_projects", return_value=rows), \
                 mock.patch("app.services.project_service._workspace_row_to_project", side_effect=convert), \
-                mock.patch("app.services.semantic_index_service.get_existing", return_value=index):
+                mock.patch("app.services.supply.project_bom.existing_index", return_value=index):
             return self.call("POST", "/api/supply/bom/usage/refresh", role=role)
 
     def test_building_queues_an_index_job_only_for_projects_without_one(self) -> None:
@@ -360,7 +360,7 @@ class UsageDatabaseTests(unittest.TestCase):
         def existing(project, commit=None):
             return {"sourceRevisionKey": "r1", "components": []} if project is built else None
 
-        with mock.patch.object(workspace, "get_all_projects", return_value=rows),                 mock.patch("app.services.project_service._workspace_row_to_project", side_effect=convert),                 mock.patch("app.services.semantic_index_service.get_existing", side_effect=existing),                 mock.patch("app.services.project_service.start_semantic_index_job", return_value="job") as start:
+        with mock.patch.object(workspace, "get_all_projects", return_value=rows),                 mock.patch("app.services.project_service._workspace_row_to_project", side_effect=convert),                 mock.patch("app.services.supply.project_bom.existing_index", side_effect=existing),                 mock.patch("app.services.supply.project_bom.queue_index", return_value=None) as start:
             response = self.call("POST", "/api/supply/bom/usage/build", role="designer")
             denied = self.call("POST", "/api/supply/bom/usage/build", role="qa")
         self.assertEqual((response.status, response.json), (200, {"projects": 3, "missing": 2, "queued": 2}))

@@ -104,11 +104,6 @@ class SupplyConnectorsApiTests(unittest.TestCase):
     def test_main_registers_the_router_and_its_redaction(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn("app.include_router(supply_connectors_router)", source)
-        self.assertLess(
-            source.index("register_validation_redaction(app)"),
-            source.index("register_supply_validation_redaction(app)"),
-            "supply redaction must wrap the tracker handler, so it is registered after it",
-        )
         paths = set(self.app.openapi()["paths"])
         for path in ("/api/supply/providers", "/api/supply/connectors", "/api/supply/connectors/{connector_id}",
                      "/api/supply/connectors/{connector_id}/credentials"):

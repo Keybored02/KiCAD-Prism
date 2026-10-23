@@ -61,13 +61,14 @@ def lcsc_of(fields: Mapping[str, Any]) -> str:
     return number if _LCSC_NUMBER.match(number) else ""
 
 
-PRISM_ID_FIELD = "prism id"
+# The stamp Prism puts on a placed symbol (Prism_Component) and the column a KiCad database library carries (Prism ID).
+PRISM_ID_FIELDS: tuple[str, ...] = ("prism_component", "prism id")
 
 
 def prism_id_of(fields: Mapping[str, Any]) -> str:
     """The catalog component id placed on the symbol, empty when it has none."""
 
-    return _first(fields, (PRISM_ID_FIELD,))
+    return _first(fields, PRISM_ID_FIELDS)
 
 
 def identity_of(fields: Mapping[str, Any]) -> tuple[str, str]:

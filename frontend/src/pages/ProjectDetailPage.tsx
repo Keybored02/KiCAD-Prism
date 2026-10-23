@@ -2,11 +2,13 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
+import { useSimStudioAvailable } from "@/components/sim-studio/use-sim-studio-available";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2, FlaskConical } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { invalidateServerState, useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
 import {
@@ -20,9 +22,11 @@ import {
 } from "./project-section-cache";
 
 import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
+import { canAdministerWorkspace, canCommentOnProjects, canManageProjects } from "@/lib/roles";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
-import { UsedInPanel } from "@/features/system-builder/used-in-panel";
+import { HelpMenu } from "@/features/bug-report/help-menu";
+import { LibraryUsageButton } from "@/features/library-usage/library-usage-button";
 import { SupplyNavIcon } from "@/features/supply/supply-nav-icon";
 import { ProjectSupplyTab } from "@/features/supply/project-supply-tab";
 import { canOpenSupply } from "@/lib/roles";
@@ -32,6 +36,10 @@ const AssetsPortal = lazy(() =>
 );
 const PathConfigDialog = lazy(() =>
     import("@/components/path-config-dialog").then((module) => ({ default: module.PathConfigDialog }))
+);
+// Experimental, and its charts are heavy: loaded when the section first opens.
+const SimStudioPanel = lazy(() =>
+    import("@/components/sim-studio/SimStudioPanel").then((module) => ({ default: module.SimStudioPanel }))
 );
 const TrackerSettingsDialog = lazy(() =>
     import("@/features/tracker-integration/tracker-settings-dialog")
@@ -83,6 +91,9 @@ interface ProjectBranchesResponse {
     branches: ProjectBranch[];
 }
 
+const NO_BRANCHES: ProjectBranch[] = [];
+const projectBranchesKey = (projectId: string) => ["project", projectId, "branches"] as const;
+
 interface WorkflowJobResponse {
     job_id: string;
 }
@@ -97,6 +108,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
         || section === "workflows"
         || section === "release-studio"
         || section === "supply"
+        || section === "simulation-studio"
     ) {
         return section;
     }
@@ -104,7 +116,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
 }
 
 // Fixed navigation table, no closure over props: build it once.
-const BASE_NAV_ITEMS = [
+const NAV_ITEMS = [
     { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
     { id: "history" as ProjectSection, label: "History", icon: History },
     { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
@@ -114,6 +126,10 @@ const BASE_NAV_ITEMS = [
     { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
 ];
 const SUPPLY_NAV_ITEM = { id: "supply" as ProjectSection, label: "Supply", icon: SupplyNavIcon };
+
+// Shown only when the backend serves Simulation Studio (PRISM_SIM_STUDIO_ENABLED).
+const SIM_NAV_ITEM = { id: "simulation-studio" as ProjectSection, label: "Simulation Studio", icon: FlaskConical };
+const NAV_ITEMS_WITH_SIM = NAV_ITEMS.flatMap((item) => (item.id === "release-studio" ? [item, SIM_NAV_ITEM] : [item]));
 
 // Closes over nothing in the component.
 const getDisplayName = (project: Project) => {
@@ -140,10 +156,24 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
     const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
-    const [branches, setBranches] = useState<ProjectBranch[]>([]);
-    const [branchesLoading, setBranchesLoading] = useState(false);
-    const [branchError, setBranchError] = useState<string | null>(null);
-    const canMutateProject = user?.role === "admin" || user?.role === "designer";
+    // One poller per project, kept fresh while the tab is visible. It does not
+    // restart when the section, branch or commit changes.
+    const branchesRead = useServerState(
+        projectId ? projectBranchesKey(projectId) : null,
+        (signal) => fetchJson<ProjectBranchesResponse>(
+            `/api/projects/${projectId}/branches`,
+            { signal },
+            "Failed to load branches"
+        ),
+        { pollMs: 30_000, whileVisible: true },
+    );
+    const branches = branchesRead.data?.branches ?? NO_BRANCHES;
+    const branchesLoading = branchesRead.loading;
+    const branchError = branchesRead.error?.message ?? null;
+    const canMutateProject = canManageProjects(user?.role);
+    const simStudioAvailable = useSimStudioAvailable();
+    const sectionItems = simStudioAvailable ? NAV_ITEMS_WITH_SIM : NAV_ITEMS;
+    const canComment = canCommentOnProjects(user?.role);
 
     // Helper function to get display name
     const selectedBranchRef = searchParams.get('branch');
@@ -173,6 +203,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
     const viewerCommit = currentCommit
         || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    // On the visualizers without a pinned commit, the viewer holds the commit it
+    // opened on; a newer branch head is offered, not loaded.
+    if (activeSection === "visualizers" && !currentCommit && activeCommit && viewerPin?.key !== viewerSelectionKey) {
+        setViewerPin({ key: viewerSelectionKey, commit: activeCommit });
+    }
     const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
         && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
     const comparisonUrl = useMemo(
@@ -187,12 +222,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     }, [searchParams]);
 
     const visitedSections = useVisitedProjectSections(projectId, activeSection);
-    // Supply sits after Release Studio, for the roles that read supply data.
-    const NAV_ITEMS = useMemo(() => {
-        if (!canOpenSupply(user?.role)) return BASE_NAV_ITEMS;
-        const at = BASE_NAV_ITEMS.findIndex((item) => item.id === "release-studio") + 1;
-        return [...BASE_NAV_ITEMS.slice(0, at), SUPPLY_NAV_ITEM, ...BASE_NAV_ITEMS.slice(at)];
-    }, [user?.role]);
+    // Supply sits after Release Studio (and Simulation Studio), for the roles that read supply data.
+    const navItems = useMemo(() => {
+        if (!canOpenSupply(user?.role)) return sectionItems;
+        const at = sectionItems.reduce((last, item, index) => (item.id === "release-studio" || item.id === "simulation-studio" ? index + 1 : last), 0);
+        return [...sectionItems.slice(0, at), SUPPLY_NAV_ITEM, ...sectionItems.slice(at)];
+    }, [user?.role, sectionItems]);
 
     const handleSectionChange = (section: ProjectSection) => {
         if (section === "visualizers" && !currentCommit && activeCommit) {
@@ -274,6 +309,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             toast.success(job.message || "Sync completed", { id: toastId });
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
+            void invalidateServerState(projectBranchesKey(projectId));
         } catch (err) {
             const message = err instanceof Error ? err.message : "Sync failed";
             toast.error(message, { id: toastId });
@@ -282,70 +318,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
     };
 
-    useEffect(() => {
-        if (!projectId) {
-            setBranches([]);
-            return;
-        }
-
-        const controller = new AbortController();
-        let cancelled = false;
-        let inFlight = false;
-        let firstLoad = true;
-        setBranchesLoading(true);
-        setBranchError(null);
-
-        const fetchBranches = async () => {
-            if (inFlight) return;
-            inFlight = true;
-            try {
-                const data = await fetchJson<ProjectBranchesResponse>(
-                    `/api/projects/${projectId}/branches`,
-                    { signal: controller.signal },
-                    "Failed to load branches"
-                );
-                if (!cancelled) {
-                    const received = data.branches || [];
-                    setBranches(received);
-                    if (activeSection === "visualizers" && !currentCommit) {
-                        const chosen = received.find((branch) => branch.ref === selectedBranchRef)
-                            || received.find((branch) => branch.is_current) || received[0];
-                        if (chosen?.commit) {
-                            const key = `${projectId}:${selectedBranchRef || chosen.ref}:`;
-                            setViewerPin((previous) => previous?.key === key
-                                ? previous : { key, commit: chosen.commit });
-                        }
-                    }
-                    setBranchError(null);
-                }
-            } catch (err) {
-                if (!cancelled) {
-                    setBranchError(err instanceof Error ? err.message : "Failed to load branches");
-                }
-            } finally {
-                if (!cancelled) {
-                    if (firstLoad) setBranchesLoading(false);
-                }
-                firstLoad = false;
-                inFlight = false;
-            }
-        };
-
-        void fetchBranches();
-        const timer = window.setInterval(() => {
-            if (document.visibilityState === "visible") void fetchBranches();
-        }, 30_000);
-        const onVisible = () => {
-            if (document.visibilityState === "visible") void fetchBranches();
-        };
-        document.addEventListener("visibilitychange", onVisible);
-        return () => {
-            cancelled = true;
-            controller.abort();
-            window.clearInterval(timer);
-            document.removeEventListener("visibilitychange", onVisible);
-        };
-    }, [projectId, refreshKey, activeSection, currentCommit, selectedBranchRef]);
 
     useEffect(() => {
         if (!projectId) {
@@ -472,7 +444,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <div className="py-4">
                             <h2 className="px-4 text-lg font-semibold tracking-tight mb-2">Project Navigation</h2>
                             <nav className="space-y-1 p-2">
-                                {NAV_ITEMS.map((item) => {
+                                {navItems.map((item) => {
                                     const Icon = item.icon;
                                     return (
                                         <button
@@ -594,6 +566,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </Button>
                 )}
 
+                {projectId && <LibraryUsageButton projectId={projectId} canScan={canMutateProject} />}
+
                 {/* Sync Button */}
                 {canMutateProject && (
                     <Button
@@ -632,6 +606,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </Button>
                 )}
 
+                <HelpMenu />
+
                 {projectId && pathConfigOpen && (
                     <Suspense fallback={null}>
                         <PathConfigDialog
@@ -645,7 +621,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <Suspense fallback={null}>
                         <TrackerSettingsDialog
                             projectId={projectId}
-                            isAdmin={user?.role === "admin"}
+                            isAdmin={canAdministerWorkspace(user?.role)}
                             open={trackerSettingsOpen}
                             onOpenChange={setTrackerSettingsOpen}
                         />
@@ -709,7 +685,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </div>
 
                     <nav className="space-y-1 mt-8">
-                        {NAV_ITEMS.map((item) => {
+                        {navItems.map((item) => {
                             const Icon = item.icon;
                             const isExpanded = !sidebarCollapsed || sidebarHovered;
                             return (
@@ -746,7 +722,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                         <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
-                                    {projectId && <UsedInPanel projectId={projectId} />}
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
                                             <MarkdownContent
@@ -812,7 +787,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                             onViewCommit={handleViewCommit}
                                             onOpenVisualizer={handleOpenCommitVisualizer}
                                             canCompareDiffs
-                                            canComment={canMutateProject}
+                                            canComment={canComment}
                                             active={activeSection === "history"}
                                         />
                                     </Suspense>
@@ -843,6 +818,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     </Suspense>
                                 </ErrorBoundary>
                             )}
+                        </ProjectSectionPanel>
+                    )}
+
+                    {simStudioAvailable && visitedSections.has("simulation-studio") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:simulation-studio`}
+                            active={activeSection === "simulation-studio"}
+                            fill
+                        >
+                            <ErrorBoundary label="the simulation studio panel" resetKeys={[projectId]}>
+                                <Suspense fallback={null}>
+                                    <SimStudioPanel key={projectId} projectId={projectId!} canMutate={canMutateProject} active={activeSection === "simulation-studio"} />
+                                </Suspense>
+                            </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}
 

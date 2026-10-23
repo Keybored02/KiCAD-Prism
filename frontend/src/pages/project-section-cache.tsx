@@ -15,6 +15,7 @@ export type ProjectSection =
     | "documentation"
     | "workflows"
     | "release-studio"
+    | "simulation-studio"
     | "supply";
 
 type VisitedSectionState = {

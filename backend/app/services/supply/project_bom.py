@@ -47,16 +47,24 @@ def _workspace_projects(ids: Iterable[str]) -> list[tuple[Any, Sequence[str]]]:
     return found
 
 
-def _existing_index(project: Any) -> Mapping[str, Any] | None:
+def existing_index(project: Any, commit: str | None = None) -> Mapping[str, Any] | None:
+    """The project's semantic index (a member of its design bundle), or None while it is not built or cannot be."""
+
+    from app.services import semantic_index_service
+    from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
+
+    try:
+        return semantic_index_service.get_index(project, commit)
+    except (DesignDataPending, DesignDataFailed):
+        return None
+
+
+def queue_index(project_id: str, requested_by: str = "supply") -> None:
+    """Queue the project's design bundle, which holds its semantic index."""
+
     from app.services import semantic_index_service
 
-    return semantic_index_service.get_existing(project)
-
-
-def _queue_index(project_id: str) -> None:
-    from app.services import project_service
-
-    project_service.start_semantic_index_job(project_id, requested_by="supply")
+    semantic_index_service.start_generate_job(project_id, requested_by=requested_by)
 
 
 def _identities():
@@ -75,8 +83,8 @@ def _lines(conn, project_id: str, variants: Sequence[str]) -> dict[str, tuple[st
 
 def read(
     conn, project: Any, roles: Sequence[str], now: datetime, *,
-    existing: Callable[[Any], Mapping[str, Any] | None] = _existing_index,
-    queue: Callable[[str], None] = _queue_index,
+    existing: Callable[[Any], Mapping[str, Any] | None] = existing_index,
+    queue: Callable[[str], None] = queue_index,
     identities: Any = None,
 ) -> str:
     """Read a project's BOM into usage. ``reading`` when its newest revision has no index yet and one was queued (or was
@@ -114,8 +122,8 @@ def _event(conn, project: Any, roles: Sequence[str], before: Mapping[str, tuple[
 
 def refresh_tracked(
     conn, now: datetime, *, force: bool = False, projects: Projects = _workspace_projects,
-    existing: Callable[[Any], Mapping[str, Any] | None] = _existing_index,
-    queue: Callable[[str], None] = _queue_index, identities: Any = None,
+    existing: Callable[[Any], Mapping[str, Any] | None] = existing_index,
+    queue: Callable[[str], None] = queue_index, identities: Any = None,
 ) -> dict[str, int]:
     """Read every tracked project's BOM again, at most every ``REFRESH_EVERY``, and record what changed."""
 

@@ -58,7 +58,8 @@ def in_library(pairs: Iterable[tuple[str, str]]) -> set[tuple[str, str]]:
     if not asked:
         return set()
     found = catalog_service.match_component_identities([{"manufacturer": maker, "mpn": mpn} for maker, mpn in asked])
-    have = {tuple(key.split(chr(0), 1)) for key in found}
+    # One answer per request, in order: the component that holds the pair, or None. A retired holder does not count.
+    have = {(maker.strip().casefold(), mpn.strip().casefold()) for (maker, mpn), holder in zip(asked, found) if holder is not None and holder.get("is_active")}
     missing = [(maker, mpn) for maker, mpn in asked if (maker.strip().casefold(), mpn.strip().casefold()) not in have]
     if missing:
         components = component_ids_by_part()

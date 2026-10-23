@@ -72,7 +72,7 @@ async def _run(call: Callable[[], T]) -> T:
 def _read_project_bom(conn, project_id: str) -> str:
     """Read the project's BOM into usage from its semantic index, when it is not there or has changed."""
 
-    from app.services import project_service, semantic_index_service
+    from app.services import project_service
     from app.services.supply import catalog_read
     from app.services.workspace_service import workspace
 
@@ -81,7 +81,7 @@ def _read_project_bom(conn, project_id: str) -> str:
         raise ValueError("This project does not exist.")
     visible = [role for role in usage.ALL_ROLES if workspace._is_folder_visible(row, role)]
     return usage.refresh_one(
-        conn, project_service._workspace_row_to_project(row), semantic_index_service.get_existing,
+        conn, project_service._workspace_row_to_project(row), project_bom.existing_index,
         datetime.now(timezone.utc), visible, catalog_read.identities,
     )
 

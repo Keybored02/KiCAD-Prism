@@ -15,6 +15,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services.job_kinds import JobKind
 from app.services.supply import catalog_read, release_bom, release_check, release_source
 from app.services.supply.store import supply_store
 
@@ -121,3 +122,6 @@ def run_job(context: Any) -> Any:
             return JobResult(message="The supply snapshot could not be taken", details={"build_id": build_id})
         raise
     return JobResult(message=f"Supply snapshot {outcome}", details={"build_id": build_id, "outcome": outcome})
+
+
+JOB_KINDS = (JobKind(JOB_KIND, run_job, priority=SNAPSHOT_PRIORITY, max_attempts=3),)

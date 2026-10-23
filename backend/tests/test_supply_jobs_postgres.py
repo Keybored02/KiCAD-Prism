@@ -393,8 +393,7 @@ class SupplyJobTests(unittest.TestCase):
         first, second = self.connector("fake"), self.connector("demo_nosearch")
         self.watch()
         queue = RecordingJobs()
-        with mock.patch.object(self.jobs, "SUPPLY_RESOURCE_CAPACITY", 2):
-            queued = self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
+        queued = self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
         self.assertEqual(len(queued), 1, "only the searchable connector has work")
         (call,) = queue.calls
         self.assertEqual(call["kind"], "supply_poll")
@@ -536,9 +535,9 @@ class SupplyJobTests(unittest.TestCase):
         load_builtin_job_handlers()
         self.assertIs(get_job_handler("supply_poll"), self.jobs.run_supply_poll_job)
         capacities = prism_worker.PrismWorker.resource_capacities()
-        self.assertEqual(capacities[self.jobs.SUPPLY_RESOURCE], self.jobs.SUPPLY_RESOURCE_CAPACITY)
+        self.assertGreaterEqual(capacities[self.jobs.SUPPLY_RESOURCE], 1)
         if capacities["prism_worker"] > 1:
-            self.assertLess(self.jobs.SUPPLY_RESOURCE_CAPACITY, capacities["prism_worker"])
+            self.assertLess(capacities[self.jobs.SUPPLY_RESOURCE], capacities["prism_worker"], "a slot is left for everything else")
 
     def test_only_the_prism_pool_scans_and_not_more_than_once_a_minute(self) -> None:
         from app import prism_worker

@@ -34,6 +34,7 @@ import type {
     SemanticNet,
     SemanticTerminal,
 } from "@/types/prism-selection";
+import { orderedFieldEntries } from "@/lib/semantic-fields";
 
 /** A highlighted net as the inspector lists it, with its copper summary. */
 export interface HighlightedNetEntry {
@@ -181,6 +182,7 @@ function LinkValue({ href, text }: { href: string; text: string }) {
 // row on the component card: the reference/value/footprint (shown elsewhere)
 // and KiCad's own attributes (kicad_*/ki_*/_source). Sheetfile/Sheetname stay.
 const HIDDEN_FIELD_KEYS = new Set(["Reference", "Value", "Footprint"]);
+
 
 function isDisplayableField(key: string, value: string): boolean {
     if (HIDDEN_FIELD_KEYS.has(key)) return false;
@@ -666,7 +668,7 @@ export function SelectionInspector({
                                         label="BOM"
                                         value={<FlagValue value={component.fields?.["In BOM"]} goodWhenYes={true} />}
                                     />
-                                    {Object.entries(component.fields || {}).flatMap(([key, value]) => (
+                                    {orderedFieldEntries(component.fields || {}).flatMap(([key, value]) => (
                                         key !== "DNP" && key !== "In BOM" && isDisplayableField(key, String(value))
                                             ? [
                                                 <PropertyRow

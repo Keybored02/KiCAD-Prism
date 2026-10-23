@@ -7,6 +7,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import IO
 
 from app.core.config import settings
+from app.services.job_handlers import settle_job_end, sweep_job_ends
+from app.services.job_kinds import resource_capacities
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 
@@ -89,26 +92,38 @@ class PrismWorker:
         self._catalog_maintenance_date = ""
         self._auto_sync_attempts: dict[str, datetime] = {}
         self._next_auto_sync_scan = 0.0
+        self._auto_sync_scan: threading.Thread | None = None
         self._next_tracker_scan = 0.0
+        self._next_end_sweep = 0.0
+        self._next_bundle_backfill = 0.0
+        self._next_bundle_retention = 0.0
+        self._bundle_upkeep: threading.Thread | None = None
+        self._bundle_backfill_state = None
         self._next_supply_scan = 0.0
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
-        from app.services.supply.jobs import SUPPLY_RESOURCE, SUPPLY_RESOURCE_CAPACITY
-        from app.services.trackers.scheduler import TRACKER_RESOURCE, TRACKER_RESOURCE_CAPACITY
+        return resource_capacities()
 
-        return {
-            "prism_worker": settings.PRISM_WORKER_CONCURRENCY,
-            "webgpu": settings.PRISM_WEBGPU_CONCURRENCY,
-            "design_compare": settings.PRISM_DESIGN_COMPARE_CONCURRENCY,
-            "workflow": settings.PRISM_WORKFLOW_CONCURRENCY,
-            "import": settings.PRISM_IMPORT_CONCURRENCY,
-            "semantic_compile": settings.PRISM_SEMANTIC_COMPILE_SLOTS,
-            "catalog_worker": settings.CATALOG_WORKER_CONCURRENCY,
-            "catalog_kicad": settings.CATALOG_KICAD_CONCURRENCY,
-            TRACKER_RESOURCE: TRACKER_RESOURCE_CAPACITY,
-            SUPPLY_RESOURCE: SUPPLY_RESOURCE_CAPACITY,
-        }
+    @staticmethod
+    def validate_memory_admission() -> None:
+        """Refuse a budget no declared heavy kind could ever fit.
+
+        The ``memory`` slot is reconciled from the same setting the kinds
+        declared their weight from, so this only fails on a deliberately small
+        override or a new kind whose weight outgrew the default.
+        """
+
+        from app.services.job_handlers import (
+            get_job_kind,
+            load_builtin_job_handlers,
+            registered_job_kinds,
+        )
+        from app.services.job_kinds import validate_memory_capacity
+
+        load_builtin_job_handlers()
+        kinds = [get_job_kind(name) for name in registered_job_kinds()]
+        validate_memory_capacity(kind for kind in kinds if kind is not None)
 
     def request_stop(self, *_args: object) -> None:
         self.stopping = True
@@ -409,6 +424,7 @@ class PrismWorker:
                                 error_code="runner_exited",
                                 error_message=f"Job runner exited with code {return_code}",
                             )
+                        settle_job_end(job_id, jobs)
                     except Exception:
                         self._log_database_error(f"finalize exited job {job_id}")
                         self._queue_pending_release(
@@ -517,7 +533,6 @@ class PrismWorker:
             {},
             created_by="system:catalog-worker",
             idempotency_key=f"artifact-maintenance:{today}",
-            max_attempts=3,
         )
         self._catalog_maintenance_date = today
 
@@ -528,21 +543,71 @@ class PrismWorker:
         now_mono = time.monotonic()
         if now_mono < self._next_auto_sync_scan:
             return
+        if self._auto_sync_scan is not None and self._auto_sync_scan.is_alive():
+            return
+        # The scan asks each due remote whether it moved (git ls-remote), which
+        # can take seconds per repository; it must not hold up job supervision.
+        self._auto_sync_scan = threading.Thread(
+            target=self._scan_project_fetches, args=(interval,), name="auto-sync-scan", daemon=True
+        )
+        self._auto_sync_scan.start()
+        self._next_auto_sync_scan = now_mono + min(30, interval)
+
+    def _scan_project_fetches(self, interval: int) -> None:
         from app.services.project_auto_sync_service import enqueue_due_fetches
 
-        enqueue_due_fetches(
-            self._auto_sync_attempts,
-            interval_seconds=interval,
-            now=datetime.now(timezone.utc),
-        )
-        try:  # Git-linked systems (CONTRACTS_P2 §21.4); a failure must not stop project fetches
-            from app.services.systems import git_tracking
-            from app.services.systems.jobs import workspace_connection
-
-            git_tracking.enqueue_due_fetches(workspace_connection, interval_seconds=interval)
+        try:
+            enqueue_due_fetches(
+                self._auto_sync_attempts,
+                interval_seconds=interval,
+                now=datetime.now(timezone.utc),
+            )
         except Exception:
-            logger.exception("Could not queue system repository fetches")
-        self._next_auto_sync_scan = now_mono + min(30, interval)
+            logger.exception("Could not queue project fetches")
+
+    def schedule_design_bundles(self) -> None:
+        """The paced backfill of branch-head bundles and hourly bundle retention (ADR §5, §8).
+
+        Both read Git (one ls-tree per branch head), so they run off the
+        supervision loop, one at a time.
+        """
+
+        if self.worker_pool != "prism":
+            return
+        now = time.monotonic()
+        interval = settings.PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS
+        backfill = settings.PRISM_DESIGN_BUNDLE_AUTO_BUILD and interval > 0 and now >= self._next_bundle_backfill
+        retention = now >= self._next_bundle_retention
+        if not (backfill or retention) or (self._bundle_upkeep is not None and self._bundle_upkeep.is_alive()):
+            return
+        if backfill:
+            self._next_bundle_backfill = now + interval
+        if retention:
+            self._next_bundle_retention = now + 3600
+        self._bundle_upkeep = threading.Thread(
+            target=self._design_bundle_upkeep, args=(backfill, retention), name="design-bundle-upkeep", daemon=True
+        )
+        self._bundle_upkeep.start()
+
+    def _design_bundle_upkeep(self, backfill: bool, retention: bool) -> None:
+        from app.services.design_bundle import backfill as bundle_backfill
+        from app.services.design_bundle import retention as bundle_retention
+        from app.services.design_bundle import store as bundle_store
+
+        if backfill:
+            try:
+                if self._bundle_backfill_state is None:
+                    self._bundle_backfill_state = bundle_backfill.BackfillState()
+                outcome = bundle_backfill.tick(self._bundle_backfill_state)
+                if outcome.get("queued"):
+                    logger.info("Design bundle backfill queued %s", outcome["queued"])
+            except Exception:
+                logger.exception("Design bundle backfill failed")
+        if retention and bundle_store.root().is_dir():  # nothing to keep or remove before the first bundle
+            try:
+                logger.info("Design bundle retention: %s", bundle_retention.run())
+            except Exception:
+                logger.exception("Design bundle retention failed")
 
     def schedule_tracker_jobs(self) -> None:
         if self.worker_pool != "prism" or time.monotonic() < self._next_tracker_scan:
@@ -560,6 +625,14 @@ class PrismWorker:
         # Set the next scan first: a database error below must not make the loop retry every pass.
         self._next_supply_scan = time.monotonic() + SCAN_SECONDS
         schedule_due_supply_jobs()
+
+    def sweep_job_ends(self) -> None:
+        """Settle feature rows whose job's process died before settling them."""
+
+        if self.worker_pool != "prism" or time.monotonic() < self._next_end_sweep:
+            return
+        self._next_end_sweep = time.monotonic() + 60
+        sweep_job_ends(jobs)
 
     def mount_tracker_composition(self) -> None:
         """The scheduling loop needs the same mounts as the API and job runner.
@@ -588,12 +661,14 @@ class PrismWorker:
                 time.sleep(min(1.0, self.poll_seconds))
         if self.stopping:
             return
+        self.validate_memory_admission()
         self.mount_tracker_composition()
         logger.info(
-            "Worker %s started pool=%s concurrency=%s",
+            "Worker %s started pool=%s concurrency=%s memory_budget=%sMiB",
             self.worker_id,
             self.worker_pool,
             self.concurrency,
+            settings.PRISM_WORKER_MEMORY_BUDGET_MIB,
         )
         while not self.stopping:
             try:
@@ -612,6 +687,14 @@ class PrismWorker:
                 self.schedule_supply_jobs()
             except Exception:
                 self._log_database_error("schedule supply jobs")
+            try:
+                self.schedule_design_bundles()
+            except Exception:
+                self._log_database_error("schedule design bundle upkeep")
+            try:
+                self.sweep_job_ends()
+            except Exception:
+                self._log_database_error("settle ended jobs")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:
