@@ -340,6 +340,37 @@ class SupplyPartsApiTests(unittest.TestCase):
         finally:
             registry.unregister("demo_chart")
 
+    def test_stock_history_leaves_out_a_listing_a_pick_stopped_reading_at_lcsc(self) -> None:
+        from app.services.supply import parts_view
+
+        cid = self.fake_connector()
+        self.watch_via_api("HIST-1")
+        part = self.part_row("HIST-1")["id"]
+        picked = self.insert_listing(part, cid, "HI-PICKED", stock=100, price="0.50")
+        other = self.insert_listing(part, cid, "HI-OTHER", stock=900, price="0.40")
+        now = datetime.now(timezone.utc)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE connectors SET provider = 'lcsc' WHERE id = %s", (cid,))
+            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, picked))
+            for listing, amount, when in ((picked, 100, now), (other, 900, now - timedelta(days=10))):
+                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, when, amount))
+            series = parts_view.history(conn, part, now)
+        self.assertEqual({point["stock"] for point in series[-3:]}, {100}, "the listing no longer read is not carried forward")
+
+    def test_the_pick_a_packaging_list_holds_only_where_a_pick_saves_calls(self) -> None:
+        cid = self.fake_connector()
+        for mpn in ("PK-FARNELL", "PK-LCSC"):
+            self.watch_via_api(mpn)
+        farnell, lcsc = self.part_row("PK-FARNELL")["id"], self.part_row("PK-LCSC")["id"]
+        other = self.connectors.create(actor=SEED_ACTOR, provider="lcsc", display_name="Other", daily_budget=1000)["id"]
+        with self.store.connection() as conn:
+            conn.execute("UPDATE connectors SET provider = 'farnell' WHERE id = %s", (cid,))
+        for part, connector, provider in ((farnell, cid, "farnell"), (lcsc, other, "lcsc")):
+            self.insert_listing(part, connector, f"{provider}-1", stock=10)
+            self.insert_listing(part, connector, f"{provider}-2", stock=10)
+        listed = [item["mpn"] for item in self.call("GET", "/api/supply/parts", query="scope=pick").json["items"]]
+        self.assertEqual(listed, ["PK-LCSC"], "Farnell reads every listing anyway, so a pick saves it nothing")
+
     def test_watching_twice_is_one_watch(self) -> None:
         first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)
         self.assertEqual(first["id"], second["id"])

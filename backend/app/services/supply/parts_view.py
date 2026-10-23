@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, stock, usage
+from app.services.supply import budget, facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, stock, usage
 from app.services.supply.assessment import settings_store
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
@@ -304,12 +304,14 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
 def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
     """Every matching part (up to ``MAX_CANDIDATES``), the ones that need a look first, and the true count."""
 
+    limited = "ARRAY[" + ", ".join(f"'{key}'" for key in budget.providers_limited_by_picks() if key.replace("_", "").isalnum()) + "]::text[]"
     conditions = [{
         "all": "TRUE", "watched": "pt.part_id IS NOT NULL", "in_use": "(" + _IN_USE + ")",
         "followed": "(pt.part_id IS NOT NULL OR " + _IN_USE + ")",
         "tier1": "pt.tier = 1", "tier2": "pt.tier = 2",
         "waiting": "EXISTS (SELECT 1 FROM admissions ad WHERE ad.part_id = p.id AND ad.state = 'waiting')",
-        "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM listings pl WHERE pl.part_id = p.id AND pl.match_state IN ('exact', 'manual') "
+        "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM listings pl JOIN connectors pc ON pc.id = pl.connector_id "
+                "WHERE pl.part_id = p.id AND pl.match_state IN ('exact', 'manual') AND pc.provider = ANY(" + limited + ") "
                 "AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = pl.part_id AND pk.connector_id = pl.connector_id) "
                 "GROUP BY pl.connector_id HAVING COUNT(*) > 1)",
     }[scope]]
@@ -613,9 +615,9 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
         FROM samples s
         JOIN listings l ON l.id = s.listing_id
         JOIN connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s
+        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s AND {counted}
         ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        """,
+        """.replace("{counted}", stock.counted_listing_sql()),
         (part_id, states, since),
     ).fetchall()
     rolled = conn.execute(
@@ -624,8 +626,8 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
         FROM samples_daily d
         JOIN listings l ON l.id = d.listing_id
         JOIN connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s
-        """,
+        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s AND {counted}
+        """.replace("{counted}", stock.counted_listing_sql()),
         (part_id, states, since.date()),
     ).fetchall()
     merged = {(r["listing_id"], r["day"]): dict(r) for r in rolled}
