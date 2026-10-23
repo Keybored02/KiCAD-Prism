@@ -4,7 +4,7 @@ import type { SupplyReviewQueue } from "@/types/supply";
 import { reviewCountOf } from "./review-count";
 
 describe("reviewCountOf", () => {
-  it("counts every item the Review page lists to decide, pinned parts by the part, and the matched and several-listings counters", () => {
+  it("counts every item the Review page lists to decide, pinned parts by the part, and the matched counter, but not the several-listings section", () => {
     const queue = {
       aliases: [], listings: [], manufacturers: [],
       counts: { aliases: 2, unresolved: 3, near: 1 },
@@ -13,6 +13,6 @@ describe("reviewCountOf", () => {
       other_numbers: [{ listings: [{}, {}] }, { listings: [{}] }],
       matched: { aliases: [{}], parts: [{}, {}] },
     } as unknown as SupplyReviewQueue;
-    expect(reviewCountOf(queue, 4)).toBe(2 + 3 + 1 + 2 + 3 + 2 + 3 + 4);
+    expect(reviewCountOf(queue)).toBe(2 + 3 + 1 + 2 + 3 + 2 + 3);
   });
 });
