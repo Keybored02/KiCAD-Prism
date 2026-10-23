@@ -541,8 +541,9 @@ export function resetAssessmentSettings(): Promise<AssessmentSettingsView> {
 }
 
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
-export function getProjectSupply(projectId: string, variant = "", boards = 1, spares = "", signal?: AbortSignal): Promise<ProjectSupply> {
-  const query = new URLSearchParams({ build_quantity: String(boards) });
+export function getProjectSupply(projectId: string, variant = "", boards?: number, spares = "", signal?: AbortSignal): Promise<ProjectSupply> {
+  const query = new URLSearchParams();
+  if (boards !== undefined) query.set("build_quantity", String(boards));
   if (variant) query.set("variant", variant);
   if (spares) query.set("spares", spares);
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply?${query.toString()}`, { signal }, "Could not load the project's supply");

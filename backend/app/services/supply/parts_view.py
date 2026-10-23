@@ -434,13 +434,14 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     stats["all_variants"] = bool(tracked and tracked["all_variants"])
     stats["packaging"] = tracked["packaging"] if tracked else None
     latest = conn.execute(
-        "SELECT day, cost_per_board, currency, rollup FROM bom_cost_history WHERE project_id = %s AND variant = %s ORDER BY day DESC LIMIT 1",
+        "SELECT day, cost_per_board, currency, rollup, build_quantity FROM bom_cost_history WHERE project_id = %s AND variant = %s ORDER BY day DESC LIMIT 1",
         (project_id, (tracked["variants"] or [""])[0] if tracked else ""),
     ).fetchone()
     if latest:
         before = conn.execute(
-            "SELECT cost_per_board FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day <= %s ORDER BY day DESC LIMIT 1",
-            (project_id, (tracked["variants"] or [""])[0], latest["day"] - timedelta(days=30)),
+            "SELECT cost_per_board FROM bom_cost_history WHERE project_id = %s AND variant = %s AND build_quantity = %s AND day <= %s "
+            "ORDER BY day DESC LIMIT 1",
+            (project_id, (tracked["variants"] or [""])[0], latest["build_quantity"], latest["day"] - timedelta(days=30)),
         ).fetchone()
         stats["cost_per_board"] = format(latest["cost_per_board"], "f")
         stats["currency"] = latest["currency"]

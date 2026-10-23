@@ -16,6 +16,8 @@ export interface ProjectChoice {
   packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest";
   /** The distributors the project is bought from; null is all but the assembly-only ones. */
   connector_ids: string[] | null;
+  /** The usual build, in boards: the project's cost is worked out for it each day. */
+  build_quantity?: number;
 }
 
 /** Say which of several parts a BOM line's maker spelling names. */
@@ -51,6 +53,11 @@ export function previewTrackProject(projectId: string, choice: ProjectChoice, si
 
 export function trackProject(projectId: string, choice: ProjectChoice): Promise<TrackingPreview> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, put(choice), "Could not track the project");
+}
+
+/** Keep a build size as the tracked project's usual build. */
+export function keepUsualBuild(projectId: string, buildQuantity: number): Promise<{ project_id: string; build_quantity: number }> {
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/build`, put({ build_quantity: buildQuantity }), "Could not keep the usual build");
 }
 
 export async function untrackProject(projectId: string): Promise<void> {

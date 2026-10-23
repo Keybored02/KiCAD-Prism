@@ -1,4 +1,5 @@
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyConnector, TrackingPreview } from "@/types/supply";
 import { TrackCostBars } from "./track-cost-bars";
@@ -17,6 +18,8 @@ interface ChooseProps {
   onConnector: (id: string, on: boolean) => void;
   packaging: ProjectPackaging;
   onPackaging: (next: ProjectPackaging) => void;
+  buildQuantity: number;
+  onBuildQuantity: (next: number) => void;
   preview: TrackingPreview | null;
   onRaise?: (connectorId: string) => void;
 }
@@ -73,6 +76,15 @@ export function TrackChooseStep(props: ChooseProps) {
           {PACKAGING.map((option) => <option key={option.id} value={option.id} title={option.hint}>{option.label}</option>)}
         </select>
         <p className="text-xs text-muted-foreground">{PACKAGING.find((option) => option.id === packaging)?.hint}. Where a distributor does not offer it, the nearest is followed.</p>
+      </section>
+
+      <section aria-label="Usual build" className="space-y-1">
+        <Label htmlFor="track-build" className="text-xs font-medium text-muted-foreground">Usual build, in boards</Label>
+        <Input
+          id="track-build" type="number" min={1} max={1_000_000} className="h-9 w-32" value={props.buildQuantity}
+          onChange={(event) => { const next = Math.floor(Number(event.target.value)); if (Number.isFinite(next) && next >= 1 && next <= 1_000_000) props.onBuildQuantity(next); }}
+        />
+        <p className="text-xs text-muted-foreground">The project's cost is worked out for this many boards each day, and its page opens on it.</p>
       </section>
 
       {preview ? (

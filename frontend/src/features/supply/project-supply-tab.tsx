@@ -18,6 +18,7 @@ import { ProjectSupplyParts } from "./project-supply-parts";
 import { BoardCount, ProjectForecastSection, useProjectForecast } from "./project-forecast";
 import { supplyPartPath } from "@/components/command-palette-supply";
 import { getProjectSupply } from "./supply-api";
+import { keepUsualBuild } from "./tracking-api";
 import { formatPrice } from "./supply-format";
 import { SettleBadge } from "./settle-badge";
 import { TrackProjectButton } from "./track-project-dialog";
@@ -77,17 +78,22 @@ function CostHistory({ points }: { points: NonNullable<ProjectSupply["cost_histo
 export function ProjectSupplyTab({ projectId, role }: { projectId: string; role: UserRole | null | undefined }) {
   const allowed = canOpenSupply(role);
   const [variant, setVariant] = useState("");
-  const [boards, setBoards] = useState(100);
+  // The boards a person typed; until then the page is for the project's usual build (100 when it has none).
+  const [boardsChoice, setBoards] = useState<number | null>(null);
   const [attrition, setAttrition] = useState<number | null>(0);
   const [chip, setChip] = useState<Chip | null>(null);
   const navigate = useNavigate();
   const spares = attrition === null ? "auto" : attrition === 0 ? "" : String(attrition);
-  const fetcher = useCallback((signal: AbortSignal) => getProjectSupply(projectId, variant, boards, spares, signal), [projectId, variant, boards, spares]);
-  const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}:${boards}:${spares}` : null, fetcher, "Could not load the project's supply");
-  const forecast = useProjectForecast(projectId, variant, boards, allowed && loaded.data?.available === true);
+  const fetcher = useCallback(
+    (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, spares, signal),
+    [projectId, variant, boardsChoice, spares],
+  );
+  const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}:${boardsChoice ?? "usual"}:${spares}` : null, fetcher, "Could not load the project's supply");
   // The controls stay while a change reloads the page, so a person can go on typing.
   const [last, setLast] = useState<ProjectSupply | null>(null);
   if (loaded.data && loaded.data !== last) setLast(loaded.data);
+  const boards = boardsChoice ?? loaded.data?.build_quantity ?? last?.build_quantity ?? 100;
+  const forecast = useProjectForecast(projectId, variant, boards, allowed && loaded.data?.available === true);
   if (!allowed) return <p className="text-sm text-muted-foreground">Supply data is not available to your role.</p>;
   if (loaded.status === "error" && !loaded.data) {
     return (
@@ -113,6 +119,11 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
           </select>
         ) : null}
         {supply.available ? <BoardCount key={boards} boards={boards} onChange={setBoards} /> : null}
+        {supply.available && supply.usual_build != null && supply.usual_build !== boards ? (
+          <Button size="sm" variant="outline" onClick={() => void keepUsualBuild(projectId, boards).then(() => loaded.refresh())}>
+            Keep {boards.toLocaleString()} as the usual build
+          </Button>
+        ) : null}
         {supply.available ? <SparesControl percent={attrition} onChange={setAttrition} /> : null}
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <SettleBadge projectId={projectId} onChanged={loaded.retry} />

@@ -35,6 +35,14 @@ class ProjectIn(BaseModel):
     all_variants: bool = False
     # The packaging the project prefers: decides which listing is followed at each distributor.
     packaging: Literal["cut_tape", "custom_reel", "tape_reel", "tube_tray", "smallest"] = "cut_tape"
+    # The usual build, in boards: the project's cost is worked out for it each day. Null keeps the one it has (100 for a new project).
+    build_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
+class BuildIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    build_quantity: int = Field(ge=1, le=1_000_000)
 
 
 class PartIn(BaseModel):
@@ -79,7 +87,7 @@ def _read_project_bom(conn, project_id: str) -> str:
 def _track(project_id: str, body: ProjectIn, actor: str) -> Callable[[Any], Any]:
     def change(conn) -> dict[str, Any]:
         _read_project_bom(conn, project_id)
-        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants, packaging=body.packaging)
+        return tracking.track_project(conn, project_id, body.variants, actor, connector_ids=body.connector_ids, all_variants=body.all_variants, packaging=body.packaging, build_quantity=body.build_quantity)
 
     return change
 
@@ -175,6 +183,19 @@ async def read_project_bom(project_id: str, user: AuthenticatedUser = Depends(re
         project, roles = found[0]
         with _store().connection() as conn:
             return {"status": project_bom.read(conn, project, roles, datetime.now(timezone.utc))}
+
+    return await _run(run)
+
+
+@router.put("/projects/{project_id}/build")
+async def keep_usual_build(project_id: str, body: BuildIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Keep a build size as the tracked project's usual build."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return tracking.set_usual_build(conn, project_id, body.build_quantity, user.email)
 
     return await _run(run)
 

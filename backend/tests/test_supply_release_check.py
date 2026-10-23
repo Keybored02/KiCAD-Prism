@@ -304,6 +304,39 @@ class ReleaseCheckTests(unittest.TestCase):
             history = self.request("prj_7/supply").json["cost_history"]
         self.assertEqual([(point["cost_per_board"], point["complete"]) for point in history], [("0.5000", True)])
 
+    def test_a_tracked_project_is_costed_for_its_usual_build_and_a_changed_one_starts_a_new_series(self) -> None:
+        from datetime import timedelta
+
+        from app.services.supply import project_supply, tracking, usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_44")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            usage.store_project(conn, "prj_44", "Forty four", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+            conn.execute("INSERT INTO tracked_projects (project_id, variants, tracked_by) VALUES ('prj_44', '{\"\"}', 'a@example.com')")
+            self.assertEqual(conn.execute("SELECT build_quantity FROM tracked_projects").fetchone()["build_quantity"], 100, "100 boards unless said")
+            project_supply.snapshot_costs(conn, NOW - timedelta(days=2))
+            tracking.set_usual_build(conn, "prj_44", 1, "a@example.com")
+            project_supply.snapshot_costs(conn, NOW - timedelta(days=1))
+            project_supply.snapshot_costs(conn, NOW)
+            with self.assertRaises(tracking.TrackingError):
+                tracking.set_usual_build(conn, "prj_44", 0, "a@example.com")
+            rows = conn.execute("SELECT build_quantity, cost_per_board FROM bom_cost_history ORDER BY day").fetchall()
+        self.assertEqual([(row["build_quantity"], float(row["cost_per_board"])) for row in rows], [(100, 0.25), (1, 0.5), (1, 0.5)])
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            page = self.request("prj_44/supply").json
+        self.assertEqual((page["build_quantity"], page["usual_build"]), (1, 1), "without a size the page opens at the usual build")
+        self.assertEqual([point["cost_per_board"] for point in page["cost_history"]], ["0.5000", "0.5000"], "the 100-board days are another series")
+
     def test_the_cost_export_prices_the_bom_and_names_nothing_to_order_from(self) -> None:
         from app.services.supply import usage
 

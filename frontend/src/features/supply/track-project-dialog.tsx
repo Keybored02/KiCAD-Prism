@@ -103,6 +103,8 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
             onConnector={track.toggleConnector}
             packaging={track.packaging}
             onPackaging={track.setPackaging}
+            buildQuantity={track.buildQuantity}
+            onBuildQuantity={track.setBuildQuantity}
             preview={preview}
             onRaise={(id) => setRaising(id)}
           />

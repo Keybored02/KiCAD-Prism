@@ -70,7 +70,7 @@ async def bom_health(
 @router.get("/{project_id}/supply")
 async def project_overview(
     project_id: str,
-    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
+    build_quantity: int | None = Query(default=None, ge=1, le=1_000_000),
     variant: str = Query(default="", max_length=120),
     spares: str = Query(default="", max_length=12),
     user: AuthenticatedUser = Depends(require_supply_reader),

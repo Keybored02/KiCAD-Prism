@@ -49,7 +49,7 @@ def check_tier(tier: Any, rate: Any) -> tuple[int, str]:
 # --- projects ---------------------------------------------------------------
 
 
-_PROJECT_COLUMNS = "project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, tracked_at"
+_PROJECT_COLUMNS = "project_id, variants, all_variants, packaging, build_quantity, excluded_ids, assembly_ids, tracked_by, tracked_at"
 
 
 def _kinds(conn) -> tuple[set[str], set[str]]:
@@ -132,8 +132,11 @@ def track_project(
     may_create_manufacturer: bool = True,
     all_variants: bool = False,
     packaging: str = "cut_tape",
+    build_quantity: int | None = None,
 ) -> dict[str, Any]:
     """Track a project: its chosen variants' parts join tier 1. Returns what was tracked and what was skipped.
+
+    ``build_quantity`` is the project's usual build, in boards (the cost is worked out for it each day); None keeps the one it has, or 100.
 
     ``variants`` names the designs; ``''`` is the base design. ``connector_ids`` limits the distributors the project's
     parts are read at (None: every distributor but those that are assembly-only). It is stored as what is left out, so a
@@ -181,11 +184,12 @@ def track_project(
         excluded, built_at = sorted(regular - named), sorted(named & assembly)
     conn.execute(
         """
-        INSERT INTO tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, build_quantity)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, 100))
         ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, all_variants = EXCLUDED.all_variants, packaging = EXCLUDED.packaging, excluded_ids = EXCLUDED.excluded_ids,
-            assembly_ids = EXCLUDED.assembly_ids
+            assembly_ids = EXCLUDED.assembly_ids, build_quantity = COALESCE(%s, tracked_projects.build_quantity)
         """,
-        (project_id, chosen, all_variants, packaging, excluded, built_at, actor),
+        (project_id, chosen, all_variants, packaging, excluded, built_at, actor, build_quantity, build_quantity),
     )
     write_audit(conn, actor, "tracking.project", project_id,
                 {"variants": chosen, "all_variants": all_variants, "packaging": packaging, "connector_ids": list(connector_ids) if connector_ids is not None else None},
@@ -284,6 +288,21 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
     recompute(conn)
     admission.sync(conn)
     return {"parts_created": created}
+
+
+def set_usual_build(conn, project_id: str, build_quantity: int, actor: str) -> dict[str, Any]:
+    """Keep ``build_quantity`` boards as a tracked project's usual build."""
+
+    actor = actor_text(actor)
+    if not 1 <= build_quantity <= 1_000_000:
+        raise TrackingError("The usual build is from 1 to 1,000,000 boards.")
+    changed = conn.execute(
+        "UPDATE tracked_projects SET build_quantity = %s WHERE project_id = %s RETURNING project_id", (build_quantity, project_id)
+    ).fetchone()
+    if changed is None:
+        raise TrackingError("This project is not tracked.")
+    write_audit(conn, actor, "tracking.project_build", project_id, {"build_quantity": build_quantity}, subject_kind="project")
+    return {"project_id": project_id, "build_quantity": build_quantity}
 
 
 def untrack_project(conn, project_id: str, actor: str) -> bool:

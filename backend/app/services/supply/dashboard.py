@@ -76,7 +76,9 @@ def _project_costs(conn, today: date) -> list[dict[str, Any]]:
         """
         SELECT h.project_id, COALESCE(u.project_name, h.project_id) AS project_name, h.day, h.cost_per_board, h.currency
         FROM bom_cost_history h LEFT JOIN bom_usage_projects u ON u.project_id = h.project_id
-        WHERE h.variant = '' AND h.day >= %s ORDER BY h.project_id, h.day
+        WHERE h.variant = '' AND h.day >= %s AND h.build_quantity = (
+            SELECT l.build_quantity FROM bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant ORDER BY l.day DESC LIMIT 1)
+        ORDER BY h.project_id, h.day
         """,
         (today - timedelta(days=COST_DAYS),),
     ).fetchall()

@@ -9,10 +9,12 @@ vi.mock("./supply-api", async (importOriginal) => ({
   getProjectSupply: vi.fn(),
   getProjectForecast: vi.fn(() => new Promise(() => undefined)),
 }));
+vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn() }));
 vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button type="button">Track this project</button> }));
 
 import { ProjectSupplyTab } from "./project-supply-tab";
 import * as api from "./supply-api";
+import { keepUsualBuild } from "./tracking-api";
 
 const mocked = vi.mocked(api);
 
@@ -114,6 +116,20 @@ describe("the project Supply tab", () => {
     expect(within(parts).getAllByRole("row")).toHaveLength(3);
   });
 
+  it("opens at the project's usual build and offers to keep another size as the usual one", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({ build_quantity: 50, usual_build: 50 }));
+    vi.mocked(keepUsualBuild).mockResolvedValue({ project_id: "prj", build_quantity: 200 });
+    renderTab();
+    expect(await screen.findByDisplayValue("50")).toBeTruthy();
+    expect(mocked.getProjectSupply).toHaveBeenCalledWith("prj", "", undefined, "", expect.anything());
+    expect(screen.queryByRole("button", { name: /as the usual build/ })).toBeNull();
+    const boards = screen.getByLabelText("Boards to forecast and cost");
+    fireEvent.change(boards, { target: { value: "200" } });
+    fireEvent.blur(boards);
+    fireEvent.click(await screen.findByRole("button", { name: "Keep 200 as the usual build" }));
+    await waitFor(() => expect(keepUsualBuild).toHaveBeenCalledWith("prj", 200));
+  });
+
   it("offers the costing as a file for a build size", async () => {
     renderTab();
     const boards = await screen.findByLabelText("Boards to forecast and cost");
@@ -133,7 +149,7 @@ describe("the project Supply tab", () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ variants: ["Lite"] }));
     renderTab();
     fireEvent.change(await screen.findByLabelText("Design variant"), { target: { value: "Lite" } });
-    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "Lite", 100, "", expect.anything()));
+    await waitFor(() => expect(mocked.getProjectSupply).toHaveBeenLastCalledWith("prj", "Lite", undefined, "", expect.anything()));
   });
 
   it("is closed to a role without supply access, and never asks", () => {

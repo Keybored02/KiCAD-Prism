@@ -1205,7 +1205,7 @@ export interface TrackProgress {
 }
 
 export interface ProjectTrackingState {
-  tracked: { project_id: string; variants: string[]; all_variants: boolean; packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest"; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
+  tracked: { project_id: string; variants: string[]; all_variants: boolean; packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest"; build_quantity?: number; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
   has_usage: boolean;
   variants: string[];
 }
@@ -1451,7 +1451,9 @@ export interface ProjectSupply {
   available: boolean;
   variant: string;
   variants: string[];
+  /** The boards the page is worked out for, and the tracked project's usual build (null when it is not tracked). */
   build_quantity?: number;
+  usual_build?: number | null;
   rollup?: SupplyBomRollup;
   counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];

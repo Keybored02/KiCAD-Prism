@@ -16,6 +16,12 @@ from app.services.supply import bom_comments, bom_lookup, part_insights, parts_v
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
 COST_HISTORY_DAYS = 180
+# The rows of the series the project is on now: the build size of the newest row. A changed usual build starts a new series, as a
+# currency change does for prices. ``h`` is the history table.
+SAME_SERIES = (
+    "h.build_quantity = (SELECT l.build_quantity FROM bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
+    "ORDER BY l.day DESC LIMIT 1)"
+)
 # What changed since a release is told for parts that were fine then and are not now.
 _GOOD = ("ok", "warning", None)
 _BAD = ("error", "fatal")
@@ -136,7 +142,8 @@ KEPT_ROLLUP = ("can_build", "cost_build", "waste_cost", "at_risk", "needs_a_look
 
 
 def snapshot_costs(conn, now: datetime) -> int:
-    """Write today's cost per board of every tracked project and variant that has a cost. Once a day; returns rows written."""
+    """Write today's cost per board of every tracked project and variant that has a cost, worked out for the project's usual build.
+    Once a day; returns rows written."""
 
     today = now.astimezone(timezone.utc).date()
     written = 0
@@ -150,14 +157,15 @@ def snapshot_costs(conn, now: datetime) -> int:
             if not rows:
                 continue
             lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-            rollup = bom_lookup.lookup(conn, lines, 1)["rollup"]
+            boards = int(project["build_quantity"])
+            rollup = bom_lookup.lookup(conn, lines, boards)["rollup"]
             if rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
-                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb) ON CONFLICT DO NOTHING",
+                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT DO NOTHING",
                 (project["project_id"], variant, today, rollup["cost_per_board"], rollup["currency"], rollup["lines"], rollup["lines_priced"],
-                 json.dumps({key: rollup.get(key) for key in KEPT_ROLLUP})),
+                 json.dumps({key: rollup.get(key) for key in KEPT_ROLLUP}), boards),
             )
             written += 1
     return written
@@ -165,7 +173,7 @@ def snapshot_costs(conn, now: datetime) -> int:
 
 def _cost_history(conn, project_id: str, variant: str) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT day, cost_per_board, currency, lines, lines_priced FROM bom_cost_history WHERE project_id = %s AND variant = %s "
+        f"SELECT day, cost_per_board, currency, lines, lines_priced FROM bom_cost_history h WHERE project_id = %s AND variant = %s AND {SAME_SERIES} "
         "ORDER BY day DESC LIMIT %s", (project_id, variant, COST_HISTORY_DAYS),
     ).fetchall()
     return [
@@ -175,7 +183,13 @@ def _cost_history(conn, project_id: str, variant: str) -> list[dict[str, Any]]:
     ]
 
 
-def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None = 0) -> dict[str, Any]:
+def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None = 0) -> dict[str, Any]:
+    """``build_quantity`` None is the tracked project's usual build, else 100."""
+
+    tracked = tracking.tracked_project(conn, project_id)
+    usual = int(tracked["build_quantity"]) if tracked else None
+    if build_quantity is None:
+        build_quantity = usual or 100
     rows = usage.project_rows(conn, project_id, variant)
     notes_by_line: dict[str, int] = {}
     notes = bom_comments.for_project(conn, project_id)
@@ -187,7 +201,7 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1, 
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     part_ids = sorted(status_now)
     return {
-        "available": True, "variant": variant, "build_quantity": build_quantity, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
+        "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
         "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
         "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "releases": _releases(conn, project_id, status_now), "notes": notes,
     }

@@ -1950,6 +1950,19 @@ def _m091_remove_approved_parts(conn) -> None:
     )
 
 
+def _m092_usual_build(conn) -> None:
+    """The usual build of a tracked project (boards), which its cost is worked out for each day; a cost history row says which size it is
+    for (the rows kept until now are for one board), and a changed usual build starts a new series."""
+
+    conn.execute(
+        """
+        ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS build_quantity INTEGER NOT NULL DEFAULT 100 CHECK (build_quantity BETWEEN 1 AND 1000000);
+        ALTER TABLE bom_cost_history ADD COLUMN IF NOT EXISTS build_quantity INTEGER NOT NULL DEFAULT 1;
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
@@ -2102,6 +2115,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (89, "likely_out_percent", _m089_likely_out_percent),
     (90, "jlcpcb_budget", _m090_jlcpcb_budget),
     (91, "remove_approved_parts", _m091_remove_approved_parts),
+    (92, "usual_build", _m092_usual_build),
 ]
 
 
