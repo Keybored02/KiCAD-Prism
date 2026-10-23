@@ -310,6 +310,36 @@ class SupplyPartsApiTests(unittest.TestCase):
         finally:
             registry.unregister("demo_piles")
 
+    def test_the_chart_counts_stock_like_the_part_and_is_priced_by_the_pick(self) -> None:
+        from app.services.supply import part_history
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        registry.register(ProviderSpec(
+            key="demo_chart", label="Chart", capabilities=frozenset({"offers"}), max_batch=10, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config)), replace=True)
+        try:
+            cid = self.fake_connector()
+            self.watch_via_api("CHART-1")
+            part = self.part_row("CHART-1")["id"]
+            cut = self.insert_listing(part, cid, "CH-CUT", stock=11140, price="0.50")
+            custom = self.insert_listing(part, cid, "CH-CUSTOM", stock=11140, price="0.45")
+            reel = self.insert_listing(part, cid, "CH-REEL", stock=5000, price="0.30")
+            now = datetime.now(timezone.utc)
+            with self.store.connection() as conn:
+                for listing, packaging, amount, price in ((cut, "cut_tape", 11140, "0.50"), (custom, "custom_reel", 11140, "0.45"), (reel, "tape_reel", 5000, "0.30")):
+                    conn.execute("UPDATE offers SET packaging = %s, moq = 1 WHERE listing_id = %s", (packaging, listing))
+                    conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')", (listing, now, amount, price))
+                conn.execute("UPDATE connectors SET provider = 'demo_chart' WHERE id = %s", (cid,))
+                conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, cut))
+                data = part_history.build(conn, part, now, 7)
+            line = data["connectors"][0]
+            self.assertEqual(line["stock"][-1][1], 16140, "the cut tape and custom reel pile once, the full reel adds")
+            self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"])
+            self.assertEqual(line["price"][-1][1], 0.5, "the picked cut tape prices the line, not the cheaper reel")
+        finally:
+            registry.unregister("demo_chart")
+
     def test_watching_twice_is_one_watch(self) -> None:
         first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)
         self.assertEqual(first["id"], second["id"])

@@ -4,9 +4,10 @@ The part sheet draws these as lines in each distributor's colour and opens them 
 
 * A line steps from reading to reading and is carried forward to the listing's last read (the offer's read time, not the
   last stored sample), so a part read once draws a flat line from that day to the last read.
-* A distributor's stock is what the listings Prism follows there hold: a listing a packaging pick leaves out is not counted,
-  and stock is pooled or added up as that provider shares it (``stock.aggregate``).
-* A distributor's price is its cheapest followed listing at the reference quantity, in the base currency at the latest rates.
+* A distributor's stock is what the part's stock counts there (``stock.counted_listing_sql``: every listing, except those a pick
+  stops being read at LCSC and JLCPCB), pooled or added up by pile as that provider shares it (``stock.aggregate``).
+* A distributor's price is its followed (picked) listing at the reference quantity, or its cheapest listing where none is picked,
+  in the base currency at the latest rates.
   Listings whose smallest order is above the reference quantity are left out, unless there is nothing else.
 * ``total`` is what counts for the part.
 * ``stale`` marks a line whose distributor was not read for longer than the part's rate allows; the chart dashes the rest.
@@ -34,13 +35,13 @@ DEFAULT_DAYS = 90
 def _listings(conn, part_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT l.id, l.connector_id, c.display_name, c.provider, o.fetched_at, o.moq
+        SELECT l.id, l.connector_id, c.display_name, c.provider, o.fetched_at, o.moq, o.packaging,
+               EXISTS (SELECT 1 FROM packaging_picks fp WHERE fp.listing_id = l.id) AS followed
         FROM listings l
         JOIN connectors c ON c.id = l.connector_id
         LEFT JOIN offers o ON o.listing_id = l.id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s)
-          AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
-        """,
+        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND {counted}
+        """.replace("{counted}", stock.counted_listing_sql()),
         (part_id, list(_COUNTED)),
     ).fetchall()
     return [dict(row) for row in rows]
@@ -145,11 +146,13 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
             if not mine:
                 continue
             rows = [{"connector_id": connector_id, "provider": info["provider"], "stock": live[item["id"]]["stock"], "marketplace": bool(live[item["id"]]["marketplace"]),
-                     "fetched_at": day, "packaging": None} for item in mine]
+                     "fetched_at": day, "packaging": item["packaging"]} for item in mine]
             rows_for_total.extend(rows)
             lines[connector_id]["stock"].append([day.isoformat(), stock.aggregate(rows, "any").total])
             candidates = []
-            for item in mine:
+            # Where a listing is picked, it prices the part; else every listing does.
+            followed = [item for item in mine if item["followed"]]
+            for item in (followed or mine):
                 row = live[item["id"]]
                 if item["id"] in priced and row.get("price") is not None and row.get("currency") and not row.get("marketplace"):
                     converted = rates.convert(Decimal(row["price"]), row["currency"], base)
