@@ -19,7 +19,6 @@ import type {
   AssessmentSettingsView,
   SupplyAlert,
   SupplyAssessment,
-  ComponentCoverage,
   CrossReference,
   TradeReport,
   ProjectSupply,

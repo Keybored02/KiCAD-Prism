@@ -78,6 +78,12 @@ describe("the review queue", () => {
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
   });
 
+  it("says there is nothing to review when the server sends an empty to-approve list", async () => {
+    mocked.getSupplyReviewQueue.mockResolvedValue(queue({ aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 }, to_approve: { waivers: [] } }));
+    render(<ReviewView user={qa} />);
+    expect(await screen.findByText("Nothing to review")).toBeTruthy();
+  });
+
   it("reports a load failure and retries", async () => {
     mocked.getSupplyReviewQueue.mockRejectedValueOnce(new Error("Could not load the review queue"));
     render(<ReviewView user={qa} />);

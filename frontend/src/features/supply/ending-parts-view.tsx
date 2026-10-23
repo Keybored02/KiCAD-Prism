@@ -99,8 +99,8 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
 }
 
 /**
- * Library components whose part is ending: the reason and where it comes from, the last buy date, stock, the projects that use it and
- * its approved alternates. Supply proposes; QA and administrators decide. Nothing changes by itself.
+ * Library components whose part is ending: the reason and where it comes from, the last buy date, stock and the projects that use it.
+ * Supply proposes; QA and administrators decide. Nothing changes by itself.
  */
 export function EndingPartsView({ role, onOpenComponent }: { role: UserRole | null | undefined; onOpenComponent: (componentId: string) => void }) {
   const loaded = useLoaded("ending", getEndingParts, "Could not load the ending parts");
