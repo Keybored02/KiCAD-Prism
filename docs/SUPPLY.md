@@ -100,7 +100,7 @@ tracked project, someone's choice, a watched component, or a watch from before t
   limit for the rest. Once tracking has spent for a week, the estimate is corrected by what it really spent. A distributor with
   fewer than 10 parts searched shows no figure, and one with parts already waiting shows none left.
 - **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project. Both can be narrowed by lifecycle and by distributor (a menu with the distributors' colours), and shown compact or detailed: the detailed layout adds a row for each distributor with its stock, smallest order, packaging and unit price at 1, 10, 100, 1,000 and 10,000, and the distributor's name opens its page. Farnell states the packaging in the unit text of each store's language; Prism reads that and never guesses it where the text is silent.
-- **Settings:** the gear on Connectors opens the Supply settings page: costing (currency, price quantity, default spares, preferred distributors), health checks, alerts, reading (which spare work is on), matching and reference data. Everyone who reads supply sees it; administrators change it, one group at a time. Each connector's Edit dialog
+- **Settings:** the gear on Connectors opens the Supply settings window (laid out like the workspace settings, with the groups on the left): costing (currency, price quantity, default spares, preferred distributors), health checks, alerts, reading (which spare work is on), matching and reference data. Everyone who reads supply sees it; administrators change it, one group at a time. Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Track from the catalog:** the catalog's **Track** button (all shown, or the rows you ctrl-clicked) asks for a tier and
   shows the same cost preview before it tracks.
@@ -118,7 +118,7 @@ tracked project, someone's choice, a watched component, or a watch from before t
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
   check offers the same for the parts on a release BOM.
 - **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project.
-- **Settings:** the gear on Connectors opens the Supply settings page: costing (currency, price quantity, default spares, preferred distributors), health checks, alerts, reading (which spare work is on), matching and reference data. Everyone who reads supply sees it; administrators change it, one group at a time. Each connector's Edit dialog
+- **Settings:** the gear on Connectors opens the Supply settings window (laid out like the workspace settings, with the groups on the left): costing (currency, price quantity, default spares, preferred distributors), health checks, alerts, reading (which spare work is on), matching and reference data. Everyone who reads supply sees it; administrators change it, one group at a time. Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Spare budget** is what would go unused: the calls scheduled reads and people will not need, at any hour (at most 5% of the
   day's budget an hour, no limit in the last three hours of a provider's day). It reads parts waiting for room, then tier-2 parts early, then change notices of parts nobody tracks.
@@ -415,7 +415,7 @@ A project's Supply tab answers, in this order: can we build N boards and what st
   Dashboard and here); a warning only needs a look.
 - **Cost:** per board by build size (1 to 10,000 boards), where the money goes (the ten dearest lines), and the cost over time. A day that priced
   fewer lines than today, or one that read a price wrong, is left out of the history and named. The daily cost is worked out for the usual build.
-- **Parts:** sortable by any column (need, distributors, unit price, line cost ...); a row opens the part's sheet over the page.
+- **Parts:** the same list as the Parts tab (compact or a row for each vendor, search, lifecycle and vendor menus, "Runs out first") with the pieces a board uses, the pieces needed and the line cost added. Part, stock and price sort on the server, the three project columns where the list is; a row opens the part's sheet over the page. A BOM line that matches no part shows after the parts until something narrows the list.
 - **Folded:** releases, line notes, suggestions for the BOM and trade classification, then the downloads.
 
 ## BOM file

@@ -8,6 +8,8 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getProjectSupply: vi.fn(),
   getProjectForecast: vi.fn(() => new Promise(() => undefined)),
+  listSupplyParts: vi.fn(),
+  listSupplyConnectors: vi.fn(),
 }));
 vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn() }));
 vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div role="dialog">Sheet of {partId}</div> : null) }));
@@ -28,8 +30,8 @@ const rollup: SupplyBomRollup = {
 const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
   available: true, variant: "", variants: [], rollup,
   parts: [
-    { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", lead_time_days: 14, short: false, unit_price: "0.1", tier: 2, waiting: false, notes: 0 },
-    { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", lead_time_days: null, short: true, unit_price: "1.2", tier: 1, waiting: true, notes: 2 },
+    { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", lead_time_days: 14, short: false, unit_price: "0.1", tier: 2, waiting: false, notes: 0, need: 200 },
+    { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", lead_time_days: null, short: true, unit_price: "1.2", tier: 1, waiting: true, notes: 2, need: 100 },
   ],
   releases: [{
     build_id: "b1", tag: "v1.0", created_at: "2026-09-01T00:00:00Z", health: 9, status: "ok", parts: 2, needing_a_look: 0,
@@ -42,9 +44,22 @@ const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
 const renderTab = (role: "designer" | "viewer" = "designer") =>
   render(<MemoryRouter><ProjectSupplyTab projectId="prj" user={{ name: role, email: `${role}@example.com`, role }} /></MemoryRouter>);
 
+/** The parts list the way the server gives it: a row for each part of the BOM. */
+const listed = (...ids: string[]) => ({
+  items: ids.map((id) => ({
+    id, mpn: id === "p1" ? "FLAKY-1" : "GOOD-1", manufacturer: "Acme", status: id === "p1" ? "error" : "ok", problem: null, stock: id === "p1" ? 0 : 5000, listings: 1,
+    lifecycle: id === "p1" ? "obsolete" : "active", dropped: false, unit_price: "0.1", price_quantity: 100, currency: "EUR", fetched_at: null, tier: id === "p1" ? 1 : 2,
+    used_in: 1, watch: null, flags: id === "p1" ? ["waiting"] : [], distributors: [],
+  })),
+  total: ids.length, limit: 200, offset: 0, next_offset: null,
+  forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.getProjectSupply.mockResolvedValue(supply());
+  mocked.listSupplyConnectors.mockResolvedValue([]);
+  mocked.listSupplyParts.mockResolvedValue(listed("p1", "p2") as never);
 });
 afterEach(cleanup);
 
@@ -52,12 +67,13 @@ describe("the project Supply tab", () => {
   it("lists the parts with their tracking, and the stats above", async () => {
     renderTab();
     const parts = await screen.findByRole("region", { name: "Parts" });
+    await within(parts).findByText("GOOD-1");
     const rows = within(parts).getAllByRole("row").slice(1);
     const flaky = rows.find((row) => within(row).queryByText("FLAKY-1"))!;
     fireEvent.click(within(flaky).getByRole("button", { name: "FLAKY-1" }));
     expect(screen.getByRole("dialog").textContent).toBe("Sheet of p1");
-    expect(within(flaky).getByRole("img", { name: "Tracked, tier 1" })).toBeTruthy();
-    expect(within(flaky).getByRole("img", { name: "Waiting for room" })).toBeTruthy();
+    expect(within(flaky).getByRole("img", { name: "Waiting for room to be read" })).toBeTruthy();
+    expect(within(flaky).getByText("U1")).toBeTruthy();
     expect(screen.getByText("7.4 of 10")).toBeTruthy();
   });
 
@@ -111,17 +127,31 @@ describe("the project Supply tab", () => {
     expect(screen.getByText(/Left out as one price read wrong: 2026-09-15/)).toBeTruthy();
   });
 
-  it("sorts the parts by a column and back to worst first", async () => {
+  it("asks the server to sort by part, stock or price, as the Parts tab does, and to put the parts running out first", async () => {
     renderTab();
     const parts = await screen.findByRole("region", { name: "Parts" });
+    await within(parts).findByText("FLAKY-1");
+    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Price" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "", "price:desc"));
+    fireEvent.click(within(parts).getByRole("button", { name: "Runs out first" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "", "runout"));
+    expect(within(parts).getByRole("button", { name: "Runs out first" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("sorts by the columns only the project has where the list is, and searches the project's parts", async () => {
+    renderTab();
+    const parts = await screen.findByRole("region", { name: "Parts" });
+    await within(parts).findByText("FLAKY-1");
     const names = () => within(parts).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0]?.textContent);
-    expect(names()).toEqual(["GOOD-1", "FLAKY-1"]);
-    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Part" }));
     expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
-    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Part" }));
+    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Need" }));
     expect(names()).toEqual(["GOOD-1", "FLAKY-1"]);
-    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Part" }));
-    expect(within(parts).getByRole("columnheader", { name: /Part/ }).getAttribute("aria-sort")).toBe("none");
+    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Need" }));
+    expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "");
+    fireEvent.change(within(parts).getByLabelText("Search parts"), { target: { value: "flaky" } });
+    fireEvent.click(within(parts).getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "flaky", expect.anything(), "", 0, 200, "prj", ""));
   });
 
   it("sends the boards and the spares to the costing, and the file follows them", async () => {
@@ -148,6 +178,7 @@ describe("the project Supply tab", () => {
     expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /One distributor/ })).toBeNull();
     const parts = screen.getByRole("region", { name: "Parts" });
+    await within(parts).findByText("GOOD-1");
     expect(within(parts).getAllByRole("row")).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
     expect(within(parts).getAllByRole("row")).toHaveLength(2);

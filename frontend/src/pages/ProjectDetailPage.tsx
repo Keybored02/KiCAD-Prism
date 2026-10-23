@@ -864,6 +864,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <ProjectSectionPanel
                             key={`${projectId}:supply`}
                             active={activeSection === "supply"}
+                            className="themed-scrollbar"
                         >
                             <ErrorBoundary label="the project's supply" resetKeys={[projectId]}>
                                 <h2 className="mb-6 text-2xl font-bold">Supply</h2>

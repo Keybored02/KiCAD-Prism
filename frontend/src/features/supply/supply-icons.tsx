@@ -1,9 +1,9 @@
-import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, Star, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Ban, Banknote, Boxes, EyeOff, Layers, HeartPulse, Star, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { JlcClass, SupplyLifecycle } from "@/types/supply";
 import type { RollupKind, RollupSentence } from "./bom-rollup-text";
-import { formatAgo, LIFECYCLE_LABEL } from "./supply-format";
+import { LIFECYCLE_LABEL } from "./supply-format";
 
 /** One vocabulary of small icons for lists, tables, bars and cards. Each carries its words as the accessible name and tooltip. */
 function Glyph({ icon: Icon, label, className }: { icon: LucideIcon; label: string; className?: string }) {
@@ -21,18 +21,6 @@ export function LifecycleIcon({ lifecycle }: { lifecycle: SupplyLifecycle }) {
   if (lifecycle === "active" || lifecycle === "unknown") return null;
   const { icon, tone } = LIFECYCLE_ICON[lifecycle];
   return <Glyph icon={icon} label={LIFECYCLE_LABEL[lifecycle]} className={tone} />;
-}
-
-/** How long ago the part was read, as a clock; the age is its words. Nothing before the first read. */
-export function DataAgeIcon({ fetchedAt }: { fetchedAt: string | null }) {
-  const age = formatAgo(fetchedAt);
-  if (!age) return null;
-  return <Glyph icon={Clock} label={`Read ${age}`} className="text-muted-foreground" />;
-}
-
-/** The part is tracked, and at which tier. */
-export function TrackedIcon({ tier }: { tier?: number | null }) {
-  return <Glyph icon={Eye} label={tier ? `Tracked, tier ${tier}` : "Tracked"} className="text-muted-foreground" />;
 }
 
 const ROLLUP_ICON: Record<RollupKind, LucideIcon> = {
@@ -61,11 +49,6 @@ export function RollupChip({ sentence }: { sentence: RollupSentence }) {
 /** A BOM row holds several different parts. */
 export function MixedIcon() {
   return <Glyph icon={Layers} label="Mixed: several different parts" className="text-muted-foreground" />;
-}
-
-/** The part is waiting for room in a distributor's budget. */
-export function WaitingIcon() {
-  return <Glyph icon={Hourglass} label="Waiting for room" className="text-warning" />;
 }
 
 /** JLCPCB's class of a part: Basic parts carry no setup fee, Extended ones do; a star marks the preferred list. Nothing when JLCPCB has no answer. */

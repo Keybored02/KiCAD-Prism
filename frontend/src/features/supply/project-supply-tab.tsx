@@ -12,16 +12,18 @@ import { ProjectSuggestions } from "./project-suggestions";
 import { ProjectTrade } from "./project-trade";
 import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
 import { NeedsALookChips, ProjectHeadline } from "./project-headline";
-import { matchesChip, type Chip } from "./project-part-filters";
+import { LIKELY_OUT_CHANCE, matchesChip, type Chip } from "./project-part-filters";
 import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
-import { ProjectSupplyParts } from "./project-supply-parts";
+import { ProjectPartsList } from "./project-parts-list";
 import { BoardCount, ProjectForecastSection, useProjectForecast } from "./project-forecast";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
 import { TrackProjectButton } from "./track-project-dialog";
 import { useLoaded } from "./use-loaded";
+
+const NONE: Record<string, number> = {};
 
 /** Spares for the costing: a percent for every part, or by package (small passives 2%, the rest none). Sent as `spares`. */
 function SparesControl({ percent, onChange }: { percent: number | null; onChange: (next: number | null) => void }) {
@@ -70,7 +72,7 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
   // The spares a person chose; until then the page shows the workspace's (Supply settings), which the server applies.
   const [attritionChoice, setAttrition] = useState<number | null | undefined>(undefined);
   const [chip, setChip] = useState<Chip | null>(null);
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const spares = attritionChoice === undefined ? "" : attritionChoice === null ? "auto" : String(attritionChoice);
   const fetcher = useCallback(
     (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, spares, signal),
@@ -98,7 +100,9 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
   if (!supply) return <Skeleton className="h-48 w-full" aria-label="Loading the project's supply" />;
   // A part opens its sheet over the page, with `part` in the address so Back closes it.
   const open = (partId: string) => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("part", partId); return next; });
-  const shown = (supply.parts ?? []).filter((part) => chip === null || matchesChip(part, chip, forecast.data?.by_line, supply.likely_out_chance));
+  const everyPart = supply.parts ?? [];
+  const chipParts = chip === null ? null : everyPart.filter((part) => matchesChip(part, chip, forecast.data?.by_line, supply.likely_out_chance));
+  const chipIds = chipParts ? new Set(chipParts.flatMap((part) => (part.part_id ? [part.part_id] : []))) : null;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -128,8 +132,11 @@ export function ProjectSupplyTab({ projectId, user }: { projectId: string; user:
           <ProjectCostHistory supply={supply} />
           <ProjectForecastSection projectId={projectId} variant={variant} boards={boards} currency={supply.rollup?.currency ?? "EUR"} onOpenPart={open} />
           <section aria-label="Parts" className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts{chip ? ` (${shown.length} of ${(supply.parts ?? []).length})` : ""}</h3>
-            <ProjectSupplyParts parts={shown} shortAt8Weeks={forecast.data?.by_line} chance={supply.likely_out_chance} currency={supply.rollup?.currency ?? ""} onOpenPart={open} />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts{chipParts ? ` (${chipParts.length} of ${everyPart.length})` : ""}</h3>
+            <ProjectPartsList
+              projectId={projectId} parts={everyPart} only={chipIds} shortAt8Weeks={forecast.data?.by_line ?? NONE} chance={supply.likely_out_chance ?? LIKELY_OUT_CHANCE}
+              currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
+            />
           </section>
         </>
       ) : (
