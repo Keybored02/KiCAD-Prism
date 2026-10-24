@@ -13,8 +13,8 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** For administrators: load the ECHA Candidate List export, so substances declared for parts can be checked against it. */
-export function SvhcListUpload() {
+/** Which ECHA Candidate List is loaded, and for administrators a way to load a newer export, so substances declared for parts can be checked against it. */
+export function SvhcListUpload({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => getSvhcList(signal), []);
   const loaded = useLoaded<SupplySvhcList>("svhc-list", fetcher, "Could not load the Candidate List");
   const { busy, error, run } = useConnectorSubmit();
@@ -29,7 +29,7 @@ export function SvhcListUpload() {
           ? `${info.substances.toLocaleString()} substances, from ${info.source_name || "a file"}, loaded ${info.loaded_at?.slice(0, 10)} by ${info.loaded_by}.`
           : "Not loaded. Upload the ECHA list (CSV or Excel) with substance name and CAS number columns."}
       </p>
-      <input
+      {readOnly ? null : <input
         ref={input}
         type="file"
         accept=".csv,.txt,.xlsx,text/csv"
@@ -45,7 +45,7 @@ export function SvhcListUpload() {
             await loaded.refresh();
           }).finally(() => { if (input.current) input.current.value = ""; });
         }}
-      />
+      />}
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
     </fieldset>
   );

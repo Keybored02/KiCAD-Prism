@@ -2,14 +2,30 @@ import { useState, type ReactNode } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { AssessmentSettings, AssessmentSettingsView } from "@/types/supply";
 import { saveAssessmentSettings } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 
-/** A whole number inside its range, else the one it had. */
-export function whole(value: string, low: number, high: number, keep: number): number {
-  const next = Number(value);
-  return Number.isInteger(next) && next >= low && next <= high ? next : keep;
+/**
+ * A whole number inside a range. What is typed stays while it is typed (30 cannot be reached without passing 3, nor anything after
+ * clearing the field); a figure inside the range is taken at once, and leaving the field puts back the last one taken.
+ */
+export function WholeInput({ id, value, low, high, onChange, className = "w-28" }: {
+  id: string; value: number; low: number; high: number; onChange: (next: number) => void; className?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  return (
+    <Input
+      id={id} inputMode="numeric" className={className} value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        const next = Number(event.target.value);
+        if (event.target.value.trim() !== "" && Number.isInteger(next) && next >= low && next <= high) onChange(next);
+      }}
+      onBlur={() => setText(String(value))}
+    />
+  );
 }
 
 /** The default beside a field that differs from it. */

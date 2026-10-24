@@ -29,9 +29,12 @@ const GROUPS: ReadonlyArray<{ id: GroupId; label: string; about: string; icon: L
   { id: "reference", label: "Reference data", about: "Exchange rates and the REACH list.", icon: Database },
 ];
 
-/** A group of lists that save as they change, shown read-only to anyone who is not an administrator. */
+/**
+ * A group of lists that save as they change. Anyone who is not an administrator sees them without their controls; a disabled
+ * fieldset would also lock the buttons that open a folded list, so each list leaves its own controls out.
+ */
 function Lists({ readOnly, children }: { readOnly: boolean; children: ReactNode }) {
-  return <fieldset disabled={readOnly} className="space-y-4">{children}{readOnly ? <p className="text-xs text-muted-foreground">Only administrators can change these.</p> : null}</fieldset>;
+  return <div className="space-y-4">{children}{readOnly ? <p className="text-xs text-muted-foreground">Only administrators can change these.</p> : null}</div>;
 }
 
 function Group({ id, view, readOnly, onSaved }: { id: GroupId; view: AssessmentSettingsView; readOnly: boolean; onSaved: (next: AssessmentSettingsView) => void }) {
@@ -39,13 +42,9 @@ function Group({ id, view, readOnly, onSaved }: { id: GroupId; view: AssessmentS
     case "costing": return <SettingsCosting view={view} readOnly={readOnly} onSaved={onSaved} />;
     case "checks": return <SettingsChecks view={view} readOnly={readOnly} onSaved={onSaved} />;
     case "alerts": return <SettingsAlerts view={view} readOnly={readOnly} onSaved={onSaved} />;
-    case "reading": return (
-      <Lists readOnly={readOnly}>
-        <ScheduleSettings />
-      </Lists>
-    );
-    case "matching": return <Lists readOnly={readOnly}><MakerSpellings /><NumberEndings /></Lists>;
-    case "reference": return <Lists readOnly={readOnly}><ExchangeRates /><SvhcListUpload /></Lists>;
+    case "reading": return <Lists readOnly={readOnly}><ScheduleSettings readOnly={readOnly} /></Lists>;
+    case "matching": return <Lists readOnly={readOnly}><MakerSpellings readOnly={readOnly} /><NumberEndings readOnly={readOnly} /></Lists>;
+    case "reference": return <Lists readOnly={readOnly}><ExchangeRates readOnly={readOnly} /><SvhcListUpload readOnly={readOnly} /></Lists>;
   }
 }
 

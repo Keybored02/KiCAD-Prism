@@ -102,6 +102,16 @@ describe("the Supply settings window", () => {
     await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalledWith({ ...defaults, base_currency: "USD", alert_price_rise_percent: 20 }));
   });
 
+  it("lets a figure with a floor above one be cleared and typed again", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Alerts" }));
+    const chance = await screen.findByLabelText(/Likely to run out/);
+    for (const text of ["", "8", "85"]) fireEvent.change(chance, { target: { value: text } });
+    expect((chance as HTMLInputElement).value).toBe("85");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalledWith({ ...defaults, alert_likely_out_percent: 85 }));
+  });
+
   it("offers the lists as they are", async () => {
     open();
     fireEvent.click(await screen.findByRole("button", { name: "Reading" }));

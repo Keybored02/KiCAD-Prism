@@ -15,14 +15,14 @@ const SPARE: ReadonlyArray<{ id: keyof Schedule["spare"]; label: string }> = [
   { id: "notices", label: "Change notices of untracked parts" },
 ];
 
-function Form({ initial }: { initial: Schedule }) {
+function Form({ initial, readOnly }: { initial: Schedule; readOnly: boolean }) {
   const [draft, setDraft] = useState(initial);
   const { busy, error, run } = useConnectorSubmit();
   const save = () => {
     void run(async () => { setDraft(await saveSchedule(draft)); toast.success("Saved"); });
   };
   return (
-    <fieldset className="space-y-3">
+    <fieldset className="space-y-3" disabled={readOnly}>
       <legend className="text-sm font-medium">Background reads</legend>
       <p className="text-xs text-muted-foreground">
         Calls nobody needs today go to background reads. Choose which ones.
@@ -36,15 +36,15 @@ function Form({ initial }: { initial: Schedule }) {
         ))}
       </div>
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
-      <Button type="button" size="sm" disabled={busy} onClick={save}>Save</Button>
+      {readOnly ? null : <Button type="button" size="sm" disabled={busy} onClick={save}>Save</Button>}
     </fieldset>
   );
 }
 
-/** Which spare work is on. For administrators. */
-export function ScheduleSettings() {
+/** Which spare work is on. Administrators change it; anyone else sees it. */
+export function ScheduleSettings({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => getSchedule(signal), []);
   const { data, status } = useLoaded<Schedule>("schedule", fetcher, "Could not load the schedule");
   if (status !== "ready" || !data) return null;
-  return <Form initial={data} />;
+  return <Form initial={data} readOnly={readOnly} />;
 }

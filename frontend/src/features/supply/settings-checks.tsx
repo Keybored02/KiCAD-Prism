@@ -1,7 +1,6 @@
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AssessmentSettingsView, AssessmentSeverity } from "@/types/supply";
-import { DefaultNote, SettingsGroup, whole } from "./settings-group";
+import { DefaultNote, SettingsGroup, WholeInput } from "./settings-group";
 
 const SEVERITY_LABEL: Record<AssessmentSeverity, string> = { ok: "Note only", warning: "Warning", error: "Error", fatal: "Critical" };
 const AREAS = ["Lifecycle", "Sourcing", "Stock", "Compliance", "BOM line"] as const;
@@ -21,24 +20,21 @@ export function SettingsChecks({ view, readOnly, onSaved }: { view: AssessmentSe
             <div className="space-y-1.5">
               <Label htmlFor="setting-lead">Longest lead time (days)</Label>
               <span className="flex items-center">
-                <Input id="setting-lead" inputMode="numeric" className="w-28" value={draft.lead_time_days}
-                  onChange={(event) => set({ ...draft, lead_time_days: whole(event.target.value, lowLead, highLead, draft.lead_time_days) })} />
+                <WholeInput id="setting-lead" value={draft.lead_time_days} low={lowLead} high={highLead} onChange={(next) => set({ ...draft, lead_time_days: next })} />
                 <DefaultNote changed={draft.lead_time_days !== defaults.lead_time_days} text={String(defaults.lead_time_days)} />
               </span>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="setting-last-buy">Last buy date is an error within (days)</Label>
               <span className="flex items-center">
-                <Input id="setting-last-buy" inputMode="numeric" className="w-28" value={draft.last_buy_error_days}
-                  onChange={(event) => set({ ...draft, last_buy_error_days: whole(event.target.value, lowLastBuy, highLastBuy, draft.last_buy_error_days) })} />
+                <WholeInput id="setting-last-buy" value={draft.last_buy_error_days} low={lowLastBuy} high={highLastBuy} onChange={(next) => set({ ...draft, last_buy_error_days: next })} />
                 <DefaultNote changed={draft.last_buy_error_days !== defaults.last_buy_error_days} text={String(defaults.last_buy_error_days)} />
               </span>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="setting-late">Read is late after (hours)</Label>
               <span className="flex items-center">
-                <Input id="setting-late" inputMode="numeric" className="w-28" value={draft.late_hours}
-                  onChange={(event) => set({ ...draft, late_hours: whole(event.target.value, lowLate, highLate, draft.late_hours) })} />
+                <WholeInput id="setting-late" value={draft.late_hours} low={lowLate} high={highLate} onChange={(next) => set({ ...draft, late_hours: next })} />
                 <DefaultNote changed={draft.late_hours !== defaults.late_hours} text={String(defaults.late_hours)} />
               </span>
               <p className="text-xs text-muted-foreground">Counted from when the part was due for a read.</p>

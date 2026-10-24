@@ -30,7 +30,7 @@ export function TrackSpares({ spares, onChange }: { spares: string; onChange: (n
           </label>
         ) : null}
       </div>
-      <p className="text-xs text-muted-foreground">Extra parts on top of what the boards use, in the project's costing, its daily cost and the costing file. By package gives small passives 2% and the rest none.</p>
+      <p className="text-xs text-muted-foreground">Extra parts on top of what the boards use, in the project's costing, its daily cost and the costing file. By package uses the figures for small passives and other parts in Supply settings.</p>
     </section>
   );
 }

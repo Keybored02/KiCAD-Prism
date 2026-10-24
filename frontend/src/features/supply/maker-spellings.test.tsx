@@ -28,4 +28,15 @@ describe("the known spellings of makers", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(mocked.addMakerSpelling).toHaveBeenCalledWith("TXN", "texas instruments"));
   });
+
+  it("opens for someone who may only read, with no way to add or remove a spelling", async () => {
+    render(<MakerSpellings readOnly />);
+    const toggle = await screen.findByRole("button", { name: /Known spellings of makers/ });
+    expect(toggle.matches(":disabled")).toBe(false);
+    fireEvent.click(toggle);
+    const row = await screen.findByLabelText("Texas Instruments");
+    expect(within(row).getByText("TI")).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Remove TI" })).toBeNull();
+    expect(screen.queryByLabelText("Spelling")).toBeNull();
+  });
 });

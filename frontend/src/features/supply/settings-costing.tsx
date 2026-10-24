@@ -2,7 +2,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AssessmentSettingsView } from "@/types/supply";
 import { PreferredDistributors } from "./preferred-distributors";
-import { DefaultNote, SettingsGroup, whole } from "./settings-group";
+import { DefaultNote, SettingsGroup, WholeInput } from "./settings-group";
 
 const FIELDS = [
   "base_currency", "price_quantity", "spares_mode", "spares_percent", "spares_small_passives", "spares_others", "prefer_distributors", "distributor_order",
@@ -42,8 +42,7 @@ export function SettingsCosting({ view, readOnly, onSaved }: { view: AssessmentS
           <div className="space-y-1.5">
             <Label htmlFor="setting-quantity">Price quantity</Label>
             <span className="flex items-center">
-              <Input id="setting-quantity" inputMode="numeric" className="w-32" value={draft.price_quantity}
-                onChange={(event) => set({ ...draft, price_quantity: whole(event.target.value, lowQuantity, highQuantity, draft.price_quantity) })} />
+              <WholeInput id="setting-quantity" className="w-32" value={draft.price_quantity} low={lowQuantity} high={highQuantity} onChange={(next) => set({ ...draft, price_quantity: next })} />
               <DefaultNote changed={draft.price_quantity !== defaults.price_quantity} text={String(defaults.price_quantity)} />
             </span>
           </div>
