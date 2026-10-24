@@ -154,12 +154,3 @@ async def put_assessment_settings(
             return _view(settings_store.save(conn, body.model_dump(), admin.email))
 
     return await _run(run)
-
-
-@router.delete("/assessment")
-async def reset_assessment_settings(admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
-    def run() -> dict[str, Any]:
-        with _store().connection() as conn:
-            return _view(settings_store.reset(conn, admin.email))
-
-    return await _run(run)

@@ -19,7 +19,7 @@ afterEach(cleanup);
 
 const line = (key: string, mpn: string, part_id: string | null): ProjectSupplyPart => ({
   key, manufacturer: "Acme", mpn, quantity: 1, references: "R1", part_id, state: "tracked", status: "ok", stock: key === "ka" ? 0 : 100, lifecycle: "active",
-  lead_time_days: null, short: false, unit_price: "0.1", tier: 1, waiting: false, notes: 0, need: 10, line_cost: "1.00",
+  short: false, unit_price: "0.1", notes: 0, need: 10, line_cost: "1.00",
 } as ProjectSupplyPart);
 
 const row = (id: string, mpn: string) => ({

@@ -114,12 +114,6 @@ tracked project, someone's choice, a watched component, or a watch from before t
   read "Not counted" with **Follow this instead**, and **One per distributor** shows what Prism would pick and the calls it
   saves before it does. DigiKey answers every packaging of a part in one call, so a pick there changes which stock and price
   count, not the calls. Review lists every part with several listings at a distributor, picked or not, to check and change.
-- **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
-  calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening. The release
-  check offers the same for the parts on a release BOM.
-- **Parts list:** the scopes are Tracked and in projects, Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known. The default scope, Tracked and in projects, lists every part that is tracked or in a project; more load as you scroll. Projects has the same parts by project.
-- **Settings:** the gear on Connectors opens the Supply settings window (laid out like the workspace settings, with the groups on the left): costing (currency, price quantity, default spares, preferred distributors), health checks, alerts, reading (which spare work is on), matching and reference data. Everyone who reads supply sees it; administrators change it, one group at a time. Each connector's Edit dialog
-  has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.
 - **Spare budget** is what would go unused: the calls scheduled reads and people will not need, at any hour (at most 5% of the
   day's budget an hour, no limit in the last three hours of a provider's day). It reads parts waiting for room, then tier-2 parts early, then change notices of parts nobody tracks.
 - **Politeness:** calls are spaced at random around half a provider's published rate, a rate limit slows the whole account

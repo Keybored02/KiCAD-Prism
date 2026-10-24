@@ -29,8 +29,8 @@ const rollup: SupplyBomRollup = {
 const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
   available: true, variant: "", variants: [], rollup,
   parts: [
-    { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", lead_time_days: 14, short: false, unit_price: "0.1", tier: 2, waiting: false, notes: 0, need: 200 },
-    { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", lead_time_days: null, short: true, unit_price: "1.2", tier: 1, waiting: true, notes: 2, need: 100 },
+    { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", short: false, unit_price: "0.1", notes: 0, need: 200 },
+    { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", short: true, unit_price: "1.2", notes: 2, need: 100 },
   ],
   releases: [{
     build_id: "b1", tag: "v1.0", created_at: "2026-09-01T00:00:00Z", health: 9, status: "ok", parts: 2, needing_a_look: 0,
@@ -171,7 +171,6 @@ describe("the project Supply tab", () => {
   it("answers whether the boards can be built and what stops it, and a chip filters the parts", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({
       rollup: { ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 },
-      counts: { at_risk: 1, needs_a_look: 2, out: 1, short: 1, end_of_life: 1, one_distributor: 0, runs_out_soon: 0, alerts: 0, waiting: 1, not_priced: 0 },
     }));
     renderTab();
     expect(await screen.findByText("0 of 100 boards")).toBeTruthy();

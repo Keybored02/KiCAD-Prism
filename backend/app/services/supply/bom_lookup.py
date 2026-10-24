@@ -396,8 +396,8 @@ def cost_curve(loaded: Loaded, sizes: Sequence[int], attrition_percent: float | 
     assesses nothing, so it is the pricing alone."""
 
     curve = []
+    percents = _percents(loaded, attrition_percent)
     for boards in sizes:
-        percents = _percents(loaded, attrition_percent)
         needs = {part_id: needed(count, boards, percents[part_id]) for part_id, count in loaded.per_board.items()}
         results = _entries(loaded, boards, attrition_percent, percents, needs, None)
         rollup = _rollup(loaded.lines, results, boards, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.base_currency)

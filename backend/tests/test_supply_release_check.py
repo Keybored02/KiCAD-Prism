@@ -274,11 +274,8 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertGreater(float(spared["rollup"]["cost_build"]), float(plain["rollup"]["cost_build"]), "the spares are bought")
         self.assertEqual(next(part for part in by_package["parts"] if part["mpn"] == "GOOD-1")["need"], 20, "not a small passive: no spares by package")
         self.assertEqual((plain["rollup"]["at_risk"], plain["rollup"]["needs_a_look"]), (1, 2), "a warning needs a look and is not at risk")
-        counts = plain["counts"]
-        self.assertEqual((counts["at_risk"], counts["needs_a_look"], counts["out"], counts["end_of_life"]), (1, 2, 1, 2))
-        self.assertEqual(counts["short"], plain["rollup"]["short"])
         self.assertEqual(float(good["line_cost"]), 10.0, "20 pieces at 0.50")
-        self.assertEqual((good["alerts"], good["holders"], good["days_to_zero"]), (0, None, None))
+        self.assertEqual(good["alerts"], 0)
 
     def test_a_tracked_projects_cost_is_stored_once_a_day_and_shown_on_its_page(self) -> None:
         from app.services.supply import project_supply, usage
@@ -449,21 +446,20 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(asked["attrition_percent"], 0.0, "and a request can still name others")
         self.assertEqual(own["parts"][0]["need"], 110, "10% spares on 100 boards")
 
-    def test_the_cost_export_prices_the_bom_and_names_the_distributor_and_its_part_number_but_no_link(self) -> None:
-        from app.services.supply import usage
+    def test_the_costing_prices_the_bom_and_names_the_distributor_and_its_part_number_but_no_link(self) -> None:
+        import io
+        import zipfile
+
+        from app.services.supply import project_supply, usage
 
         self.part("GOOD-1", stock=5000)
-        project = SimpleNamespace(id="prj_6", name="Six")
         with self.store.connection() as conn:
             conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
             usage.store_project(conn, "prj_6", "Six", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
-        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            response = self.request("prj_6/cost-export", query="build_quantity=10")
-            missing = self.request("prj_0/cost-export")
-        self.assertEqual(response.status, 200)
-        text = response.text
+            archive = zipfile.ZipFile(io.BytesIO(project_supply.costing_zip(conn, "prj_6", "", 10)))
+        text = archive.read("costing.csv").decode()
         self.assertIn("GOOD-1", text)
         self.assertIn("Total", text)
         self.assertIn("10.00", text, "2 per board x 10 boards x 0.50")
@@ -471,23 +467,26 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertIn("Distributor,Distributor part number", header)
         self.assertIn("S-GOOD", text, "the distributor's part number for the line")
         self.assertNotIn("http", text.lower())
-        self.assertEqual(missing.status, 404)
+        by_vendor = {name: archive.read(name).decode() for name in archive.namelist() if name.startswith("costing-by-distributor/")}
+        unpriced = by_vendor.pop("costing-by-distributor/No distributor.csv")
+        self.assertNotIn("GOOD-1", unpriced, "the second line of a priced part goes with the line that carries its price")
+        self.assertIn("UNKNOWN-9", unpriced)
+        (priced,) = by_vendor.values()
+        self.assertEqual(priced.count("GOOD-1"), 2)
 
     def test_the_trade_classification_lists_what_distributors_state_and_what_is_missing(self) -> None:
-        from app.services.supply import facts, usage
+        from app.services.supply import facts, trade, usage
 
         good = self.part("GOOD-1", stock=5000)
         self.part("OTHER-1", stock=5000)
-        project = SimpleNamespace(id="prj_5", name="Five")
         with self.store.connection() as conn:
             facts.replace(conn, good, "digikey", [("eccn", "EAR99"), ("hts_us", "8542.33.0001")], NOW)
             facts.replace(conn, good, "mouser", [("eccn", "3A001"), ("hts_eu", "8542339000")], NOW)
             usage.store_project(conn, "prj_5", "Five", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "OTHER-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
-        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            report = self.request("prj_5/trade").json["report"]
-            csv_text = self.request("prj_5/trade", query="format=csv").text
+            report = trade.build(conn, usage.project_rows(conn, "prj_5", ""))
+        csv_text = trade.to_csv(report)
         by_mpn = {item["mpn"]: item for item in report["parts"]}
         self.assertEqual(by_mpn["GOOD-1"]["control"], "disputed")
         self.assertEqual(sorted(by_mpn["GOOD-1"]["eccn"]), ["3A001", "EAR99"])
@@ -545,15 +544,9 @@ class ReleaseCheckTests(unittest.TestCase):
                 component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("U1", "Acme", "PLAIN-1"),
                 component("C1", "Acme", "=EVIL()"), component("J1", "Acme", ""),
             ]), NOW)
-        project = SimpleNamespace(id="prj_7", name="Seven")
-        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            response = self.request("prj_7/compliance-draft")
-            csv_response = self.request("prj_7/compliance-draft", query="format=csv")
-            empty = mock.patch("app.api.supply_release.usage.project_rows", return_value=[])
-            with empty:
-                self.assertEqual(self.request("prj_7/compliance-draft").json, {"available": False, "draft": None})
-                self.assertEqual(self.request("prj_7/compliance-draft", query="format=csv").status, 404)
-        by_mpn = {item["mpn"]: item for item in response.json["draft"]["parts"]}
+            draft = compliance_draft.build(conn, usage.project_rows(conn, "prj_7", ""))
+        csv_text = compliance_draft.to_csv(draft)
+        by_mpn = {item["mpn"]: item for item in draft["parts"]}
         self.assertEqual((by_mpn["GOOD-1"]["rohs"], by_mpn["GOOD-1"]["reach"], by_mpn["GOOD-1"]["quantity"], by_mpn["GOOD-1"]["references"]), ("compliant", "not affected", 2, "R1 R2"))
         self.assertEqual((by_mpn["GOOD-1"]["rohs_stated"], by_mpn["GOOD-1"]["reach_stated"]),
                          ("RoHS Compliant By Exemption (DigiKey)", "REACH Unaffected (DigiKey)"))
@@ -561,16 +554,14 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(by_mpn["PLAIN-1"]["rohs_stated"], "")
         self.assertIn("No RoHS statement from any distributor.", by_mpn["PLAIN-1"]["gaps"])
         self.assertIn("Prism does not track this part, so nothing is known about it.", by_mpn["=EVIL()"]["gaps"])
-        self.assertEqual(response.json["draft"]["summary"]["parts"], 3, "the line without a part number is not a distinct part")
-        self.assertEqual(csv_response.status, 200)
-        self.assertTrue(csv_response.headers["content-type"].startswith("text/csv"))
-        self.assertIn("'=EVIL()", csv_response.text)
-        self.assertNotIn(",=EVIL()", csv_response.text)
+        self.assertEqual(draft["summary"]["parts"], 3, "the line without a part number is not a distinct part")
+        self.assertIn("'=EVIL()", csv_text)
+        self.assertNotIn(",=EVIL()", csv_text)
         self.assertEqual(compliance_draft.to_csv({"parts": []}).strip(), ",".join(compliance_draft.HEADER))
-        summary = response.json["draft"]["summary"]
+        summary = draft["summary"]
         self.assertEqual((summary["candidate_list_loaded"], summary["note"]), (False, compliance_draft.LIST_NOT_LOADED))
         self.assertFalse(any(compliance_draft.LIST_NOT_LOADED in gap for item in by_mpn.values() for gap in item["gaps"]), "said once, not per part")
-        self.assertIn(compliance_draft.LIST_NOT_LOADED, csv_response.text)
+        self.assertIn(compliance_draft.LIST_NOT_LOADED, csv_text)
 
     def test_who_may_look_and_a_project_the_caller_cannot_open_is_not_found(self) -> None:
         self.assertEqual(self.request("p/release-builds/b/check", role="viewer").status, 403)

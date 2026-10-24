@@ -1950,12 +1950,6 @@ def _m091_remove_approved_parts(conn) -> None:
     )
 
 
-def _m093_usual_spares(conn) -> None:
-    """The spares a tracked project is costed with: empty is the workspace's setting, "auto" is by package, else a percent."""
-
-    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS spares TEXT", prepare=False)
-
-
 def _m092_usual_build(conn) -> None:
     """The usual build of a tracked project (boards), which its cost is worked out for each day; a cost history row says which size it is
     for (the rows kept until now are for one board), and a changed usual build starts a new series."""
@@ -1967,6 +1961,12 @@ def _m092_usual_build(conn) -> None:
         """,
         prepare=False,
     )
+
+
+def _m093_usual_spares(conn) -> None:
+    """The spares a tracked project is costed with: empty is the workspace's setting, "auto" is by package, else a percent."""
+
+    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS spares TEXT", prepare=False)
 
 
 def _m078_forget_cached_prices(conn) -> None:

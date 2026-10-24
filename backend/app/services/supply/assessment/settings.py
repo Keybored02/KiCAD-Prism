@@ -59,8 +59,6 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     ENDING_WITHIN_2_YEARS: Status.WARNING,
 })
 
-SUB_SCORES = ("lifecycle", "sourcing", "inventory", "market", "compliance")
-
 
 @dataclass(frozen=True, slots=True)
 class AssessmentSettings:

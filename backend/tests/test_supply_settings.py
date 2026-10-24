@@ -152,14 +152,16 @@ class SettingsApiTests(unittest.TestCase):
     def test_nobody_else_may_change_them_and_bad_values_are_refused(self) -> None:
         for role in ("qa", "designer", "viewer"):
             self.assertEqual(self.call("PUT", self.payload(), role=role).status, 403, role)
-            self.assertEqual(self.call("DELETE", role=role).status, 403, role)
         bad = self.call("PUT", self.payload(lead_time_days=0))
         self.assertEqual((bad.status, bad.json["detail"]["code"]), (400, "invalid_settings"))
 
     def test_reset_returns_to_the_defaults(self) -> None:
+        from app.services.supply.assessment import settings_store
+
         self.call("PUT", self.payload(lead_time_days=30))
-        response = self.call("DELETE")
-        self.assertEqual(response.json["settings"]["lead_time_days"], 84)
+        with self.store.connection() as conn:
+            self.assertEqual(settings_store.reset(conn, "admin@example.com").lead_time_days, 84)
+        self.assertEqual(self.call("GET").json["settings"]["lead_time_days"], 84)
 
     def test_the_assessment_follows_the_settings(self) -> None:
         with self.store.connection() as conn:

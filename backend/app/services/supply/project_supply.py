@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from app.services.supply import bom_comments, bom_lookup, cost_history, part_insights, parts_view, tracking, usage
+from app.services.supply import bom_comments, bom_lookup, cost_history, tracking, usage
 from app.services.supply.assessment import settings_store
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
@@ -51,7 +51,9 @@ def attrition_of(spares: str) -> float | None | str:
 
 def _parts(
     conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[str, int], attrition_percent: float | None = 0,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, int], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """The BOM lines as the page and the MCP tool read them, the rollup for the build, and the cost curve."""
+
     lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
     # What is read does not depend on the build size: it is read once, and priced for the chosen size and for the curve.
     loaded = bom_lookup.load(conn, lines)
@@ -59,19 +61,6 @@ def _parts(
     sizes = sorted({*CURVE_SIZES, build_quantity})
     curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
-    tiers = {
-        row["part_id"]: row["tier"]
-        for row in conn.execute("SELECT part_id, tier FROM part_tiers WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
-    } if part_ids else {}
-    first_seen = {
-        row["id"]: row["created_at"].date().isoformat()
-        for row in conn.execute("SELECT id, created_at FROM parts WHERE id = ANY(%s)", (part_ids,)).fetchall()
-    } if part_ids else {}
-    waiting = {
-        row["part_id"]
-        for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (part_ids,)).fetchall()
-    } if part_ids else set()
-    kept = part_insights.of_parts(conn, part_ids) if part_ids else {}
     alerts = {
         row["part_id"]: int(row["n"])
         for row in conn.execute(
@@ -87,39 +76,14 @@ def _parts(
         parts.append({
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
-            "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "lead_time_days": entry.get("lead_time_days"),
-            "short": bool(entry.get("short")), "jlc": entry.get("jlc"), "fetched_at": entry.get("fetched_at"), "unit_price": (entry.get("buy") or {}).get("unit_price"), "price_currency": (entry.get("buy") or {}).get("currency"),
-            "tier": tiers.get(part_id), "first_seen": first_seen.get(part_id), "waiting": part_id in waiting, "notes": notes.get(row["key"], 0),
-            "need": entry.get("need"),
+            "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "short": bool(entry.get("short")),
+            "unit_price": buy.get("unit_price"), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
             # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
             "line_cost": None if entry.get("bought_with") or not buy else (buy.get("in_base") if converted else buy.get("extended")),
-            "holders": (kept.get(part_id) or {}).get("holders"), "days_to_zero": (kept.get(part_id) or {}).get("days_to_zero"),
             "alerts": alerts.get(part_id, 0),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
-    return parts, result["rollup"], alerts, curve
-
-
-def _counts(parts: list[dict[str, Any]], rollup: dict[str, Any], alerts: dict[str, int], facts: dict[str, dict[str, Any]]) -> dict[str, int]:
-    """What the page's chips count, over distinct parts: the shared ``parts_view.status_counts`` and what only a project knows."""
-
-    first: dict[str, dict[str, Any]] = {}
-    for part in parts:
-        if part["part_id"] and part["status"] and part["part_id"] not in first:
-            first[part["part_id"]] = part
-    members = list(first.values())
-    counts = parts_view.status_counts(
-        [{"status": part["status"], "stock": part["stock"], "lifecycle": part["lifecycle"] or "unknown"} for part in members],
-        [facts.get(part_id) or {} for part_id in first],
-    )
-    return {
-        **counts,
-        "needs_a_look": rollup["needs_a_look"],
-        "short": rollup["short"],
-        "alerts": sum(alerts.values()),
-        "waiting": sum(1 for part in members if part["waiting"]),
-        "not_priced": sum(1 for part in members if part["unit_price"] is None),
-    }
+    return parts, result["rollup"], curve
 
 
 def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[dict[str, Any]]:
@@ -239,14 +203,12 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int | Non
         notes_by_line[note["line_key"]] = notes_by_line.get(note["line_key"], 0) + 1
     if not rows:
         return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "releases": [], "notes": notes}
-    parts, rollup, alerts, curve = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)
+    parts, rollup, curve = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)
     history, left_out = _cost_history(conn, project_id, variant)
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
-    part_ids = sorted(status_now)
     return {
         "available": True, "variant": variant, "build_quantity": build_quantity, "usual_build": usual, "attrition_percent": attrition_percent, "usual_spares": (tracked or {}).get("spares"),
         "variants": usage.project_variants(conn, project_id), "rollup": rollup,
-        "counts": _counts(parts, rollup, alerts, part_insights.of_parts(conn, part_ids) if part_ids else {}),
         "parts": parts, "cost_curve": curve, "money": _where_the_money_goes(parts), "cost_history": history, "cost_history_left_out": left_out, "releases": _releases(conn, project_id, status_now), "notes": notes,
     }
 
@@ -296,14 +258,10 @@ def _csv_text(rows: list[list[Any]], footer: list[list[Any]] | None = None) -> s
     return out.getvalue()
 
 
-def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> str | None:
+def _whole_csv(rows: list[dict[str, Any]], result: dict[str, Any]) -> str:
     """The BOM costed at a build size, as a CSV. Each line names the distributor its price comes from and that distributor's part
-    number; there is no link or cart, so it is still a costing and not an order. None when the BOM has not been read."""
+    number; there is no link or cart, so it is still a costing and not an order."""
 
-    costed = _costed(conn, project_id, variant, build_quantity, attrition_percent)
-    if costed is None:
-        return None
-    rows, result = costed
     rollup = result["rollup"]
     footer: list[list[Any]] = []
     if rollup["cost_build"] is not None:
@@ -316,18 +274,15 @@ def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1, 
     return _csv_text([_cost_line(row, result["lines"][row["key"]]) for row in rows], footer)
 
 
-def cost_csvs_by_vendor(conn, project_id: str, variant: str = "", build_quantity: int = 1, attrition_percent: float | None | str = DEFAULT) -> dict[str, str] | None:
-    """The same costing split by the distributor each line is priced at, one CSV a distributor, each with what it adds up to. Lines
-    with no price are together under ``NO_VENDOR``. None when the BOM has not been read."""
+def _vendor_csvs(rows: list[dict[str, Any]], result: dict[str, Any]) -> dict[str, str]:
+    """The same costing split by the distributor each line is priced at, one CSV a distributor, each with what it adds up to. A line
+    bought with another line goes with that line; lines with no price are together under ``NO_VENDOR``."""
 
-    costed = _costed(conn, project_id, variant, build_quantity, attrition_percent)
-    if costed is None:
-        return None
-    rows, result = costed
     groups: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
     for row in rows:
         entry = result["lines"][row["key"]]
-        groups.setdefault((entry.get("buy") or {}).get("connector_name") or NO_VENDOR, []).append((row, entry))
+        priced_by = result["lines"][entry["bought_with"]] if entry.get("bought_with") else entry
+        groups.setdefault((priced_by.get("buy") or {}).get("connector_name") or NO_VENDOR, []).append((row, entry))
     files = {}
     for vendor, pairs in sorted(groups.items(), key=lambda item: (item[0] == NO_VENDOR, item[0].lower())):
         totals: dict[str, Decimal] = {}
@@ -354,14 +309,14 @@ def costing_zip(conn, project_id: str, variant: str = "", build_quantity: int = 
 
     from app.services.supply import compliance_draft, trade
 
-    whole = cost_csv(conn, project_id, variant, build_quantity, attrition_percent)
-    if whole is None:
+    costed = _costed(conn, project_id, variant, build_quantity, attrition_percent)
+    if costed is None:
         return None
-    rows = usage.project_rows(conn, project_id, variant)
+    rows, result = costed
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("costing.csv", whole)
-        for vendor, text in (cost_csvs_by_vendor(conn, project_id, variant, build_quantity, attrition_percent) or {}).items():
+        archive.writestr("costing.csv", _whole_csv(rows, result))
+        for vendor, text in _vendor_csvs(rows, result).items():
             archive.writestr(f"costing-by-distributor/{_file_name(vendor)}.csv", text)
         archive.writestr("compliance.csv", compliance_draft.to_csv(compliance_draft.build(conn, rows)))
         archive.writestr("trade-classification.csv", trade.to_csv(trade.build(conn, rows)))

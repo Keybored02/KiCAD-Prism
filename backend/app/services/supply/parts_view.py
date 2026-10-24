@@ -404,8 +404,8 @@ SOON_DAYS = 14
 
 
 def status_counts(members: list[dict[str, Any]], facts: list[dict[str, Any]]) -> dict[str, int]:
-    """The counts a project shows of its parts, one definition for the Projects view, the Dashboard's tiles and the project page: parts
-    at risk (error or fatal), out of stock, ending, held by one distributor, and running out within two weeks. ``members`` carry
+    """The counts a project row shows of its parts, in the Projects view and the Dashboard's table of tracked projects: parts at risk
+    (error or fatal), out of stock, ending, held by one distributor, and running out within two weeks. ``members`` carry
     ``status``, ``stock`` and ``lifecycle``; ``facts`` are the kept insights of the same parts, in the same order."""
 
     return {

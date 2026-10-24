@@ -528,10 +528,6 @@ export function saveAssessmentSettings(settings: AssessmentSettings): Promise<As
   );
 }
 
-export function resetAssessmentSettings(): Promise<AssessmentSettingsView> {
-  return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { method: "DELETE" }, "Could not reset the settings");
-}
-
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
 export function getProjectSupply(projectId: string, variant = "", boards?: number, spares = "", signal?: AbortSignal): Promise<ProjectSupply> {
   const query = new URLSearchParams();

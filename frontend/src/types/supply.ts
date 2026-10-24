@@ -1380,9 +1380,6 @@ export interface AlertRules {
 
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */
 export interface ProjectSupplyPart {
-  jlc?: JlcClass | null;
-  first_seen?: string | null;
-  fetched_at?: string | null;
   key: string;
   manufacturer: string;
   mpn: string;
@@ -1393,21 +1390,13 @@ export interface ProjectSupplyPart {
   status: SupplyStatus | null;
   stock: number | null;
   lifecycle: SupplyLifecycle | null;
-  lead_time_days: number | null;
   short: boolean;
   unit_price: string | null;
-  /** The currency the unit price is quoted in. */
-  price_currency?: string | null;
-  tier: 1 | 2 | null;
-  waiting: boolean;
   notes: number;
   /** Pieces the build needs, spares included. */
   need?: number | null;
   /** What the line costs for the build, in the total's currency; null when bought with another line or not priced. */
   line_cost?: string | null;
-  /** Distributors holding stock, and days until the stock runs out at the recent rate. */
-  holders?: number | null;
-  days_to_zero?: number | null;
   /** Open alerts on the part. */
   alerts?: number;
 }
@@ -1427,20 +1416,6 @@ export interface ProjectMoney {
   lines: Array<{ key: string; part_id: string | null; mpn: string; manufacturer: string; cost: string; share: number }>;
   other: { count: number; cost: string; share: number };
   total: string;
-}
-
-/** The counts the page's chips show, over distinct parts; the same definitions as the Projects view. */
-export interface ProjectSupplyCounts {
-  at_risk: number;
-  needs_a_look: number;
-  out: number;
-  short: number;
-  end_of_life: number;
-  one_distributor: number;
-  runs_out_soon: number;
-  alerts: number;
-  waiting: number;
-  not_priced: number;
 }
 
 export interface ProjectSupplyRelease {
@@ -1465,7 +1440,6 @@ export interface ProjectSupply {
   /** The spares the page is worked out with, in percent; null is by kind of part. */
   attrition_percent?: number | null;
   rollup?: SupplyBomRollup;
-  counts?: ProjectSupplyCounts;
   parts?: ProjectSupplyPart[];
   /** The cost of one board a day, oldest first: the days that price every line and are not one price read wrong. */
   cost_history?: Array<{ day: string; cost_per_board: string; currency: string; boards: number }>;
