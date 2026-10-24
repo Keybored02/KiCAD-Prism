@@ -147,7 +147,7 @@ root first.
 | `credentials.py` | The one adapter over the credential keyring. |
 | `connectors.py` | Connector setup, credentials, pause, state. |
 | `backend/app/api/supply_connectors.py` | HTTP API for connectors. Readers are admin, designer and qa; only admin changes anything. Strips request bodies from 422 errors. |
-| `schema_migrations.py`, `store.py` | The `supply` schema, its own migration ledger, and connections. |
+| `schema_migrations.py`, `migration_steps/`, `store.py` | The `supply` schema, its own migration ledger (the list and the runner; the steps are in three modules under `migration_steps/`), and connections. |
 
 ## Rules
 

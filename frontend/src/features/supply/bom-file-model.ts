@@ -19,7 +19,7 @@ const GUESSES: Record<Role, readonly string[]> = {
 
 /** Rows of a delimited file, quotes and doubled quotes honoured. The delimiter is the one the first line uses most. */
 export function parseTable(text: string): string[][] {
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
   const firstLine = source.split(/\r?\n/, 1)[0] ?? "";
   const delimiter = [",", ";", "\t"].reduce((best, candidate) => (firstLine.split(candidate).length > firstLine.split(best).length ? candidate : best), ",");
   const rows: string[][] = [];
