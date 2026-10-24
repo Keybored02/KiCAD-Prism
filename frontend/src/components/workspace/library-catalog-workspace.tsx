@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,8 +43,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CatalogSupplyDot, RestrictionTag } from "@/features/supply/catalog-supply-dot";
+import { CatalogSupplyBar } from "@/features/supply/catalog-supply-bar";
+import { passesSupplyFilter, supplyFilterFrom } from "@/features/supply/catalog-supply-filter";
+import { useCatalogPicks } from "@/features/supply/use-catalog-picks";
+import { useCatalogSupply } from "@/features/supply/use-catalog-supply";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { fetchJson } from "@/lib/api";
+import { createComponent, getComponent, listCategories, listComponents } from "./catalog-client";
 import {
   AVAILABILITY_BADGE_TITLE,
   AVAILABILITY_BADGE_VARIANT,
@@ -53,16 +59,17 @@ import {
   WORKFLOW_BADGE_VARIANT,
 } from "@/lib/catalog-badges";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { canWriteCatalog } from "@/lib/roles";
+import { canAdministerCatalog, canEditSupply, canWriteCatalog } from "@/lib/roles";
+import { useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
   CatalogComponent,
   CatalogValidationStatus,
-  PaginatedComponents,
   WorkflowStage,
 } from "@/types/catalog";
+import { LibraryCatalogFileCheck } from "./library-catalog-file-check";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
 
 const PAGE_SIZE = 100;
@@ -81,8 +88,6 @@ const enumParam = <T extends string>(value: string | null, allowed: T[], fallbac
   value && allowed.includes(value as T) ? value as T : fallback;
 
 type CreateComponentForm = {
-  /** CONTRACTS_P2 §3.5: a module is a component whose symbol's units are its connectors. */
-  kind: "part" | "module";
   value: string;
   manufacturer: string;
   manufacturerPartNumber: string;
@@ -94,7 +99,6 @@ type CreateComponentForm = {
 };
 
 const EMPTY_CREATE_FORM: CreateComponentForm = {
-  kind: "part",
   value: "",
   manufacturer: "",
   manufacturerPartNumber: "",
@@ -221,7 +225,7 @@ function CreateComponentDialog({
   const [form, setForm] = useState<CreateComponentForm>(EMPTY_CREATE_FORM);
   const [submitting, setSubmitting] = useState(false);
 
-  const setField = (field: Exclude<keyof CreateComponentForm, "kind">, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  const setField = (field: keyof CreateComponentForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
   const canSubmit = Boolean(form.value.trim() && form.manufacturer.trim() && form.manufacturerPartNumber.trim() && form.description.trim() && form.datasheet.trim() && form.changeSummary.trim());
 
   const handleSubmit = async () => {
@@ -231,19 +235,15 @@ function CreateComponentDialog({
     }
     setSubmitting(true);
     try {
-      const component = await fetchJson<CatalogComponent>("/api/catalog/components", {
-        method: "POST",
-        body: JSON.stringify({
-          kind: form.kind,
-          value: form.value.trim(),
-          manufacturer: form.manufacturer.trim(),
-          manufacturer_part_number: form.manufacturerPartNumber.trim(),
-          description: form.description.trim(),
-          datasheet: form.datasheet.trim(),
-          category: form.category.trim(),
-          package_name: form.packageName.trim(),
-          change_summary: form.changeSummary.trim(),
-        }),
+      const component = await createComponent({
+        value: form.value.trim(),
+        manufacturer: form.manufacturer.trim(),
+        manufacturer_part_number: form.manufacturerPartNumber.trim(),
+        description: form.description.trim(),
+        datasheet: form.datasheet.trim(),
+        category: form.category.trim(),
+        package_name: form.packageName.trim(),
+        change_summary: form.changeSummary.trim(),
       });
       toast.success(`${component.name} created as revision v${component.revision}.`);
       setForm(EMPTY_CREATE_FORM);
@@ -263,22 +263,6 @@ function CreateComponentDialog({
           <DialogTitle>Create component record</DialogTitle>
           <DialogDescription>Create the first immutable metadata revision, then attach and validate CAD assets in the component workspace.</DialogDescription>
         </DialogHeader>
-        <fieldset className="space-y-1">
-          <legend className="text-sm font-medium">Kind</legend>
-          <div className="flex gap-2" role="radiogroup" aria-label="Kind">
-            {(["part", "module"] as const).map((kind) => (
-              <Button key={kind} type="button" size="sm" variant={form.kind === kind ? "default" : "outline"} role="radio"
-                aria-checked={form.kind === kind} onClick={() => setForm((current) => ({ ...current, kind }))}>
-                {kind === "part" ? "Part" : "Module"}
-              </Button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {form.kind === "module"
-              ? "A bought-out unit placed in systems, not on a PCB: its symbol's units are its connectors (pin names are signals), and it needs a STEP model."
-              : "A library part placed on boards: symbol, footprint and model."}
-          </p>
-        </fieldset>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="catalog-create-value">Value *</Label><Input id="catalog-create-value" autoFocus required value={form.value} onChange={(event) => setField("value", event.target.value)} placeholder="10 kΩ, TPS55289, USB-C…" /></div>
           <div className="space-y-2"><Label htmlFor="catalog-create-manufacturer">Manufacturer *</Label><Input id="catalog-create-manufacturer" required value={form.manufacturer} onChange={(event) => setField("manufacturer", event.target.value)} placeholder="Texas Instruments" /></div>
@@ -298,6 +282,11 @@ function CreateComponentDialog({
   );
 }
 
+const CATEGORIES_KEY = ["catalog", "categories"] as const;
+const COMPONENTS_KEY = ["catalog", "components"] as const;
+const NO_CATEGORIES: Array<{ name: string; count: number }> = [];
+const NO_COMPONENTS: CatalogComponent[] = [];
+
 // react-doctor-disable-next-line no-giant-component - query params, grid, and facet state are one page
 export function LibraryCatalogWorkspace({
   user,
@@ -316,14 +305,7 @@ export function LibraryCatalogWorkspace({
   const category = searchParams.get("catalogCategory") || "all";
   const sortKey = enumParam<SortKey>(searchParams.get("catalogSort"), SORT_KEYS, "updated_at");
   const sortDirection = enumParam<SortDirection>(searchParams.get("catalogDir"), ["asc", "desc"], sortKey === "updated_at" ? "desc" : "asc");
-  const [items, setItems] = useState<CatalogComponent[]>([]);
-  const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState(1);
   const [query, setQuery] = useState(urlQuery);
-  const [categories, setCategories] = useState<Array<{ name: string; count: number }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const selectedComponentId = searchParams.get("catalogSelection") || "";
   const [selectedComponent, setSelectedComponent] = useState<CatalogComponent | null>(null);
@@ -357,18 +339,14 @@ export function LibraryCatalogWorkspace({
     return () => window.clearTimeout(timer);
   }, [query, updateCatalogParams, urlQuery]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetchJson<{ categories: Array<{ name: string; count: number }> }>("/api/catalog/categories")
-      .then((response) => { if (!cancelled) setCategories(response.categories); })
-      .catch(() => { /* Category discovery is non-blocking for catalog browsing. */ });
-    return () => { cancelled = true; };
-  }, [refreshKey]);
+  // Category discovery is non-blocking for catalog browsing: a failure shows no categories.
+  const categoryRead = useServerState(CATEGORIES_KEY, () => listCategories());
+  const categories = categoryRead.data?.categories ?? NO_CATEGORIES;
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
+  // One page per filter/sort/page combination. A new combination keeps the
+  // previous rows on screen until it answers; a failed read shows the error
+  // (and no rows) until the next read starts.
+  const listParams = useMemo(() => {
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(PAGE_SIZE),
@@ -381,24 +359,27 @@ export function LibraryCatalogWorkspace({
     if (availability !== "all") params.set("availability_state", availability);
     if (validation !== "all") params.set("validation_status", validation);
     if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
-
-    void fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        setItems(response.items);
-        setTotal(response.total);
-        setPages(response.pages);
+    return params.toString();
+  }, [availability, category, page, sortDirection, sortKey, urlQuery, validation, workflow]);
+  const listing = useServerState(
+    [...COMPONENTS_KEY, listParams],
+    (signal) => listComponents(new URLSearchParams(listParams), signal),
+    {
+      keepPrevious: true,
+      onData: (response) => {
         if (page > response.pages) updateCatalogParams({ catalogPage: response.pages > 1 ? String(response.pages) : null }, true);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setItems([]);
-        setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [availability, category, page, refreshKey, sortDirection, sortKey, updateCatalogParams, urlQuery, validation, workflow]);
+      },
+    },
+  );
+  const loading = listing.loading || listing.fetching;
+  const error = loading || !listing.error ? "" : listing.error.message;
+  const items = error ? NO_COMPONENTS : listing.data?.items ?? NO_COMPONENTS;
+  const total = listing.data?.total ?? 0;
+  const pages = listing.data?.pages ?? 1;
+  const refreshCatalog = () => {
+    void categoryRead.refresh();
+    void listing.refresh();
+  };
 
   useEffect(() => {
     if (!selectedComponentId) {
@@ -411,7 +392,7 @@ export function LibraryCatalogWorkspace({
     const controller = new AbortController();
     setSelectedLoading(true);
     setSelectedError("");
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(selectedComponentId)}`, { signal: controller.signal })
+    void getComponent(selectedComponentId, controller.signal)
       .then(setSelectedComponent)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
@@ -439,9 +420,14 @@ export function LibraryCatalogWorkspace({
     : "minmax(0,2.4fr) minmax(0,1.5fr) minmax(0,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(0,1.6fr)";
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastItem = Math.min(page * PAGE_SIZE, total);
+  const picks = useCatalogPicks();
+  const { standing: supplyStanding, refresh: refreshSupply } = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
+  // The Watched and At risk filters narrow the page that is loaded; the server does not know about supply.
+  const supplyFilter = supplyFilterFrom(searchParams.get("catalogSupply"));
+  const shownItems = supplyFilter ? items.filter((item) => passesSupplyFilter(supplyFilter, supplyStanding[item.id])) : items;
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
-  const lastVisibleRow = Math.min(items.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
-  const visibleItems = items.slice(firstVisibleRow, lastVisibleRow);
+  const lastVisibleRow = Math.min(shownItems.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
+  const visibleItems = shownItems.slice(firstVisibleRow, lastVisibleRow);
 
   const clearFilters = () => {
     setQuery("");
@@ -452,6 +438,7 @@ export function LibraryCatalogWorkspace({
       catalogAvailability: null,
       catalogValidation: null,
       catalogCategory: null,
+      catalogSupply: null,
     });
   };
 
@@ -475,7 +462,8 @@ export function LibraryCatalogWorkspace({
             <div className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /><h2 className="text-lg font-semibold">Component Catalog</h2></div>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
+            {canAdministerCatalog(user?.role) ? <LibraryCatalogFileCheck /> : null}
+            <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={refreshCatalog}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
             {/* Shown disabled rather than hidden: a reader who cannot find the
                 button assumes the feature is missing, where a disabled one that
                 explains itself tells them exactly what to ask for. */}
@@ -494,6 +482,16 @@ export function LibraryCatalogWorkspace({
           <Select value={availability} onValueChange={(value) => updateCatalogParams({ catalogAvailability: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by CAD availability"><SelectValue placeholder="CAD availability" /></SelectTrigger><SelectContent><SelectItem value="all">All CAD states</SelectItem>{Object.entries(AVAILABILITY_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
           <Select value={validation} onValueChange={(value) => updateCatalogParams({ catalogValidation: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by validation"><SelectValue placeholder="Validation" /></SelectTrigger><SelectContent><SelectItem value="all">All validation states</SelectItem>{Object.entries(VALIDATION_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
           <Select value={category} onValueChange={(value) => updateCatalogParams({ catalogCategory: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by category" className="max-w-48"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
+          <CatalogSupplyBar
+            filter={supplyFilter}
+            onFilter={(next) => updateCatalogParams({ catalogSupply: next || null })}
+            rows={shownItems}
+            standing={supplyStanding}
+            role={user?.role}
+            onChanged={() => void refreshSupply()}
+            picked={picks.picked}
+            onClearPicks={picks.clear}
+          />
           {isFiltered ? <Button size="sm" variant="ghost" className="h-7" onClick={clearFilters}><FilterX className="h-3.5 w-3.5" /> Clear {activeFilterCount ? `(${activeFilterCount})` : ""}</Button> : null}
         </div>
       </header>
@@ -501,13 +499,13 @@ export function LibraryCatalogWorkspace({
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col p-4">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span aria-live="polite">{loading ? "Querying catalog index…" : `${firstItem.toLocaleString()}–${lastItem.toLocaleString()} of ${total.toLocaleString()} components`}</span>
+          <span aria-live="polite">{loading ? "Querying catalog index…" : `${firstItem.toLocaleString()}–${lastItem.toLocaleString()} of ${total.toLocaleString()} components${supplyFilter ? `, ${shownItems.length} of this page match the supply filter` : ""}`}</span>
           <span>100 rows per page · server-side search and sort</span>
         </div>
 
         {error ? (
           <div className="flex min-h-64 flex-1 items-center justify-center">
-            <div className="max-w-xl border border-destructive bg-destructive/10 p-5 text-center"><CircleAlert className="mx-auto h-6 w-6 text-destructive" /><p className="mt-2 text-sm font-medium">Catalog query failed</p><p className="mt-1 text-xs text-muted-foreground">{error}</p><Button className="mt-4" size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></div>
+            <div className="max-w-xl border border-destructive bg-destructive/10 p-5 text-center"><CircleAlert className="mx-auto h-6 w-6 text-destructive" /><p className="mt-2 text-sm font-medium">Catalog query failed</p><p className="mt-1 text-xs text-muted-foreground">{error}</p><Button className="mt-4" size="sm" variant="outline" onClick={refreshCatalog}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></div>
           </div>
         ) : loading && items.length === 0 ? (
           <div className="flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading catalog page from the server…</div>
@@ -527,17 +525,17 @@ export function LibraryCatalogWorkspace({
               className="min-h-0 flex-1 overflow-auto"
               onScroll={catalogViewport.onScroll}
             >
-              <div className="relative" style={{ height: items.length * CATALOG_ROW_HEIGHT }}>
+              <div className="relative" style={{ height: shownItems.length * CATALOG_ROW_HEIGHT }}>
               {visibleItems.map((component, visibleIndex) => (
                 <button
                   key={component.id}
                   type="button"
-                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary")}
+                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary", picks.picked.has(component.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
                   style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: catalogGridTemplate }}
-                  onClick={() => selectComponent(component)}
+                  onClick={(event) => (event.ctrlKey || event.metaKey) && canEditSupply(user?.role) ? picks.toggle(component.id) : selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
-                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><span className="truncate">{component.name}</span>{component.kind && component.kind !== "part" ? <Badge variant="outline" className="shrink-0 capitalize">{component.kind}</Badge> : null}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
+                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><CatalogSupplyDot standing={supplyStanding[component.id]} /><RestrictionTag standing={supplyStanding[component.id]} /><span className="truncate">{component.name}</span></p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
                   <div className="flex min-w-0"><AvailabilityBadge state={component.availability_state} /></div>

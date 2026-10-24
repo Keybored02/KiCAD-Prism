@@ -10,10 +10,12 @@ import {
 import { useNavigate } from "react-router-dom";
 import Fuse from "fuse.js";
 import {
+  Bug,
   CircuitBoard,
-  Cpu,
   Database,
   DownloadCloud,
+  Hourglass,
+  Info,
   Keyboard,
   LoaderCircle,
   LogOut,
@@ -22,18 +24,22 @@ import {
   Table2,
 } from "lucide-react";
 
+import { toast } from "sonner";
+import { addSupplyWatch } from "@/features/supply/supply-api";
+import { partCommand, projectSupplyCommand, supplyCommands, supplyPartPath, trackCommand } from "@/components/command-palette-supply";
+import { usePartSearch } from "@/components/use-part-search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { fetchJson } from "@/lib/api";
+import { openHelpDialog, type HelpDialog } from "@/lib/help-dialogs";
 import {
   getPaletteCommands,
   subscribeToPaletteCommands,
   type PaletteCommand,
 } from "@/lib/command-registry";
-import { canOpenLibraryManager } from "@/lib/roles";
+import { canOpenLibraryManager, canOpenSupply } from "@/lib/roles";
 import { shortcutKeys } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
-import type { CatalogComponent, PaginatedComponents } from "@/types/catalog";
 import type { Project } from "@/types/project";
 
 interface CommandPaletteProps {
@@ -53,12 +59,13 @@ const LIBRARY_VIEWS = [
   { view: "bulk-edit", label: "Bulk Edit", icon: Table2 },
   { view: "imports", label: "Import Center", icon: DownloadCloud },
   { view: "releases", label: "Release Queue", icon: PackageCheck },
+  { view: "ending", label: "Ending Parts", icon: Hourglass },
 ] as const;
 
-/** Shortest query worth sending to the catalog. "R" would match everything. */
-const COMPONENT_SEARCH_MIN_LENGTH = 2;
-const COMPONENT_SEARCH_DEBOUNCE_MS = 180;
-const COMPONENT_SEARCH_LIMIT = 8;
+const HELP_DIALOG_COMMANDS = [
+  { id: "help:report-bug", label: "Report a bug", group: "Help", icon: Bug, keywords: "issue github problem support", dialog: "report-bug" },
+  { id: "help:about", label: "About KiCAD Prism", group: "Help", icon: Info, keywords: "version build release", dialog: "about" },
+] as const satisfies ReadonlyArray<Omit<PaletteCommand, "run"> & { dialog: HelpDialog }>;
 
 /**
  * Deep link to a component's full workspace.
@@ -76,10 +83,6 @@ export function componentWorkspacePath(componentId: string): string {
     componentTab: "overview",
   });
   return `/?${params.toString()}`;
-}
-
-function componentDetail(component: CatalogComponent): string {
-  return [component.manufacturer, component.mpn].filter(Boolean).join(" · ");
 }
 
 /**
@@ -107,8 +110,6 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
   const [query, setQuery] = useState("");
   const [rawActiveIndex, setActiveIndex] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [components, setComponents] = useState<CatalogComponent[]>([]);
-  const [searchingComponents, setSearchingComponents] = useState(false);
   const projectsLoadedRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -128,51 +129,11 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
   }, [open]);
 
   /**
-   * Component search runs on the server: the catalog is tens of thousands of
-   * rows, so it is never held in the browser the way the project list is.
-   * Requests are debounced and superseded, so typing an MPN issues one search
-   * rather than one per keystroke.
+   * Part search runs on the server: the catalog and the supply data are far too big to hold in the browser, and
+   * the server merges them so a part that is both a library component and a supply part is one row.
    */
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!open || !canSearchCatalog || trimmed.length < COMPONENT_SEARCH_MIN_LENGTH) {
-      setComponents([]);
-      setSearchingComponents(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    setSearchingComponents(true);
-    const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({
-        q: trimmed,
-        page: "1",
-        page_size: String(COMPONENT_SEARCH_LIMIT),
-        lightweight: "true",
-      });
-      void fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, {
-        signal: controller.signal,
-      })
-        .then((response) => {
-          setComponents(response.items ?? []);
-          setSearchingComponents(false);
-        })
-        .catch(() => {
-          // An aborted request is the normal case while typing, and a genuine
-          // failure should not interrupt someone mid-keystroke. Either way the
-          // palette keeps working without component results.
-          if (!controller.signal.aborted) {
-            setComponents([]);
-            setSearchingComponents(false);
-          }
-        });
-    }, COMPONENT_SEARCH_DEBOUNCE_MS);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [canSearchCatalog, open, query]);
+  const canSearchSupply = canOpenSupply(user?.role);
+  const { rows: partRows, searching: searchingComponents } = usePartSearch(open, canSearchCatalog || canSearchSupply, query);
 
   // Closing is what ends a palette session, so it is where the session's
   // state is dropped. The project list deliberately survives: it is a cache,
@@ -181,7 +142,6 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
     if (!next) {
       setQuery("");
       setActiveIndex(0);
-      setComponents([]);
     }
     onOpenChange(next);
   }, [onOpenChange]);
@@ -219,6 +179,8 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
       }
     }
 
+    items.push(...supplyCommands(user?.role, goToWorkspace));
+
     for (const project of projects) {
       items.push({
         id: `project:${project.id}`,
@@ -229,6 +191,7 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
         keywords: `${project.name} ${project.path}`,
         run: run(() => navigate(`/project/${project.id}`)),
       });
+      items.push(...projectSupplyCommand({ id: project.id, name: project.display_name || project.name }, user?.role, (path) => run(() => navigate(path))()));
     }
 
     items.push(...screenCommands.map((command) => ({ ...command, run: run(command.run) })));
@@ -241,6 +204,11 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
       detail: shortcutKeys("shift+/").join(" "),
       run: run(onShowShortcuts),
     });
+
+    items.push(...HELP_DIALOG_COMMANDS.map(({ dialog, ...command }) => ({
+      ...command,
+      run: run(() => openHelpDialog(dialog)),
+    })));
 
     if (user && user.email !== "guest@local") {
       items.push({
@@ -256,24 +224,38 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
   }, [canSearchCatalog, close, navigate, onLogout, onShowShortcuts, projects, screenCommands, user]);
 
   /**
-   * Component hits are kept out of the fuzzy pass. The catalog already ranked
-   * them against the same query, and re-scoring an exact MPN against a fuzzy
-   * threshold is how an exact match gets dropped.
+   * Part hits are kept out of the fuzzy pass. The server already ranked them against the same query, and re-scoring
+   * an exact part number against a fuzzy threshold is how an exact match gets dropped.
    */
   const componentCommands = useMemo<PaletteCommand[]>(
     () =>
-      components.map((component) => ({
-        id: `component:${component.id}`,
-        label: component.name || component.value || component.mpn || "Untitled component",
-        group: "Components",
-        icon: Cpu,
-        detail: componentDetail(component) || undefined,
-        run: () => {
-          close();
-          navigate(componentWorkspacePath(component.id));
-        },
-      })),
-    [close, components, navigate],
+      partRows.map((row) =>
+        partCommand(row, {
+          canLibrary: canSearchCatalog,
+          libraryPath: componentWorkspacePath,
+          open: (path) => {
+            close();
+            navigate(path);
+          },
+        }),
+      ),
+    [canSearchCatalog, close, navigate, partRows],
+  );
+
+  const trackCommands = useMemo<PaletteCommand[]>(
+    () =>
+      searchingComponents
+        ? []
+        : trackCommand(query, user?.role, partRows, (mpn) => {
+            close();
+            void addSupplyWatch({ manufacturer: "", mpn })
+              .then(async (watch) => {
+                toast.success(`${mpn} is tracked.`);
+                navigate(supplyPartPath(watch.part_id));
+              })
+              .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not track the part"));
+          }),
+    [close, navigate, partRows, query, searchingComponents, user?.role],
   );
 
   const fuse = useMemo(
@@ -294,9 +276,9 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
     const trimmed = query.trim();
     if (!trimmed) return commands;
     // Navigation and actions first: they are few, and a query that matches one
-    // is almost always aimed at it. Component hits follow, in catalog rank.
-    return [...fuse.search(trimmed).map((match) => match.item), ...componentCommands];
-  }, [commands, componentCommands, fuse, query]);
+    // is almost always aimed at it. Part hits follow, in server rank.
+    return [...fuse.search(trimmed).map((match) => match.item), ...componentCommands, ...trackCommands];
+  }, [commands, componentCommands, fuse, query, trackCommands]);
 
   // A result list that has shrunk past the highlight takes it back to the top
   // during render, not after a commit that showed the wrong row.
@@ -321,7 +303,9 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      results[activeIndex]?.run();
+      const chosen = results[activeIndex];
+      if (event.ctrlKey || event.metaKey) chosen?.alt?.run();
+      else chosen?.run();
     }
   };
 
@@ -333,7 +317,7 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <DialogDescription className="sr-only">
-          Search for a project, a component, a library view, or an action. Use the arrow keys to choose and
+          Search for a project, a part, a library view, or an action. Ctrl or Command and Enter opens a part's other place. Use the arrow keys to choose and
           Enter to run.
         </DialogDescription>
         <div className="flex items-center gap-2 border-b px-3">
@@ -344,7 +328,7 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
               setQuery(event.target.value);
               setActiveIndex(0);
             }}
-            placeholder={canSearchCatalog ? "Search projects, components, views, and actions…" : "Search projects, views, and actions…"}
+            placeholder={canSearchCatalog || canSearchSupply ? "Search projects, parts, views, and actions…" : "Search projects, views, and actions…"}
             aria-label="Search commands"
             aria-controls="command-palette-results"
             className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -385,6 +369,9 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
                   <span className="min-w-0 flex-1 truncate text-foreground">{command.label}</span>
                   {command.detail ? (
                     <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">{command.detail}</span>
+                  ) : null}
+                  {isActive && command.alt ? (
+                    <span className="shrink-0 text-xs text-muted-foreground">{shortcutKeys("mod+enter").join(" ")} {command.alt.label}</span>
                   ) : null}
                 </button>
               </div>

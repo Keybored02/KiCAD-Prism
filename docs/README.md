@@ -5,8 +5,8 @@ testers of unreleased behavior work from `dev`.
 
 ## Release notes
 
-- [v4.0.0-alpha](releases/v4.0.0-alpha.md) covers the next major alpha and its
-  catalog migration requirements; it supersedes the unpublished v3.1 plan.
+- [v4.0.0-alpha](releases/v4.0.0-alpha.md) is the latest alpha and its
+  catalog migration requirements; it superseded the unpublished v3.1 plan.
 
 ## Evaluate Prism
 
@@ -43,6 +43,8 @@ testers of unreleased behavior work from `dev`.
   browser review, comments, comparisons, jobsets, and assets.
 - [Library Manager](LIBRARY_MANAGER.md) covers component import, revisions, QA,
   release, KLC checks, and DBL export.
+- [Supply chain data](SUPPLY.md) covers distributor connectors, watching parts, BOM
+  stock and cost, assessment and alerts.
 - [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md) covers connecting desktop
   KiCad and placing released components.
 - [Design variants](PROJECT_WORKFLOWS.md#design-variants) describes assembly
@@ -55,15 +57,22 @@ testers of unreleased behavior work from `dev`.
   reconnect behavior, and transport rollback.
 - [Release Studio](release-studio/README.md) covers committed-revision
   manufacturing documents, dual sign-off, and GitHub/GitLab publish.
+- [Design data](PROJECT_WORKFLOWS.md#design-data) explains how Prism prepares
+  each revision, and what *Preparing design data…* and *could not be built*
+  mean.
+- [Simulation Studio](SIMULATION_STUDIO.md) (experimental, off by default)
+  covers DC IR-drop setups, runs and results.
 
 ## Contributor references
 
-- [System Builder](system-builder/README.md) is in development: multi-board
-  systems whose interface control documents track revisioned KiCad sources.
+- [System Builder](system-builder/README.md) was removed on 2026-10-23 and is
+  being re-scoped on its own branch.
 
+- [Native design bundle ADR](architecture/adr-native-design-bundle.md) and its
+  amendments record why Prism parses KiCad in Rust, once per revision; the
+  contracts are in `native/contracts/prism/` and the parity records in
+  `native/parity/`.
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
-- [Experimental Rust PCB geometry](PCB_RUST_GEOMETRY.md) covers explicit
-  opt-in, limitations, verification, and rollback.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.
 
 ## Participate

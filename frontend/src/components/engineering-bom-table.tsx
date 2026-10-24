@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react";
+import { Clock, ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DesignDataPending } from "@/components/design-data-state";
 import {
     BomAssemblyFilterControl,
     filterComponentsForAssembly,
     isAssembled,
     type BomAssemblyFilter,
 } from "@/components/design-variants/assembly-filter";
+import { BOM_SUPPLY_COLUMNS, isSupplyColumn, rowSupply } from "@/features/supply/bom-supply";
+import { BomSupplyBar } from "@/features/supply/bom-supply-bar";
+import { SupplyCell } from "@/features/supply/bom-supply-cells";
+import { useBomRowDetail } from "@/features/supply/use-bom-row-detail";
+import { useBomSupply } from "@/features/supply/use-bom-supply";
+import { canOpenSupply } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import type { User } from "@/types/auth";
 import type {
     PrismSelection,
     PrismSemanticIndex,
@@ -53,8 +61,12 @@ interface BomSearchTerm {
 }
 
 interface EngineeringBomTableProps {
+    /** The project the BOM is from; build plans are kept per project. */
+    projectId?: string;
     semanticIndex: PrismSemanticIndex | null;
     loading: boolean;
+    /** The semantic index is still being built rather than failed. */
+    pending?: boolean;
     error?: string | null;
     selection: PrismSelection | null;
     onSelection: (selection: PrismSelection) => void;
@@ -64,6 +76,10 @@ interface EngineeringBomTableProps {
      * projection). When omitted the table shows the base index.
      */
     components?: SemanticComponent[] | null;
+    /** Roles that may read supply data get stock, price and risk columns. Others see the table as before. */
+    user?: User | null;
+    /** False for a commit checked out from History: supply shows on the latest revision only. */
+    atHead?: boolean;
 }
 
 const naturalReferenceSort = (left: SemanticComponent, right: SemanticComponent) =>
@@ -184,11 +200,15 @@ const groupMatchesQuery = (group: BomGroup, query: string): boolean => {
 export function EngineeringBomTable({
     semanticIndex,
     loading,
+    pending = false,
     error,
     selection,
     onSelection,
     onRetry,
     components,
+    user,
+    projectId,
+    atHead = true,
 }: EngineeringBomTableProps) {
     const [query, setQuery] = useState("");
     const [assemblyFilter, setAssemblyFilter] =
@@ -202,6 +222,12 @@ export function EngineeringBomTable({
         () => filterComponentsForAssembly(allComponents, assemblyFilter),
         [allComponents, assemblyFilter],
     );
+    // Supply figures are for what is fitted, whichever rows the assembly filter shows.
+    const fitted = useMemo(() => allComponents.filter(isAssembled), [allComponents]);
+    // Nothing is looked up for a checked-out commit: the BOM is plain there.
+    const supplyUser = atHead ? (user ?? null) : null;
+    const supply = useBomSupply(fitted, supplyUser, projectId);
+    const detail = useBomRowDetail(supply, supplyUser);
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};
         try {
@@ -238,8 +264,12 @@ export function EngineeringBomTable({
                 if (!required.has(field) && !isInternalField(field)) extras.add(field);
             }
         }
-        return [...BOM_REQUIRED_COLUMNS, ...[...extras].sort((left, right) => left.localeCompare(right))];
-    }, [allComponents]);
+        const base: string[] = [...BOM_REQUIRED_COLUMNS, ...[...extras].sort((left, right) => left.localeCompare(right))];
+        if (!supply.enabled) return base;
+        // Next to the manufacturer part number they are about.
+        const after = base.indexOf("Manufacturer Part Number") + 1;
+        return [...base.slice(0, after), ...BOM_SUPPLY_COLUMNS, ...base.slice(after)];
+    }, [allComponents, supply.enabled]);
 
     const groups = useMemo(() => {
         const byValue = new Map<string, SemanticComponent[]>();
@@ -272,6 +302,14 @@ export function EngineeringBomTable({
     const selectedReference = selection?.kind === "component" || selection?.kind === "terminal"
         ? selection.reference
         : null;
+
+    if (pending && !semanticIndex) {
+        return (
+            <div className="flex h-full items-center justify-center p-8">
+                <DesignDataPending onRetry={onRetry} />
+            </div>
+        );
+    }
 
     if (loading && !semanticIndex) {
         return (
@@ -343,6 +381,14 @@ export function EngineeringBomTable({
                     </Button>
                 </div>
             </div>
+            {!atHead && canOpenSupply(user?.role) ? (
+                <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground" title="Supply shows on the latest revision">
+                    <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Supply data shows on the latest revision only.</span>
+                </div>
+            ) : null}
+            {supply.enabled ? <BomSupplyBar supply={supply} /> : null}
+            {supply.enabled ? detail.element : null}
             <div className="min-h-0 flex-1 overflow-auto">
                 <table className="min-w-max border-separate border-spacing-0 text-xs">
                     <thead className="sticky top-0 z-20 bg-muted shadow-sm">
@@ -421,7 +467,7 @@ export function EngineeringBomTable({
                                                                 onClick={() => onSelection({
                                                                     kind: "component",
                                                                     sourceContext: "BOM",
-                                                                    sourceRevisionKey: semanticIndex.sourceRevisionKey,
+                                                                    sourceRevisionKey: semanticIndex.designKey ?? semanticIndex.sourceRevisionKey,
                                                                     reference: component.reference,
                                                                     componentUid: component.componentUid,
                                                                 })}
@@ -434,6 +480,14 @@ export function EngineeringBomTable({
                                             );
                                         } else if (column === "Qty") {
                                             content = group.components.length;
+                                        } else if (isSupplyColumn(column)) {
+                                            content = (
+                                                <SupplyCell
+                                                    column={column}
+                                                    supply={rowSupply(group.components, supply.lookup?.lines ?? null, supply.fittedKeys)}
+                                                    onDetails={() => detail.open(group.components)}
+                                                />
+                                            );
                                         } else {
                                             const value = group.fields[column] || "";
                                             const url = column === "Datasheet" ? datasheetUrl(value) : null;

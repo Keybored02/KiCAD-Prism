@@ -2,6 +2,7 @@
  * Panel API client — typed fetch helpers for the remote-provider endpoints.
  */
 
+import { ApiHttpError, apiErrorFrom } from "@/lib/api";
 import { loadAssetText, type AssetTextRequest } from "@/lib/ecad-renderer";
 import { normalizePanelPageSize, PANEL_PAGE_SIZE } from "@/panel/lib/panel-page";
 
@@ -33,6 +34,25 @@ export interface PanelComponent {
   footprint_preview_url: string;
   manifest_url: string;
   inline_url: string;
+  /** The revision this payload describes (provider 0.4.0). */
+  revision_id?: string;
+  /** Released revisions placement may serve, newest first (detail only, provider 0.4.0). */
+  released_revisions?: PanelReleasedRevision[];
+}
+
+export interface PanelReleasedRevision {
+  revision_id: string;
+  version: number;
+  released_at: string;
+}
+
+/** `?representation=…&revision=…` with only the parts that are set. */
+function placementQuery(representationId: string, revisionId: string): string {
+  const params = new URLSearchParams();
+  if (representationId) params.set("representation", representationId);
+  if (revisionId) params.set("revision", revisionId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export interface PanelSupplySource {
@@ -56,8 +76,50 @@ export interface PanelSupplySource {
   product_url?: string;
 }
 
+/** The one-line standing of a component's manufacturer part, from the distributors. Absent when Prism does not track it. */
+export interface PanelSupplySummary {
+  part_id: string;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  stock: number | null;
+  distributors: number;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  unit_price: string | null;
+  price_quantity: number;
+  currency: string;
+  fetched_at: string | null;
+  watched: boolean;
+}
+
+export interface PanelDistributorOffer {
+  connector: string;
+  /** The connector's provider key, for its colour. */
+  provider?: string;
+  sku: string;
+  stock: number;
+  marketplace: boolean;
+  unit_price: string | null;
+  currency: string;
+  moq: number;
+  lead_time_days: number | null;
+  product_url: string;
+  fetched_at: string | null;
+}
+
 export interface PanelSupply {
+  /** Inventory sources. Distributor offers are in `offers`. */
   sources: PanelSupplySource[];
+  summary?: PanelSupplySummary;
+  /** The library marked this component: do not use it in new designs. */
+  restriction?: "not_for_new_designs";
+  /** Detail only, from here down. */
+  offers?: PanelDistributorOffer[];
+  health?: { score: number; status: PanelSupplySummary["status"] };
+  /** One phrase, rule-based: "No signs of an end of life", "2 to 5 years"... */
+  outlook?: string;
+  risks?: string[];
+  /** One line on the chance it stays in stock, once Prism's forecasts have earned a place. */
+  forecast?: { tone: "ok" | "warning"; text: string } | null;
+  links?: { component: string; sourcing: string; supply: string };
 }
 
 /** Local inventory row for badges; vendor rows are ignored for on-shelf counts. */
@@ -94,12 +156,11 @@ export interface PanelCategory {
   count: number;
 }
 
-export class PanelApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
+/** The panel's transport error: the shared `ApiHttpError` (status 0 = network failure). */
+export class PanelApiError extends ApiHttpError {
+  constructor(status: number, message: string, code?: string, payload: Record<string, unknown> = {}) {
+    super(status, message, code, payload);
     this.name = "PanelApiError";
-    this.status = status;
   }
 }
 
@@ -134,27 +195,26 @@ export function loadPanelAssetText(url: string): Promise<string> {
   return loadAssetText(url, panelAssetTextRequest(url));
 }
 
-async function panelFetch<T>(url: string, signal?: AbortSignal): Promise<T> {
+/**
+ * The panel's adapter at the transport seam: a bearer token instead of the
+ * session cookie, and no session-expired event (KiCad hosts the panel).
+ * Error bodies are read by the shared parser in `@/lib/api`.
+ */
+async function panelFetch<T>(url: string, signal?: AbortSignal, method = "GET"): Promise<T> {
   const headers: Record<string, string> = {};
   if (apiToken) {
     headers["Authorization"] = `Bearer ${apiToken}`;
   }
   let response: Response;
   try {
-    response = await fetch(url, { credentials: "include", headers, signal });
+    response = await fetch(url, { credentials: "include", headers, signal, method });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     throw new PanelApiError(0, `Network error: ${(err as Error).message}`);
   }
   if (!response.ok) {
-    let detail = `Request failed (${response.status})`;
-    try {
-      const payload = await response.json();
-      detail = payload.detail || payload.message || detail;
-    } catch {
-      /* ignore */
-    }
-    throw new PanelApiError(response.status, detail);
+    const error = await apiErrorFrom(response, `Request failed (${response.status})`);
+    throw new PanelApiError(error.status, error.message, error.code, error.payload);
   }
   return (await response.json()) as T;
 }
@@ -243,25 +303,34 @@ export async function getComponentsByCategory(
 export async function getComponent(
   componentId: string,
   signal?: AbortSignal,
-  representationId = ""
+  representationId = "",
+  revisionId = "",
 ): Promise<PanelComponent> {
-  const params = new URLSearchParams();
-  if (representationId) params.set("representation", representationId);
-  const query = params.toString();
   return panelFetch<PanelComponent>(
-    `/api/remote-provider/components/${componentId}${query ? `?${query}` : ""}`,
+    `/api/remote-provider/components/${componentId}${placementQuery(representationId, revisionId)}`,
     signal
   );
+}
+
+export interface PanelSupplyRefresh {
+  read: number;
+  connectors: number;
+  problems: Array<{ connector: string; reason: string }>;
+}
+
+/** Ask the distributors for a tracked part's stock and price now. Throws a PanelApiError with the reason when it is too soon. */
+export function refreshSupplyPart(partId: string): Promise<PanelSupplyRefresh> {
+  return panelFetch<PanelSupplyRefresh>(`/api/remote-provider/supply/parts/${encodeURIComponent(partId)}/refresh`, undefined, "POST");
 }
 
 export async function getPartManifest(
   partId: string,
   representationId = "",
   signal?: AbortSignal,
+  revisionId = "",
 ): Promise<Record<string, unknown>> {
-  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/parts/${partId}${query}`, signal,
+    `/api/remote-provider/parts/${partId}${placementQuery(representationId, revisionId)}`, signal,
   );
 }
 
@@ -269,9 +338,9 @@ export async function getInlineBundle(
   componentId: string,
   representationId = "",
   signal?: AbortSignal,
+  revisionId = "",
 ): Promise<Record<string, unknown>> {
-  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/components/${componentId}/inline${query}`, signal,
+    `/api/remote-provider/components/${componentId}/inline${placementQuery(representationId, revisionId)}`, signal,
   );
 }

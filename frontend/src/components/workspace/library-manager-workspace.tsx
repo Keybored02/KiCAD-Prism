@@ -1,9 +1,9 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Database, DownloadCloud, PackageCheck, Plug, Table2, type LucideIcon } from "lucide-react";
+import { Database, DownloadCloud, Hourglass, PackageCheck, Table2, type LucideIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
@@ -12,15 +12,16 @@ const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspac
 const LibraryComponentWorkspace = lazy(() => import("./library-component-workspace").then((module) => ({ default: module.LibraryComponentWorkspace })));
 const LibraryImportCenter = lazy(() => import("./library-import-center").then((module) => ({ default: module.LibraryImportCenter })));
 const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
+const EndingPartsView = lazy(() => import("@/features/supply/ending-parts-view").then((module) => ({ default: module.EndingPartsView })));
 
-type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "connectors";
+type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "ending";
 
 const VIEW_LABELS: Record<LibraryView, string> = {
   catalog: "Catalog",
   "bulk-edit": "Bulk Edit",
   imports: "Import Center",
   releases: "Release Queue",
-  connectors: "Connectors",
+  ending: "Ending Parts",
 };
 
 const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
@@ -28,14 +29,15 @@ const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
   "bulk-edit": Table2,
   imports: DownloadCloud,
   releases: PackageCheck,
-  connectors: Plug,
+  ending: Hourglass,
 };
 
 export function LibraryManagerWorkspace({ user, projects }: { user: User | null; projects: Project[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const componentId = searchParams.get("component") || "";
   const requestedView = searchParams.get("libraryView") as LibraryView | null;
-  const view: LibraryView = requestedView && ["catalog", "bulk-edit", "imports", "releases", "connectors"].includes(requestedView) ? requestedView : "catalog";
+  const views: LibraryView[] = canOpenSupply(user?.role) ? ["catalog", "bulk-edit", "imports", "releases", "ending"] : ["catalog", "bulk-edit", "imports", "releases"];
+  const view: LibraryView = requestedView && views.includes(requestedView) ? requestedView : "catalog";
 
   const setView = (next: LibraryView) => {
     setSearchParams((current) => {
@@ -91,17 +93,12 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         className="shrink-0 gap-0 border-b bg-card px-3"
       >
         <TabsList variant="line" className="h-10 gap-2" aria-label="Library Manager sections">
-          {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => {
+          {views.map((item) => {
             const Icon = VIEW_ICONS[item];
             return (
               <TabsTrigger key={item} value={item} className="gap-2 px-2 text-sm">
                 <Icon className="h-4 w-4" />
                 {VIEW_LABELS[item]}
-                {item === "connectors" ? (
-                  <Badge variant="outline" className="px-1 text-[10px] font-normal text-muted-foreground">
-                    Coming soon
-                  </Badge>
-                ) : null}
               </TabsTrigger>
             );
           })}
@@ -113,16 +110,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
-        {view === "connectors" && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-            <Plug className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium">Connectors are not available yet</p>
-            <p className="max-w-md text-sm text-muted-foreground">
-              PLM and MRP integrations will be configured here. Machine access is already
-              possible today through OAuth2 service clients.
-            </p>
-          </div>
-        )}
+        {view === "ending" && <EndingPartsView role={user?.role} onOpenComponent={(id) => openComponent(id, "overview", "ending")} />}
       </div>
       </Suspense>
     </div>

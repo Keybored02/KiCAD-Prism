@@ -7,7 +7,6 @@ import {
     ChevronRight,
     CircuitBoard,
     Cpu,
-    Database,
     ExternalLink,
     LibraryBig,
     LoaderCircle,
@@ -19,11 +18,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SelectionSupplyRow } from "@/features/supply/selection-supply-row";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { labelInstanceListLabel, type LabelInstanceRef } from "@/lib/label-instances";
 import { netFromSelection, netLeafName, sameHighlightedNet, type HighlightedNet } from "@/lib/net-highlights";
 import { selectionLabel } from "@/lib/prism-selection";
+import type { User } from "@/types/auth";
 import type { EcadNetStatistics } from "@/types/ecad-viewer";
 import type {
     PrismSelection,
@@ -33,6 +34,7 @@ import type {
     SemanticNet,
     SemanticTerminal,
 } from "@/types/prism-selection";
+import { orderedFieldEntries } from "@/lib/semantic-fields";
 
 /** A highlighted net as the inspector lists it, with its copper summary. */
 export interface HighlightedNetEntry {
@@ -56,6 +58,8 @@ interface SelectionInspectorProps {
     onImportComponent?: () => void;
     canImportComponent?: boolean;
     importingComponent?: boolean;
+    /** Who is looking, when Supply may be shown for the selected component (the viewer is at the head of the project). */
+    supplyUser?: User | null;
     /** Matching schematic label instances for net / global-label selections. */
     labelInstances?: LabelInstanceRef[];
     onNavigateLabelInstance?: (direction: -1 | 1) => void;
@@ -178,6 +182,7 @@ function LinkValue({ href, text }: { href: string; text: string }) {
 // row on the component card: the reference/value/footprint (shown elsewhere)
 // and KiCad's own attributes (kicad_*/ki_*/_source). Sheetfile/Sheetname stay.
 const HIDDEN_FIELD_KEYS = new Set(["Reference", "Value", "Footprint"]);
+
 
 function isDisplayableField(key: string, value: string): boolean {
     if (HIDDEN_FIELD_KEYS.has(key)) return false;
@@ -467,6 +472,7 @@ export function SelectionInspector({
     onImportComponent,
     canImportComponent = false,
     importingComponent = false,
+    supplyUser = null,
     labelInstances = [],
     onNavigateLabelInstance,
     onFocusLabelInstance,
@@ -662,7 +668,7 @@ export function SelectionInspector({
                                         label="BOM"
                                         value={<FlagValue value={component.fields?.["In BOM"]} goodWhenYes={true} />}
                                     />
-                                    {Object.entries(component.fields || {}).flatMap(([key, value]) => (
+                                    {orderedFieldEntries(component.fields || {}).flatMap(([key, value]) => (
                                         key !== "DNP" && key !== "In BOM" && isDisplayableField(key, String(value))
                                             ? [
                                                 <PropertyRow
@@ -692,7 +698,7 @@ export function SelectionInspector({
                                     ) : (
                                         <IntegrationRow icon={LibraryBig} title="Library Manager" description="Open the selected symbol, footprint, and project overrides." />
                                     )}
-                                    <IntegrationRow icon={Database} title="Component database" description="Lifecycle, alternates, approved vendors, and organization metadata." />
+                                    {component && supplyUser ? <SelectionSupplyRow component={component} user={supplyUser} /> : null}
                                 </div>
                             </CollapsibleSection>
                         </>

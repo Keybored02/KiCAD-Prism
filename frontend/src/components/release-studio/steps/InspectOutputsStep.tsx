@@ -19,10 +19,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ReleaseSupplyCheck, ReleaseSupplySummary } from "@/features/supply/release-supply-check";
 import { cn } from "@/lib/utils";
 
 import * as api from "../api";
 import { shortDigest } from "../flow";
+import { UnpinnedModelsAck, useModelAcknowledgement } from "../UnpinnedModels";
 import {
     DocumentSheetPreview,
     MemberViewer,
@@ -96,6 +98,14 @@ export function InspectOutputsStep({
 
     return (
         <div className="flex h-full min-h-0 flex-1 flex-col">
+            <details className="shrink-0 border-b px-2 py-1">
+                <summary className="cursor-pointer list-none">
+                    <ReleaseSupplySummary projectId={projectId} buildId={detail.build.id} />
+                </summary>
+                <div className="py-2">
+                    <ReleaseSupplyCheck projectId={projectId} buildId={detail.build.id} />
+                </div>
+            </details>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <Tabs value={outputView} onValueChange={setOutputView} className="shrink-0 gap-0">
                     <div className="flex items-center gap-2 border-b bg-card px-2">
@@ -275,8 +285,30 @@ function SignOffCards({
 }) {
     const published = Boolean(approvals?.published);
     const electrical = approvals?.electrical_errors ?? [];
+    const unpinned = approvals?.unpinned_models ?? [];
+    const acknowledgement = useModelAcknowledgement(buildId, unpinned);
+    const canApprove = Boolean(approvals?.can_approve_designer || approvals?.can_approve_qa);
+    const shared = {
+        electrical,
+        published,
+        busy,
+        onRun,
+        onRefresh,
+        projectId,
+        buildId,
+        acknowledgement: acknowledgement.satisfied ? "given" as const : "missing" as const,
+        acknowledgedModels: acknowledgement.keys,
+    };
     return (
         <div className="space-y-2">
+            {!published && canApprove ? (
+                <UnpinnedModelsAck
+                    models={unpinned}
+                    checked={acknowledgement.acknowledged}
+                    onCheckedChange={acknowledgement.setAcknowledged}
+                    disabled={Boolean(busy)}
+                />
+            ) : null}
             {electrical.length > 0 && !approvals?.both_approved ? (
                 <div className="flex flex-wrap gap-1">
                     {electrical.map((kind) => (
@@ -291,13 +323,7 @@ function SignOffCards({
                 decision={approvals?.designer ?? null}
                 canApprove={Boolean(approvals?.can_approve_designer)}
                 canWithdraw={Boolean(approvals?.can_withdraw && approvals.designer && !published)}
-                electrical={electrical}
-                published={published}
-                busy={busy}
-                onRun={onRun}
-                onRefresh={onRefresh}
-                projectId={projectId}
-                buildId={buildId}
+                {...shared}
             />
             <SignOffCard
                 label="QA"
@@ -305,13 +331,7 @@ function SignOffCards({
                 decision={approvals?.qa ?? null}
                 canApprove={Boolean(approvals?.can_approve_qa)}
                 canWithdraw={Boolean(approvals?.can_withdraw && approvals.qa && !published)}
-                electrical={electrical}
-                published={published}
-                busy={busy}
-                onRun={onRun}
-                onRefresh={onRefresh}
-                projectId={projectId}
-                buildId={buildId}
+                {...shared}
             />
             </div>
             {approvals?.published ? (
@@ -336,6 +356,8 @@ function SignOffCard({
     buildId,
     onRun,
     onRefresh,
+    acknowledgement,
+    acknowledgedModels,
 }: {
     label: string;
     slot: ReviewSlot;
@@ -349,6 +371,8 @@ function SignOffCard({
     buildId: string;
     onRun: RunFn;
     onRefresh?: () => Promise<unknown> | void;
+    acknowledgement: "given" | "missing";
+    acknowledgedModels: string[];
 }) {
     const [note, setNote] = useState("");
     const approved = Boolean(decision);
@@ -358,7 +382,11 @@ function SignOffCard({
             if (withdraw) {
                 await api.withdrawApproval(projectId, buildId, { slot, note });
             } else {
-                await api.approveBuild(projectId, buildId, { slot, note });
+                await api.approveBuild(projectId, buildId, {
+                    slot,
+                    note,
+                    acknowledged_models: acknowledgedModels,
+                });
             }
             setNote("");
             await onRefresh?.();
@@ -399,7 +427,11 @@ function SignOffCard({
                     />
                     <Button
                         size="xs"
-                        disabled={Boolean(busy) || (overrideRequired && !note.trim())}
+                        disabled={
+                            Boolean(busy)
+                            || (overrideRequired && !note.trim())
+                            || acknowledgement === "missing"
+                        }
                         aria-label={`Approve ${label}`}
                         onClick={() => runDecision(false)}
                     >

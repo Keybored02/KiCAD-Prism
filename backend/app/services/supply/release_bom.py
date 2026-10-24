@@ -1,0 +1,111 @@
+"""The bill of materials a release build exported, read as BOM lines.
+
+A release builds its own BOM (the project's variant, through the run's BOM preset), so what the supply check reads is
+exactly what ships, whether or not anyone opened the Visualizer. The file is a CSV from ``kicad-cli``: one row per group
+of identical parts, with the columns the preset chose. Columns are found by the same names the BOM table uses
+(``bom_fields.py``) and a quantity column, or the references, gives how many go on a board. A row with no part number
+says nothing and is left out; it is counted so the check can say so.
+
+Nothing here calls a distributor.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import re
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+from app.services.supply.bom_fields import identity_of, is_fitted, lcsc_of, prism_id_of
+from app.services.supply.identity import alias_key, match_key
+from app.services.supply.usage import MAX_REFERENCES_TEXT, Identities, UsageLine
+
+QUANTITY_FIELDS = ("qty", "quantity", "qnty", "count", "amount")
+REFERENCE_FIELDS = ("reference", "references", "designator", "designators", "refs", "ref")
+MAX_ROWS = 20_000
+MAX_BYTES = 8 * 1024 * 1024
+
+
+class BomReadError(ValueError):
+    """The file is not a BOM that can be read. The message is safe to show."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReadBom:
+    lines: list[UsageLine]
+    rows: int
+    without_number: int
+
+
+def _table(text: str) -> list[dict[str, str]]:
+    if len(text.encode("utf-8", "ignore")) > MAX_BYTES:
+        raise BomReadError("The BOM file is larger than 8 MB.")
+    text = text.lstrip("﻿")
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.reader(io.StringIO(text), dialect)
+    rows = [row for row in reader if any(cell.strip() for cell in row)]
+    if len(rows) < 2:
+        raise BomReadError("The BOM file has no rows.")
+    header = [name.strip() for name in rows[0]]
+    return [
+        {header[index]: cell.strip() for index, cell in enumerate(row) if index < len(header) and header[index]}
+        for row in rows[1: MAX_ROWS + 1]
+    ]
+
+
+def _first(row: Mapping[str, str], names: tuple[str, ...]) -> str:
+    by_name = {key.strip().lower(): value for key, value in row.items() if value.strip()}
+    for name in names:
+        if name in by_name:
+            return by_name[name]
+    return ""
+
+
+def _quantity(row: Mapping[str, str]) -> int:
+    given = _first(row, QUANTITY_FIELDS)
+    if given:
+        try:
+            return max(1, int(float(given)))
+        except ValueError:
+            pass
+    references = [ref for ref in re.split(r"[\s,;]+", _first(row, REFERENCE_FIELDS)) if ref]
+    return max(1, len(references))
+
+
+def lines_from_csv(text: str, identities: Identities | None = None) -> ReadBom:
+    """The distinct parts in a BOM export, with how many go on a board. Rows marked not fitted are left out."""
+
+    rows = _table(text)
+    fitted = [row for row in rows if is_fitted(row)]
+    library: Mapping[str, tuple[str, str]] = {}
+    if identities is not None:
+        library = identities({prism_id_of(row) for row in fitted} - {""})
+    found: dict[str, dict[str, Any]] = {}
+    without_number = 0
+    for row in fitted:
+        placed = library.get(prism_id_of(row))
+        manufacturer, mpn = placed if placed and placed[1].strip() else identity_of(row)
+        number = match_key(mpn)
+        if not number:
+            without_number += 1
+            continue
+        key = f"{alias_key(manufacturer)}|{number}"
+        line = found.setdefault(key, {"manufacturer": manufacturer, "mpn": mpn, "alias": alias_key(manufacturer), "number": number,
+                                      "quantity": 0, "refs": [], "lcsc": ""})
+        line["quantity"] += _quantity(row)
+        line["refs"] += [ref for ref in re.split(r"[\s,;]+", _first(row, REFERENCE_FIELDS)) if ref]
+        line["lcsc"] = line["lcsc"] or lcsc_of(row)
+    return ReadBom(
+        [
+            UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], line["quantity"],
+                      " ".join(sorted(line["refs"]))[:MAX_REFERENCES_TEXT], line["lcsc"])
+            for key, line in found.items()
+        ],
+        rows=len(fitted),
+        without_number=without_number,
+    )

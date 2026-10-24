@@ -29,12 +29,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
+import { SupplyAvailability } from "@/panel/screens/SupplyAvailability";
 import {
   classifyPanelLoadFailure,
   getComponent,
   getInlineBundle,
   getPartManifest,
+  refreshSupplyPart,
 } from "@/panel/lib/panel-api";
+import { refreshText } from "@/panel/lib/supply-summary";
 import { usePanelAssetLoader } from "@/panel/lib/use-panel-asset-loader";
 import { getSessionId, KiCadRpcError, sendRpcCommand } from "@/panel/lib/kicad-bridge";
 import { formatPlacementError, PLACEMENT_RESPONSE_TIMEOUT_MS } from "@/panel/lib/panel-placement";
@@ -119,12 +122,29 @@ export function PartDetailScreen({
     preview: previewFor(componentId, prefetched),
   }));
   const [retryNonce, setRetryNonce] = useState(0);
+  const refreshAvailability = async () => {
+    const partId = load.phase === "ready" ? load.component.supply?.summary?.part_id : undefined;
+    if (!partId) {
+      appendLog("Prism does not track this part's availability yet.");
+      return;
+    }
+    try {
+      appendLog(refreshText(await refreshSupplyPart(partId)));
+      setRetryNonce((value) => value + 1);
+    } catch (err) {
+      appendLog((err as Error).message);
+    }
+  };
   const [showAllParams, setShowAllParams] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
   const placingRef = useRef(false);
   const placementControllerRef = useRef<AbortController | null>(null);
   const [representationId, setRepresentationId] = useState("");
+  // The released revision to place; "" is the current release. Keyed by part,
+  // so opening another part starts from its current release.
+  const [revisionChoice, setRevisionChoice] = useState({ componentId, revisionId: "" });
+  const revisionId = revisionChoice.componentId === componentId ? revisionChoice.revisionId : "";
 
   useEffect(() => () => placementControllerRef.current?.abort(), [componentId]);
 
@@ -137,7 +157,7 @@ export function PartDetailScreen({
     setShowAllParams(false);
     setPlacementError(null);
     const controller = new AbortController();
-    getComponent(componentId, controller.signal)
+    getComponent(componentId, controller.signal, "", revisionId)
       .then((detail) => {
         if (controller.signal.aborted) return;
         setLoad({ phase: "ready", component: detail });
@@ -161,7 +181,7 @@ export function PartDetailScreen({
         });
       });
     return () => controller.abort();
-  }, [componentId, retryNonce, prefetched, appendLog, onAuthRequired]);
+  }, [componentId, revisionId, retryNonce, prefetched, appendLog, onAuthRequired]);
 
   async function runPlacement(path: "manifest" | "inline") {
     const sessionId = getSessionId();
@@ -179,8 +199,8 @@ export function PartDetailScreen({
     setPlacementError(null);
     try {
       const payload = path === "manifest"
-        ? await getPartManifest(component.id, representationId, controller.signal)
-        : await getInlineBundle(component.id, representationId, controller.signal);
+        ? await getPartManifest(component.id, representationId, controller.signal, revisionId)
+        : await getInlineBundle(component.id, representationId, controller.signal, revisionId);
       if (controller.signal.aborted) return;
       if (sessionId !== getSessionId()) {
         throw new KiCadRpcError("pre_dispatch", "KiCad session changed while preparing placement. Try again in the current schematic.");
@@ -377,6 +397,29 @@ export function PartDetailScreen({
       {/* ── PREVIEW ────────────────────────────────────────────── */}
       {selectedRepresentation && (
         <Section label="Preview">
+          {(component.released_revisions?.length ?? 0) > 1 && (
+            <Select
+              value={revisionId || component.released_revisions![0].revision_id}
+              onValueChange={(value) =>
+                setRevisionChoice({
+                  componentId,
+                  revisionId: value === component.released_revisions![0].revision_id ? "" : value,
+                })
+              }
+            >
+              <SelectTrigger className="mb-2 h-8 text-xs" aria-label="Released revision">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {component.released_revisions!.map((revision, index) => (
+                  <SelectItem key={revision.revision_id} value={revision.revision_id}>
+                    Rev.{revision.version}
+                    {index === 0 ? " · Latest" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={representationId} onValueChange={setRepresentationId}>
             <SelectTrigger className="mb-2 h-8 text-xs" aria-label="Representation">
               <SelectValue placeholder="Select a representation" />
@@ -426,22 +469,30 @@ export function PartDetailScreen({
       <Section
         label="Availability"
         action={
-          vendorSources.length > 0 ? (
+          vendorSources.length > 0 || component.supply?.summary ? (
             <button
               aria-label="Refresh availability"
               title="Refresh availability"
               className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={() => appendLog("Vendor refresh is not configured yet.")}
+              onClick={() => void refreshAvailability()}
             >
               <RefreshCw className="h-3 w-3" />
             </button>
           ) : null
         }
       >
-        {sources.length === 0 ? (
-          <p className="px-0.5 py-1 text-[11px] leading-snug text-muted-foreground">
-            No availability data.
+        {component.supply?.restriction === "not_for_new_designs" ? (
+          <p role="alert" className="rounded border border-amber-500/50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+            Not for new designs. The library marked this component. Placed symbols keep working; pick another for a new design.
           </p>
+        ) : null}
+        {component.supply?.summary ? <SupplyAvailability supply={component.supply} /> : null}
+        {sources.length === 0 ? (
+          component.supply?.summary ? null : (
+            <p className="px-0.5 py-1 text-[11px] leading-snug text-muted-foreground">
+              No availability data.
+            </p>
+          )
         ) : (
           <div className="flex flex-col gap-1.5">
             {sources.map((source) => (

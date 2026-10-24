@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
+from app.services.catalog.asset_files import lock_and_check_asset_bytes
 from app.services.catalog.asset_types import (
     PLACE_REQUIRED_ASSET_TYPES,
     preview_kind_for_asset_type,
@@ -41,6 +42,8 @@ class CatalogAssetLinks:
         now = utc_now_iso()
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
+        if asset_type == "3dmodel":
+            lock_and_check_asset_bytes(conn, asset_id)
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
@@ -176,12 +179,8 @@ class CatalogAssetLinks:
         change_summary: str,
         counterpart_asset_id: str = "",
         expected_revision_id: str = "",
-        exclusive: bool = False,
     ) -> dict[str, Any]:
-        """``exclusive``: the new asset replaces every other asset of its type on the new revision (a
-        module's one symbol, CONTRACTS_P2 §3.5), before the revision is sealed.
-
-        Attach ``asset`` to the component's current draft, cloning when needed.
+        """Attach ``asset`` to the component's current draft, cloning when needed.
 
         Re-attaching an identical link only refreshes preview outputs when a newer
         ready preview exists, so an unchanged revision keeps its manifest hash.
@@ -190,7 +189,7 @@ class CatalogAssetLinks:
         if not current:
             raise ValueError("Component not found")
         current_id = str(current["id"])
-        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id)
+        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id, component_id=component_id)
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
         existing = conn.execute(
@@ -236,8 +235,6 @@ class CatalogAssetLinks:
             required=required,
             counterpart_asset_id=counterpart_asset_id,
         )
-        if exclusive:
-            self.replace_others(conn, str(revision["id"]), asset)
         self._finalizer.finalize_revision(
             conn,
             runtime,
@@ -253,29 +250,6 @@ class CatalogAssetLinks:
             },
         )
         return revision
-
-
-    @staticmethod
-    def replace_others(conn: Any, revision_id: str, asset: dict[str, Any]) -> None:
-        """Drop the revision's other assets of ``asset``'s type (the clone copied them) and point its
-        representations at ``asset``, keeping one default."""
-        asset_type, asset_id = str(asset["asset_type"]), str(asset["id"])
-        others = [str(row["asset_id"]) for row in conn.execute(
-            "SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type = %s AND asset_id <> %s",
-            (revision_id, asset_type, asset_id),
-        ).fetchall()]
-        if not others:
-            return
-        for table in ("revision_previews", "revision_preview_outputs", "revision_validation_evidence_links",
-                      "revision_assets"):
-            conn.execute(f"DELETE FROM {table} WHERE revision_id = %s AND asset_id = ANY(%s)", (revision_id, others))
-        if asset_type not in ("symbol", "footprint"):
-            return
-        column = "symbol_asset_id" if asset_type == "symbol" else "footprint_asset_id"
-        conn.execute(f"DELETE FROM revision_representations WHERE revision_id = %s AND is_default = 0 "
-                     f"AND ({column} = ANY(%s) OR {column} = %s)", (revision_id, others, asset_id))
-        conn.execute(f"UPDATE revision_representations SET {column} = %s, updated_at = %s "
-                     f"WHERE revision_id = %s AND {column} = ANY(%s)", (asset_id, utc_now_iso(), revision_id, others))
 
 
 __all__ = ["CatalogAssetLinks"]

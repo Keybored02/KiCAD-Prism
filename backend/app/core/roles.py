@@ -29,6 +29,13 @@ CATALOG_READ_ROLES: frozenset[Role] = frozenset({"admin", "designer", "qa"})
 CATALOG_BROWSE_ROLES: frozenset[Role] = CATALOG_READ_ROLES | frozenset({"viewer"})
 CATALOG_WRITE_ROLES: frozenset[Role] = frozenset({"admin", "designer"})
 CATALOG_QA_ROLES: frozenset[Role] = frozenset({"admin", "qa"})
+# Supply data follows the catalog: same people read it. Write and approve sets
+# are added with the features that use them.
+SUPPLY_READ_ROLES: frozenset[Role] = CATALOG_READ_ROLES
+# Matching decisions (confirm a spelling, pin or reject a listing) follow catalog QA.
+SUPPLY_APPROVE_ROLES: frozenset[Role] = CATALOG_QA_ROLES
+# Watching parts and changing watch rules follow catalog writes.
+SUPPLY_WRITE_ROLES: frozenset[Role] = CATALOG_WRITE_ROLES
 PROJECT_VIEW_ROLES: frozenset[Role] = frozenset({"viewer", "qa"})
 PROJECT_RELEASE_ACTOR_ROLES: frozenset[Role] = frozenset({"admin", "designer", "qa"})
 
@@ -49,9 +56,3 @@ def role_meets_minimum(role: Role, minimum: Role) -> bool:
 
 def role_label(role: Role) -> str:
     return ROLE_LABELS[role]
-
-
-def role_matches_allowed_role(role: Role, allowed_roles: list[str]) -> bool:
-    if role in allowed_roles:
-        return True
-    return role in PROJECT_VIEW_ROLES and "viewer" in allowed_roles
