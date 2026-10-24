@@ -217,6 +217,26 @@ def _worth_sending(batch: Sequence[DueListing], now: datetime, reset: tuple[str,
     return quota.seconds_to_reset(now, reset[0], reset[1]) < HOLD_PART_BATCH.total_seconds()
 
 
+def split_into_batches(due: Sequence[DueListing], spec) -> list[Sequence[DueListing]]:
+    """The calls a provider's due listings make: parts together for one that groups by part, else batches of its size."""
+
+    return _by_part(due, spec.max_batch) if spec.groups_by_part else _batches(due, spec.max_batch)
+
+
+def hold_back(due: Sequence[DueListing], spec, now: datetime, reset: tuple[str, str]) -> tuple[list[Sequence[DueListing]], int]:
+    """The batches to send now and how many listings are kept back to fill a batch. Only a provider that batches (``max_batch`` over
+    1) holds, and only the last, short batch (``_worth_sending``). The poller and the scanner that queues it both ask this, so the
+    scanner does not queue a job the poller will only answer with "nothing due"."""
+
+    batches = split_into_batches(due, spec)
+    if spec.max_batch > 1 and batches:
+        last = batches[-1]
+        full = len({row.part_id for row in last}) >= spec.max_batch if spec.groups_by_part else len(last) >= spec.max_batch
+        if not full and not _worth_sending(last, now, reset):
+            return batches[:-1], len(last)
+    return batches, 0
+
+
 def _batches(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing]]:
     """Batches of ``size``, except that listings whose last reads failed go in smaller ones: half the size for a second failure, a
     quarter for a third, and so on, grouped by how many times they failed. A bad listing in a batch fails it for the good ones too; this
@@ -324,16 +344,14 @@ class Poller:
         if not due:
             return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE)
 
-        batches = _by_part(due, spec.max_batch) if spec.groups_by_part else _batches(due, spec.max_batch)
-        holding = 0
         # Late committed reads made from spare budget wait for company too, or a held batch would go out alone right after.
         committed = spare in (None, "overdue")
-        if spec.max_batch > 1 and committed and not (interactive or oneoff or only_part is not None):
-            full = len({row.part_id for row in batches[-1]}) >= spec.max_batch if spec.groups_by_part else len(batches[-1]) >= spec.max_batch
-            if not full and not _worth_sending(batches[-1], now, self._reset):
-                holding = len(batches.pop())
+        if committed and not (interactive or oneoff or only_part is not None):
+            batches, holding = hold_back(due, spec, now, self._reset)
             if not batches:
                 return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE, holding=holding)
+        else:
+            batches, holding = split_into_batches(due, spec), 0
 
         provider = self._provider_for(connector_id)
         calls = polled = gone = 0

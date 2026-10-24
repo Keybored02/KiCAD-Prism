@@ -444,6 +444,28 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(sorted(call["payload"]["connector_ids"]), sorted([uk, de]))
         self.assertEqual(call["artifact_key"], f"supply-poll:{uk}", "keyed by the account's first connector, not by each connector")
 
+    def test_a_batching_connector_whose_few_due_listings_are_all_held_is_queued_only_when_the_hold_runs_out(self) -> None:
+        cid = self.connectors.create(
+            actor=ACTOR, provider="demo_keyed", storefront="uk", credentials={"api_key": "K9"}, daily_budget=1000, interactive_reserve_pct=10
+        )["id"]
+        part = self.watch("H1")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (part.part_id, cid, self.clock.now))
+            conn.execute(
+                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "VALUES ('h1', %s, 'SKU-H1', %s, 'x', 'Acme', 'exact')", (cid, part.part_id))
+            conn.execute("INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at) VALUES ('h1', 'daily', 2, %s, %s)",
+                         (self.clock.now - timedelta(minutes=10), self.clock.now - timedelta(days=1)))
+            self.admission.sync(conn)
+        self.assertEqual(self.work(), [], "one listing due ten minutes ago waits for company: a job would only say nothing is due")
+        self.assertEqual(self.poller_().poll_connector(cid).holding, 1, "and the poller agrees")
+        self.clock.advance(hours=2)
+        self.assertEqual(self.work(), [cid], "held for two hours, it goes out alone")
+        self.clock.advance(hours=-2)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE poll_state SET urgency = 0")
+        self.assertEqual(self.work(), [cid], "an urgent listing is never held")
+
     def test_parts_waiting_for_room_are_work_for_spare_budget_only(self) -> None:
         cid = self.connectors.create(
             actor=ACTOR, provider="demo_keyed", storefront="uk", credentials={"api_key": "K9"}, daily_budget=4, interactive_reserve_pct=50

@@ -21,7 +21,7 @@ from app.services.supply import (
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs, pending_waiting
-from app.services.supply.poller import Poller, spare_listings
+from app.services.supply.poller import GROUP_LISTINGS, MAX_BATCHES_PER_RUN, Poller, due_listings, hold_back, spare_listings, with_siblings
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANCES
 from app.services.supply.store import SupplyStore, supply_store
@@ -174,7 +174,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         {"now": now, **cutoffs(now)},
     ).fetchall()
 
-    ids = [row["id"] for row in due]
+    ids = [row["id"] for row in due if not _all_held(conn, row["id"], now)]
     for row in unsearched:
         try:
             searchable = CAP_SEARCH in registry.get_spec(row["provider"]).capabilities
@@ -211,6 +211,29 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
             if _has_pool_or_spare(conn, row, now):
                 result.add(row["id"])
     return sorted(result)
+
+
+def _all_held(conn, connector_id: str, now: datetime) -> bool:
+    """Whether everything due at a connector is kept back to fill a batch, so a job would only report "nothing due". Asks the poller's
+    own rule (``poller.hold_back``) over the listings it would read, for a provider that batches."""
+
+    row = conn.execute("SELECT provider, reset_time, reset_tz FROM connectors WHERE id = %s", (connector_id,)).fetchone()
+    if row is None:
+        return False
+    try:
+        spec = registry.get_spec(row["provider"])
+    except registry.UnknownProvider:
+        return False
+    if spec.max_batch <= 1:
+        return False
+    limit = (GROUP_LISTINGS * spec.max_batch if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN
+    due = due_listings(conn, connector_id, now, limit, metered=spec.metered)
+    if not due:
+        return False
+    if spec.groups_by_part:
+        due = with_siblings(conn, connector_id, due)
+    batches, _held = hold_back(due, spec, now, (row["reset_time"], row["reset_tz"]))
+    return not batches
 
 
 def _connectors_with_details(conn, now: datetime, known: set[str]) -> set[str]:
@@ -492,7 +515,7 @@ def run_supply_poll_job(context: Any) -> Any:
         connectors.refresh_account_keys()
     except Exception:  # noqa: BLE001 - a stale key only splits a shared budget; the poll goes on
         logging.getLogger(__name__).info("Account keys not refreshed", exc_info=True)
-    searched = listings = calls = polled_count = gone = spare_calls = 0
+    searched = listings = calls = polled_count = gone = spare_calls = holding = 0
     discovery_stopped = poll_stopped = None
     for connector_id in connector_ids:
         try:
@@ -516,12 +539,12 @@ def run_supply_poll_job(context: Any) -> Any:
                 logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
             spare_calls += _spend_spare(connectors, connector_id)[0]
         searched, listings = searched + found.searched, listings + found.listings
-        calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
+        calls, polled_count, gone, holding = calls + polled.calls, polled_count + polled.polled, gone + polled.gone, holding + polled.holding
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
     details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,
-        "calls": calls, "spare_calls": spare_calls, "polled": polled_count, "gone": gone, "poll_stopped": poll_stopped,
+        "calls": calls, "spare_calls": spare_calls, "polled": polled_count, "gone": gone, "holding": holding, "poll_stopped": poll_stopped,
         "details_stopped": details_stopped,
     }
     return JobResult(
