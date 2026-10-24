@@ -407,7 +407,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         return () => controller.abort();
     }, [activeBranchRef, currentCommit, projectId]);
 
-    if (loading) {
+    // Only a project not shown yet blanks the page. Reading the overview again for another commit (the branch head, once it is known)
+    // keeps the page up: blanking it unmounted every open section, which then loaded everything a second time.
+    if (loading && project?.id !== projectId) {
         return <div className="flex items-center justify-center h-app-viewport">Loading...</div>;
     }
 
