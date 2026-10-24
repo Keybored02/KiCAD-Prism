@@ -408,7 +408,7 @@ A project's Supply tab answers, in this order: can we build N boards and what st
 - **Headline:** the build ("0 of 100 boards, limited by ..."; the pencil on it sets the number of boards and can keep it as the usual build), its cost
   (the price for the boards and the price of one, with what minimum orders leave over and the lines priced), health with the parts by status as a bar
   and a legend of counts, and the stock coverage (the share of lines in stock for the boards). There is no project forecast. "At risk" is error or fatal everywhere (the Projects view, the
-  Dashboard and here); a warning only needs a look.
+  Dashboard, the Parts and Catalog filters, the MCP tool and here); a warning only needs a look.
 - **Cost:** per board by build size (1 to 10,000 boards), cost allocation (the ten dearest lines), and the cost over time. A day that priced
   fewer lines than today, or one that read a price wrong, is left out of the history and named. The daily cost is worked out for the usual build.
 - **Parts (last on the page):** the same list as the Parts tab (compact or a row for each vendor, search, lifecycle and vendor menus, "Runs out first") with the pieces a board uses, the pieces needed and the line cost added. Part, stock and price sort on the server, the three project columns where the list is; a row opens the part's sheet over the page. A BOM line that matches no part shows after the parts until something narrows the list.

@@ -35,11 +35,12 @@ Filter = Literal[
     "reach_compliant", "reach_affected", "reach_not_applicable", "reach_unknown",
     "control_controlled", "control_disputed", "control_none", "control_unknown",
 ]
-_NEEDS_A_LOOK = ("fatal", "error", "warning")
+# "At risk" is error or fatal everywhere (the Dashboard, this filter, the Projects view, a project's page); a warning only needs a look.
+_AT_RISK = ("fatal", "error")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 # The groups the Overview counts, so a count and the list it links to agree.
 FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
-    "at_risk": lambda item: item["status"] in _NEEDS_A_LOOK,
+    "at_risk": lambda item: item["status"] in _AT_RISK,
     "out_of_stock": lambda item: item["stock"] == 0,
     "lifecycle": lambda item: item["lifecycle"] in _LIFECYCLE_RISK,
     **{f"lifecycle_{state.value}": (lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
@@ -408,7 +409,7 @@ def status_counts(members: list[dict[str, Any]], facts: list[dict[str, Any]]) ->
     ``status``, ``stock`` and ``lifecycle``; ``facts`` are the kept insights of the same parts, in the same order."""
 
     return {
-        "at_risk": sum(1 for item in members if item["status"] in ("error", "fatal")),
+        "at_risk": sum(1 for item in members if item["status"] in _AT_RISK),
         "out": sum(1 for item in members if item["stock"] == 0),
         "end_of_life": sum(1 for item in members if item["lifecycle"] not in ("active", "unknown")),
         "one_distributor": sum(1 for data in facts if data.get("holders") == 1),

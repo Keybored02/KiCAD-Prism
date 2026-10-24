@@ -16,7 +16,7 @@ const SUPPLY_VIEWS = [
 /** What people type to find a group of parts, and the Parts view that shows it. */
 const FINDINGS = [
   { label: "parts out of stock", params: "partsOnly=out_of_stock", keywords: "empty zero none stock" },
-  { label: "parts at risk", params: "partsOnly=at_risk", keywords: "problem warning error" },
+  { label: "parts at risk", params: "partsOnly=at_risk", keywords: "problem error critical" },
   { label: "obsolete and ending parts", params: "partsOnly=lifecycle", keywords: "obsolete nrnd last time buy end of life eol" },
   { label: "parts that run out soon", params: "partsOnly=runs_out_2w", keywords: "runs out running out depleting" },
   { label: "parts likely out within 4 weeks", params: "partsOnly=likely_out_4w", keywords: "likely forecast expected running out soon" },

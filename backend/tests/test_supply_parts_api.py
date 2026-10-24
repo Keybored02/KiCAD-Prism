@@ -512,7 +512,7 @@ class SupplyPartsApiTests(unittest.TestCase):
 
         self.assertEqual(only("out_of_stock"), ["OOS-1"])
         self.assertEqual(only("lifecycle"), ["EOL-1", "NRND-1"])
-        self.assertEqual(only("at_risk"), ["EOL-1", "NRND-1", "OOS-1"])
+        self.assertEqual(only("at_risk"), ["EOL-1", "OOS-1"], "an NRND part is a warning: it needs a look but is not at risk")
         self.assertEqual(len(only("")), 4)
         self.assertEqual(self.call("GET", "/api/supply/parts", query="only=nonsense").status, 400)
 

@@ -20,7 +20,7 @@ from app.services.supply import cross_reference, parts, parts_view, project_supp
 router = APIRouter(prefix="/api/supply/mcp", tags=["supply"])
 
 PROTOCOL_VERSION = "2025-03-26"
-_AT_RISK = ("warning", "error", "fatal")
+_AT_RISK = ("error", "fatal")
 
 TOOLS: list[dict[str, Any]] = [
     {

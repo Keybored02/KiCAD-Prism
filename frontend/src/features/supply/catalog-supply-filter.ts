@@ -2,7 +2,8 @@ import type { SupplyComponentStanding } from "@/types/supply";
 
 export type CatalogSupplyFilter = "" | "watched" | "at_risk";
 
-const RISKY = new Set(["warning", "error", "fatal"]);
+// At risk is error or fatal, as everywhere in Supply; a warning only needs a look.
+const RISKY = new Set(["error", "fatal"]);
 
 /** Whether a component passes the filter, given where it stands. A component Prism does not track has no standing. */
 export function passesSupplyFilter(filter: CatalogSupplyFilter, standing: SupplyComponentStanding | undefined): boolean {
