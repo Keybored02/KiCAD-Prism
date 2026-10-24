@@ -14,9 +14,7 @@ from app.core.config import settings  # noqa: E402
 from app.services.catalog.asset_files import CatalogAssetFiles  # noqa: E402
 from app.services.catalog.dbl_export import (  # noqa: E402
     CatalogDblExport,
-    DBL_COMMON_COLUMNS,
     dbl_footprint_ref,
-    dbl_row_for_component,
     dbl_symbol_library_name,
     part_number_nocolon,
     quote_identifier,
@@ -173,19 +171,10 @@ class SymbolRewriteTests(unittest.TestCase):
         self.assertIn('(property "Footprint" "Old:FP"', rewritten)
 
 
-class PrismIdColumnTests(unittest.TestCase):
-    """A symbol placed from a KiCad database library carries its component's id in a column; supply reads it beside the placement stamp."""
+class PrismIdFieldTests(unittest.TestCase):
+    """Supply finds the catalog component a placed symbol came from in the placement stamp, or in a plain Prism ID field."""
 
-    def test_the_database_library_row_has_it_as_its_last_common_column(self) -> None:
-        component = {
-            "id": "cmp-123", "value": "10k", "name": "R", "manufacturer": "Prism", "mpn": "PG-R-1", "package_name": "0402",
-            "workflow_stage": "released", "description": "Resistor", "datasheet_url": "", "representations": [], "extra_fields": {},
-        }
-        row = dbl_row_for_component(component, "PG-R-1", [])
-        self.assertEqual(DBL_COMMON_COLUMNS[-1], "Prism ID")
-        self.assertEqual(row["Prism ID"], "cmp-123")
-
-    def test_supply_finds_the_component_id_in_the_stamp_or_the_column(self) -> None:
+    def test_supply_finds_the_component_id_in_the_stamp_or_the_field(self) -> None:
         from app.services.supply.bom_fields import prism_id_of
 
         self.assertEqual(prism_id_of({"Prism_Component": "abc"}), "abc")

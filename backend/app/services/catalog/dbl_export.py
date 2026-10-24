@@ -37,7 +37,6 @@ DBL_COMMON_COLUMNS: tuple[str, ...] = (
     "Datasheet",
     "LibSymbol",
     "LibFootprint",
-    "Prism ID",
 )
 
 DBL_KEY_COLUMN = "Part Number Nocolon"
@@ -175,7 +174,6 @@ def dbl_row_for_component(
         "Datasheet": component["datasheet_url"],
         "LibSymbol": lib_symbol,
         "LibFootprint": dbl_footprint_ref(component),
-        "Prism ID": component["id"],
     }
     extras = dict(component.get("extra_fields") or {})
     row.update({field["key"]: str(extras.get(field["storage_key"], "")) for field in custom_fields})
@@ -430,7 +428,7 @@ class CatalogDblExport:
                 "column": column,
                 "name": column,
                 "visible_on_add": False,
-                "visible_in_chooser": column not in {"LibSymbol", "LibFootprint", "Prism ID"},
+                "visible_in_chooser": column not in {"LibSymbol", "LibFootprint"},
                 "show_name": True,
                 "inherit_properties": True,
             }
