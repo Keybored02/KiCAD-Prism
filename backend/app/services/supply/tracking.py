@@ -217,10 +217,14 @@ def project_open(conn, project_id: str) -> dict[str, Any]:
     ).fetchall()}
     variants = ((tracked_project(conn, project_id) or {}).get("variants")) or [BASE_VARIANT]
     lines = []
+    # A BOM names far fewer makers than it has lines; each spelling is looked up once.
+    placed: dict[str, bool] = {}
     for line in project_parts(conn, project_id, variants):
         written = line["manufacturer"].strip()
         key = match_key(line["mpn"])
-        if (alias_key(written) and (parts.similar_manufacturer(conn, written) or False)) or not key:
+        if written not in placed:
+            placed[written] = bool(alias_key(written) and parts.similar_manufacturer(conn, written))
+        if placed[written] or not key:
             continue
         found = conn.execute(
             "SELECT p.id, m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)", (key,)
