@@ -1,8 +1,7 @@
 # Supply package
 
 Distributor connectors, the call budget, and (as they land) parts, stock
-history, assessment and part intelligence. The design and roadmap are in
-`docs/plans/supply-chain-integration.md`. Read `AGENTS.md` at the repository
+history, assessment and part intelligence. Read `AGENTS.md` at the repository
 root first.
 
 ## What exists
