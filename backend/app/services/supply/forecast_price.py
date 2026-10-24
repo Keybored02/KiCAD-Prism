@@ -11,7 +11,8 @@ from __future__ import annotations
 import math
 import time
 from datetime import date, datetime, timezone
-from typing import Any, Sequence
+from decimal import Decimal
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 
@@ -79,10 +80,16 @@ def own_moves(conn, part_id: str, now: datetime, days: int = 90) -> Moves:
     sized by the median change among the listings that moved that day. The cheapest listing changing, or a listing joining or leaving,
     is not an event, which the move sizes of the part's cheapest price used to count."""
 
+    return _moves_of(prices.listing_series(conn, part_id, now, days).values())
+
+
+def _moves_of(listings: Iterable[Sequence[tuple[date, Decimal]]]) -> Moves:
+    """``own_moves`` from a part's listing series (``prices.listing_series``)."""
+
     events: dict[date, list[float]] = {}
     first: date | None = None
     last: date | None = None
-    for series in prices.listing_series(conn, part_id, now, days).values():
+    for series in listings:
         first = series[0][0] if first is None else min(first, series[0][0])
         last = series[-1][0] if last is None else max(last, series[-1][0])
         for day, size in _repricings(series):
@@ -104,8 +111,10 @@ def pooled_moves(conn, part_ids: Sequence[str], now: datetime) -> Moves:
     if _pool is not None and time.monotonic() - _pool[0] < POOL_CACHE_FOR:
         return _pool[1]
     count, span, sizes = 0, 0.0, []
+    # Every part's series in one read: a read per part was over a thousand queries for 200 parts.
+    series = prices.listing_series_of(conn, part_ids, now, 90)
     for part_id in part_ids:
-        found = own_moves(conn, part_id, now)
+        found = _moves_of(series.get(part_id, {}).values())
         count += found.count
         span += found.span
         sizes.extend(found.sizes)

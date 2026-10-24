@@ -56,73 +56,96 @@ def listing_series(conn, part_id: str, now: datetime, days: int = CHART_DAYS) ->
     """Each counted listing's own price per day in the base currency, oldest first, orderable listings only when any are. Converted at one rate (the latest), so a currency
     a listing is quoted in changing is not a price change, and a listing that joins later is its own series, not a move of the part."""
 
-    points, _meta = _points(conn, part_id, now, days)
-    # As in `daily`: a reel sold from more pieces than the part needs does not set the part's price moves, unless nothing else prices it.
-    points = [point for point in points if point[3]] or points
-    found: dict[str, list[tuple[date, Decimal]]] = {}
-    for listing, day, price, _orderable, currency in points:
-        # A listing that changes the currency it is quoted in starts a series of its own: the switch is not a repricing.
-        found.setdefault(f"{listing}|{currency}", []).append((day, price))
-    return {key: sorted(series) for key, series in found.items()}
+    return listing_series_of(conn, [part_id], now, days)[part_id]
+
+
+def listing_series_of(conn, part_ids: Sequence[str], now: datetime, days: int = CHART_DAYS) -> dict[str, dict[str, list[tuple[date, Decimal]]]]:
+    """``listing_series`` of many parts, read in the same few queries whatever their number (the pooled price moves read every tracked
+    part, and one round trip a part cost most of a second)."""
+
+    found: dict[str, dict[str, list[tuple[date, Decimal]]]] = {}
+    for part_id, (points, _meta) in _points_of(conn, part_ids, now, days).items():
+        # As in `daily`: a reel sold from more pieces than the part needs does not set the part's price moves, unless nothing else prices it.
+        points = [point for point in points if point[3]] or points
+        series: dict[str, list[tuple[date, Decimal]]] = {}
+        for listing, day, price, _orderable, currency in points:
+            # A listing that changes the currency it is quoted in starts a series of its own: the switch is not a repricing.
+            series.setdefault(f"{listing}|{currency}", []).append((day, price))
+        found[part_id] = {key: sorted(days_) for key, days_ in series.items()}
+    return found
 
 
 def _points(conn, part_id: str, now: datetime, days: int) -> tuple[list[tuple[str, date, Decimal, bool, str]], dict[str, Any]]:
     """Every listing's price on each day it was read: (listing, day, price in the base currency, orderable at the part's quantity,
     the currency it was quoted in)."""
 
+    return _points_of(conn, [part_id], now, days)[part_id]
+
+
+def _points_of(conn, part_ids: Sequence[str], now: datetime, days: int) -> dict[str, tuple[list[tuple[str, date, Decimal, bool, str]], dict[str, Any]]]:
+    """``_points`` for each of many parts."""
+
     from app.services.supply import fx, price_breaks, price_quantity
     from app.services.supply.assessment import settings_store
 
-    quantity = price_quantity.of_parts(conn, [part_id])[part_id]
+    ids = list(dict.fromkeys(part_ids))
+    quantities = price_quantity.of_parts(conn, ids)
     base = settings_store.load(conn).base_currency
     rates = fx.latest(conn)
-    raw = _daily_rows(conn, part_id, now, days)
+    raw = _daily_rows(conn, ids, now, days)
     kept = price_breaks.load(conn, sorted({row["listing_id"] for row in raw}))
-    points: list[tuple[str, date, Decimal, bool, str]] = []
-    estimated: list[date] = []
+    rows_of: dict[str, list[dict[str, Any]]] = {part_id: [] for part_id in ids}
     for row in raw:
-        held = price_breaks.in_force(kept.get(row["listing_id"], []), row["day"])
-        if held is not None:
-            price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity)
-            currency, moq = held["currency"], held["moq"]
-        else:
-            price, currency, moq = row["price"], row["currency"], row["moq"]
-            if quantity != REFERENCE_QUANTITY:
-                estimated.append(row["day"])
-        converted = rates.convert(price, currency, base) if price is not None else None
-        if converted is not None and converted > 0:
-            points.append((row["listing_id"], row["day"], converted, moq <= quantity, currency))
-    return points, {"quantity": quantity, "base": base, "estimated_until": max(estimated).isoformat() if estimated else None}
+        rows_of[row["part_id"]].append(row)
+    found: dict[str, tuple[list[tuple[str, date, Decimal, bool, str]], dict[str, Any]]] = {}
+    for part_id in ids:
+        quantity = quantities[part_id]
+        points: list[tuple[str, date, Decimal, bool, str]] = []
+        estimated: list[date] = []
+        for row in rows_of[part_id]:
+            held = price_breaks.in_force(kept.get(row["listing_id"], []), row["day"])
+            if held is not None:
+                price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity)
+                currency, moq = held["currency"], held["moq"]
+            else:
+                price, currency, moq = row["price"], row["currency"], row["moq"]
+                if quantity != REFERENCE_QUANTITY:
+                    estimated.append(row["day"])
+            converted = rates.convert(price, currency, base) if price is not None else None
+            if converted is not None and converted > 0:
+                points.append((row["listing_id"], row["day"], converted, moq <= quantity, currency))
+        found[part_id] = (points, {"quantity": quantity, "base": base, "estimated_until": max(estimated).isoformat() if estimated else None})
+    return found
 
 
-def _daily_rows(conn, part_id: str, now: datetime, days: int) -> list[dict[str, Any]]:
-    """One reading per listing and day (raw samples, then the daily rollups): its price at 100, currency and smallest order."""
+def _daily_rows(conn, part_ids: Sequence[str], now: datetime, days: int) -> list[dict[str, Any]]:
+    """One reading per listing and day (raw samples, then the daily rollups) of the parts: its price at 100, currency and smallest order."""
 
     since = now - timedelta(days=days)
     return conn.execute(
         """
         SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price, s.moq
+               l.part_id, s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price, s.moq
         FROM samples s JOIN listings l ON l.id = s.listing_id
-        WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND s.sampled_at >= %(since)s
+        WHERE l.part_id = ANY(%(parts)s) AND l.match_state = ANY(%(states)s) AND s.sampled_at >= %(since)s
           AND NOT s.marketplace AND s.unit_price IS NOT NULL AND s.currency <> ''
           AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
         ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
         """,
-        {"part": part_id, "states": list(_COUNTED), "since": since},
+        {"parts": list(part_ids), "states": list(_COUNTED), "since": since},
     ).fetchall() + conn.execute(
         """
-        SELECT d.listing_id, d.day, d.currency, d.last_unit_price AS price,
+        SELECT l.part_id, d.listing_id, d.day, d.currency, d.last_unit_price AS price,
                COALESCE((SELECT o.moq FROM offers o WHERE o.listing_id = d.listing_id), 1) AS moq
         FROM samples_daily d JOIN listings l ON l.id = d.listing_id
-        WHERE l.part_id = %(part)s AND l.match_state = ANY(%(states)s) AND d.day >= %(since_day)s
+        WHERE l.part_id = ANY(%(parts)s) AND l.match_state = ANY(%(states)s) AND d.day >= %(since_day)s
           AND NOT d.marketplace AND d.last_unit_price IS NOT NULL AND d.currency <> ''
           AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
           AND NOT EXISTS (
               SELECT 1 FROM samples s WHERE s.listing_id = d.listing_id
                 AND (s.sampled_at AT TIME ZONE 'UTC')::date = d.day)
         """,
-        {"part": part_id, "states": list(_COUNTED), "since_day": since.date()},
+        {"parts": list(part_ids), "states": list(_COUNTED), "since_day": since.date()},
     ).fetchall()
 
 

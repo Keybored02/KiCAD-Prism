@@ -134,6 +134,27 @@ class ForecastDbTests(unittest.TestCase):
             conn.execute("DELETE FROM samples WHERE listing_id = %s", (cut,))
             self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 1, "with nothing else pricing the part the reel counts")
 
+    def test_the_pooled_moves_read_every_part_at_once_and_add_up_to_each_parts_own(self) -> None:
+        from app.services.supply import forecast_price, parts, prices
+
+        with self.store.connection() as conn:
+            other = parts.ensure_part(conn, "Acme", "RISE-1", ADMIN).id
+        mine, theirs, quiet = self.listing(self.cid, "A"), self.listing(self.other, "B", part_id=other), self.listing(self.other, "C")
+        self.readings(mine, [100] * 10, START - timedelta(days=19), fetched_at=START, price="0.50")
+        self.readings(mine, [100] * 10, START - timedelta(days=9), fetched_at=START, price="0.60")
+        self.readings(theirs, [100] * 10, START - timedelta(days=19), fetched_at=START, price="1.00")
+        self.readings(theirs, [100] * 10, START - timedelta(days=9), fetched_at=START, price="0.80")
+        self.readings(quiet, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.55")
+        with self.store.connection() as conn:
+            together = prices.listing_series_of(conn, [self.part_id, other, "no-such-part"], START)
+            self.assertEqual(together[self.part_id], prices.listing_series(conn, self.part_id, START))
+            self.assertEqual(together[other], prices.listing_series(conn, other, START))
+            self.assertEqual(together["no-such-part"], {})
+            pooled = forecast_price.pooled_moves(conn, [self.part_id, other], START)
+            each = [forecast_price.own_moves(conn, part_id, START) for part_id in (self.part_id, other)]
+        self.assertEqual((pooled.count, sorted(pooled.sizes)), (2, sorted(size for moves in each for size in moves.sizes)))
+        self.assertAlmostEqual(pooled.span, sum(moves.span for moves in each))
+
     # --- making and keeping -------------------------------------------------
 
     def test_a_falling_part_gets_its_forecasts_kept_and_the_little_a_list_needs(self) -> None:
