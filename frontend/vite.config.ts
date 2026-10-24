@@ -32,6 +32,17 @@ export default defineConfig({
     },
   },
   server: {
+    // Compile the app and the lazily loaded Supply screens and charts when the dev server starts, not on the first visit: a cold
+    // Supply tab otherwise waits about 3.5 s while Vite compiles what it imports.
+    warmup: {
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/features/supply/*-view.tsx",
+        "./src/features/supply/project-supply-tab.tsx",
+        "./src/features/supply/part-sheet.tsx",
+        "./src/features/supply/*chart*.tsx",
+      ],
+    },
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",
