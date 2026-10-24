@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Download } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ function CostingButton({ projectId, variant, boards }: { projectId: string; vari
   );
 }
 
-/** How one product stands in supply: tracking, its parts, planned builds, releases and line notes. Reads the stored BOM, not a checked-out commit. */
+/** How one product stands in supply: what a build costs and what stops it, its parts, releases and line notes. Reads the stored BOM, not a checked-out commit. */
 export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: string; user: User | null; actionsSlot?: HTMLElement | null }) {
   const allowed = canOpenSupply(user?.role);
   const [variant, setVariant] = useState("");
@@ -94,7 +95,9 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
         <div className={`space-y-6 transition-opacity ${loaded.status === "loading" ? "opacity-50" : ""}`} aria-busy={loaded.status === "loading"}>
           <ProjectHeadline
             supply={supply} boards={boards} onOpenPart={open} onBoards={setBoards}
-            onKeepUsual={() => void keepUsualBuild(projectId, boards).then(() => loaded.refresh())}
+            onKeepUsual={() => void keepUsualBuild(projectId, boards).then(() => loaded.refresh(), (error: unknown) => {
+              toast.error(error instanceof Error ? error.message : "Could not keep the usual build");
+            })}
           />
           <ProjectCostCards supply={supply} boards={boards} onOpenPart={open} />
           <ProjectCostHistory supply={supply} />

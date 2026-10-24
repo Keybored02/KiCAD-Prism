@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PartsFilter, ProjectSupplyPart, SupplyPartRow } from "@/types/supply";
 import { LayoutToggle } from "./layout-toggle";
 import { LifecycleSelect } from "./lifecycle-filter";
-import { CHIPS, limitingKeys, matchesChip, type Chip } from "./project-part-filters";
+import { CHIPS, limitingKeys, linesByPart, matchesChip, type Chip } from "./project-part-filters";
 import type { PartsLayout } from "./parts-layout";
 import { PartsTable } from "./parts-table";
 import { columnOf, serverSort, type PartsSort } from "./parts-sort";
@@ -68,15 +68,14 @@ export function ProjectPartsList({ projectId, parts, currency, selectedId, onOpe
   const wanted = query.trim().toLowerCase();
   const byReference = useMemo(() => (parts.some((part) => hasReference(part, wanted)) ? new Set(parts.flatMap((part) => (part.part_id && hasReference(part, wanted) ? [part.part_id] : []))) : null), [parts, wanted]);
   const loaded = useSupplyPartsList("all", byReference !== null ? "" : query, lifecycle, LIMIT, projectId, vendor, serverSort(sort));
-  const lines = useMemo<ProjectLines>(() => ({
-    byPart: new Map(parts.flatMap((part) => (part.part_id ? [[part.part_id, part] as const] : []))), currency,
-  }), [parts, currency]);
+  const lines = useMemo<ProjectLines>(() => ({ byPart: linesByPart(parts), currency }), [parts, currency]);
   // The parts a chip keeps, by part: a line that matches no part cannot be one of them.
   const limiting = useMemo(() => limitingKeys(parts), [parts]);
   const byChip = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip, limiting) ? [part.part_id] : [])))), [parts, chip, limiting]);
   const only = byChip && byReference ? new Set([...byChip].filter((id) => byReference.has(id))) : byChip ?? byReference;
+  // A chip counts parts, as the list shows them: a part on two lines is one.
   const chips = CHIPS.flatMap((item) => {
-    const count = parts.filter((part) => matchesChip(part, item.key, limiting)).length;
+    const count = new Set(parts.flatMap((part) => (matchesChip(part, item.key, limiting) ? [part.part_id ?? part.key] : []))).size;
     return count > 0 ? [{ ...item, count }] : [];
   });
   const narrowed = query !== "" || lifecycle !== "" || vendor !== "" || only !== null;

@@ -57,7 +57,7 @@ const listed = (...ids: string[]) => ({
 /** The boards are set from the pencil on the Build tile. */
 async function boardsTo(count: number) {
   fireEvent.click(await screen.findByRole("button", { name: "Change the number of boards" }));
-  const field = await screen.findByLabelText("Boards to forecast and cost");
+  const field = await screen.findByLabelText("Boards to cost");
   fireEvent.change(field, { target: { value: String(count) } });
   fireEvent.blur(field);
 }

@@ -29,7 +29,7 @@ function BoardsEditor({ boards, usualBuild, onBoards, onKeepUsual }: { boards: n
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 space-y-2 p-3">
         <BoardCount key={boards} boards={boards} onChange={onBoards} />
-        <p className="text-xs normal-case tracking-normal text-muted-foreground">The costing, the forecast and the download use it. It is not saved unless you keep it.</p>
+        <p className="text-xs normal-case tracking-normal text-muted-foreground">The costing and the download use it. It is not saved unless you keep it.</p>
         {usualBuild != null && usualBuild !== boards ? (
           <Button size="sm" variant="outline" onClick={onKeepUsual}>Keep {boards.toLocaleString()} as the usual build</Button>
         ) : null}

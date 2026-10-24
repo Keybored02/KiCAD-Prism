@@ -9,7 +9,7 @@ describe("the board count", () => {
   it("takes a board count and refuses nonsense", () => {
     const change = vi.fn();
     render(<BoardCount boards={100} onChange={change} />);
-    const box = screen.getByLabelText("Boards to forecast and cost") as HTMLInputElement;
+    const box = screen.getByLabelText("Boards to cost") as HTMLInputElement;
     fireEvent.change(box, { target: { value: "2,500" } });
     fireEvent.blur(box);
     expect(change).toHaveBeenCalledWith(2500);

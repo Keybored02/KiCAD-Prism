@@ -12,11 +12,38 @@ export const CHIPS: ReadonlyArray<{ key: Chip; label: string }> = [
   { key: "alerts", label: "Open alerts" },
 ];
 
-/** The lines whose stock covers the fewest boards: what decides how many boards can be built. Lines with no stock figure or no need are left out. */
+/**
+ * Each part as one row of the list: a part on two BOM lines adds their pieces, needs, notes and references, and its cost is the one
+ * line that carries it (the other is bought with it).
+ */
+export function linesByPart(parts: readonly ProjectSupplyPart[]): Map<string, ProjectSupplyPart> {
+  const byPart = new Map<string, ProjectSupplyPart>();
+  for (const part of parts) {
+    if (!part.part_id) continue;
+    const kept = byPart.get(part.part_id);
+    byPart.set(part.part_id, kept ? {
+      ...kept,
+      quantity: kept.quantity + part.quantity,
+      need: kept.need == null || part.need == null ? (kept.need ?? part.need) : kept.need + part.need,
+      notes: kept.notes + part.notes,
+      references: [kept.references, part.references].filter(Boolean).join(" "),
+      line_cost: kept.line_cost ?? part.line_cost,
+    } : part);
+  }
+  return byPart;
+}
+
+/**
+ * The lines whose part's stock covers the fewest boards: what decides how many boards can be built. A part on two lines is judged on
+ * what both need, and both lines are kept. Parts with no stock figure or no need are left out.
+ */
 export function limitingKeys(parts: readonly ProjectSupplyPart[]): ReadonlySet<string> {
-  const covered = parts.flatMap((part) => (part.part_id && part.stock !== null && part.need ? [{ key: part.key, ratio: part.stock / part.need }] : []));
-  const lowest = Math.min(...covered.map((item) => item.ratio));
-  return new Set(covered.flatMap((item) => (item.ratio === lowest ? [item.key] : [])));
+  const ratios = new Map<string, number>();
+  for (const part of linesByPart(parts).values()) {
+    if (part.part_id && part.stock !== null && part.need) ratios.set(part.part_id, part.stock / part.need);
+  }
+  const lowest = Math.min(...ratios.values());
+  return new Set(parts.flatMap((part) => (part.part_id && ratios.get(part.part_id) === lowest ? [part.key] : [])));
 }
 
 /** Whether a part row is one the chip counts. `limiting` is the keys of the lines that limit the build. */
