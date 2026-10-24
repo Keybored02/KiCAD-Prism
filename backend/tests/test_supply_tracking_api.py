@@ -72,8 +72,9 @@ class TrackingApiTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.patcher.stop()
         cls.registry.unregister("trk_demo")
-        with cls.database.connection() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
+        from support.postgres import APPLICATION_URL, drop_schema
+
+        drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
         with self.store.connection() as conn:

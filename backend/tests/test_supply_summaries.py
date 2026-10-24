@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -32,8 +31,9 @@ class SummaryCacheTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        with cls.database.connection() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
+        from support.postgres import APPLICATION_URL, drop_schema
+
+        drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
@@ -52,19 +52,14 @@ class SummaryCacheTests(unittest.TestCase):
         return item["stock"]
 
     def test_a_summary_is_kept_and_not_worked_out_again(self) -> None:
-        # A summary is trusted once no transaction older than its reading is still open. Other test workers
-        # run transactions against the same server, so wait for them to end.
-        for _ in range(40):
+        # A summary is trusted while the log has no entry for its part from a transaction that was still open when it was worked out.
+        # Which transactions are open anywhere on the server (other test workers, the dev app) is not this test's to decide, so it
+        # starts from a log with no entry for the part.
+        self.assertEqual(self.stock(), 100)
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM summary_dirty WHERE part_id = %s", (self.watch.part_id,))
+        with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
             self.assertEqual(self.stock(), 100)
-            try:
-                with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
-                    self.assertEqual(self.stock(), 100)
-                return
-            except AssertionError as exc:
-                if "worked out again" not in str(exc):
-                    raise
-                time.sleep(0.25)
-        self.fail("the summary was never kept")
 
     def test_the_jlc_class_rides_on_the_row_without_being_kept_in_the_summary(self) -> None:
         from app.services.supply import facts
@@ -137,15 +132,16 @@ class SummaryCacheTests(unittest.TestCase):
             conn.execute("UPDATE part_summaries SET computed_at = NOW() - INTERVAL '8 days'")
             retention.trim_summaries(conn)
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_summaries").fetchone()["n"], 0)
-        # The log keeps what an open transaction of another worker may still depend on; it empties once they end.
-        for _ in range(40):
-            with self.store.connection() as conn:
-                retention.trim_summaries(conn)
-                if conn.execute("SELECT COUNT(*) AS n FROM summary_dirty").fetchone()["n"] == 0:
-                    break
-            time.sleep(0.25)
-        else:
-            self.fail("the log was never trimmed")
+        # The log keeps what a transaction still open anywhere in the cluster may depend on, so what a run can trim depends on what
+        # else is running (other test workers, the dev app). Rows with made-up transaction ids say the rule without that: one older
+        # than any open transaction goes, one from the far future stays.
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM part_summaries")
+            conn.execute("INSERT INTO summary_dirty (part_id, xid) VALUES ('old', 1), ('future', 9000000000000000000)")
+            retention.trim_summaries(conn)
+            kept = [row["part_id"] for row in conn.execute("SELECT part_id FROM summary_dirty WHERE part_id IN ('old', 'future')").fetchall()]
+            conn.execute("DELETE FROM summary_dirty WHERE part_id IN ('old', 'future')")
+        self.assertEqual(kept, ["future"])
         self.assertEqual(self.stock(), 100, "worked out again when asked")
 
     def test_removing_a_part_does_not_trip_the_triggers(self) -> None:

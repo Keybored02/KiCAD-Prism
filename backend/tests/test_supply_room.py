@@ -56,8 +56,9 @@ class RoomTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         for key in ("room_demo", "room_other", "room_assembly"):
             cls.registry.unregister(key)
-        with cls.database.connection() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
+        from support.postgres import APPLICATION_URL, drop_schema
+
+        drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
         with self.store.connection() as conn:

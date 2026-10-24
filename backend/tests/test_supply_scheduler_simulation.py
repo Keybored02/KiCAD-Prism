@@ -57,8 +57,9 @@ class SchedulerSimulationTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.registry.unregister("sim_batch")
-        with cls.database.connection() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
+        from support.postgres import APPLICATION_URL, drop_schema
+
+        drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def test_a_week_serves_committed_work_never_overspends_and_reads_waiting_parts_from_spare(self) -> None:
         now = {"t": START}
