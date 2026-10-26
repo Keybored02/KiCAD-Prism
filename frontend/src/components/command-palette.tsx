@@ -68,6 +68,21 @@ const HELP_DIALOG_COMMANDS = [
 ] as const satisfies ReadonlyArray<Omit<PaletteCommand, "run"> & { dialog: HelpDialog }>;
 
 /**
+ * How the palette matches navigation and actions. A threshold of 0.3 still
+ * forgives one typo in a word of four or more letters, but no longer lets one
+ * wrong letter in three match: at 0.4 "GND" listed GNSS_RECEIVER and CNDH-BP.
+ */
+export const PALETTE_SEARCH_OPTIONS = {
+  keys: [
+    { name: "label", weight: 3 },
+    { name: "keywords", weight: 1 },
+    { name: "group", weight: 0.5 },
+  ],
+  threshold: 0.3,
+  ignoreLocation: true,
+};
+
+/**
  * Deep link to a component's full workspace.
  *
  * The component workspace is not a route of its own: the workspace shell reads
@@ -260,15 +275,7 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
 
   const fuse = useMemo(
     () =>
-      new Fuse(commands, {
-        keys: [
-          { name: "label", weight: 3 },
-          { name: "keywords", weight: 1 },
-          { name: "group", weight: 0.5 },
-        ],
-        threshold: 0.4,
-        ignoreLocation: true,
-      }),
+      new Fuse(commands, PALETTE_SEARCH_OPTIONS),
     [commands],
   );
 
