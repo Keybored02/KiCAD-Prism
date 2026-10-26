@@ -1,7 +1,8 @@
 """How a part's price has moved, from the prices the poller recorded.
 
-The price of a part on a day is the cheapest unit price any counted, non-marketplace listing showed that day at the
-part's price quantity, in the base currency (see ``price_quantity`` and ``price_breaks``). A rise is a price move only
+The price of a part on a day is the cheapest unit price of its counted, non-marketplace listings at the part's price
+quantity, in the base currency (see ``price_quantity`` and ``price_breaks``), each listing at its latest reading up to that
+day (``cheapest_held``): a listing not read that day still sells at its last price. A rise is a price move only
 when the readings span a week or more and the latest one is recent, so a part nobody has read lately says nothing.
 """
 
@@ -45,11 +46,49 @@ def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[l
     points, meta = _points(conn, part_id, now, days)
     base = meta["base"]
     chosen = [point for point in points if point[3]] or points
-    cheapest: dict[date, Decimal] = {}
-    for _listing, day, price, _orderable, _currency in chosen:
-        cheapest[day] = min(price, cheapest.get(day, price))
-    result = [(day, cheapest[day], base) for day in sorted(cheapest)]
+    # A listing that changed the currency it is quoted in counts in its current one: the switch is not a repricing (its price list in
+    # the other currency differs by a few percent), as in `listing_series`.
+    latest: dict[str, tuple[date, str]] = {}
+    for listing, day, _price, _orderable, currency in chosen:
+        if listing not in latest or day >= latest[listing][0]:
+            latest[listing] = (day, currency)
+    cheapest = cheapest_held([(listing, day, price) for listing, day, price, _orderable, currency in chosen if currency == latest[listing][1]])
+    result = [(day, price, base) for day, price in cheapest]
     return result, {"quantity": meta["quantity"], "estimated_until": meta["estimated_until"] if cheapest else None}
+
+
+# After its last reading a listing still counts while it has been read within this many days of the day priced; past that it has gone.
+LAPSE_DAYS = 7
+
+
+def cheapest_held(readings: Sequence[tuple[str, date, Decimal]]) -> list[tuple[date, Decimal]]:
+    """The cheapest price on each day any listing was read, oldest first, from (listing, day, price) readings.
+
+    A listing keeps its last price until it is read again, so a day a distributor was not read is not a day its price was missing:
+    taking the cheapest of only the listings read that day made a part's price jump when the cheap distributor's read fell on another
+    day, though no distributor had changed its price. Before its first reading a listing counts at that first price: Prism finding a
+    listing (the first days of tracking, a distributor read later than the others) is not the price moving, as in the forecast's
+    repricings. A listing not read for ``LAPSE_DAYS`` after its last reading stops counting.
+    """
+
+    by_listing: dict[str, dict[date, Decimal]] = {}
+    for listing, day, price in readings:
+        own = by_listing.setdefault(listing, {})
+        own[day] = min(price, own.get(day, price))
+    days = sorted({day for own in by_listing.values() for day in own})
+    cheapest: dict[date, Decimal] = {}
+    for own in by_listing.values():
+        read = sorted(own)
+        held = own[read[0]]
+        index = 0
+        for day in days:
+            while index < len(read) and read[index] <= day:
+                held = own[read[index]]
+                index += 1
+            if (day - read[-1]).days > LAPSE_DAYS:
+                continue
+            cheapest[day] = min(held, cheapest.get(day, held))
+    return sorted(cheapest.items())
 
 
 def listing_series(conn, part_id: str, now: datetime, days: int = CHART_DAYS) -> dict[str, list[tuple[date, Decimal]]]:

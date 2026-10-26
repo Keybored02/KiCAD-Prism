@@ -162,7 +162,8 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
             insight = parts_view.insight_from(
                 parts_view.history(conn, item["id"], now), item["watch"]["threshold"] if item["watch"] else None, now
             )
-        price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if tracked else None
+        # The move over the last 30 days, read from 90 so a listing last read before the 30 still holds its price at their start.
+        price = prices.view(prices.daily_cheapest(conn, item["id"], now, prices.CHART_DAYS), now.date())["trend"] if tracked else None
         notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if tracked else None
         current[item["id"]] = conditions_for(
             item, insight, price, notice, rules.get(item["id"], alert_rules.NONE), assessed.get(item["id"]), marks.get(item["id"]),

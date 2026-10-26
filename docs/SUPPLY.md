@@ -185,7 +185,11 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
   mean), and a box to try any quantity without saving it. The price quantity is a Supply setting (100 by default, 1 to 1,000,000), and
   each part can have its own on the part sheet; the list, the price history, price alerts and the coverage figures follow it. Prism keeps
   each listing's price breaks when they change, so the history is worked out at the part's quantity; days before they were kept are drawn
-  at 100 and the sheet says so. The BOM still prices at its build quantity.
+  at 100 and the sheet says so. The BOM still prices at its build quantity. A part's price move (Insights' prices up and down, price
+  alerts, the outlook) is its cheapest price at the start and end of 30 days, each listing at its latest reading: a distributor not
+  read that day still counts at its last price, a listing Prism finds later counts from the start, a currency switch is not a move,
+  and a listing not read for a week has gone. So the move is a distributor changing its price, raising its smallest order above the
+  quantity, or dropping the part.
 - **Restock promises.** Prism keeps stock-outs and restocks as they happen, with the lead time a distributor quoted at the stock-out as a
   promise to be back by that day. The part sheet shows each distributor's open promise and its record on that part. Insights > Sourcing has a
   scorecard: stock-outs and days out, restocked first, promises kept, the wait said against the real one, and days in stock, judged only on

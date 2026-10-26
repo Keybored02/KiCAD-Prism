@@ -48,5 +48,31 @@ class PriceTrendTests(unittest.TestCase):
         self.assertEqual(prices.view([], TODAY), {"currency": "", "history": [], "trend": None})
 
 
+class CheapestHeldTests(unittest.TestCase):
+    """The part's price on a day is its listings' cheapest, each at its latest reading: a day nobody read a listing is not a move."""
+
+    def day(self, n: int) -> date:
+        return TODAY + timedelta(days=n)
+
+    def test_a_listing_not_read_that_day_still_counts_at_its_last_price(self) -> None:
+        readings = [("cheap", self.day(0), Decimal("0.10")), ("dear", self.day(0), Decimal("0.20")),
+                    ("dear", self.day(1), Decimal("0.20")), ("cheap", self.day(2), Decimal("0.10"))]
+        self.assertEqual(prices.cheapest_held(readings), [(self.day(n), Decimal("0.10")) for n in range(3)])
+
+    def test_a_listing_first_read_later_counts_from_the_start_so_finding_it_is_no_drop(self) -> None:
+        readings = [("first", self.day(0), Decimal("0.50")), ("first", self.day(5), Decimal("0.50")), ("found", self.day(1), Decimal("0.30"))]
+        self.assertEqual({price for _day, price in prices.cheapest_held(readings)}, {Decimal("0.30")})
+
+    def test_a_listing_that_changed_its_price_moves_the_part(self) -> None:
+        readings = [("only", self.day(0), Decimal("1.00")), ("only", self.day(10), Decimal("1.30"))]
+        self.assertEqual(prices.cheapest_held(readings), [(self.day(0), Decimal("1.00")), (self.day(10), Decimal("1.30"))])
+
+    def test_a_listing_not_read_for_a_week_after_its_last_reading_has_gone(self) -> None:
+        readings = [("gone", self.day(0), Decimal("0.10")), ("kept", self.day(0), Decimal("0.20")),
+                    ("kept", self.day(prices.LAPSE_DAYS), Decimal("0.20")), ("kept", self.day(prices.LAPSE_DAYS + 1), Decimal("0.20"))]
+        self.assertEqual(prices.cheapest_held(readings)[-2:], [(self.day(prices.LAPSE_DAYS), Decimal("0.10")), (self.day(prices.LAPSE_DAYS + 1), Decimal("0.20"))])
+        self.assertEqual(prices.cheapest_held([]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

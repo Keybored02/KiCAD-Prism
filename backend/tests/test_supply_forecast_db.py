@@ -119,7 +119,7 @@ class ForecastDbTests(unittest.TestCase):
             cheapest = forecast_price.moves_of(forecast_price.series_of(conn, self.part_id, START))
         self.assertEqual(own.count, 1, "only the listing that changed its price moved")
         self.assertAlmostEqual(own.sizes[0], math.log(0.60 / 0.50), places=6)
-        self.assertGreater(cheapest.count, own.count, "the cheapest price also jumped when the cheaper listing joined")
+        self.assertEqual(cheapest.count, 0, "the cheaper listing counts from the start, so the cheapest price does not jump when it is found")
         self.assertLessEqual(max(abs(size) for size in own.sizes), forecast_price.MAX_MOVE)
 
     def test_a_reel_repricing_does_not_set_the_moves_of_a_cut_tape_part(self) -> None:
