@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Button } from "@/components/ui/button";
 import type { SupplyRecentChange } from "@/types/supply";
 import { alertTitle } from "./alert-text";
 import { StatusDot } from "./status-dot";
@@ -36,13 +38,19 @@ function sentence(change: SupplyRecentChange): string {
   return change.type === "alert_cleared" ? `Cleared: ${alertTitle(change.alert)}` : alertTitle(change.alert);
 }
 
-/** Alerts that opened or cleared and listings that went in the last two weeks, newest first. */
+const PAGE_SIZE = 25;
+
+/** Alerts that opened or cleared and listings that went in the last two weeks, newest first, 25 to a page. */
 export function RecentChanges({ changes, onOpenPart }: { changes: SupplyRecentChange[]; onOpenPart: (partId: string) => void }) {
+  const [requested, setPage] = useState(0);
   if (changes.length === 0) return null;
+  const pages = Math.ceil(changes.length / PAGE_SIZE);
+  const page = Math.min(requested, pages - 1);
+  const shown = changes.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   return (
     <section aria-label="Recent changes">
       <ul className="border">
-        {changes.map((change) => (
+        {shown.map((change) => (
           <li key={`${change.type}-${change.part_id ?? String(change.detail?.project_id)}-${change.at}`} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">
             <StatusDot status={change.type === "alert_cleared" || change.type === "project_bom_changed" ? "ok" : (change.alert?.severity ?? "warning")} />
             <div className="min-w-0 flex-1">
@@ -62,6 +70,13 @@ export function RecentChanges({ changes, onOpenPart }: { changes: SupplyRecentCh
           </li>
         ))}
       </ul>
+      {pages > 1 ? (
+        <nav aria-label="Recent changes pages" className="mt-2 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          <span aria-live="polite">{page * PAGE_SIZE + 1}–{page * PAGE_SIZE + shown.length} of {changes.length}</span>
+          <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</Button>
+          <Button size="sm" variant="outline" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Next</Button>
+        </nav>
+      ) : null}
     </section>
   );
 }

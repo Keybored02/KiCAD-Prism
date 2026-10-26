@@ -134,7 +134,6 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
               <tr>
                 <th className="py-1 font-normal">Project</th>
                 <th className="py-1 text-right font-normal">At risk</th>
-                <th className="py-1 text-right font-normal">One distributor</th>
                 <th className="py-1 text-right font-normal">Boards covered</th>
                 <th className="py-1 text-right font-normal">Cost per board</th>
               </tr>
@@ -149,7 +148,6 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
                       <div className="text-xs text-muted-foreground">{counts({ ...project, tracked: true })}</div>
                     </td>
                     <td className={cn("py-1.5 text-right tabular-nums", stats.at_risk > 0 && "font-medium text-destructive")}>{stats.at_risk}</td>
-                    <td className="py-1.5 text-right tabular-nums">{stats.one_distributor}</td>
                     <td className="py-1.5 text-right tabular-nums">{stats.boards ?? "–"}</td>
                     <td className="py-1.5 text-right tabular-nums">
                       {stats.cost_per_board && stats.currency ? formatPrice(stats.cost_per_board, stats.currency) : "–"}

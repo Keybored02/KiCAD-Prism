@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -41,5 +41,16 @@ describe("the recent changes", () => {
     );
     expect(screen.getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
     expect(screen.getByText(/New BOM revision: 2 added \(LM358D, TL072\); 1 removed \(NE555\)/)).toBeTruthy();
+  });
+});
+
+describe("the recent changes pages", () => {
+  it("show 25 to a page and move between pages", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ ...change("moq_jump", { from: 1, to: 2 }), mpn: `P${i}`, at: new Date(Date.now() - i * 1000).toISOString() }));
+    render(<RecentChanges onOpenPart={() => undefined} changes={many} />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(25);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    expect(screen.getByText("26–30 of 30")).toBeTruthy();
   });
 });

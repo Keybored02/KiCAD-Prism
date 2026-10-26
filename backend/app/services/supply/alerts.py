@@ -317,7 +317,7 @@ def list_alerts(conn, now: datetime, *, include_resolved: bool = False, limit: i
     return items
 
 
-def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15, role: str | None = None) -> list[dict[str, Any]]:
+def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = None) -> list[dict[str, Any]]:
     """What happened lately, newest first: alerts that opened, alerts that cleared, listings that disappeared, and what a
     tracked project's new revision added to or took off its BOM (only for a ``role`` that may see the project)."""
 
@@ -357,7 +357,7 @@ def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15, role
         changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": None, "mpn": "", "manufacturer": "", "alert": None,
                         "sku": "", "detail": {key: value for key, value in payload.items() if key != "visible_roles"}})
     changes.sort(key=lambda item: item["at"], reverse=True)
-    return changes[:limit]
+    return changes
 
 
 def count_attention(conn, now: datetime) -> int:
