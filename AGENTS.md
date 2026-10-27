@@ -78,6 +78,16 @@ then `run_project_import_job_v3`) →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
 
+**Discover repositories on a connected host**
+`backend/app/api/repo_discovery.py` →
+`backend/app/services/repo_discovery_service.py` (scan job, stored candidates,
+imported state worked out on read) →
+`backend/app/services/trackers/providers.py` (`list_readable_repositories`,
+GitLab only) · `backend/app/services/project_import_service.py`
+(`clone_and_discover_projects`, the same check the analyze job uses) →
+`frontend/src/components/repo-discovery/repo-discovery-dialog.tsx` →
+`frontend/src/components/import-dialog.tsx` (`initialUrl`, `onNext`)
+
 **Build a revision's design bundle**
 Every feature below reads a revision through its bundle, never KiCad files.
 `backend/app/services/design_bundle/jobs.py` (`start_design_bundle_job`, the
