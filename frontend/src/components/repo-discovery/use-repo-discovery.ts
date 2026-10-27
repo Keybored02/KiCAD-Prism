@@ -35,10 +35,13 @@ export function useRepoDiscovery() {
   const [scan, setScan] = useState<PrismJobStatus | null>(null);
   const watchRef = useRef<AbortController | null>(null);
 
-  const loadList = useCallback(async (sourceId: string) => {
+  /** `keepError` leaves a message the caller still has to show, such as why a scan failed. */
+  const loadList = useCallback(async (sourceId: string, keepError = false) => {
     try {
       const list = await loadDiscoveredRepositories(sourceId);
-      setData((current) => (current.sourceId === sourceId ? { ...current, list, error: "" } : current));
+      setData((current) =>
+        current.sourceId === sourceId ? { ...current, list, error: keepError ? current.error : "" } : current,
+      );
     } catch (error) {
       setData((current) => ({ ...current, error: messageOf(error, "Failed to load repositories") }));
     }
@@ -93,7 +96,7 @@ export function useRepoDiscovery() {
       if (watchRef.current === controller) watchRef.current = null;
       if (!controller.signal.aborted) {
         setScan(null);
-        await loadList(sourceId);
+        await loadList(sourceId, true);
       }
     }
   };

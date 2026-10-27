@@ -250,14 +250,15 @@ export function ImportDialog({
     }
   }, [open, stopPolling]);
 
-  // A repository handed in by discovery is analysed once, when the dialog opens.
-  const autoStartedRef = useRef(false);
+  // A repository handed in by discovery is analysed as soon as the dialog opens.
+  // Running again only restarts the same analysis, which the server deduplicates.
+  // react-doctor-disable-next-line no-set-state-after-await-in-effect - the job watcher gates every setter on its abort signal, and the cleanup stops it
   useEffect(() => {
-    if (!open || !initialUrl || autoStartedRef.current) return;
-    autoStartedRef.current = true;
-    void analyzeRepo("", initialUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- starts once per mount
-  }, [open, initialUrl]);
+    if (!open || !initialUrl) return;
+    analyzeRepo("", initialUrl);
+    return stopPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- analyzeRepo is rebuilt every render
+  }, [open, initialUrl, stopPolling]);
 
   const reset = () => {
     stopPolling();
@@ -272,7 +273,7 @@ export function ImportDialog({
     onOpenChange(false);
   };
 
-  const analyzeRepo = async (branchOverride?: string, urlOverride?: string) => {
+  const analyzeRepo = (branchOverride?: string, urlOverride?: string) => {
     // Retry passes the URL explicitly: a setUrl() in the same tick has not been
     // applied yet, so reading state here would analyse the previous value.
     const target = (urlOverride ?? url).trim();
@@ -282,23 +283,24 @@ export function ImportDialog({
     stopPolling();
     setState({ step: "analyzing", url: target });
 
-    try {
-      const { job_id } = await fetchJson<{ job_id: string }>(
-        "/api/projects/analyze",
-        { method: "POST", body: JSON.stringify({ url: target, ref: branch.trim() || null }) },
-        "Analysis failed",
-      );
-
-      // Start polling analysis job
-      void pollAnalysisJob(job_id, target);
-
-    } catch (error: any) {
-      setState({
-        step: "complete",
-        success: false,
-        message: error.message || "Failed to start analysis",
+    // A promise chain rather than await: the dialog starts this from an effect
+    // too, and an effect must not hold a state setter behind an await.
+    fetchJson<{ job_id: string }>(
+      "/api/projects/analyze",
+      { method: "POST", body: JSON.stringify({ url: target, ref: branch.trim() || null }) },
+      "Analysis failed",
+    )
+      .then(({ job_id }) => {
+        // Start polling analysis job
+        void pollAnalysisJob(job_id, target);
+      })
+      .catch((error: any) => {
+        setState({
+          step: "complete",
+          success: false,
+          message: error.message || "Failed to start analysis",
+        });
       });
-    }
   };
 
   /**
