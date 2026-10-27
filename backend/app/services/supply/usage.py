@@ -22,19 +22,19 @@ MAX_REFERENCES_TEXT = 500
 
 # Every stored line of every design, the base design (variant '') and the named variants, as one table.
 ALL_USES = (
-    "(SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, '' AS variant FROM bom_usage "
-    "UNION ALL SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, variant FROM bom_usage_variants)"
+    "(SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, '' AS variant FROM supply_bom_usage "
+    "UNION ALL SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, variant FROM supply_bom_usage_variants)"
 )
 
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the
 # manufacturer is blank, is the part's own name, or is a spelling of it (confirmed, or one the part has been seen under).
 MATCHES_PART = """
-    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND (
+    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM supply_part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND (
         u.alias_key = '' OR u.alias_key = m.name_key OR EXISTS (
-            SELECT 1 FROM manufacturer_aliases a
+            SELECT 1 FROM supply_manufacturer_aliases a
             WHERE a.alias_key = u.alias_key AND a.manufacturer_id = p.manufacturer_id AND a.status = 'confirmed'
         ) OR EXISTS (
-            SELECT 1 FROM part_spellings ps WHERE ps.part_id = p.id AND ps.alias_key = u.alias_key
+            SELECT 1 FROM supply_part_spellings ps WHERE ps.part_id = p.id AND ps.alias_key = u.alias_key
         )
     )
 """
@@ -164,18 +164,18 @@ def store_project(
     ``variant_lines`` are the lines of each named design variant; the base design's are ``lines``.
     """
 
-    current = conn.execute("SELECT revision_key FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
+    current = conn.execute("SELECT revision_key FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
     if current and current["revision_key"] == revision_key:
         conn.execute(
-            "UPDATE bom_usage_projects SET project_name = %s, visible_roles = %s WHERE project_id = %s",
+            "UPDATE supply_bom_usage_projects SET project_name = %s, visible_roles = %s WHERE project_id = %s",
             (project_name, list(visible_roles), project_id),
         )
         return False
-    conn.execute("DELETE FROM bom_usage WHERE project_id = %s", (project_id,))
-    conn.execute("DELETE FROM bom_usage_variants WHERE project_id = %s", (project_id,))
+    conn.execute("DELETE FROM supply_bom_usage WHERE project_id = %s", (project_id,))
+    conn.execute("DELETE FROM supply_bom_usage_variants WHERE project_id = %s", (project_id,))
     conn.execute(
         """
-        INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at, visible_roles)
+        INSERT INTO supply_bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at, visible_roles)
         VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (project_id) DO UPDATE SET project_name = EXCLUDED.project_name, revision_key = EXCLUDED.revision_key,
             line_count = EXCLUDED.line_count, updated_at = EXCLUDED.updated_at, visible_roles = EXCLUDED.visible_roles
@@ -184,7 +184,7 @@ def store_project(
     )
     for line in lines:
         conn.execute(
-            "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, datasheet, prism_id) "
+            "INSERT INTO supply_bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, datasheet, prism_id) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references,
              line.lcsc, line.datasheet, line.prism_id),
@@ -192,7 +192,7 @@ def store_project(
     for name, named in (variant_lines or {}).items():
         for line in named:
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
+                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
                 "datasheet, prism_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (project_id, name, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
                  line.references, line.lcsc, line.datasheet, line.prism_id),
@@ -234,9 +234,9 @@ def refresh(
             updated += 1
         else:
             skipped += 1
-    gone = [row["project_id"] for row in conn.execute("SELECT project_id FROM bom_usage_projects").fetchall() if row["project_id"] not in seen]
+    gone = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_bom_usage_projects").fetchall() if row["project_id"] not in seen]
     for project_id in gone:
-        conn.execute("DELETE FROM bom_usage_projects WHERE project_id = %s", (project_id,))
+        conn.execute("DELETE FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,))
     return {"updated": updated, "unchanged": skipped, "without_index": missing, "removed": len(gone)}
 
 
@@ -270,7 +270,7 @@ def project_variants(conn, project_id: str) -> list[str]:
 
     return [
         row["variant"] for row in conn.execute(
-            "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s ORDER BY variant", (project_id,)
+            "SELECT DISTINCT variant FROM supply_bom_usage_variants WHERE project_id = %s ORDER BY variant", (project_id,)
         ).fetchall()
     ]
 
@@ -283,12 +283,12 @@ def project_rows(conn, project_id: str, variant: str = "") -> list[dict[str, Any
 
     if variant:
         rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM bom_usage_variants WHERE project_id = %s AND variant = %s "
+            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM supply_bom_usage_variants WHERE project_id = %s AND variant = %s "
             "ORDER BY line_key", (project_id, variant),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM bom_usage WHERE project_id = %s ORDER BY line_key",
+            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM supply_bom_usage WHERE project_id = %s ORDER BY line_key",
             (project_id,)
         ).fetchall()
     return [
@@ -308,10 +308,10 @@ def used_in(conn, part_id: str, role: str | None = None) -> list[dict[str, Any]]
     rows = conn.execute(
         f"""
         SELECT u.project_id, up.project_name, u.variant, SUM(u.quantity) AS quantity, LEFT(string_agg(u.refs, ' '), 500) AS refs
-        FROM parts p
-        JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_parts p
+        JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         JOIN {ALL_USES} u ON {MATCHES_PART}
-        JOIN bom_usage_projects up ON up.project_id = u.project_id
+        JOIN supply_bom_usage_projects up ON up.project_id = u.project_id
         WHERE p.id = %s AND {VISIBLE}
         GROUP BY u.project_id, up.project_name, u.variant
         """,

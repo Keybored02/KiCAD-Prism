@@ -14,7 +14,7 @@ def run(conn) -> dict[str, int]:
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.raw_mpn, l.raw_manufacturer, l.match_state, l.part_id, c.provider
-        FROM listings l JOIN connectors c ON c.id = l.connector_id
+        FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.match_state IN ('manufacturer_unresolved', 'near') AND l.part_id IS NOT NULL
         """
     ).fetchall()
@@ -26,13 +26,13 @@ def run(conn) -> dict[str, int]:
         if state == "manufacturer_unresolved":
             state = "near"
         if state != row["match_state"]:
-            conn.execute("UPDATE listings SET match_state = %s, match_reason = %s, matched_by = 'discovery' WHERE id = %s", (state, reason, row["id"]))
+            conn.execute("UPDATE supply_listings SET match_state = %s, match_reason = %s, matched_by = 'discovery' WHERE id = %s", (state, reason, row["id"]))
             moved += 1
         elif state == "near":
-            conn.execute("UPDATE listings SET match_reason = %s WHERE id = %s", (reason, row["id"]))
+            conn.execute("UPDATE supply_listings SET match_reason = %s WHERE id = %s", (reason, row["id"]))
         if state == "exact":
             parts.record_spelling(conn, part.id, match.manufacturer, "learned")
     learned = settle.learn_aliases(conn)
     # A spelling nobody waits on is not a question any more.
-    conn.execute("DELETE FROM manufacturer_aliases WHERE status = 'pending'")
+    conn.execute("DELETE FROM supply_manufacturer_aliases WHERE status = 'pending'")
     return {"listings": moved, "learned": learned}

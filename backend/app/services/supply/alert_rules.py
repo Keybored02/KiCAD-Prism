@@ -52,7 +52,7 @@ def for_parts(conn, part_ids: Iterable[str]) -> dict[str, Rules]:
     if not ids:
         return {}
     rows = conn.execute(
-        "SELECT part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent FROM alert_rules WHERE part_id = ANY(%s)", (ids,)
+        "SELECT part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent FROM supply_alert_rules WHERE part_id = ANY(%s)", (ids,)
     ).fetchall()
     return {row["part_id"]: _row_rules(row) for row in rows}
 
@@ -96,11 +96,11 @@ def save(conn, part_id: str, payload: Mapping[str, Any], actor: str) -> Rules:
     parts.get_part(conn, part_id)
     rules = check(payload)
     if rules == NONE:
-        conn.execute("DELETE FROM alert_rules WHERE part_id = %s", (part_id,))
+        conn.execute("DELETE FROM supply_alert_rules WHERE part_id = %s", (part_id,))
     else:
         conn.execute(
             """
-            INSERT INTO alert_rules (part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by)
+            INSERT INTO supply_alert_rules (part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (part_id) DO UPDATE SET muted = EXCLUDED.muted, price_rise_percent = EXCLUDED.price_rise_percent,
                 target_price = EXCLUDED.target_price, target_currency = EXCLUDED.target_currency,

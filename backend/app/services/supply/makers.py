@@ -145,8 +145,8 @@ def refresh(conn, *, force: bool = False) -> None:
     if not force and now - _loaded_at < _TTL:
         return
     # Before the migration that makes the table (an older schema being brought up) the list in this file stands.
-    exists = conn.execute("SELECT to_regclass('maker_seeds') AS found").fetchone()["found"] is not None
-    rows = conn.execute("SELECT alias_key, group_key FROM maker_seeds").fetchall() if exists else []
+    exists = conn.execute("SELECT to_regclass('supply_maker_seeds') AS found").fetchone()["found"] is not None
+    rows = conn.execute("SELECT alias_key, group_key FROM supply_maker_seeds").fetchall() if exists else []
     _CANON = {row["alias_key"]: row["group_key"] for row in rows} if rows else dict(_DEFAULT)
     _loaded_at = now
 

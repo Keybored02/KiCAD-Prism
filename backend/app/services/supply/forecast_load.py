@@ -32,12 +32,12 @@ def holders(conn, part_id: str, now: datetime, days: int = 90, *, borrow: bool =
         row["connector_id"]: row["lead"] for row in conn.execute(
             """
             SELECT l.connector_id, MIN(o.lead_time_days) FILTER (WHERE o.lead_time_days > 0) AS lead
-            FROM listings l JOIN offers o ON o.listing_id = l.id WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id
+            FROM supply_listings l JOIN supply_offers o ON o.listing_id = l.id WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id
             """,
             (part_id, list(_COUNTED)),
         ).fetchall()
     }
-    rate = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+    rate = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     found = []
     similar: np.ndarray | None | bool = False
     for line in built["connectors"]:
@@ -56,14 +56,14 @@ def similar_shares(conn, part_id: str, now: datetime, limit: int = 40) -> np.nda
     """The drain, as a share of stock a day, of each tracked part of the same maker and category that has a drain of its own. None
     unless at least ``MIN_SIMILAR`` parts have one."""
 
-    category = conn.execute("SELECT lower(trim(value)) AS value FROM part_facts WHERE part_id = %s AND name = 'category' LIMIT 1", (part_id,)).fetchone()
+    category = conn.execute("SELECT lower(trim(value)) AS value FROM supply_part_facts WHERE part_id = %s AND name = 'category' LIMIT 1", (part_id,)).fetchone()
     if category is None or not category["value"]:
         return None
     others = conn.execute(
         """
-        SELECT p.id FROM parts p JOIN part_tiers pt ON pt.part_id = p.id
-        JOIN parts me ON me.id = %s AND me.manufacturer_id = p.manufacturer_id
-        WHERE p.id <> %s AND EXISTS (SELECT 1 FROM part_facts f WHERE f.part_id = p.id AND f.name = 'category' AND lower(trim(f.value)) = %s)
+        SELECT p.id FROM supply_parts p JOIN supply_part_tiers pt ON pt.part_id = p.id
+        JOIN supply_parts me ON me.id = %s AND me.manufacturer_id = p.manufacturer_id
+        WHERE p.id <> %s AND EXISTS (SELECT 1 FROM supply_part_facts f WHERE f.part_id = p.id AND f.name = 'category' AND lower(trim(f.value)) = %s)
         ORDER BY p.id LIMIT %s
         """,
         (part_id, part_id, category["value"], limit),
@@ -82,7 +82,7 @@ def similar_shares(conn, part_id: str, now: datetime, limit: int = 40) -> np.nda
 
 
 def is_weekly(conn, part_id: str) -> bool:
-    row = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+    row = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     return bool(row and row["rate"] != "daily")
 
 
@@ -96,7 +96,7 @@ def pooled(conn, today: date | None = None) -> tuple[dict[str, OutageModel | Non
     rows = conn.execute(
         """
         SELECT l.connector_id, e.day, e.resolved_on, e.quoted_lead_days
-        FROM stock_events e JOIN listings l ON l.id = e.listing_id WHERE e.kind = 'stock_out'
+        FROM supply_stock_events e JOIN supply_listings l ON l.id = e.listing_id WHERE e.kind = 'stock_out'
         """
     ).fetchall()
     durations: dict[str, list[tuple[float, bool]]] = defaultdict(list)
@@ -147,7 +147,7 @@ def listing_context(conn, part_id: str) -> dict[str, Any]:
     """How many followed listings and distributors the forecast stands on."""
 
     row = conn.execute(
-        "SELECT COUNT(*) AS listings, COUNT(DISTINCT connector_id) AS connectors FROM listings WHERE part_id = %s AND match_state = ANY(%s)",
+        "SELECT COUNT(*) AS listings, COUNT(DISTINCT connector_id) AS connectors FROM supply_listings WHERE part_id = %s AND match_state = ANY(%s)",
         (part_id, list(_COUNTED)),
     ).fetchone()
     return {"listings": int(row["listings"]), "connectors": int(row["connectors"])}

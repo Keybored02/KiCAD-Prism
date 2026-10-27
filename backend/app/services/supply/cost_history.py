@@ -18,7 +18,7 @@ from typing import Any
 OUTLIER_TIMES = 5
 # The rows of the series a project is on now: the build size of its newest row. ``h`` is the history table.
 SAME_SERIES = (
-    "h.build_quantity = (SELECT l.build_quantity FROM bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
+    "h.build_quantity = (SELECT l.build_quantity FROM supply_bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
     "ORDER BY l.day DESC LIMIT 1)"
 )
 
@@ -43,9 +43,9 @@ def series(conn, project_id: str, variant: str, days: int) -> tuple[list[dict[st
 
     rows = [dict(row) for row in conn.execute(
         f"""
-        SELECT day, cost_per_board, currency, lines, lines_priced, build_quantity, rollup FROM bom_cost_history h
+        SELECT day, cost_per_board, currency, lines, lines_priced, build_quantity, rollup FROM supply_bom_cost_history h
         WHERE project_id = %s AND variant = %s AND {SAME_SERIES}
-          AND day >= (SELECT MAX(day) FROM bom_cost_history WHERE project_id = h.project_id AND variant = h.variant) - %s
+          AND day >= (SELECT MAX(day) FROM supply_bom_cost_history WHERE project_id = h.project_id AND variant = h.variant) - %s
         ORDER BY day
         """,
         (project_id, variant, timedelta(days=days)),

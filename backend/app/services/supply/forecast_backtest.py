@@ -63,7 +63,7 @@ def run(conn, since: date, now: datetime | None = None) -> dict[str, Any]:
 
     now = now or datetime.now(timezone.utc)
     kept = 0
-    for row in conn.execute("SELECT part_id FROM part_tiers").fetchall():
+    for row in conn.execute("SELECT part_id FROM supply_part_tiers").fetchall():
         kept += part(conn, row["part_id"], since, now)
     return {"kept": kept} | forecast_run.run_checks(conn, now)
 

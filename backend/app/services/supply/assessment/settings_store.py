@@ -14,7 +14,7 @@ KEY = "assessment"
 
 
 def load(conn) -> AssessmentSettings:
-    row = conn.execute("SELECT value FROM settings WHERE key = %s", (KEY,)).fetchone()
+    row = conn.execute("SELECT value FROM supply_settings WHERE key = %s", (KEY,)).fetchone()
     if row is None:
         return rules.DEFAULTS
     try:
@@ -30,7 +30,7 @@ def save(conn, payload: Mapping, actor: str) -> AssessmentSettings:
     before = load(conn)
     conn.execute(
         """
-        INSERT INTO settings (key, value, updated_by) VALUES (%s, %s::jsonb, %s)
+        INSERT INTO supply_settings (key, value, updated_by) VALUES (%s, %s::jsonb, %s)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
         """,
         (KEY, json.dumps(value), actor),
@@ -51,7 +51,7 @@ def _forget_if_priced_differently(conn, before: AssessmentSettings, after: Asses
 def reset(conn, actor: str) -> AssessmentSettings:
     actor = actor_text(actor)
     before = load(conn)
-    conn.execute("DELETE FROM settings WHERE key = %s", (KEY,))
+    conn.execute("DELETE FROM supply_settings WHERE key = %s", (KEY,))
     write_audit(conn, actor, "settings.assessment.reset", KEY, {}, subject_kind="settings")
     _forget_if_priced_differently(conn, before, rules.DEFAULTS)
     return rules.DEFAULTS

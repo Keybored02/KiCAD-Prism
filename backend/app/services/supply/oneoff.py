@@ -31,7 +31,7 @@ class RequestError(ValueError):
 
 def _eligible_connectors(conn) -> list[str]:
     ids = []
-    for row in conn.execute("SELECT id, provider FROM connectors WHERE enabled AND paused_reason = '' ORDER BY created_at, id").fetchall():
+    for row in conn.execute("SELECT id, provider FROM supply_connectors WHERE enabled AND paused_reason = '' ORDER BY created_at, id").fetchall():
         try:
             spec = registry.get_spec(row["provider"])
         except registry.UnknownProvider:
@@ -65,7 +65,7 @@ def request(
     if not connectors:
         raise RequestError("There is no distributor to ask.")
     request_id = uuid.uuid4().hex
-    conn.execute("INSERT INTO read_requests (id, kind, project_id, requested_by) VALUES (%s, %s, %s, %s)", (request_id, kind, project_id, actor))
+    conn.execute("INSERT INTO supply_read_requests (id, kind, project_id, requested_by) VALUES (%s, %s, %s, %s)", (request_id, kind, project_id, actor))
     part_ids: list[str] = []
     tracked = 0
     for maker, mpn in distinct.values():
@@ -75,25 +75,25 @@ def request(
         except parts.UnknownManufacturer:
             skipped.append({"mpn": mpn, "reason": "needs_choice"})
             continue
-        if conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (part.id,)).fetchone():
+        if conn.execute("SELECT 1 FROM supply_part_tiers WHERE part_id = %s", (part.id,)).fetchone():
             tracked += 1
             continue
         part_ids.append(part.id)
     for part_id in part_ids:
         for connector_id in connectors:
             conn.execute(
-                "INSERT INTO read_request_work (request_id, part_id, connector_id) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                "INSERT INTO supply_read_request_work (request_id, part_id, connector_id) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (request_id, part_id, connector_id),
             )
     if not part_ids:
-        conn.execute("UPDATE read_requests SET finished_at = NOW() WHERE id = %s", (request_id,))
+        conn.execute("UPDATE supply_read_requests SET finished_at = NOW() WHERE id = %s", (request_id,))
     write_audit(conn, actor, "check.request", request_id,
                 {"kind": kind, "project_id": project_id, "parts": len(part_ids), "already_tracked": tracked}, subject_kind="check")
     return {"id": request_id, "parts": len(part_ids), "already_tracked": tracked, "skipped": skipped}
 
 
 def progress(conn, request_id: str) -> dict[str, Any]:
-    row = conn.execute("SELECT id, kind, project_id, created_at, finished_at FROM read_requests WHERE id = %s", (request_id,)).fetchone()
+    row = conn.execute("SELECT id, kind, project_id, created_at, finished_at FROM supply_read_requests WHERE id = %s", (request_id,)).fetchone()
     if row is None:
         raise KeyError(request_id)
     counts = conn.execute(
@@ -102,7 +102,7 @@ def progress(conn, request_id: str) -> dict[str, Any]:
                COUNT(*) FILTER (WHERE open = 0) AS done,
                COUNT(*) FILTER (WHERE failed > 0 AND open = 0) AS failed
         FROM (SELECT part_id, COUNT(*) FILTER (WHERE state = 'pending') AS open, COUNT(*) FILTER (WHERE state = 'failed') AS failed
-              FROM read_request_work WHERE request_id = %s GROUP BY part_id) per_part
+              FROM supply_read_request_work WHERE request_id = %s GROUP BY part_id) per_part
         """,
         (request_id,),
     ).fetchone()
@@ -116,14 +116,14 @@ def pending_connectors(conn) -> list[str]:
     """Connectors with a part still to read for an open request."""
 
     return [r["connector_id"] for r in conn.execute(
-        "SELECT DISTINCT w.connector_id FROM read_request_work w JOIN read_requests q ON q.id = w.request_id "
+        "SELECT DISTINCT w.connector_id FROM supply_read_request_work w JOIN supply_read_requests q ON q.id = w.request_id "
         "WHERE w.state = 'pending' AND q.finished_at IS NULL").fetchall()]
 
 
 def _finish(conn) -> None:
     conn.execute(
-        "UPDATE read_requests q SET finished_at = NOW() WHERE finished_at IS NULL "
-        "AND NOT EXISTS (SELECT 1 FROM read_request_work w WHERE w.request_id = q.id AND w.state = 'pending')"
+        "UPDATE supply_read_requests q SET finished_at = NOW() WHERE finished_at IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM supply_read_request_work w WHERE w.request_id = q.id AND w.state = 'pending')"
     )
 
 
@@ -132,7 +132,7 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
 
     with store.connection() as conn:
         rows = conn.execute(
-            "SELECT w.request_id, w.part_id, q.created_at FROM read_request_work w JOIN read_requests q ON q.id = w.request_id "
+            "SELECT w.request_id, w.part_id, q.created_at FROM supply_read_request_work w JOIN supply_read_requests q ON q.id = w.request_id "
             "WHERE w.connector_id = %s AND w.state = 'pending' AND q.finished_at IS NULL ORDER BY q.created_at, w.part_id LIMIT %s",
             (connector_id, limit),
         ).fetchall()
@@ -150,8 +150,8 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
         for part_id in part_ids:
             ready = conn.execute(
                 """
-                SELECT EXISTS (SELECT 1 FROM discovery_runs d WHERE d.part_id = %(p)s AND d.connector_id = %(c)s) AS searched,
-                       NOT EXISTS (SELECT 1 FROM listings l LEFT JOIN offers o ON o.listing_id = l.id
+                SELECT EXISTS (SELECT 1 FROM supply_discovery_runs d WHERE d.part_id = %(p)s AND d.connector_id = %(c)s) AS searched,
+                       NOT EXISTS (SELECT 1 FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
                                    WHERE l.part_id = %(p)s AND l.connector_id = %(c)s AND l.match_state IN ('exact', 'manual')
                                      AND o.listing_id IS NULL) AS read
                 """,
@@ -159,11 +159,11 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
             ).fetchone()
             if ready["searched"] and ready["read"]:
                 done += conn.execute(
-                    "UPDATE read_request_work SET state = 'done' WHERE connector_id = %s AND part_id = %s AND state = 'pending'", (connector_id, part_id)
+                    "UPDATE supply_read_request_work SET state = 'done' WHERE connector_id = %s AND part_id = %s AND state = 'pending'", (connector_id, part_id)
                 ).rowcount
             elif not resting:
                 conn.execute(
-                    "UPDATE read_request_work SET attempts = attempts + 1, state = CASE WHEN attempts + 1 >= %s THEN 'failed' ELSE state END "
+                    "UPDATE supply_read_request_work SET attempts = attempts + 1, state = CASE WHEN attempts + 1 >= %s THEN 'failed' ELSE state END "
                     "WHERE connector_id = %s AND part_id = %s AND state = 'pending'", (MAX_ATTEMPTS, connector_id, part_id),
                 )
         _finish(conn)

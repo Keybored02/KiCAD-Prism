@@ -126,7 +126,7 @@ async def find_part(
             record = parts.find_part(conn, manufacturer, mpn)
             if record is None:
                 return {"part_id": None, "followed": False}
-            followed = conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (record.id,)).fetchone() is not None
+            followed = conn.execute("SELECT 1 FROM supply_part_tiers WHERE part_id = %s", (record.id,)).fetchone() is not None
             return {"part_id": record.id, "followed": followed}
 
     return await _run(read)

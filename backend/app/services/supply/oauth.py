@@ -74,8 +74,8 @@ def start(service, connector_id: str, actor: str, now: datetime | None = None) -
         raise SignInError("Set the connector's client ID and secret first.")
     state = secrets.token_urlsafe(32)
     with service.store.connection() as conn:
-        conn.execute("DELETE FROM oauth_states WHERE created_at < %s", (now - STATE_TTL,))
-        conn.execute("INSERT INTO oauth_states (state, connector_id, actor, created_at) VALUES (%s, %s, %s, %s)",
+        conn.execute("DELETE FROM supply_oauth_states WHERE created_at < %s", (now - STATE_TTL,))
+        conn.execute("INSERT INTO supply_oauth_states (state, connector_id, actor, created_at) VALUES (%s, %s, %s, %s)",
                      (state, connector_id, actor, now))
     query = urlencode({"response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri(), "state": state})
     return f"{digikey.AUTHORIZE_URL}?{query}"
@@ -93,14 +93,14 @@ def _keep(conn, service, connector_id: str, answer: Any, now: datetime, granted_
     )
     if granted_by is None:
         conn.execute(
-            "UPDATE connector_grants SET envelope = %s, access_expires_at = %s, refresh_expires_at = %s, last_error = '' "
+            "UPDATE supply_connector_grants SET envelope = %s, access_expires_at = %s, refresh_expires_at = %s, last_error = '' "
             "WHERE connector_id = %s",
             (envelope, now + access_for, now + refresh_for, connector_id),
         )
         return
     conn.execute(
         """
-        INSERT INTO connector_grants (connector_id, envelope, access_expires_at, refresh_expires_at, granted_by, granted_at, last_error)
+        INSERT INTO supply_connector_grants (connector_id, envelope, access_expires_at, refresh_expires_at, granted_by, granted_at, last_error)
         VALUES (%s, %s, %s, %s, %s, %s, '')
         ON CONFLICT (connector_id) DO UPDATE SET envelope = EXCLUDED.envelope, access_expires_at = EXCLUDED.access_expires_at,
             refresh_expires_at = EXCLUDED.refresh_expires_at, granted_by = EXCLUDED.granted_by,
@@ -121,7 +121,7 @@ def finish(
         raise SignInError("DigiKey did not send a code back.", "no_code")
     with service.store.connection() as conn:
         row = conn.execute(
-            "DELETE FROM oauth_states WHERE state = %s RETURNING connector_id, actor, created_at", (state,)
+            "DELETE FROM supply_oauth_states WHERE state = %s RETURNING connector_id, actor, created_at", (state,)
         ).fetchone()
     if row is None or now - row["created_at"] > STATE_TTL:
         raise SignInError("This sign-in expired or was already used. Start it again from the connector.", "expired")
@@ -149,7 +149,7 @@ def access_token(service, connector_id: str, now: datetime | None = None, client
     # The mark is written after the locked transaction ends: raising inside it would roll the mark back.
     failure = ""
     with service.store.connection() as conn:
-        row = conn.execute("SELECT * FROM connector_grants WHERE connector_id = %s FOR UPDATE", (connector_id,)).fetchone()
+        row = conn.execute("SELECT * FROM supply_connector_grants WHERE connector_id = %s FOR UPDATE", (connector_id,)).fetchone()
         if row is None:
             raise NotSignedIn("nobody signed in")
         if row["last_error"]:
@@ -183,7 +183,7 @@ def access_token(service, connector_id: str, now: datetime | None = None, client
 
 def _mark(store, connector_id: str, failure: str) -> None:
     with store.connection() as conn:
-        conn.execute("UPDATE connector_grants SET last_error = %s WHERE connector_id = %s", (failure, connector_id))
+        conn.execute("UPDATE supply_connector_grants SET last_error = %s WHERE connector_id = %s", (failure, connector_id))
 
 
 def mark_refused(store, connector_id: str) -> None:
@@ -197,7 +197,7 @@ def status(conn, connector_id: str, now: datetime | None = None) -> dict[str, An
 
     now = now or datetime.now(timezone.utc)
     row = conn.execute(
-        "SELECT granted_by, granted_at, refresh_expires_at, last_error FROM connector_grants WHERE connector_id = %s",
+        "SELECT granted_by, granted_at, refresh_expires_at, last_error FROM supply_connector_grants WHERE connector_id = %s",
         (connector_id,),
     ).fetchone()
     if row is None:
@@ -216,6 +216,6 @@ def status(conn, connector_id: str, now: datetime | None = None) -> dict[str, An
 def forget(service, connector_id: str, actor: str) -> None:
     actor = actor_text(actor)
     with service.store.connection() as conn:
-        conn.execute("DELETE FROM connector_grants WHERE connector_id = %s", (connector_id,))
+        conn.execute("DELETE FROM supply_connector_grants WHERE connector_id = %s", (connector_id,))
         write_audit(conn, actor, "connector.signout", connector_id, {})
 

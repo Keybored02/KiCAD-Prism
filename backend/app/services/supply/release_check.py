@@ -115,7 +115,7 @@ def freeze(
         draft = None
     created = conn.execute(
         """
-        INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, compliance)
+        INSERT INTO supply_release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, compliance)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
         ON CONFLICT (build_id) DO NOTHING RETURNING id
         """,
@@ -132,7 +132,7 @@ def freeze(
 
 def get_snapshot(conn, project_id: str, build_id: str) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT * FROM release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)
+        "SELECT * FROM supply_release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)
     ).fetchone()
     if row is None:
         raise SnapshotNotFound(build_id)

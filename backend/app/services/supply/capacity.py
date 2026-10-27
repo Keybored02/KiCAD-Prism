@@ -22,7 +22,7 @@ _UNPOLLED_TIER = "daily"
 
 def connector_capacity(conn) -> list[dict[str, Any]]:
     connectors = conn.execute(
-        "SELECT id, display_name, provider, daily_budget, interactive_reserve_pct FROM connectors "
+        "SELECT id, display_name, provider, daily_budget, interactive_reserve_pct FROM supply_connectors "
         "WHERE enabled ORDER BY lower(display_name), id"
     ).fetchall()
     tiers: dict[str, dict[str, int]] = {}
@@ -31,9 +31,9 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         """
         SELECT connector_id, tier, COUNT(*) AS n, COUNT(DISTINCT part_id) AS parts FROM (
             SELECT l.connector_id, l.part_id, COALESCE(ps.tier, %s) AS tier
-            FROM listings l
-            JOIN part_tiers w ON w.part_id = l.part_id
-            LEFT JOIN poll_state ps ON ps.listing_id = l.id
+            FROM supply_listings l
+            JOIN supply_part_tiers w ON w.part_id = l.part_id
+            LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
             WHERE l.match_state IN ('exact', 'manual')
         ) listed GROUP BY connector_id, tier
         """,
@@ -46,9 +46,9 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         for row in conn.execute(
             """
             SELECT c.id AS connector_id, COUNT(*) AS n
-            FROM connectors c JOIN admissions a ON a.connector_id = c.id AND a.state = 'admitted'
-            JOIN part_tiers w ON w.part_id = a.part_id
-            LEFT JOIN discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
+            FROM supply_connectors c JOIN supply_admissions a ON a.connector_id = c.id AND a.state = 'admitted'
+            JOIN supply_part_tiers w ON w.part_id = a.part_id
+            LEFT JOIN supply_discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
             WHERE d.part_id IS NULL GROUP BY c.id
             """
         ).fetchall()
@@ -57,7 +57,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
     read = {
         row["connector_id"]: int(row["n"])
         for row in conn.execute(
-            "SELECT a.connector_id, COUNT(*) AS n FROM admissions a JOIN part_tiers w ON w.part_id = a.part_id WHERE a.state = 'admitted' GROUP BY a.connector_id"
+            "SELECT a.connector_id, COUNT(*) AS n FROM supply_admissions a JOIN supply_part_tiers w ON w.part_id = a.part_id WHERE a.state = 'admitted' GROUP BY a.connector_id"
         ).fetchall()
     }
     quoted = {
@@ -65,9 +65,9 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         for row in conn.execute(
             """
             SELECT l.connector_id, COUNT(DISTINCT l.part_id) AS n
-            FROM listings l JOIN part_tiers w ON w.part_id = l.part_id
-            JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
-            JOIN offers o ON o.listing_id = l.id
+            FROM supply_listings l JOIN supply_part_tiers w ON w.part_id = l.part_id
+            JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
+            JOIN supply_offers o ON o.listing_id = l.id
             WHERE l.match_state IN ('exact', 'manual') AND NOT o.marketplace AND o.currency <> '' AND o.price_breaks <> '[]'::jsonb
             GROUP BY l.connector_id
             """

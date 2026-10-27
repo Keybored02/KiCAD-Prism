@@ -160,7 +160,7 @@ async def pin_listing(listing_id: str, body: Optional[PinRequest] = None, approv
 
     def run() -> None:
         with _store().connection() as conn:
-            row = conn.execute("SELECT part_id, raw_mpn FROM listings WHERE id = %s", (listing_id,)).fetchone()
+            row = conn.execute("SELECT part_id, raw_mpn FROM supply_listings WHERE id = %s", (listing_id,)).fetchone()
             if row is None:
                 raise discovery.ListingNotFound(listing_id)
             if row["part_id"] is None:

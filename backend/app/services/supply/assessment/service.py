@@ -20,7 +20,7 @@ def distributor_count(conn) -> int:
     """Distributors Prism reads: distinct providers among enabled connectors. Files and the simulator are not distributors."""
 
     return conn.execute(
-        "SELECT COUNT(DISTINCT provider) AS n FROM connectors WHERE enabled AND provider NOT IN ('csv', 'fake')"
+        "SELECT COUNT(DISTINCT provider) AS n FROM supply_connectors WHERE enabled AND provider NOT IN ('csv', 'fake')"
     ).fetchone()["n"]
 
 
@@ -94,10 +94,10 @@ def last_buy_dates(conn, part_ids: Sequence[str]) -> dict[str, date]:
         if part_id not in found or day < found[part_id]:
             found[part_id] = day
 
-    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'last_buy_date' AND part_id = ANY(%s)", (list(part_ids),)).fetchall():
+    for row in conn.execute("SELECT part_id, value FROM supply_part_facts WHERE name = 'last_buy_date' AND part_id = ANY(%s)", (list(part_ids),)).fetchall():
         note(row["part_id"], row["value"])
     for row in conn.execute(
-        "SELECT pp.part_id, n.last_time_buy FROM pcn_parts pp JOIN pcns n ON n.id = pp.pcn_id "
+        "SELECT pp.part_id, n.last_time_buy FROM supply_pcn_parts pp JOIN supply_pcns n ON n.id = pp.pcn_id "
         "WHERE n.state = 'open' AND n.last_time_buy IS NOT NULL AND pp.part_id = ANY(%s)", (list(part_ids),),
     ).fetchall():
         note(row["part_id"], row["last_time_buy"])

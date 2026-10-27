@@ -39,8 +39,8 @@ def refresh(conn, *, force: bool = False) -> None:
     now = time.monotonic()
     if not force and now - _loaded_at < _TTL:
         return
-    exists = conn.execute("SELECT to_regclass('number_suffixes') AS found").fetchone()["found"] is not None
-    rows = conn.execute("SELECT suffix_key, kind FROM number_suffixes").fetchall() if exists else []
+    exists = conn.execute("SELECT to_regclass('supply_number_suffixes') AS found").fetchone()["found"] is not None
+    rows = conn.execute("SELECT suffix_key, kind FROM supply_number_suffixes").fetchall() if exists else []
     _TABLE = {row["suffix_key"]: row["kind"] for row in rows} if exists else dict(DEFAULTS)
     _loaded_at = now
 
@@ -63,7 +63,7 @@ def kind_of(ending: str) -> str | None:
 
 
 def listing_all(conn) -> list[dict[str, Any]]:
-    rows = conn.execute("SELECT suffix_key, suffix_text, kind, source FROM number_suffixes ORDER BY kind, suffix_key").fetchall()
+    rows = conn.execute("SELECT suffix_key, suffix_text, kind, source FROM supply_number_suffixes ORDER BY kind, suffix_key").fetchall()
     return [dict(row) for row in rows]
 
 
@@ -76,10 +76,10 @@ def add(conn, text: str, kind: str, actor: str) -> None:
         raise ValueError("The kind is packaging or grade.")
     if len(key) > 12:
         raise ValueError("An ending is at most 12 characters.")
-    if conn.execute("SELECT 1 FROM number_suffixes WHERE suffix_key = %s", (key,)).fetchone():
+    if conn.execute("SELECT 1 FROM supply_number_suffixes WHERE suffix_key = %s", (key,)).fetchone():
         raise ValueError("That ending is already in the list.")
     conn.execute(
-        "INSERT INTO number_suffixes (suffix_key, suffix_text, kind, source) VALUES (%s, %s, %s, 'person')", (key, text.strip()[:20], kind)
+        "INSERT INTO supply_number_suffixes (suffix_key, suffix_text, kind, source) VALUES (%s, %s, %s, 'person')", (key, text.strip()[:20], kind)
     )
     write_audit(conn, actor, "number_suffix.add", key, {"kind": kind}, subject_kind="number_suffix")
     refresh(conn, force=True)
@@ -87,7 +87,7 @@ def add(conn, text: str, kind: str, actor: str) -> None:
 
 def remove(conn, key: str, actor: str) -> bool:
     actor = actor_text(actor)
-    gone = conn.execute("DELETE FROM number_suffixes WHERE suffix_key = %s RETURNING suffix_key", (key,)).fetchone()
+    gone = conn.execute("DELETE FROM supply_number_suffixes WHERE suffix_key = %s RETURNING suffix_key", (key,)).fetchone()
     if gone:
         write_audit(conn, actor, "number_suffix.remove", key, {}, subject_kind="number_suffix")
         refresh(conn, force=True)

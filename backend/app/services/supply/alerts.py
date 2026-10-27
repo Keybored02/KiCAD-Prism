@@ -171,7 +171,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         )
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
-        "SELECT * FROM alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)
+        "SELECT * FROM supply_alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)
     ).fetchall():
         existing[(row["part_id"], row["kind"])] = row
 
@@ -196,14 +196,14 @@ def _likely_out(conn, ids: list[str], percent: dict[str, int] | None = None, def
 
     from app.services.supply import forecasting
 
-    state = conn.execute("SELECT state FROM forecast_models WHERE target = 'out_4w'").fetchone()
+    state = conn.execute("SELECT state FROM supply_forecast_models WHERE target = 'out_4w'").fetchone()
     if not state or state["state"] != forecasting.SHOWN:
         return {}
     found: dict[str, dict[str, Any]] = {}
     for row in conn.execute(
         """
         SELECT f.subject_id, (array_agg(f.probability ORDER BY f.made_on DESC))[1:2] AS lately
-        FROM forecasts f JOIN part_tiers pt ON pt.part_id = f.subject_id AND pt.rate = 'daily'
+        FROM supply_forecasts f JOIN supply_part_tiers pt ON pt.part_id = f.subject_id AND pt.rate = 'daily'
         WHERE f.subject_kind = 'part' AND f.target = 'out_4w' AND f.subject_id = ANY(%s) GROUP BY f.subject_id
         """,
         (ids,),
@@ -220,20 +220,20 @@ def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, s
 
     from app.services.supply.assessment import service as assessment
 
-    tracked = [row["part_id"] for row in conn.execute("SELECT part_id FROM part_tiers WHERE part_id = ANY(%s)", (ids,)).fetchall()]
+    tracked = [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers WHERE part_id = ANY(%s)", (ids,)).fetchall()]
     if not tracked:
         return {}, {}
     result = assessment.assess_parts(conn, tracked, now=now)
     states = {part_id: entry["status"] for part_id, entry in result.items() if entry["status"] in _STATUS_ORDER}
     marks = {
         row["part_id"]: row["status"]
-        for row in conn.execute("SELECT part_id, status FROM assessment_marks WHERE part_id = ANY(%s)", (tracked,)).fetchall()
+        for row in conn.execute("SELECT part_id, status FROM supply_assessment_marks WHERE part_id = ANY(%s)", (tracked,)).fetchall()
     }
     for part_id, status in states.items():
         mark = marks.get(part_id)
         if mark is None or _STATUS_ORDER.index(status) < _STATUS_ORDER.index(mark):
             conn.execute(
-                "INSERT INTO assessment_marks (part_id, status) VALUES (%s, %s) "
+                "INSERT INTO supply_assessment_marks (part_id, status) VALUES (%s, %s) "
                 "ON CONFLICT (part_id) DO UPDATE SET status = EXCLUDED.status, marked_at = NOW()",
                 (part_id, status),
             )
@@ -245,7 +245,7 @@ def _begin(conn, part_id: str, kind: str, condition: Condition, now: datetime) -
     state = OPEN if kind in _IMMEDIATE else PENDING
     conn.execute(
         """
-        INSERT INTO alerts (part_id, kind, severity, state, first_seen_at, seen_count, opened_at, last_event_at, detail)
+        INSERT INTO supply_alerts (part_id, kind, severity, state, first_seen_at, seen_count, opened_at, last_event_at, detail)
         VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s::jsonb)
         """,
         (part_id, kind, condition.severity, state, now, now if state == OPEN else None, now,
@@ -255,9 +255,9 @@ def _begin(conn, part_id: str, kind: str, condition: Condition, now: datetime) -
 
 def _clear(conn, row: Mapping[str, Any], now: datetime) -> None:
     if row["state"] == PENDING:
-        conn.execute("DELETE FROM alerts WHERE id = %s", (row["id"],))
+        conn.execute("DELETE FROM supply_alerts WHERE id = %s", (row["id"],))
     else:
-        conn.execute("UPDATE alerts SET state = 'resolved', resolved_at = %s WHERE id = %s", (now, row["id"]))
+        conn.execute("UPDATE supply_alerts SET state = 'resolved', resolved_at = %s WHERE id = %s", (now, row["id"]))
 
 
 def _update(conn, row: Mapping[str, Any], kind: str, condition: Condition, now: datetime) -> None:
@@ -268,25 +268,25 @@ def _update(conn, row: Mapping[str, Any], kind: str, condition: Condition, now: 
         seen = row["seen_count"] + 1
         if seen >= 2 and now - row["first_seen_at"] >= HOLD:
             conn.execute(
-                "UPDATE alerts SET state = 'open', seen_count = %s, severity = %s, opened_at = %s, last_event_at = %s, "
+                "UPDATE supply_alerts SET state = 'open', seen_count = %s, severity = %s, opened_at = %s, last_event_at = %s, "
                 "detail = %s::jsonb WHERE id = %s",
                 (seen, condition.severity, now, now, detail, row["id"]),
             )
         else:
             conn.execute(
-                "UPDATE alerts SET seen_count = %s, severity = %s, detail = %s::jsonb WHERE id = %s",
+                "UPDATE supply_alerts SET seen_count = %s, severity = %s, detail = %s::jsonb WHERE id = %s",
                 (seen, condition.severity, detail, row["id"]),
             )
         return
     wake = worse or (state == SNOOZED and row["snoozed_until"] is not None and row["snoozed_until"] <= now)
     if wake:
         conn.execute(
-            "UPDATE alerts SET state = 'open', severity = %s, last_event_at = %s, acknowledged_by = '', "
+            "UPDATE supply_alerts SET state = 'open', severity = %s, last_event_at = %s, acknowledged_by = '', "
             "acknowledged_at = NULL, snoozed_until = NULL, detail = %s::jsonb WHERE id = %s",
             (condition.severity, now, detail, row["id"]),
         )
     else:
-        conn.execute("UPDATE alerts SET severity = %s, detail = %s::jsonb WHERE id = %s",
+        conn.execute("UPDATE supply_alerts SET severity = %s, detail = %s::jsonb WHERE id = %s",
                      (condition.severity, detail, row["id"]))
 
 
@@ -306,7 +306,7 @@ def list_alerts(conn, now: datetime, *, include_resolved: bool = False, limit: i
     rows = conn.execute(
         """
         SELECT a.*, p.mpn, m.name AS manufacturer
-        FROM alerts a JOIN parts p ON p.id = a.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_alerts a JOIN supply_parts p ON p.id = a.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE a.state = ANY(%s)
         ORDER BY a.last_event_at DESC, a.id DESC
         LIMIT %s
@@ -327,7 +327,7 @@ def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = No
     rows = conn.execute(
         """
         SELECT a.*, p.mpn, m.name AS manufacturer
-        FROM alerts a JOIN parts p ON p.id = a.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_alerts a JOIN supply_parts p ON p.id = a.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE a.opened_at >= %s OR a.resolved_at >= %s
         """,
         (since, since),
@@ -343,7 +343,7 @@ def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = No
     for row in conn.execute(
         """
         SELECT e.at, e.kind, e.part_id, e.payload, p.mpn, m.name AS manufacturer
-        FROM events e JOIN parts p ON p.id = e.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_events e JOIN supply_parts p ON p.id = e.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE e.kind IN ('listing_gone', 'lifecycle_changed', 'normally_stocking_lost', 'moq_jump', 'family_member_new', 'param_changed') AND e.at >= %s
         """,
         (since,),
@@ -351,7 +351,7 @@ def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = No
         changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": row["part_id"], "mpn": row["mpn"],
                         "manufacturer": row["manufacturer"], "alert": None, "sku": str((row["payload"] or {}).get("sku", "")),
                         "detail": row["payload"] or {}})
-    for row in conn.execute("SELECT at, kind, payload FROM events WHERE kind = 'project_bom_changed' AND at >= %s", (since,)).fetchall():
+    for row in conn.execute("SELECT at, kind, payload FROM supply_events WHERE kind = 'project_bom_changed' AND at >= %s", (since,)).fetchall():
         payload = row["payload"] or {}
         if role is not None and role not in (payload.get("visible_roles") or []):
             continue
@@ -365,7 +365,7 @@ def count_attention(conn, now: datetime) -> int:
     """Alerts that are open (not acknowledged, snoozed or resolved)."""
 
     return int(conn.execute(
-        "SELECT COUNT(*) AS n FROM alerts WHERE state = 'open' OR (state = 'snoozed' AND snoozed_until <= %s)", (now,)
+        "SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open' OR (state = 'snoozed' AND snoozed_until <= %s)", (now,)
     ).fetchone()["n"])
 
 
@@ -394,7 +394,7 @@ def _dto(row: Mapping[str, Any], now: datetime) -> dict[str, Any]:
 
 
 def _fetch(conn, alert_id: int):
-    row = conn.execute("SELECT * FROM alerts WHERE id = %s FOR UPDATE", (alert_id,)).fetchone()
+    row = conn.execute("SELECT * FROM supply_alerts WHERE id = %s FOR UPDATE", (alert_id,)).fetchone()
     if row is None or row["state"] == PENDING:
         raise AlertNotFound(alert_id)
     if row["state"] == RESOLVED:
@@ -408,12 +408,12 @@ def acknowledge(conn, alert_id: int, actor: str, now: datetime) -> None:
     if _effective_state(row, now) != OPEN:
         raise AlertError("Only an open alert can be acknowledged.")
     conn.execute(
-        "UPDATE alerts SET state = 'acknowledged', acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
+        "UPDATE supply_alerts SET state = 'acknowledged', acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
         (actor, now, alert_id),
     )
     if row["kind"] == ASSESSMENT_WORSE and (row["detail"] or {}).get("to") in _STATUS_ORDER:
         # Seen and accepted: the part is now judged against where it stands.
-        conn.execute("UPDATE assessment_marks SET status = %s, marked_at = %s WHERE part_id = %s", (row["detail"]["to"], now, row["part_id"]))
+        conn.execute("UPDATE supply_assessment_marks SET status = %s, marked_at = %s WHERE part_id = %s", (row["detail"]["to"], now, row["part_id"]))
     write_audit(conn, actor, "alert.acknowledge", str(alert_id), {"kind": row["kind"]}, subject_kind="alert")
 
 
@@ -424,7 +424,7 @@ def snooze(conn, alert_id: int, hours: int, actor: str, now: datetime) -> None:
     row = _fetch(conn, alert_id)
     until = now + timedelta(hours=hours)
     conn.execute(
-        "UPDATE alerts SET state = 'snoozed', snoozed_until = %s, acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
+        "UPDATE supply_alerts SET state = 'snoozed', snoozed_until = %s, acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
         (until, actor, now, alert_id),
     )
     write_audit(conn, actor, "alert.snooze", str(alert_id), {"kind": row["kind"], "hours": hours}, subject_kind="alert")

@@ -45,10 +45,10 @@ def supply_hits(conn, query: str, limit: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT p.id, p.mpn, p.match_key, m.name AS manufacturer
-        FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE p.mpn ILIKE %(like)s OR (%(key)s <> '' AND p.match_key LIKE %(keylike)s) OR m.name ILIKE %(like)s
-           OR EXISTS (SELECT 1 FROM part_numbers n WHERE n.part_id = p.id AND (n.mpn ILIKE %(like)s OR (%(key)s <> '' AND n.match_key LIKE %(keylike)s)))
-           OR EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state <> 'rejected' AND l.sku ILIKE %(like)s)
+           OR EXISTS (SELECT 1 FROM supply_part_numbers n WHERE n.part_id = p.id AND (n.mpn ILIKE %(like)s OR (%(key)s <> '' AND n.match_key LIKE %(keylike)s)))
+           OR EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND l.match_state <> 'rejected' AND l.sku ILIKE %(like)s)
         ORDER BY (p.match_key = %(key)s) DESC, (p.match_key LIKE %(prefix)s) DESC, lower(p.mpn)
         LIMIT %(limit)s
         """,

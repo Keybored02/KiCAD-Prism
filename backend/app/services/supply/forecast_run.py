@@ -50,7 +50,7 @@ def price_by_distributor(conn, part_id: str, now: datetime) -> list[dict[str, An
 
 
 def _tracked(conn) -> list[str]:
-    return [row["part_id"] for row in conn.execute("SELECT part_id FROM part_tiers").fetchall()]
+    return [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers").fetchall()]
 
 
 def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
@@ -96,7 +96,7 @@ def _store_end_of_life(conn, part_id: str, day: date) -> None:
     from app.services.supply import forecast_lifecycle, parts_view
 
     recent = conn.execute(
-        "SELECT 1 FROM forecasts WHERE subject_kind = 'part' AND subject_id = %s AND target = 'eol_12' AND made_on > %s",
+        "SELECT 1 FROM supply_forecasts WHERE subject_kind = 'part' AND subject_id = %s AND target = 'eol_12' AND made_on > %s",
         (part_id, day - timedelta(days=EOL_EVERY_DAYS)),
     ).fetchone()
     if recent:
@@ -123,7 +123,7 @@ class _Truth:
         self.prices = {day: price for day, price in forecast_price.series_of(conn, part_id, now, CHECK_DAYS)}
         self.ended = [
             row["at"].astimezone(timezone.utc).date() for row in conn.execute(
-                "SELECT at FROM events WHERE part_id = %s AND kind = 'lifecycle_changed' AND payload->>'to' = ANY(%s)",
+                "SELECT at FROM supply_events WHERE part_id = %s AND kind = 'lifecycle_changed' AND payload->>'to' = ANY(%s)",
                 (part_id, ["nrnd", "last_time_buy", "obsolete"]),
             ).fetchall()
         ]

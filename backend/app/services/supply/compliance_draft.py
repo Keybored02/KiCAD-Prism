@@ -41,7 +41,7 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     flags: dict[str, list[tuple[bool | None, bool | None]]] = {part_id: [] for part_id in part_ids}
     if part_ids:
         for offer in conn.execute(
-            "SELECT l.part_id, o.rohs, o.reach_affected FROM offers o JOIN listings l ON l.id = o.listing_id "
+            "SELECT l.part_id, o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
             "WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')",
             (part_ids,),
         ).fetchall():

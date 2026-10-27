@@ -95,7 +95,7 @@ async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(requi
         with _store().connection() as conn:
             part = parts.get_part(conn, part_id)
             offers = conn.execute(
-                "SELECT o.rohs, o.reach_affected FROM offers o JOIN listings l ON l.id = o.listing_id "
+                "SELECT o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
                 "WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual')",
                 (part.id,),
             ).fetchall()

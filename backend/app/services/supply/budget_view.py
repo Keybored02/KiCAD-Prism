@@ -27,7 +27,7 @@ def _hourly(conn, connector_id: str, day, *, notices: bool = True) -> list[dict[
     """Today's calls by hour. ``notices`` False leaves out change-notice calls, for a provider whose notices have a quota of their own."""
 
     rows = conn.execute(
-        "SELECT hour, kind, purpose, calls FROM call_counts WHERE connector_id = %s AND day = %s AND (%s OR kind <> 'notices') ORDER BY hour, kind, purpose",
+        "SELECT hour, kind, purpose, calls FROM supply_call_counts WHERE connector_id = %s AND day = %s AND (%s OR kind <> 'notices') ORDER BY hour, kind, purpose",
         (connector_id, day, notices),
     ).fetchall()
     return [{"hour": int(r["hour"]), "kind": r["kind"], "purpose": r["purpose"], "calls": int(r["calls"])} for r in rows]
@@ -35,7 +35,7 @@ def _hourly(conn, connector_id: str, day, *, notices: bool = True) -> list[dict[
 
 def _daily(conn, connector_id: str, day, *, notices: bool = True) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT day, purpose, SUM(calls) AS calls FROM call_counts WHERE connector_id = %s AND day > %s AND day <= %s AND kind <> 'refused' "
+        "SELECT day, purpose, SUM(calls) AS calls FROM supply_call_counts WHERE connector_id = %s AND day > %s AND day <= %s AND kind <> 'refused' "
         "AND (%s OR kind <> 'notices') GROUP BY day, purpose ORDER BY day, purpose",
         (connector_id, day - timedelta(days=DAYS), day, notices),
     ).fetchall()
@@ -44,7 +44,7 @@ def _daily(conn, connector_id: str, day, *, notices: bool = True) -> list[dict[s
 
 def _refused(conn, connector_id: str, day) -> int:
     row = conn.execute(
-        "SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE connector_id = %s AND day = %s AND kind = 'refused'", (connector_id, day)
+        "SELECT COALESCE(SUM(calls), 0) AS n FROM supply_call_counts WHERE connector_id = %s AND day = %s AND kind = 'refused'", (connector_id, day)
     ).fetchone()
     return int(row["n"])
 
@@ -53,8 +53,8 @@ def owners(conn, connector_id: str, spec, data: dict[str, Any]) -> dict[str, lis
     """The projects and parts that cost most at a connector, estimated: calls a day, by the cost model."""
 
     rows = conn.execute(
-        "SELECT a.part_id, p.mpn, m.name AS manufacturer FROM admissions a JOIN parts p ON p.id = a.part_id "
-        "JOIN manufacturers m ON m.id = p.manufacturer_id WHERE a.connector_id = %s AND a.state = 'admitted'",
+        "SELECT a.part_id, p.mpn, m.name AS manufacturer FROM supply_admissions a JOIN supply_parts p ON p.id = a.part_id "
+        "JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE a.connector_id = %s AND a.state = 'admitted'",
         (connector_id,),
     ).fetchall()
     projects: dict[str, float] = defaultdict(float)
@@ -77,7 +77,7 @@ def owners(conn, connector_id: str, spec, data: dict[str, Any]) -> dict[str, lis
     top_projects = sorted(({"project_id": ref, "calls_a_day": round(cost, 3)} for ref, cost in projects.items()), key=lambda item: -item["calls_a_day"])
     top_projects = top_projects[:TOP]
     names = {row["project_id"]: row["project_name"] for row in conn.execute(
-        "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", ([item["project_id"] for item in top_projects],)
+        "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", ([item["project_id"] for item in top_projects],)
     ).fetchall()}
     for item in top_projects:
         item["project_name"] = names.get(item["project_id"]) or item["project_id"]
@@ -88,7 +88,7 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
     data = admission._inputs(conn)  # noqa: SLF001 - the cost inputs are read once for every connector
     standing = {item["connector_id"]: item for item in admission.status(conn)}
     result = []
-    for row in conn.execute("SELECT id, provider, display_name, enabled FROM connectors ORDER BY lower(display_name), id").fetchall():
+    for row in conn.execute("SELECT id, provider, display_name, enabled FROM supply_connectors ORDER BY lower(display_name), id").fetchall():
         try:
             spec = registry.get_spec(row["provider"])
         except registry.UnknownProvider:
@@ -103,7 +103,7 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
         )
         committed = budget.committed_calls(account.daily_budget, account.reserve_pct)
         hour_row = conn.execute(
-            "SELECT spare_hour, spare_hour_spent FROM quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)
+            "SELECT spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)
         ).fetchone()
         spare_hour = int(hour_row["spare_hour_spent"]) if hour_row and hour_row["spare_hour"] == quota.day_hour(now, account.reset_time, account.reset_tz) else 0
         reset_in = quota.seconds_to_reset(now, account.reset_time, account.reset_tz)

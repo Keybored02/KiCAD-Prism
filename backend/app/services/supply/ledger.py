@@ -46,8 +46,8 @@ def _purpose(purpose: str | None, interactive: bool) -> str:
 def _count(conn, connector_id: str, day, hour: int, kind: str, purpose: str, calls: int) -> None:
     conn.execute(
         """
-        INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (connector_id, day, hour, kind, purpose) DO UPDATE SET calls = call_counts.calls + EXCLUDED.calls
+        INSERT INTO supply_call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (connector_id, day, hour, kind, purpose) DO UPDATE SET calls = supply_call_counts.calls + EXCLUDED.calls
         """,
         (connector_id, day, hour, kind, purpose, calls),
     )
@@ -70,7 +70,7 @@ def get_state(
     reset_tz: str = quota.DEFAULT_RESET_TZ,
 ) -> quota.QuotaState:
     row = conn.execute(
-        "SELECT spent, interactive_spent, spare_spent FROM quota_ledger WHERE connector_id = %s AND day = %s",
+        "SELECT spent, interactive_spent, spare_spent FROM supply_quota_ledger WHERE connector_id = %s AND day = %s",
         (connector_id, quota.provider_day(now, reset_time, reset_tz)),
     ).fetchone()
     return quota.QuotaState(
@@ -90,14 +90,14 @@ def expected_people_calls(conn, account: accounts.Account, now: datetime) -> int
     today = quota.provider_day(now, account.reset_time, account.reset_tz)
     since = today - timedelta(days=HISTORY_DAYS)
     days = conn.execute(
-        "SELECT COUNT(DISTINCT day) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s",
+        "SELECT COUNT(DISTINCT day) AS n FROM supply_call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s",
         (list(account.members), since, today),
     ).fetchone()["n"]
     if not days:
         return None
     rows = conn.execute(
         """
-        SELECT SUM(calls) AS n FROM call_counts
+        SELECT SUM(calls) AS n FROM supply_call_counts
         WHERE connector_id = ANY(%s) AND day >= %s AND day < %s AND hour >= %s AND purpose = ANY(%s) AND kind <> 'refused'
         GROUP BY day
         """,
@@ -113,7 +113,7 @@ def store_scheduled(conn, ledger_id: str, now: datetime, rest: int, *, reset_tim
     day = quota.provider_day(now, reset_time, reset_tz)
     conn.execute(
         """
-        INSERT INTO quota_ledger (connector_id, day, scheduled_rest, scheduled_at) VALUES (%s, %s, %s, %s)
+        INSERT INTO supply_quota_ledger (connector_id, day, scheduled_rest, scheduled_at) VALUES (%s, %s, %s, %s)
         ON CONFLICT (connector_id, day) DO UPDATE SET scheduled_rest = EXCLUDED.scheduled_rest, scheduled_at = EXCLUDED.scheduled_at
         """,
         (ledger_id, day, rest, now),
@@ -170,11 +170,11 @@ def try_spend(
         raise ValueError("units must be at least 1")
     day = quota.provider_day(now, reset_time, reset_tz)
     conn.execute(
-        "INSERT INTO quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+        "INSERT INTO supply_quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING",
         (connector_id, day),
     )
     row = conn.execute(
-        "SELECT spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger "
+        "SELECT spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger "
         "WHERE connector_id = %s AND day = %s FOR UPDATE",
         (connector_id, day),
     ).fetchone()
@@ -196,7 +196,7 @@ def try_spend(
         return False
     hour = quota.day_hour(now, reset_time, reset_tz)
     conn.execute(
-        "UPDATE quota_ledger SET spent = spent + %s, interactive_spent = interactive_spent + %s, spare_spent = spare_spent + %s, "
+        "UPDATE supply_quota_ledger SET spent = spent + %s, interactive_spent = interactive_spent + %s, spare_spent = spare_spent + %s, "
         "spare_hour_spent = CASE WHEN NOT %s THEN spare_hour_spent WHEN spare_hour = %s THEN spare_hour_spent + %s ELSE %s END, "
         "spare_hour = CASE WHEN %s THEN %s ELSE spare_hour END WHERE connector_id = %s AND day = %s",
         (units, units if interactive else 0, units if spare else 0, spare, hour, units, units, spare, hour, connector_id, day),
@@ -223,9 +223,9 @@ def record_calls(
         day = quota.provider_day(now, account.reset_time, account.reset_tz)
         conn.execute(
             """
-            INSERT INTO quota_ledger (connector_id, day, spent, interactive_spent) VALUES (%s, %s, %s, %s)
-            ON CONFLICT (connector_id, day) DO UPDATE SET spent = quota_ledger.spent + EXCLUDED.spent,
-                interactive_spent = quota_ledger.interactive_spent + EXCLUDED.interactive_spent
+            INSERT INTO supply_quota_ledger (connector_id, day, spent, interactive_spent) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (connector_id, day) DO UPDATE SET spent = supply_quota_ledger.spent + EXCLUDED.spent,
+                interactive_spent = supply_quota_ledger.interactive_spent + EXCLUDED.interactive_spent
             """,
             (account.ledger_id, day, units, units if interactive else 0),
         )
