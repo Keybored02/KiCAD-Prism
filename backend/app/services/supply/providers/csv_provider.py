@@ -1,6 +1,8 @@
 """The CSV provider: offers from an uploaded file instead of an API.
 
-For installs with no internet, and for distributors without an API. Calls cost
+For installs with no internet, for distributors without an API, and for
+distributors whose own service Prism may not call (LCSC, JLCPCB): their
+connectors are fed the same way, under their own provider key. Calls cost
 nothing, so the provider is unmetered. Unlike the network providers it reads
 its own import table; it never writes, and uploading is the import service's
 job.
@@ -31,10 +33,12 @@ class CsvProvider:
         *,
         store: SupplyStore = supply_store,
         offers: CsvOfferStore | None = None,
+        provider_key: str = PROVIDER_KEY,
+        marketplace: bool = False,
     ) -> None:
         self._connector_id = config.connector_id
         self._store = store
-        self._offers = offers or CsvOfferStore()
+        self._offers = offers or CsvOfferStore(provider_key=provider_key, marketplace=marketplace)
 
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
         with self._store.connection() as conn:
@@ -59,4 +63,5 @@ SPEC = ProviderSpec(
     factory=lambda config: CsvProvider(config),
     default_daily_budget=0,
     metered=False,
+    csv_fed=True,
 )

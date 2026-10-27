@@ -6,7 +6,7 @@ the same credentials), since the provider sees one caller:
 * rate limited: hold off until the provider says (15 minutes when it does not), count the refusal, and slow the pacing
   for a day
 * blocked (a web page or challenge where data was expected): hold off for hours, count it, slow the pacing, and leave the
-  code on the connector for an administrator to see. A provider with no credentials (LCSC, JLCPCB) blocks on a stray burst and
+  code on the connector for an administrator to see. A provider with no credentials blocks on a stray burst and
   lets go soon after, so it rests 15 minutes, then 30, and so on up to 12 hours, and starts again from 15 after a call that worked
 * credentials rejected: pause the connector so it stops spending anything
 * anything else: note the error code, stop the run, and wait before the connector is tried again, longer with each

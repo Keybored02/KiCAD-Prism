@@ -40,9 +40,9 @@ def committed_calls(daily_budget: int, reserve_pct: int) -> int:
 
 
 def picks_limit_reads(spec: ProviderSpec) -> bool:
-    """Whether a packaging pick limits what is read: only at a provider that pays a call for each listing (one to a call, and no
-    part's listings together: LCSC, JLCPCB). Everywhere else a listing costs a place in a batch, not a call, so every counted listing
-    is read and a pick only says which one prices the part."""
+    """Whether a packaging pick limits what is read: only at a provider that pays a call for each listing and never serves a
+    part's listings together. Everywhere else a listing costs a place in a batch, not a call, so every counted listing is read and
+    a pick only says which one prices the part."""
 
     return spec.max_batch == 1 and not spec.groups_by_part
 

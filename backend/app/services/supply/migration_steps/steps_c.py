@@ -454,6 +454,18 @@ def _m093_usual_spares(conn) -> None:
     conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS spares TEXT", prepare=False)
 
 
+def _m094_csv_jlc_class(conn) -> None:
+    """The JLCPCB columns of an uploaded offers file: the part's class in its assembly library and whether it is preferred."""
+
+    conn.execute(
+        """
+        ALTER TABLE csv_offers ADD COLUMN IF NOT EXISTS jlc_library TEXT NOT NULL DEFAULT '';
+        ALTER TABLE csv_offers ADD COLUMN IF NOT EXISTS jlc_preferred BOOLEAN NOT NULL DEFAULT FALSE;
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
