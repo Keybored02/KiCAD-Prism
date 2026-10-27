@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import re
 import shutil
@@ -273,9 +274,146 @@ def store_uploaded_thumbnail(
         encoded_path.unlink(missing_ok=True)
 
 
+# -- renders -----------------------------------------------------------------
+#
+# A render is a PNG an agent asked for, keyed by the hash of its normalised
+# request (``design_render``). It sits beside thumbnails but in its own tree:
+# a render is immutable once written, and there are up to ``RENDER_BUDGET`` of
+# them per project rather than one thumbnail. The record that describes it is
+# a JSON file next to the PNG, written atomically, so a reader never observes
+# half a render.
+
+RENDER_BUDGET = 100
+
+
+def render_dir(project_path: str | Path, anchor: Optional[str] = None) -> Path:
+    """The directory holding one project's renders."""
+
+    return derived_root() / "renders" / _project_key(project_path, anchor)
+
+
+def render_paths(
+    project_path: str | Path,
+    render_id: str,
+    anchor: Optional[str] = None,
+) -> tuple[Path, Path]:
+    """``(png, record)`` paths for one render id; nothing is created."""
+
+    directory = render_dir(project_path, anchor)
+    return directory / f"{render_id}.png", directory / f"{render_id}.json"
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with open(temporary, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+    temporary.replace(path)
+
+
+def store_render(
+    project_path: str | Path,
+    render_id: str,
+    png: bytes,
+    record: dict,
+    *,
+    anchor: Optional[str] = None,
+) -> tuple[Path, int]:
+    """Store one finished render: its PNG and its JSON record."""
+
+    png_path, record_path = render_paths(project_path, render_id, anchor)
+    _write_atomic(png_path, png)
+    png_path.chmod(0o644)
+    payload = json.dumps(record, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    _write_atomic(record_path, payload)
+    return png_path, len(png)
+
+
+def write_render_record(
+    project_path: str | Path,
+    render_id: str,
+    record: dict,
+    *,
+    anchor: Optional[str] = None,
+) -> Path:
+    """Write a render's JSON record without touching its PNG."""
+
+    _, record_path = render_paths(project_path, render_id, anchor)
+    _write_atomic(
+        record_path,
+        json.dumps(record, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+    )
+    return record_path
+
+
+def find_render(
+    project_path: str | Path,
+    render_id: str,
+    *,
+    anchor: Optional[str] = None,
+) -> Optional[dict]:
+    """A render's record, or ``None`` when it has none."""
+
+    _, record_path = render_paths(project_path, render_id, anchor)
+    try:
+        return json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def find_render_png(
+    project_path: str | Path,
+    render_id: str,
+    *,
+    anchor: Optional[str] = None,
+) -> Optional[Path]:
+    """The stored PNG of a render, or ``None``."""
+
+    png_path, _ = render_paths(project_path, render_id, anchor)
+    return png_path if png_path.is_file() else None
+
+
+def prune_renders(
+    project_path: str | Path,
+    *,
+    keep: int = RENDER_BUDGET,
+    anchor: Optional[str] = None,
+) -> int:
+    """Drop the oldest renders past ``keep``; returns how many were removed.
+
+    ``createdAt`` is the record's clock; a record without one falls back to the
+    file's mtime, so an interrupted write cannot pin an entry forever.
+    """
+
+    directory = render_dir(project_path, anchor)
+    if not directory.is_dir():
+        return 0
+    entries: list[tuple[float, Path]] = []
+    for record_path in directory.glob("*.json"):
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            created = float(record.get("createdAt") or 0)
+        except (OSError, ValueError, TypeError):
+            created = 0
+        if created <= 0:
+            try:
+                created = record_path.stat().st_mtime
+            except OSError:
+                continue
+        entries.append((created, record_path))
+    removed = 0
+    for _, record_path in sorted(entries, key=lambda item: item[0])[: max(0, len(entries) - keep)]:
+        record_path.unlink(missing_ok=True)
+        record_path.with_suffix(".png").unlink(missing_ok=True)
+        removed += 1
+    return removed
+
+
 def discard(project_path: str | Path, anchor: Optional[str] = None) -> None:
     """Drop every derived asset for a project checkout."""
     shutil.rmtree(thumbnail_dir(project_path, anchor), ignore_errors=True)
+    shutil.rmtree(render_dir(project_path, anchor), ignore_errors=True)
 
 
 def purge_legacy_in_tree_thumbnails(project_path: str | Path, repo) -> list[str]:
@@ -328,3 +466,96 @@ def purge_legacy_in_tree_thumbnails(project_path: str | Path, repo) -> list[str]
         except StopIteration:
             directory.rmdir()
     return removed
+
+
+# ---------------------------------------------------------------------------
+# Manufacturing defect evidence
+# ---------------------------------------------------------------------------
+#
+# Photos and reports attached to a defect. Unlike a thumbnail, a defect keeps
+# several files, and a PDF report cannot be re-encoded as an image, so evidence
+# is stored by content digest rather than as one replaceable file. It still
+# lives entirely in the derived store, never in a git checkout.
+
+MAX_EVIDENCE_BYTES = 25 * 1024 * 1024
+
+# What a defect may carry: photographs and PDF reports. The extension is derived
+# from the media type, never from the client-supplied filename, so a mislabelled
+# upload cannot land on disk as something it is not.
+EVIDENCE_MEDIA_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "application/pdf": ".pdf",
+}
+
+
+class EvidenceError(errors.BadRequest, ValueError):
+    """An uploaded file could not be stored as defect evidence."""
+
+
+def evidence_dir(run_id: str) -> Path:
+    """Where one run's defect evidence lives. ``run_id`` is server-minted."""
+    if not run_id or "/" in run_id or "\\" in run_id or ".." in run_id:
+        raise EvidenceError("Invalid run id.")
+    return derived_root() / "manufacturing" / run_id
+
+
+def store_evidence(run_id: str, data: bytes, media_type: str) -> tuple[str, str, int]:
+    """Store an evidence blob, returning (digest, media_type, size).
+
+    The bytes are written as received (a report or a photo is the artifact; unlike
+    a thumbnail there is nothing to normalise), but only after the media type is
+    checked against the allowlist and the size against the cap. The on-disk name is
+    the content digest plus an extension chosen from the media type.
+    """
+    if not data:
+        raise EvidenceError("The uploaded file is empty.")
+    if len(data) > MAX_EVIDENCE_BYTES:
+        raise EvidenceError(
+            f"The file is larger than {MAX_EVIDENCE_BYTES // (1024 * 1024)} MB."
+        )
+    extension = EVIDENCE_MEDIA_TYPES.get(media_type)
+    if extension is None:
+        raise EvidenceError("Only images (JPEG, PNG, WebP) and PDF reports are accepted.")
+
+    directory = evidence_dir(run_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(data).hexdigest()
+    target = directory / f"{digest[:24]}{extension}"
+    if not target.exists():
+        with tempfile.NamedTemporaryFile(
+            dir=directory, prefix=".evidence-", suffix=extension, delete=False
+        ) as handle:
+            staging = Path(handle.name)
+            handle.write(data)
+        staging.replace(target)
+        target.chmod(0o644)
+    return digest, media_type, len(data)
+
+
+def find_evidence(run_id: str, digest: str) -> Optional[Path]:
+    """The stored evidence file for a digest, or None. Digest is validated as hex."""
+    if not digest or not all(c in "0123456789abcdef" for c in digest.lower()):
+        return None
+    directory = evidence_dir(run_id)
+    if not directory.is_dir():
+        return None
+    for candidate in directory.glob(f"{digest[:24]}.*"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def delete_evidence(run_id: str, digest: str) -> bool:
+    """Remove one evidence blob. Returns whether a file was deleted."""
+    found = find_evidence(run_id, digest)
+    if found is None:
+        return False
+    found.unlink(missing_ok=True)
+    return True
+
+
+def discard_run_evidence(run_id: str) -> None:
+    """Drop every evidence file for a run (used when the run is deleted)."""
+    shutil.rmtree(evidence_dir(run_id), ignore_errors=True)
