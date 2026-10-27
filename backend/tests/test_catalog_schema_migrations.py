@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -43,7 +44,7 @@ class FakeConnection:
         self.ledger: dict[int, str] = {}
         self.statements: list[str] = []
 
-    def execute(self, sql: str, params: tuple = ()) -> _Result:
+    def execute(self, sql: str, params: tuple = (), **_options: object) -> _Result:
         statement = " ".join(sql.split())
         self.statements.append(statement)
 
@@ -85,6 +86,12 @@ class FakeConnection:
 
 
 class CatalogSchemaMigrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # The fake runs the ladder, not real SQL: the supply step's tables are checked against PostgreSQL elsewhere.
+        patcher = mock.patch("app.services.supply.schema_migrations.create_supply_tables")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_fresh_database_applies_every_migration_in_order(self) -> None:
         conn = FakeConnection(ledger_exists=False)
         CATALOG_LEDGER.apply(conn)

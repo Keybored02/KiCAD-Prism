@@ -1,11 +1,11 @@
-"""Every object the supply schema owns is named for the schema.
+"""Every object the supply steps create is named for supply.
 
-Supply shares a database with the workspace and catalog ledgers. A table, view,
-function, trigger, index or constraint that is not named for supply is one
-another ledger's migration can collide with, and one a human cannot tell apart
-from a leftover when reading ``\\d``. The ledger (``supply_schema_migrations``)
-and the names PostgreSQL derives from an already-prefixed table (``_pkey``,
-``_key``, ``_fkey``, ``_check``) are the only exceptions.
+Supply tables live in the catalog's schema, beside the catalog's own. A table,
+view, function, trigger, index or constraint that is not named for supply is one
+a catalog migration can collide with, and one a human cannot tell apart from a
+catalog object when reading ``\\d``. The names PostgreSQL derives from an
+already-prefixed table (``_pkey``, ``_key``, ``_fkey``, ``_check``) are the only
+exception.
 
 Needs ``PRISM_DATABASE_URL``.
 """
@@ -19,6 +19,11 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import psycopg  # noqa: E402
+from psycopg.rows import dict_row  # noqa: E402
+from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
@@ -118,3 +123,19 @@ class SchemaNameTests(unittest.TestCase):
             """
         )
         self.assert_named("constraint", [row["name"] for row in rows], CONSTRAINT_PREFIXES)
+
+
+@requires_scratch_postgres("the catalog ledger's supply step")
+class CatalogLedgerCreatesSupplyTablesTests(unittest.TestCase):
+    def test_initialising_the_catalog_creates_the_supply_tables_in_its_schema(self) -> None:
+        import tempfile
+
+        from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService
+
+        with tempfile.TemporaryDirectory() as root:
+            ComponentCatalogPostgresService(store_root=Path(root) / "components", database_url=CATALOG_URL).initialize()
+        with psycopg.connect(CATALOG_URL, row_factory=dict_row) as conn:
+            relation = conn.execute("SELECT to_regclass('catalog.supply_parts') AS relation").fetchone()["relation"]
+            step = conn.execute("SELECT version FROM catalog.catalog_schema_versions WHERE name = 'supply_tables'").fetchone()
+        self.assertIsNotNone(relation, "catalog.supply_parts exists")
+        self.assertIsNotNone(step, "the ledger recorded the supply step")

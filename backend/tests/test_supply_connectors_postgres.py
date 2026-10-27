@@ -71,13 +71,18 @@ class SupplyDatabaseTests(unittest.TestCase):
 
     # --- migrations -------------------------------------------------------
 
-    def test_migrations_are_recorded_once_and_reapplying_is_a_no_op(self) -> None:
+    def test_the_supply_steps_are_one_catalog_ledger_step_and_rerunning_them_is_a_no_op(self) -> None:
+        from app.services.catalog_schema_migrations import CATALOG_LEDGER
+
+        step = next(step for step in CATALOG_LEDGER.steps if step.name == "supply_tables")
+        self.assertEqual(step.version, max(s.version for s in CATALOG_LEDGER.steps), "supply tables are the newest catalog step")
+        declared = [version for version, _name, _step in self.schema_migrations.MIGRATIONS]
+        self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "steps are numbered consecutively")
         with self.store.connection() as conn:
-            declared = {version for version, _name, _step in self.schema_migrations.MIGRATIONS}
-            self.assertEqual(self.schema_migrations.applied_versions(conn), declared)
-            # Version 80 is the other checkout's (cross_reference_snapshots), already in the shared dev database; it is skipped here.
-            self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "versions are consecutive")
-            self.assertEqual(self.schema_migrations.apply_supply_migrations(conn), [])
+            before = conn.execute("SELECT count(*) AS n FROM pg_tables WHERE schemaname = current_schema()").fetchone()["n"]
+            self.schema_migrations.create_supply_tables(conn)
+            after = conn.execute("SELECT count(*) AS n FROM pg_tables WHERE schemaname = current_schema()").fetchone()["n"]
+        self.assertEqual(before, after)
 
     def test_migration_90_raises_a_jlcpcb_budget_left_at_the_old_default_and_leaves_a_chosen_one(self) -> None:
         jlc = self.service.create(actor="a@example.com", provider="jlcpcb", display_name="JLCPCB")["id"]
