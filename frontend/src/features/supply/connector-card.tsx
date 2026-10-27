@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CSV_PROVIDER, type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
+import { type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
 import { BudgetDetail } from "./budget-view";
 import { CallBudget, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
@@ -126,7 +126,7 @@ function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connec
         {takesCredentials ? (
           <DropdownMenuItem onClick={() => onAction("credentials", connector)}>Replace credentials</DropdownMenuItem>
         ) : null}
-        {connector.provider === CSV_PROVIDER ? (
+        {connector.csv_fed ? (
           <>
             <DropdownMenuItem onClick={() => onAction("csv-upload", connector)}>Upload CSV</DropdownMenuItem>
             {connector.csv_import ? (

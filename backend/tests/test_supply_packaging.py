@@ -32,6 +32,9 @@ class PackagingPickTests(unittest.TestCase):
         from app.services.postgres_database import database
         from app.services.supply import admission, packaging_picks, parts_view, stock, watches
         from app.services.supply.connectors import ConnectorService
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+        from app.services.supply.providers.fake import FakeProvider
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
 
@@ -43,6 +46,12 @@ class PackagingPickTests(unittest.TestCase):
         cls.store.initialize()
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
+        # A provider that pays a call for each listing, so a packaging pick saves calls (LCSC and JLCPCB are CSV-fed now).
+        cls.registry = registry
+        registry.register(ProviderSpec(
+            key="pick_demo", label="Pick demo", capabilities=frozenset({"search", "offers"}), max_batch=1,
+            stock_pooling="separate", credential_fields=(), factory=lambda config: FakeProvider(config), default_daily_budget=1000,
+        ), replace=True)
         cls.app = FastAPI()
         cls.app.include_router(supply_packaging.router)
         supply_connectors.register_validation_redaction(cls.app)
@@ -52,6 +61,7 @@ class PackagingPickTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.patcher.stop()
+        cls.registry.unregister("pick_demo")
         from support.postgres import APPLICATION_URL, drop_schema
 
         drop_schema(cls.store.schema, url=APPLICATION_URL)
@@ -60,7 +70,7 @@ class PackagingPickTests(unittest.TestCase):
         with self.store.connection() as conn:
             for table in ("listings", "watches", "parts", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-        self.cid = self.connectors.create(actor=ACTOR, provider="lcsc", daily_budget=1000)["id"]
+        self.cid = self.connectors.create(actor=ACTOR, provider="pick_demo", daily_budget=1000)["id"]
 
     def part(self, mpn: str, packagings: tuple[str, ...], stock: int = 100) -> str:
         with self.store.connection() as conn:
@@ -88,7 +98,7 @@ class PackagingPickTests(unittest.TestCase):
         self.part("ONE", ("cut_tape",))
         listed = self.call("GET", "/waiting").json
         self.assertEqual([item["part_id"] for item in listed["items"]], [a])
-        self.assertAlmostEqual(listed["items"][0]["saves_calls_a_day"], 1.0, places=2, msg="LCSC reads each listing: one fewer call a day")
+        self.assertAlmostEqual(listed["items"][0]["saves_calls_a_day"], 1.0, places=2, msg="the provider reads each listing: one fewer call a day")
 
     def test_review_lists_every_part_with_several_listings_picked_or_not(self) -> None:
         waiting = self.part("A", ("cut_tape", "tape_reel"))

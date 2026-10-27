@@ -26,7 +26,7 @@ describe("a connector card after a refusal", () => {
 
   it("says in one line how the provider is called where it matters", () => {
     card({});
-    expect(screen.getByText(/A call every 8 seconds at most/)).toBeTruthy();
+    expect(screen.getByText(/Offers come from an uploaded CSV file/)).toBeTruthy();
     cleanup();
     card({ provider: "arrow", display_name: "Arrow" });
     expect(screen.getByText("Reads 100 parts a call.")).toBeTruthy();

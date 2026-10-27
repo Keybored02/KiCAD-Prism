@@ -17,8 +17,8 @@ root first.
 | `providers/digikey.py` | DigiKey Product Information V4, from its Swagger file: OAuth client credentials, keyword search, one product-details call per SKU (one SKU is one packaging), stock pooled. Not yet run against the live service. |
 | `providers/arrow.py` | Arrow Pricing & Availability (Item Service v4, `search/list`, GET with the key inside `req`): up to 100 numbers a call, every orderable line (`sourceParts[]`, per region with its own currency) a listing numbered `partNum\|sourcePartId`, prices never converted by Arrow, `vipPrice` ignored. From the documentation only; not yet run against the live service. |
 | `providers/farnell.py` | Farnell, Newark and element14 Product Search REST: manufacturer-number search, one SKU per call, the connector names the store and the currency. Not yet run against the live service. |
-| `providers/jlcpcb.py` | JLCPCB's own parts search, no key (unpublished, can change). Assembly-only; its stock is marked marketplace so no total counts it; Basic, Extended and Preferred are facts. Paced like LCSC (a call about every 1.5 seconds), 300 a day. |
-| `providers/lcsc.py` | LCSC through its product page data service, no key. Searches by manufacturer number through EasyEDA's product search (LCSC's own refuses non-browsers); checked live. |
+| `providers/jlcpcb.py` | JLCPCB (assembly) as a CSV-fed connector: the same uploaded file as `csv_provider`, under the `jlcpcb` key, with every offer marked marketplace so no total counts it. Assembly-only; the file's optional `jlc_library` and `jlc_preferred` columns become facts (B, E, a star). Unmetered. |
+| `providers/lcsc.py` | LCSC as a CSV-fed connector: the same uploaded file as `csv_provider`, under the `lcsc` key, so saved listings and BOM links keep their provider. Unmetered. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
@@ -135,7 +135,7 @@ root first.
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
 | `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |
-| `providers/csv_provider.py` | Offers from an uploaded file. Unmetered. Reads its own table, never writes. |
+| `providers/csv_provider.py` | Offers from an uploaded file, under the generic `csv` key and, with their own key and label, LCSC and JLCPCB (assembly). Unmetered. Reads its own table, never writes. |
 | `egress.py` | Outbound URL validation. Required before any fetch of a URL that is not hard-coded. |
 | `http_client.py` | `SafeHttpClient`: the only way a provider makes a request. Validates every hop, connects to the checked address, maps statuses to `ProviderError` subclasses, keeps query strings out of messages. |
 | `quota.py` | Pure budget policy: the provider's day and reset, background allowance (spread over the day after a start delay), interactive allowance, spare allowance, capacity estimate. |

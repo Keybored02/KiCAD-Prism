@@ -24,7 +24,7 @@ describe("connectorState", () => {
   });
 
   it("treats a CSV connector without an upload as not ready", () => {
-    const csv = connectorFixture({ provider: "csv", credentials: {}, metered: false });
+    const csv = connectorFixture({ provider: "csv", credentials: {}, metered: false, csv_fed: true });
     expect(connectorState(csv)).toEqual({ label: "No file uploaded", tone: "warning" });
     const withFile = { ...csv, csv_import: { filename: "a.csv", imported_by: "x", imported_at: "2026-03-01T00:00:00Z", row_count: 2 } };
     expect(connectorState(withFile).label).toBe("Active");

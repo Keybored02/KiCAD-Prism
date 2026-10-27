@@ -27,8 +27,8 @@ ONE_PILE = frozenset({"cut_tape", "custom_reel", "unknown", "other", "several", 
 
 
 def counted_listing_sql(listing: str = "l", connector: str = "c") -> str:
-    """SQL for "this listing counts toward stock": every listing, except where a pick limits what is read (LCSC, JLCPCB: the others
-    are not read, so their figures are old) and the part has a pick elsewhere. One place, so the queries that count stock agree."""
+    """SQL for "this listing counts toward stock": every listing, except where a pick limits what is read (the others are not read,
+    so their figures are old) and the part has a pick elsewhere. One place, so the queries that count stock agree."""
 
     from app.services.supply import budget
 

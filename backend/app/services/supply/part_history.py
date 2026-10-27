@@ -5,7 +5,7 @@ The part sheet draws these as lines in each distributor's colour and opens them 
 * A line steps from reading to reading and is carried forward to the listing's last read (the offer's read time, not the
   last stored sample), so a part read once draws a flat line from that day to the last read.
 * A distributor's stock is what the part's stock counts there (``stock.counted_listing_sql``: every listing, except those a pick
-  stops being read at LCSC and JLCPCB), pooled or added up by pile as that provider shares it (``stock.aggregate``).
+  stops being read where a pick limits reading), pooled or added up by pile as that provider shares it (``stock.aggregate``).
 * A distributor's price is its followed (picked) listing at the reference quantity, or its cheapest listing where none is picked,
   in the base currency at the latest rates.
   Listings whose smallest order is above the reference quantity are left out, unless there is nothing else.

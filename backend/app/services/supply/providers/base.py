@@ -139,6 +139,8 @@ class ProviderSpec:
     dev_only: bool = False
     # False when a call costs nothing (local data), so no call budget applies.
     metered: bool = True
+    # The provider's offers come from a file an administrator uploads, not from calls to the distributor.
+    csv_fed: bool = False
     # Calls one get_offers batch makes, so the budget is charged what is really spent.
     calls_per_offers_batch: int = 1
     # One answer serves every listing of a part at this provider (DigiKey: a product lists all its packagings), so

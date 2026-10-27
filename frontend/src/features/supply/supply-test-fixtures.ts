@@ -16,6 +16,7 @@ export function connectorFixture(overrides: Partial<SupplyConnector> = {}): Supp
     keep_days: null,
     interactive_reserve_pct: 10,
     metered: true,
+    csv_fed: false,
     csv_import: null,
     usage_today: { spent: 120, interactive_spent: 0 },
     credentials: { api_key: true },
@@ -41,6 +42,7 @@ export function providerFixture(overrides: Partial<SupplyProvider> = {}): Supply
     storefronts: [],
     default_daily_budget: 1000,
     metered: true,
+    csv_fed: false,
     ...overrides,
   };
 }

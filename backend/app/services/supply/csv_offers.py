@@ -40,12 +40,18 @@ _INSERT = """
     INSERT INTO csv_offers (
         connector_id, sku, mpn, match_key, manufacturer, stock, currency, moq, order_multiple,
         packaging, lead_time_days, lifecycle, discontinued, rohs, product_url,
-        incoming_qty, incoming_date, price_breaks
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        incoming_qty, incoming_date, price_breaks, jlc_library, jlc_preferred
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
 """
 
 
 class CsvOfferStore:
+    def __init__(self, *, provider_key: str = PROVIDER_KEY, marketplace: bool = False) -> None:
+        # The connector's own key, so an uploaded LCSC or JLCPCB offer keeps that provider's identity and colour.
+        self._provider_key = provider_key
+        # JLCPCB's stock is for its own assembly: every offer it reads is marketplace stock.
+        self._marketplace = marketplace
+
     def replace_all(
         self, conn, connector_id: str, rows: Sequence[CsvOfferRow], *, filename: str, actor: str
     ) -> CsvImportInfo:
@@ -63,6 +69,7 @@ class CsvOfferStore:
                         row.incoming.quantity if row.incoming else None,
                         row.incoming.expected if row.incoming else None,
                         json.dumps([[brk.quantity, str(brk.unit_price)] for brk in row.price_breaks]),
+                        row.jlc_library, row.jlc_preferred,
                     )
                     for row in rows
                 ],
@@ -135,17 +142,21 @@ class CsvOfferStore:
         if hint:
             rows = sorted(rows, key=lambda row: alias_key(row["manufacturer"]) != hint)
         return [
-            PartMatch(PROVIDER_KEY, row["sku"], row["mpn"], row["manufacturer"], product_url=row["product_url"])
+            PartMatch(self._provider_key, row["sku"], row["mpn"], row["manufacturer"], product_url=row["product_url"])
             for row in rows
         ]
 
-    @staticmethod
-    def _offer(row) -> Offer:
+    def _offer(self, row) -> Offer:
         incoming = ()
         if row["incoming_qty"]:
             incoming = (Incoming(int(row["incoming_qty"]), row["incoming_date"]),)
+        facts = []
+        if row["jlc_library"]:
+            facts.append(("jlc_library", row["jlc_library"]))
+        if row["jlc_preferred"]:
+            facts.append(("jlc_preferred", "Preferred"))
         return Offer(
-            provider=PROVIDER_KEY,
+            provider=self._provider_key,
             sku=row["sku"],
             mpn=row["mpn"],
             manufacturer=row["manufacturer"],
@@ -162,5 +173,7 @@ class CsvOfferStore:
             lifecycle=Lifecycle(row["lifecycle"]),
             discontinued=bool(row["discontinued"]),
             rohs=row["rohs"],
+            marketplace=self._marketplace,
             product_url=row["product_url"],
+            facts=tuple(facts),
         )

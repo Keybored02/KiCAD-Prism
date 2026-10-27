@@ -293,11 +293,14 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         return self.call("POST", f"/api/supply/connectors/{connector_id}/csv", role=role, raw=content,
                          query=query, content_type="text/csv")
 
-    def test_csv_provider_is_listed_and_unmetered(self) -> None:
+    def test_csv_fed_providers_are_listed_and_unmetered(self) -> None:
         providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json}
-        self.assertFalse(providers["csv"]["metered"])
-        self.assertEqual(providers["csv"]["credential_fields"], [])
+        for key in ("csv", "lcsc", "jlcpcb"):
+            self.assertFalse(providers[key]["metered"], key)
+            self.assertTrue(providers[key]["csv_fed"], key)
+            self.assertEqual(providers[key]["credential_fields"], [], key)
         self.assertTrue(providers["demo_keyed"]["metered"])
+        self.assertFalse(providers["demo_keyed"]["csv_fed"])
 
     def test_template_is_a_downloadable_csv_for_readers_only(self) -> None:
         response = self.call("GET", "/api/supply/csv-template", role="qa")
@@ -315,6 +318,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         shown = self.call("GET", "/api/supply/connectors", role="designer").json[0]
         self.assertEqual(shown["csv_import"]["row_count"], 1)
         self.assertFalse(shown["metered"])
+        self.assertTrue(shown["csv_fed"])
 
     def test_only_admin_may_upload_or_clear(self) -> None:
         cid = self._csv_connector()["id"]
@@ -347,6 +351,9 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         other = self._create(provider="demo_keyed", credentials={"api_key": "k"})["id"]
         refused = self._upload(other, self.CSV_OK.encode())
         self.assertEqual((refused.status, refused.json["detail"]["code"]), (400, "not_csv"))
+        for provider in ("lcsc", "jlcpcb"):
+            target = self._create(provider=provider)["id"]
+            self.assertEqual(self._upload(target, self.CSV_OK.encode()).status, 200, provider)
 
     def test_the_connector_currency_is_the_default(self) -> None:
         cid = self._csv_connector()["id"]

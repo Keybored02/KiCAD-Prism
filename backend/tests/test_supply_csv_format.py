@@ -98,6 +98,13 @@ class ParseHappyPathTests(unittest.TestCase):
         self.assertEqual((row.discontinued, row.rohs, row.lead_time_days), (True, False, 84))
         self.assertEqual((row.incoming.quantity, row.incoming.expected), (500, date(2026, 4, 1)))
 
+    def test_jlcpcb_library_class_and_preference(self) -> None:
+        text = f"{HEADER},jlc_library,jlc_preferred\nS1,M1,Acme,1,Extended,yes\nS2,M2,Acme,1,basic,no\n"
+        rows = parse(text).rows
+        self.assertEqual([(row.jlc_library, row.jlc_preferred) for row in rows], [("Extended", True), ("Basic", False)])
+        self.assertEqual(errors_of(f"{HEADER},jlc_library\nS1,M1,Acme,1,preferred"),
+                         [(2, "jlc_library", "Unknown JLCPCB library. Use one of: Basic, Extended.")])
+
     def test_unknown_columns_are_reported_not_fatal(self) -> None:
         parsed = parse(f"{HEADER},notes,\nS1,M1,Acme,1,hello,x\n")
         self.assertEqual(parsed.error_count, 0)

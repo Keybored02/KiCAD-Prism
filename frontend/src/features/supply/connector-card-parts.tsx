@@ -8,7 +8,7 @@ import { budgetUsedPercent, formatWhen } from "./connector-status";
 
 /** One line about how a provider is called, where it matters. */
 export function providerNote(provider: string): string {
-  if (provider === "lcsc" || provider === "jlcpcb") return "A call every 8 seconds at most: it has no credentials and answers a burst with a block.";
+  if (provider === "lcsc" || provider === "jlcpcb") return "Offers come from an uploaded CSV file: no calls, no credentials.";
   if (provider === "arrow") return "Reads 100 parts a call.";
   return "";
 }
