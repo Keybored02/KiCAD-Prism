@@ -690,9 +690,9 @@ def _m053_no_stored_files(conn) -> None:
         """
         DELETE FROM supply_alerts WHERE kind = 'datasheet_changed';
         UPDATE supply_alert_rules SET muted = array_remove(muted, 'datasheet_changed');
-        DROP TABLE IF EXISTS datasheets;
-        DROP TABLE IF EXISTS datasheet_checks;
-        DROP TABLE IF EXISTS datasheet_denied_hosts;
+        DROP TABLE IF EXISTS supply_datasheets;
+        DROP TABLE IF EXISTS supply_datasheet_checks;
+        DROP TABLE IF EXISTS supply_datasheet_denied_hosts;
         ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_sha256;
         ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_checked_at;
         ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_status;
