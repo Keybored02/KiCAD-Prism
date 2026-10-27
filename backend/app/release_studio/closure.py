@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
+from app.services import git_lfs
 
 
-_LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _RESOURCE_DIGEST_RE = _SHA256_RE
 _VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -296,12 +296,6 @@ class InputClosure:
 
 
 @dataclass(frozen=True, slots=True)
-class _LfsPointer:
-    oid: str
-    size: int
-
-
-@dataclass(frozen=True, slots=True)
 class _TreeResult:
     repository_inputs: tuple[RepositoryInput, ...]
     submodule_inputs: tuple[SubmoduleInput, ...]
@@ -343,8 +337,9 @@ def materialize_input_closure(
     ``design_compare_service._repo_paths``.
 
     The function never checks out, updates, stages, or writes to ``repo_path``.
-    It reads Git objects and (only for detected LFS pointers) reads the
-    corresponding worktree file to verify already-hydrated bytes.
+    It reads Git objects and (only for detected LFS pointers) the repository's
+    LFS store, or the worktree file when the store lacks the object, verifying
+    the bytes against the pointer.
     """
 
     repo = Path(repo_path)
@@ -505,6 +500,7 @@ def _walk_tree(
     repository_inputs: list[RepositoryInput] = []
     submodule_inputs: list[SubmoduleInput] = []
     lfs_inputs: list[LfsInput] = []
+    lfs_dir = git_lfs.common_git_dir(object_repo)
 
     for mode, object_type, object_id, name in _list_tree(object_repo, treeish):
         global_path = _join_git_path(global_prefix, name)
@@ -583,6 +579,7 @@ def _walk_tree(
                     source_worktree / Path(*local_path.split("/")),
                     pointer,
                     global_path,
+                    lfs_dir,
                 )
                 _write_file(target, materialized, mode, global_path)
                 digest = hashlib.sha256(materialized).hexdigest()
@@ -692,33 +689,36 @@ def _write_symlink(path: Path, content: bytes, relative_path: str) -> None:
         raise ClosureError(f"duplicate materialized path: {relative_path}") from exc
 
 
-def _parse_lfs_pointer(content: bytes) -> _LfsPointer | None:
-    if not content.startswith(_LFS_POINTER_VERSION.encode("ascii")):
-        return None
+def _parse_lfs_pointer(content: bytes) -> git_lfs.LfsPointer | None:
     try:
-        lines = content.decode("ascii").splitlines()
-    except UnicodeDecodeError as exc:
-        raise LfsMaterializationError("malformed Git LFS pointer is not ASCII") from exc
-    if not lines or lines[0] != _LFS_POINTER_VERSION:
-        raise LfsMaterializationError("malformed Git LFS pointer version")
-    values: dict[str, str] = {}
-    for line in lines[1:]:
-        key, separator, value = line.partition(" ")
-        if separator:
-            values[key] = value
-    oid = values.get("oid", "")
-    if not oid.startswith("sha256:") or not _SHA256_RE.fullmatch(oid[7:]):
-        raise LfsMaterializationError("malformed Git LFS pointer oid")
-    try:
-        size = int(values["size"])
-    except (KeyError, ValueError) as exc:
-        raise LfsMaterializationError("malformed Git LFS pointer size") from exc
-    if size < 0:
-        raise LfsMaterializationError("malformed Git LFS pointer has negative size")
-    return _LfsPointer(oid=oid[7:], size=size)
+        return git_lfs.parse_pointer(content, strict=True)
+    except ValueError as exc:
+        raise LfsMaterializationError(str(exc)) from exc
 
 
-def _hydrate_lfs(source_path: Path, pointer: _LfsPointer, relative_path: str) -> bytes:
+def _hydrate_lfs(
+    source_path: Path,
+    pointer: git_lfs.LfsPointer,
+    relative_path: str,
+    lfs_dir: Path,
+) -> bytes:
+    """The bytes a pointer names, read from the repository's LFS store first.
+
+    The store holds every object a fetch downloaded, so a build of an older
+    commit finds the file as it was then. The source checkout only has it for
+    the commit that is checked out, and is the fallback for a store that never
+    saw the object. Either way the bytes are checked against the pointer.
+    """
+    try:
+        return git_lfs.read_object(lfs_dir, pointer)
+    except git_lfs.LfsObjectUnavailable:
+        pass
+    return _hydrate_lfs_from_checkout(source_path, pointer, relative_path)
+
+
+def _hydrate_lfs_from_checkout(
+    source_path: Path, pointer: git_lfs.LfsPointer, relative_path: str
+) -> bytes:
     try:
         source_stat = source_path.lstat()
     except FileNotFoundError as exc:

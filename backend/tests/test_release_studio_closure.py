@@ -215,6 +215,49 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         with self.assertRaisesRegex(LfsMaterializationError, r"(size|sha256) mismatch"):
             materialize_input_closure(self.repo, self.commit, self.root / "mismatch")
 
+    def _store_lfs_object(self, data: bytes, *, oid: str | None = None) -> None:
+        oid = oid or hashlib.sha256(data).hexdigest()
+        target = self.repo / ".git" / "lfs" / "objects" / oid[:2] / oid[2:4]
+        target.mkdir(parents=True, exist_ok=True)
+        (target / oid).write_bytes(data)
+
+    def test_lfs_content_comes_from_the_store_when_the_checkout_has_only_the_pointer(self) -> None:
+        payload = b"small hydrated STEP payload" + chr(10).encode()
+        self._store_lfs_object(payload)
+
+        closure = materialize_input_closure(self.repo, self.commit, self.root / "from-store")
+
+        self.assertEqual(closure.lfs_inputs[0].materialized_digest, hashlib.sha256(payload).hexdigest())
+        self.assertEqual(
+            (self.root / "from-store/hardware/board/model.step").read_bytes(), payload
+        )
+
+    def test_an_older_commit_does_not_need_the_checkout_to_still_hold_its_lfs_file(self) -> None:
+        """The worktree moved on; the commit being built did not."""
+        payload = b"small hydrated STEP payload" + chr(10).encode()
+        self._store_lfs_object(payload)
+        self.repo.joinpath("hardware/board/model.step").write_bytes(b"a later revision of the model")
+
+        closure = materialize_input_closure(self.repo, self.commit, self.root / "older")
+
+        self.assertEqual(closure.lfs_inputs[0].materialized_digest, hashlib.sha256(payload).hexdigest())
+
+    def test_a_corrupt_store_object_falls_back_to_the_checkout(self) -> None:
+        payload = b"small hydrated STEP payload" + chr(10).encode()
+        self._store_lfs_object(b"truncated", oid=hashlib.sha256(payload).hexdigest())
+        self.repo.joinpath("hardware/board/model.step").write_bytes(payload)
+
+        closure = materialize_input_closure(self.repo, self.commit, self.root / "fallback")
+
+        self.assertEqual(closure.lfs_inputs[0].materialized_digest, hashlib.sha256(payload).hexdigest())
+
+    def test_a_corrupt_store_object_and_a_pointer_checkout_still_fail_closed(self) -> None:
+        payload = b"small hydrated STEP payload" + chr(10).encode()
+        self._store_lfs_object(b"truncated", oid=hashlib.sha256(payload).hexdigest())
+
+        with self.assertRaisesRegex(LfsMaterializationError, "unmaterialized"):
+            materialize_input_closure(self.repo, self.commit, self.root / "closed")
+
     def test_host_library_table_paths_are_recorded_not_fatal(self) -> None:
         self.repo.joinpath("hardware/board/model.step").write_bytes(b"small hydrated STEP payload\n")
         self.repo.joinpath("hardware/board/fp-lib-table").write_text(
