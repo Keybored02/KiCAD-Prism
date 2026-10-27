@@ -1,7 +1,7 @@
 """JLCPCB (assembly) through an uploaded offers file.
 
-JLCPCB publishes a components API only to approved applicants, so its
-connector is fed like the generic CSV one: an administrator uploads the offers
+Prism does not call JLCPCB's website, so its connector is fed like the
+generic CSV one: an administrator uploads the offers
 file and the connector reads its own rows. The key, the label and the colour
 are unchanged.
 

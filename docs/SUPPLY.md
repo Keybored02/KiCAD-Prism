@@ -205,7 +205,7 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
 - **MCP.** `POST /api/supply/mcp` is a read-only Model Context Protocol endpoint (parts at risk in a project, part status, best
   alternate). It answers as the caller's role.
 
-Not built: JLCPCB and TME suggestions (neither offers them to Prism), IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
+Not built: JLCPCB and TME suggestions (JLCPCB data arrives as a file; TME offers none), IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
 observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.
 
 ## Forecasts

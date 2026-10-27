@@ -1,7 +1,7 @@
 """LCSC through an uploaded offers file.
 
-LCSC publishes no API that Prism may use, so its connector is fed like the
-generic CSV one: an administrator uploads the offers file and the connector
+Prism does not call LCSC's website, so its connector is fed like the generic
+CSV one: an administrator uploads the offers file and the connector
 reads its own rows. The key, the label and the colour are unchanged, so
 listings, BOM links and preferences already saved keep pointing at it.
 """
