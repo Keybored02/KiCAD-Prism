@@ -111,10 +111,14 @@ _RULES: tuple[_Rule, ...] = (
             "authentication failed",
         ),
         template=(
-            "{target} needs credentials that Prism does not have.\n\n"
-            "Prism never prompts for a password and does not store one. Use an SSH "
-            "URL (git@{host}:org/repo.git) and grant Prism's key read access to the "
-            "repository."
+            "{target} needs credentials that Prism does not have, or refused the "
+            "token Prism sent.\n\n"
+            "If an administrator set a token for {host} (GITHUB_TOKEN, or an entry "
+            "in PRISM_GIT_CREDENTIALS), it may have expired or lack read access to "
+            "this repository; replace it. Otherwise use an SSH URL "
+            "(git@{host}:org/repo.git) and grant Prism's key read access, or ask an "
+            "administrator to add a token for {host} to PRISM_GIT_CREDENTIALS. "
+            "Prism never prompts for a password."
         ),
     ),
     _Rule(
