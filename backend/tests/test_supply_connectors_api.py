@@ -87,8 +87,8 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         type(self).allow_dev = True
         type(self).locked = False
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM connectors")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_connectors")
+            conn.execute("DELETE FROM supply_audit_events")
 
     def call(self, method: str, path: str, *, role: str = "admin", body=None, user=None, **kwargs):
         return _request(self.app, method, path, user=user or self.users[role], body=body, **kwargs)

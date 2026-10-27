@@ -37,14 +37,14 @@ class SummaryCacheTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturers", "connectors"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO connectors (id, provider, display_name) VALUES ('c1', 'fake', 'Sim')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, display_name) VALUES ('c1', 'fake', 'Sim')")
             self.watch, _ = self.watches.add_watch(conn, "Acme", "P-1", ACTOR, tier=1)
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
                 "VALUES ('l1', 'c1', 'S1', %s, 'x', 'Acme', 'exact', 'cut_tape')", (self.watch.part_id,))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock) VALUES ('l1', %s, 100)", (NOW,))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock) VALUES ('l1', %s, 100)", (NOW,))
 
     def stock(self) -> int | None:
         with self.store.connection() as conn:
@@ -57,7 +57,7 @@ class SummaryCacheTests(unittest.TestCase):
         # starts from a log with no entry for the part.
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM summary_dirty WHERE part_id = %s", (self.watch.part_id,))
+            conn.execute("DELETE FROM supply_summary_dirty WHERE part_id = %s", (self.watch.part_id,))
         with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
             self.assertEqual(self.stock(), 100)
 
@@ -77,7 +77,7 @@ class SummaryCacheTests(unittest.TestCase):
         def sample(days_ago: int, lead: int) -> None:
             with self.store.connection() as conn:
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, lead_time_days) VALUES ('l1', %s, 100, %s)",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, lead_time_days) VALUES ('l1', %s, 100, %s)",
                     (NOW - timedelta(days=days_ago), lead),
                 )
 
@@ -87,7 +87,7 @@ class SummaryCacheTests(unittest.TestCase):
             sample(days_ago, lead)
         with self.store.connection() as conn:
             self.assertEqual(self.parts_view.lead_time_trend(conn, self.watch.part_id, NOW), {"before": 28, "after": 70, "since": (NOW - timedelta(days=80)).date().isoformat()})
-            conn.execute("DELETE FROM samples")
+            conn.execute("DELETE FROM supply_samples")
         for days_ago, lead in ((80, 28), (5, 30)):
             sample(days_ago, lead)
         with self.store.connection() as conn:
@@ -96,25 +96,25 @@ class SummaryCacheTests(unittest.TestCase):
     def test_a_new_reading_makes_it_stale(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET stock = 7 WHERE listing_id = 'l1'")
+            conn.execute("UPDATE supply_offers SET stock = 7 WHERE listing_id = 'l1'")
         self.assertEqual(self.stock(), 7)
 
     def test_a_listing_leaving_the_count_a_packaging_policy_and_a_search_make_it_stale(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("UPDATE watches SET packaging = 'tape_reel' WHERE id = %s", (self.watch.id,))
+            conn.execute("UPDATE supply_watches SET packaging = 'tape_reel' WHERE id = %s", (self.watch.id,))
         self.assertIsNone(self.stock(), "the watch counts reels, and there is none")
         with self.store.connection() as conn:
-            conn.execute("UPDATE watches SET packaging = 'any' WHERE id = %s", (self.watch.id,))
+            conn.execute("UPDATE supply_watches SET packaging = 'any' WHERE id = %s", (self.watch.id,))
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'rejected' WHERE id = 'l1'")
+            conn.execute("UPDATE supply_listings SET match_state = 'rejected' WHERE id = 'l1'")
         self.assertIsNone(self.stock())
 
     def test_a_picked_packaging_and_a_deleted_listing_are_noticed(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM listings WHERE id = 'l1'")
+            conn.execute("DELETE FROM supply_listings WHERE id = 'l1'")
         self.assertIsNone(self.stock())
 
     def test_a_threshold_is_not_kept_so_it_needs_no_invalidation(self) -> None:
@@ -129,26 +129,26 @@ class SummaryCacheTests(unittest.TestCase):
 
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("UPDATE part_summaries SET computed_at = NOW() - INTERVAL '8 days'")
+            conn.execute("UPDATE supply_part_summaries SET computed_at = NOW() - INTERVAL '8 days'")
             retention.trim_summaries(conn)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_summaries").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_summaries").fetchone()["n"], 0)
         # The log keeps what a transaction still open anywhere in the cluster may depend on, so what a run can trim depends on what
         # else is running (other test workers, the dev app). Rows with made-up transaction ids say the rule without that: one older
         # than any open transaction goes, one from the far future stays.
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM part_summaries")
-            conn.execute("INSERT INTO summary_dirty (part_id, xid) VALUES ('old', 1), ('future', 9000000000000000000)")
+            conn.execute("DELETE FROM supply_part_summaries")
+            conn.execute("INSERT INTO supply_summary_dirty (part_id, xid) VALUES ('old', 1), ('future', 9000000000000000000)")
             retention.trim_summaries(conn)
-            kept = [row["part_id"] for row in conn.execute("SELECT part_id FROM summary_dirty WHERE part_id IN ('old', 'future')").fetchall()]
-            conn.execute("DELETE FROM summary_dirty WHERE part_id IN ('old', 'future')")
+            kept = [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_summary_dirty WHERE part_id IN ('old', 'future')").fetchall()]
+            conn.execute("DELETE FROM supply_summary_dirty WHERE part_id IN ('old', 'future')")
         self.assertEqual(kept, ["future"])
         self.assertEqual(self.stock(), 100, "worked out again when asked")
 
     def test_removing_a_part_does_not_trip_the_triggers(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM parts")
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_summaries").fetchone()["n"], 0)
+            conn.execute("DELETE FROM supply_parts")
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_summaries").fetchone()["n"], 0)
 
 
 if __name__ == "__main__":

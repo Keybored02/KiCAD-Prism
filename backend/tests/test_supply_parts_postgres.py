@@ -100,12 +100,12 @@ class PartsAndDiscoveryTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM listings")
-            conn.execute("DELETE FROM parts")
-            conn.execute("DELETE FROM manufacturer_aliases")
-            conn.execute("DELETE FROM manufacturers")
-            conn.execute("DELETE FROM connectors")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_listings")
+            conn.execute("DELETE FROM supply_parts")
+            conn.execute("DELETE FROM supply_manufacturer_aliases")
+            conn.execute("DELETE FROM supply_manufacturers")
+            conn.execute("DELETE FROM supply_connectors")
+            conn.execute("DELETE FROM supply_audit_events")
         self.connector_id = self.connectors.create(actor=ACTOR, provider="fake")["id"]
 
     # --- helpers ----------------------------------------------------------
@@ -120,21 +120,21 @@ class PartsAndDiscoveryTests(unittest.TestCase):
 
     def listings(self) -> dict[str, dict]:
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT * FROM listings ORDER BY sku").fetchall()
+            rows = conn.execute("SELECT * FROM supply_listings ORDER BY sku").fetchall()
         return {row["sku"]: dict(row) for row in rows}
 
     def wait_on_spelling(self, key: str) -> None:
         """The state the listings of an earlier version were left in: waiting on a spelling nobody had mapped."""
 
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'manufacturer_unresolved' WHERE lower(raw_manufacturer) = %s", (key,))
+            conn.execute("UPDATE supply_listings SET match_state = 'manufacturer_unresolved' WHERE lower(raw_manufacturer) = %s", (key,))
             conn.execute(
-                "INSERT INTO manufacturer_aliases (alias_key, alias_text, status) VALUES (%s, %s, 'pending') ON CONFLICT DO NOTHING", (key, key.upper())
+                "INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, status) VALUES (%s, %s, 'pending') ON CONFLICT DO NOTHING", (key, key.upper())
             )
 
     def audit(self, action: str) -> int:
         with self.store.connection() as conn:
-            return conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = %s", (action,)).fetchone()["n"]
+            return conn.execute("SELECT COUNT(*) AS n FROM supply_audit_events WHERE action = %s", (action,)).fetchone()["n"]
 
     # --- parts ------------------------------------------------------------
 
@@ -144,7 +144,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(first.mpn, "LM358-D", "the first spelling is kept for display")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturers").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_manufacturers").fetchone()["n"], 1)
         self.assertEqual(self.audit("part.create"), 1)
 
     def test_the_same_number_from_two_known_manufacturers_is_two_parts(self) -> None:
@@ -295,7 +295,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         part = self.part()
         self.discover(part, match("S1", "LM358D", "Texas Instruments"))
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'gone' WHERE sku = 'S1'")
+            conn.execute("UPDATE supply_listings SET match_state = 'gone' WHERE sku = 'S1'")
         self.discover(part, match("S1", "LM358D", "Texas Instruments"))
         self.assertEqual(self.listings()["S1"]["match_state"], "exact")
 

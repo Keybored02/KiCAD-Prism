@@ -43,7 +43,7 @@ class OneOffTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("read_requests", "listings", "watches", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_read_requests", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.now = SUNDAY
 
@@ -84,10 +84,10 @@ class OneOffTests(unittest.TestCase):
         self.assertEqual(self.served(cid), {"parts": 3, "done": 3})
         shown = self.progress(made["id"])
         self.assertEqual((shown["done"], shown["finished"]), (3, True))
-        self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 3, "all were read")
-        self.assertEqual(self.rows("SELECT 1 FROM part_tiers"), [])
-        self.assertEqual(self.rows("SELECT 1 FROM watches"), [])
-        self.assertEqual({r["purpose"] for r in self.rows("SELECT purpose FROM call_counts")}, {"oneoff"})
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_offers")), 3, "all were read")
+        self.assertEqual(self.rows("SELECT 1 FROM supply_part_tiers"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_watches"), [])
+        self.assertEqual({r["purpose"] for r in self.rows("SELECT purpose FROM supply_call_counts")}, {"oneoff"})
 
     def test_a_check_at_a_provider_whose_search_brings_the_offer_costs_one_call_a_part(self) -> None:
         from dataclasses import replace
@@ -108,14 +108,14 @@ class OneOffTests(unittest.TestCase):
             cid = self.connector(provider="demo_reads")
             made = self.ask([("Acme", "ABC123"), ("Acme", "DEF456"), ("Acme", "GHI789")])
             with self.store.connection() as conn:
-                conn.execute("UPDATE read_requests SET created_at = %s", (self.now - timedelta(minutes=1),))  # the test's clock, not the database's
+                conn.execute("UPDATE supply_read_requests SET created_at = %s", (self.now - timedelta(minutes=1),))  # the test's clock, not the database's
             clock = lambda: outer.now  # noqa: E731
             provider = lambda connector_id: Reading(self.ProviderConfig(connector_id=connector_id, currency="EUR"), clock=clock)  # noqa: E731
             discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=provider, clock=clock)
             poller = self.poller.Poller(self.connectors, store=self.store, provider_for=provider, clock=clock)
             self.oneoff.run(discoverer, poller, self.store, cid)
-            self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM quota_ledger")[0]["n"], 3, "the search was the read: no second call")
-            self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 3)
+            self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM supply_quota_ledger")[0]["n"], 3, "the search was the read: no second call")
+            self.assertEqual(len(self.rows("SELECT 1 FROM supply_offers")), 3)
             self.assertTrue(self.progress(made["id"])["finished"])
         finally:
             registry.unregister("demo_reads")
@@ -131,7 +131,7 @@ class OneOffTests(unittest.TestCase):
         self.connector()
         self.connectors.create(actor=ACTOR, provider="jlcpcb")
         made = self.ask([("Acme", "ABC123")])
-        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM read_request_work")[0]["n"], 1)
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM supply_read_request_work")[0]["n"], 1)
         self.assertEqual(made["parts"], 1)
 
     def test_nothing_to_ask_or_nothing_named_is_refused(self) -> None:
@@ -149,12 +149,12 @@ class OneOffTests(unittest.TestCase):
         self.assertLess(first["done"], 6, "the pool of 4 calls cannot read six parts")
         stuck = self.progress(made["id"])
         self.assertFalse(stuck["finished"])
-        self.assertEqual(self.rows("SELECT MAX(attempts) AS n FROM read_request_work")[0]["n"], 0, "waiting for budget is not a failed try")
+        self.assertEqual(self.rows("SELECT MAX(attempts) AS n FROM supply_read_request_work")[0]["n"], 0, "waiting for budget is not a failed try")
         self.now = SUNDAY.replace(hour=23, minute=0)  # the last hours of a day: what is left is spare
         for _ in range(4):
             self.served(cid)
         self.assertTrue(self.progress(made["id"])["finished"])
-        self.assertIn("oneoff", {r["purpose"] for r in self.rows("SELECT purpose FROM call_counts")})
+        self.assertIn("oneoff", {r["purpose"] for r in self.rows("SELECT purpose FROM supply_call_counts")})
 
     def test_a_large_check_stops_at_half_the_pool_and_leaves_the_rest_to_people(self) -> None:
         cid = self.connector(daily_budget=100)  # a pool of 10 calls
@@ -168,7 +168,7 @@ class OneOffTests(unittest.TestCase):
         with mock.patch.object(demand, "scheduled_rest", return_value=95):
             for _ in range(4):
                 self.served(cid)
-        spent = self.rows("SELECT interactive_spent AS n FROM quota_ledger")[0]["n"]
+        spent = self.rows("SELECT interactive_spent AS n FROM supply_quota_ledger")[0]["n"]
         self.assertLessEqual(spent, 5, "Read now and Fill still have the other half")
         self.assertGreater(spent, 0)
 

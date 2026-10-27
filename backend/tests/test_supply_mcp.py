@@ -59,10 +59,10 @@ class McpTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("bom_usage_projects", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors"):
+            for table in ("supply_bom_usage_projects", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
 
     def ask(self, message, role="designer"):
         response = _request(self.app, "POST", "/api/supply/mcp", user=self.users[role], body=message)
@@ -77,9 +77,9 @@ class McpTests(unittest.TestCase):
         with self.store.connection() as conn:
             part = self.parts.ensure_part(conn, "Acme", mpn, "seed@example.com").id
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')",
                 (f"l-{mpn}", mpn, part))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock) VALUES (%s, %s, %s)", (f"l-{mpn}", NOW, stock))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock) VALUES (%s, %s, %s)", (f"l-{mpn}", NOW, stock))
         return part
 
     def test_it_introduces_itself_and_lists_three_read_only_tools(self) -> None:

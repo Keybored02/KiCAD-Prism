@@ -56,17 +56,17 @@ class SupplyHealthTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("poll_state", "offers", "listings", "parts", "manufacturers", "connectors"):
+            for table in ("supply_poll_state", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider, display_name, daily_budget, last_error_code) VALUES ('c1', 'tme', 'TME', 1000, 'rate_limited')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, display_name, daily_budget, last_error_code) VALUES ('c1', 'tme', 'TME', 1000, 'rate_limited')")
             part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com").id
             for index, (due, errors) in enumerate(((NOW - timedelta(hours=5), 2), (NOW + timedelta(hours=3), 0))):
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, 'c1', %s, %s, 'x', 'Acme', 'exact')", (f"l{index}", f"S{index}", part))
                 conn.execute(
-                    "INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak) VALUES (%s, 'daily', %s, %s, %s)",
+                    "INSERT INTO supply_poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak) VALUES (%s, 'daily', %s, %s, %s)",
                     (f"l{index}", due, NOW - timedelta(hours=30 - index), errors))
 
     def test_an_administrator_sees_what_polling_has_done_and_how_late_it_runs(self) -> None:

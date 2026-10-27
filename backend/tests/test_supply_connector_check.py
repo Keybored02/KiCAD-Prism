@@ -84,7 +84,7 @@ class ConnectorCheckTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         type(self).behaviour.update(error=None, calls=0)
 
@@ -113,11 +113,11 @@ class ConnectorCheckTests(unittest.TestCase):
         self.assertEqual((result.json["ok"], result.json["code"]), (True, "ok"))
         self.assertIsInstance(result.json["took_ms"], int)
         self.assertEqual(type(self).behaviour["calls"], 1)
-        (ledger,) = self.rows("SELECT spent, interactive_spent FROM quota_ledger WHERE connector_id = %s", cid)
+        (ledger,) = self.rows("SELECT spent, interactive_spent FROM supply_quota_ledger WHERE connector_id = %s", cid)
         self.assertEqual((ledger["spent"], ledger["interactive_spent"]), (1, 1))
-        (connector,) = self.rows("SELECT last_ok_at, last_error_code FROM connectors WHERE id = %s", cid)
+        (connector,) = self.rows("SELECT last_ok_at, last_error_code FROM supply_connectors WHERE id = %s", cid)
         self.assertIsNotNone(connector["last_ok_at"])
-        (event,) = self.rows("SELECT actor, detail FROM audit_events WHERE action = 'connector.test'")
+        (event,) = self.rows("SELECT actor, detail FROM supply_audit_events WHERE action = 'connector.test'")
         self.assertEqual((event["actor"], event["detail"]), ("admin@example.com", {"ok": True, "code": "ok"}))
 
     def test_each_failure_has_its_own_safe_message_and_never_the_providers_text(self) -> None:
@@ -136,7 +136,7 @@ class ConnectorCheckTests(unittest.TestCase):
             self.assertIn(words, result["message"].lower(), code)
             self.assertNotIn("SECRET", result["message"])
             self.assertNotIn("10.0.0.5", result["message"])
-        (connector,) = self.rows("SELECT last_error_code, paused_reason FROM connectors WHERE id = %s", cid)
+        (connector,) = self.rows("SELECT last_error_code, paused_reason FROM supply_connectors WHERE id = %s", cid)
         self.assertEqual(connector["last_error_code"], "provider_error", "the last failure is recorded")
         self.assertEqual(connector["paused_reason"], "", "a test never pauses a connector")
 
@@ -146,7 +146,7 @@ class ConnectorCheckTests(unittest.TestCase):
         self.call("POST", f"/api/supply/connectors/{cid}/test")
         type(self).behaviour["error"] = None
         self.assertTrue(self.call("POST", f"/api/supply/connectors/{cid}/test").json["ok"])
-        self.assertEqual(self.rows("SELECT last_error_code FROM connectors WHERE id = %s", cid)[0]["last_error_code"], "")
+        self.assertEqual(self.rows("SELECT last_error_code FROM supply_connectors WHERE id = %s", cid)[0]["last_error_code"], "")
 
     def test_it_stops_when_the_interactive_reserve_is_used_up(self) -> None:
         cid = self.connector(daily_budget=2, interactive_reserve_pct=50)  # a reserve of one call
@@ -160,12 +160,12 @@ class ConnectorCheckTests(unittest.TestCase):
         self.connectors.pause(cid, actor=ACTOR, reason="maintenance")
         result = self.call("POST", f"/api/supply/connectors/{cid}/test").json
         self.assertEqual((result["ok"], result["code"]), (False, "inactive"))
-        self.assertEqual((type(self).behaviour["calls"], self.rows("SELECT 1 FROM quota_ledger")), (0, []))
+        self.assertEqual((type(self).behaviour["calls"], self.rows("SELECT 1 FROM supply_quota_ledger")), (0, []))
 
     def test_a_free_connector_is_tested_without_spending(self) -> None:
         cid = self.connector("demo_free")
         self.assertTrue(self.call("POST", f"/api/supply/connectors/{cid}/test").json["ok"])
-        self.assertEqual(self.rows("SELECT 1 FROM quota_ledger"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_quota_ledger"), [])
 
     def test_only_admins_test_and_a_missing_connector_is_a_404(self) -> None:
         cid = self.connector()
@@ -181,13 +181,13 @@ class ConnectorCheckTests(unittest.TestCase):
             watch = self.watches.add_watch(conn, "Acme", mpn, ACTOR, tier=1)[0]
             listing_id = uuid.uuid4().hex
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (listing_id, cid, f"SKU-{mpn}", watch.part_id))
             if tier:
                 conn.execute(
-                    "INSERT INTO poll_state (listing_id, tier, next_poll_at) VALUES (%s, %s, NOW())", (listing_id, tier))
+                    "INSERT INTO supply_poll_state (listing_id, tier, next_poll_at) VALUES (%s, %s, NOW())", (listing_id, tier))
             conn.execute(
-                "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, NOW(), 1)",
+                "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, NOW(), 1)",
                 (watch.part_id, cid))
 
     def test_capacity_counts_calls_a_day_and_says_when_the_budget_will_not_keep_up(self) -> None:
@@ -216,9 +216,9 @@ class ConnectorCheckTests(unittest.TestCase):
         self.watch_with_listing("PRICED", cid, "daily")
         self.watch_with_listing("UNPRICED", cid, "daily")
         with self.store.connection() as conn:
-            listing = conn.execute("SELECT id FROM listings WHERE sku = 'SKU-PRICED'").fetchone()["id"]
+            listing = conn.execute("SELECT id FROM supply_listings WHERE sku = 'SKU-PRICED'").fetchone()["id"]
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, NOW(), 5, 'EUR', '[[1, \"0.5\"]]'::jsonb)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, NOW(), 5, 'EUR', '[[1, \"0.5\"]]'::jsonb)",
                 (listing,),
             )
         (row,) = self.call("GET", "/api/supply/capacity").json

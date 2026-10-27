@@ -139,7 +139,7 @@ class UsageDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("bom_usage_projects", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_bom_usage_projects", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
 
     # --- helpers ----------------------------------------------------------
@@ -167,10 +167,10 @@ class UsageDatabaseTests(unittest.TestCase):
     def test_a_project_is_replaced_only_when_its_revision_changes(self) -> None:
         self.assertTrue(self.store_project("p1", "Board A", [component("R1", "Acme", "R-1")]))
         self.assertFalse(self.store_project("p1", "Board A renamed", [component("R1", "Acme", "OTHER")]), "same revision: untouched")
-        self.assertEqual(self.rows("SELECT mpn FROM bom_usage")[0]["mpn"], "R-1")
-        self.assertEqual(self.rows("SELECT project_name FROM bom_usage_projects")[0]["project_name"], "Board A renamed", "a rename still lands")
+        self.assertEqual(self.rows("SELECT mpn FROM supply_bom_usage")[0]["mpn"], "R-1")
+        self.assertEqual(self.rows("SELECT project_name FROM supply_bom_usage_projects")[0]["project_name"], "Board A renamed", "a rename still lands")
         self.assertTrue(self.store_project("p1", "Board A renamed", [component("R1", "Acme", "OTHER")], revision="r2"))
-        self.assertEqual([row["mpn"] for row in self.rows("SELECT mpn FROM bom_usage")], ["OTHER"])
+        self.assertEqual([row["mpn"] for row in self.rows("SELECT mpn FROM supply_bom_usage")], ["OTHER"])
 
     def test_each_design_variant_has_its_own_lines_and_the_revision_decides_when_to_read_them_again(self) -> None:
         def part(reference, mpn, uid, **fields):
@@ -226,7 +226,7 @@ class UsageDatabaseTests(unittest.TestCase):
 
     def test_a_stored_line_keeps_the_lcsc_number_of_its_symbol(self) -> None:
         self.store_project("p1", "Board A", [component("R1", "Acme", "R-1", LCSC="c25804"), component("R2", "Acme", "R-1")])
-        self.assertEqual([row["lcsc"] for row in self.rows("SELECT lcsc FROM bom_usage")], ["C25804"])
+        self.assertEqual([row["lcsc"] for row in self.rows("SELECT lcsc FROM supply_bom_usage")], ["C25804"])
         from app.services.supply import usage as usage_module
 
         with self.store.connection() as conn:
@@ -245,7 +245,7 @@ class UsageDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             result = usage.refresh(conn, projects, existing, NOW)
         self.assertEqual(result, {"updated": 1, "unchanged": 0, "without_index": 2, "removed": 1})
-        self.assertEqual([row["project_id"] for row in self.rows("SELECT project_id FROM bom_usage_projects")], ["p1"])
+        self.assertEqual([row["project_id"] for row in self.rows("SELECT project_id FROM supply_bom_usage_projects")], ["p1"])
         with self.store.connection() as conn:
             again = usage.refresh(conn, projects, existing, NOW)
         self.assertEqual((again["updated"], again["unchanged"]), (0, 1))
@@ -255,8 +255,8 @@ class UsageDatabaseTests(unittest.TestCase):
     def test_a_use_matches_a_part_by_number_and_a_blank_or_known_manufacturer(self) -> None:
         part_id = self.part("Texas Instruments", "LM358-D")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, manufacturer_id, status) "
-                         "SELECT 'ti', 'TI', id, 'confirmed' FROM manufacturers")
+            conn.execute("INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, manufacturer_id, status) "
+                         "SELECT 'ti', 'TI', id, 'confirmed' FROM supply_manufacturers")
         self.store_project("p1", "Exact", [component("U1", "Texas Instruments Inc.", "lm358d")])
         self.store_project("p2", "Alias", [component("U1", "TI", "LM358 D"), component("U2", "TI", "LM358-D")])
         self.store_project("p3", "Blank maker", [component("U1", "", "LM358D")])
@@ -316,7 +316,7 @@ class UsageDatabaseTests(unittest.TestCase):
         part_id = self.part("Acme", "FLAGGED")
         with self.store.connection() as conn:
             for name, value in (("ncnr", "Yes"), ("normally_stocking", "No")):
-                conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', %s, %s, NOW())", (part_id, name, value))
+                conn.execute("INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', %s, %s, NOW())", (part_id, name, value))
         rows = {item["mpn"]: item for item in self.call("GET", "/api/supply/parts", query="scope=all").json["items"]}
         self.assertEqual(sorted(rows["FLAGGED"]["flags"]), ["ncnr", "not_stocked"])
 
@@ -377,7 +377,7 @@ class UsageDatabaseTests(unittest.TestCase):
         ]
         response = self.refresh_with(rows, index)
         self.assertEqual((response.status, response.json["updated"]), (200, 2))
-        roles = {row["project_id"]: sorted(row["visible_roles"]) for row in self.rows("SELECT project_id, visible_roles FROM bom_usage_projects")}
+        roles = {row["project_id"]: sorted(row["visible_roles"]) for row in self.rows("SELECT project_id, visible_roles FROM supply_bom_usage_projects")}
         self.assertEqual(roles, {"open": ["admin", "designer", "qa"], "secret": ["admin"]})
 
     def test_a_project_hidden_from_a_role_does_not_show_up_for_it(self) -> None:

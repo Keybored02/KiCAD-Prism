@@ -68,7 +68,7 @@ class PackagingPickTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=ACTOR, provider="pick_demo", daily_budget=1000)["id"]
 
@@ -78,10 +78,10 @@ class PackagingPickTests(unittest.TestCase):
             for index, packaging in enumerate(packagings):
                 lid = f"{mpn}-{index}"
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
                     "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact', %s)", (lid, self.cid, f"SKU-{lid}", watch.part_id, packaging))
                 conn.execute(
-                    "INSERT INTO offers (listing_id, fetched_at, stock, packaging, price_breaks, currency, moq) "
+                    "INSERT INTO supply_offers (listing_id, fetched_at, stock, packaging, price_breaks, currency, moq) "
                     "VALUES (%s, %s, %s, %s, %s::jsonb, 'USD', 1)", (lid, NOW, stock, packaging, BREAKS))
             self.admission.sync(conn)
         return watch.part_id
@@ -143,8 +143,8 @@ class PackagingPickTests(unittest.TestCase):
     def test_a_listing_under_another_number_is_marked_and_unpinning_is_for_those_who_decide(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET raw_mpn = 'A' WHERE id = 'A-0'")
-            conn.execute("UPDATE listings SET raw_mpn = 'A-T' WHERE id = 'A-1'")
+            conn.execute("UPDATE supply_listings SET raw_mpn = 'A' WHERE id = 'A-0'")
+            conn.execute("UPDATE supply_listings SET raw_mpn = 'A-T' WHERE id = 'A-1'")
         options = self.call("GET", f"/{a}/{self.cid}").json
         self.assertEqual([item["other_number"] for item in options["listings"]], [False, True])
         self.assertFalse(options["can_unpin"])
@@ -173,7 +173,7 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual(before["new_since_pick"], 0)
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
                 "VALUES ('A-2', %s, 'SKU-A-2', %s, 'x', 'Acme', 'exact', 'custom_reel')", (self.cid, a))
         (after,) = [item for item in self.call("GET", "/several").json["items"] if item["part_id"] == a]
         self.assertEqual(after["new_since_pick"], 1)
@@ -191,13 +191,13 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual(done, {"picked": 1})
         self.assertEqual(self.picked(b), "B-1")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'packaging.pick'").fetchone()["n"], 2)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_audit_events WHERE action = 'packaging.pick'").fetchone()["n"], 2)
 
     def test_a_pick_is_dropped_when_its_listing_stops_being_counted(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         self.call("PUT", f"/{a}/{self.cid}", body={"listing_id": "A-1"})
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'gone' WHERE id = 'A-1'")
+            conn.execute("UPDATE supply_listings SET match_state = 'gone' WHERE id = 'A-1'")
             self.admission.sync(conn)
         self.assertIsNone(self.picked(a))
 
