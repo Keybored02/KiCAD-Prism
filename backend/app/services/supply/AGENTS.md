@@ -188,8 +188,8 @@ root first.
 - **Audit identity comes from the session**, passed in as `actor`. Never take
   it from a request body.
 - **Supply tables are catalog tables.** Every table, index, trigger and function
-  is prefixed `supply_` (`tests/test_supply_schema_names.py` checks). A change is
-  a new step in `catalog_schema_migrations.py`, never an edit to the steps the
+  is prefixed `supply_` (`backend/tests/test_supply_schema_names.py` checks). A change is
+  a new step in `backend/app/services/catalog_schema_migrations.py`, never an edit to the steps the
   `supply_tables` step runs.
 - **Role-aware lookups only** when supply data is joined to projects.
 
