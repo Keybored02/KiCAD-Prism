@@ -74,8 +74,8 @@ class SupplyDatabaseTests(unittest.TestCase):
     def test_the_supply_steps_are_one_catalog_ledger_step_and_rerunning_them_is_a_no_op(self) -> None:
         from app.services.catalog_schema_migrations import CATALOG_LEDGER
 
-        step = next(step for step in CATALOG_LEDGER.steps if step.name == "supply_tables")
-        self.assertEqual(step.version, max(s.version for s in CATALOG_LEDGER.steps), "supply tables are the newest catalog step")
+        versions = {step.name: step.version for step in CATALOG_LEDGER.steps}
+        self.assertLess(versions["supply_tables"], versions["component_parts"], "component_parts refers to supply_parts, so it comes after")
         declared = [version for version, _name, _step in self.schema_migrations.MIGRATIONS]
         self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "steps are numbered consecutively")
         with self.store.connection() as conn:
