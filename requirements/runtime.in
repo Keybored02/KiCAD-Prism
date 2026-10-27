@@ -17,6 +17,8 @@ pydantic-settings
 numpy
 python-dotenv
 requests
+# MCP client metadata fetches connect to a pre-checked address (SSRF guard).
+urllib3
 PyJWT[crypto]
 python-multipart
 psycopg[binary]>=3.2,<4
