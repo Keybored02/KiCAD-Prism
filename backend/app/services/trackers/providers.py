@@ -78,6 +78,11 @@ class ProviderKit:
     issue_web_url: Callable[[Mapping[str, Any], str, Any], str]
     # (connector, container path, issue number, external comment id) -> the comment's web page.
     comment_web_url: Callable[[Mapping[str, Any], str, Any, str], str]
+    # Every repository the credential can read, with clone URLs, for repository
+    # discovery. Unset where a provider has no such lister yet.
+    list_readable_repositories: Optional[
+        Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
+    ] = None
 
     def credential_payload(self, credentials: Mapping[str, Any]) -> dict[str, str]:
         """Envelope fields from an admin request, accepting snake_case aliases."""
@@ -190,6 +195,7 @@ GITHUB = ProviderKit(
 # --- GitLab (gitlab.com and self-managed) ------------------------------------
 
 GITLAB_REPOSITORY_LIMIT = 1000
+GITLAB_READABLE_REPOSITORY_LIMIT = 5000
 
 
 def _gitlab_auth(connector: Mapping[str, Any], material: Mapping[str, Any], http: Any = None) -> Any:
@@ -255,20 +261,51 @@ def _gitlab_test(connector: Mapping[str, Any], material: Mapping[str, Any]) -> d
 def _gitlab_repositories(connector: Mapping[str, Any], material: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Projects the bot can write issues in (Reporter or above), for the picker."""
 
+    return _gitlab_project_pages(
+        connector,
+        material,
+        {
+            "membership": "true",
+            # Developer, the level the connection test requires to publish.
+            "min_access_level": 30,
+            "archived": "false",
+            "simple": "true",
+        },
+        limit=GITLAB_REPOSITORY_LIMIT,
+    )
+
+
+def _gitlab_readable_repositories(connector: Mapping[str, Any], material: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Projects the token's user can read (Reporter or above), with clone URLs.
+
+    Archived projects are included and marked, so discovery can show or hide
+    them. ``simple`` is left off because it omits ``archived`` and ``empty_repo``.
+    """
+
+    return _gitlab_project_pages(
+        connector,
+        material,
+        {
+            "membership": "true",
+            # Reporter, the lowest level that can clone.
+            "min_access_level": 20,
+        },
+        limit=GITLAB_READABLE_REPOSITORY_LIMIT,
+    )
+
+
+def _gitlab_project_pages(
+    connector: Mapping[str, Any],
+    material: Mapping[str, Any],
+    filters: dict[str, Any],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
     auth = _gitlab_auth(connector, material)
     url: Optional[str] = auth.url("/projects")
-    params: Optional[dict[str, Any]] = {
-        "membership": "true",
-        # Developer, the level the connection test requires to publish.
-        "min_access_level": 30,
-        "archived": "false",
-        "simple": "true",
-        "order_by": "path",
-        "sort": "asc",
-        "per_page": 100,
-    }
+    params: Optional[dict[str, Any]] = {**filters, "order_by": "path", "sort": "asc", "per_page": 100}
     repositories: list[dict[str, Any]] = []
-    while url and len(repositories) < GITLAB_REPOSITORY_LIMIT:
+    while url and len(repositories) < limit:
         response = auth.http.outcome(auth.http.request("GET", url, headers=auth.bot_headers(), params=params))
         params = None
         payload = response.json() if response.content else []
@@ -283,10 +320,14 @@ def _gitlab_repositories(connector: Mapping[str, Any], material: Mapping[str, An
                     "private": str(item.get("visibility") or "private") != "public",
                     "archived": bool(item.get("archived")),
                     "htmlUrl": str(item.get("web_url") or ""),
+                    "sshUrl": str(item.get("ssh_url_to_repo") or ""),
+                    "cloneUrl": str(item.get("http_url_to_repo") or ""),
+                    "defaultBranch": str(item.get("default_branch") or ""),
+                    "emptyRepo": bool(item.get("empty_repo")),
                 }
             )
         url = response.next_page()
-    return repositories
+    return repositories[:limit]
 
 
 def _gitlab_webhook() -> WebhookCodec:
@@ -311,6 +352,7 @@ GITLAB = ProviderKit(
     list_repositories=_gitlab_repositories,
     issue_web_url=_gitlab_issue_url,
     comment_web_url=_gitlab_comment_url,
+    list_readable_repositories=_gitlab_readable_repositories,
 )
 
 
@@ -480,6 +522,13 @@ def kit_for(provider: str | None) -> ProviderKit:
             f"Issue publishing is not available for {display_name(provider)} yet; this host is for account linking.",
         )
     raise ProviderError("invalid_request", f"Unknown tracker provider {provider!r}.")
+
+
+def can_list_readable_repositories(provider: str | None) -> bool:
+    """Whether repository discovery can list this provider's repositories."""
+
+    host = _HOSTS.get(provider or "")
+    return host is not None and host.issues is not None and host.issues.list_readable_repositories is not None
 
 
 def webhook_codec(provider: str | None) -> Optional[WebhookCodec]:

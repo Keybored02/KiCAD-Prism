@@ -28,7 +28,14 @@ from app.services.trackers.connector_runtime import (
     decrypt_material,
 )
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.providers import host_kit, host_kits, is_issue_provider, issue_adapter_for, kit_for
+from app.services.trackers.providers import (
+    can_list_readable_repositories,
+    host_kit,
+    host_kits,
+    is_issue_provider,
+    issue_adapter_for,
+    kit_for,
+)
 from app.services.trackers.secrets import encrypt_secret
 from app.services.trackers.store import TrackerStore
 
@@ -531,6 +538,38 @@ class ConnectorService:
         if self._repository_lister is not None:
             return self._repository_lister(row, material)
         return kit_for(str(row["provider"])).list_repositories(row, material)
+
+    def discovery_sources(self) -> list[dict[str, Any]]:
+        """Connectors repository discovery can list: ready, with a readable lister."""
+
+        return [
+            {
+                "id": connector["id"],
+                "provider": connector["provider"],
+                "displayName": connector["displayName"],
+                "host": connector["host"],
+            }
+            for connector in self.list_connectors()
+            if can_list_readable_repositories(str(connector["provider"]))
+            and connector["credentialConfigured"]
+            and connector["status"] != "revoked"
+        ]
+
+    def list_readable_repositories(self, connector_id: str) -> list[dict[str, Any]]:
+        """Every repository the connector's credential can read, with clone URLs."""
+
+        with self.connection() as conn:
+            row, _, material = self._installation_material(conn, connector_id)
+            if not can_list_readable_repositories(str(row["provider"])):
+                raise ProviderError(
+                    "capability_missing",
+                    "Repository discovery is not available for this host yet.",
+                )
+            if material is None:
+                raise ProviderError("auth_lost", "Connector has no installation credentials.")
+        lister = kit_for(str(row["provider"])).list_readable_repositories
+        assert lister is not None
+        return lister(row, material)
 
     def _run_test(self, row: Mapping[str, Any], material: Mapping[str, str]) -> dict[str, Any]:
         if self._tester is not None:
