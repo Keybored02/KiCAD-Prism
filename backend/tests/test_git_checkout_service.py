@@ -1,7 +1,8 @@
 """LFS hydration for Prism-managed checkouts.
 
 Git LFS itself is stubbed out where a test needs a server; tracking detection
-and pointer resolution run against real local repositories.
+runs against real local repositories. Pointers and the object store are
+``test_git_lfs``.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from app.services import git_checkout_service as service
+from app.services import project_import_service
 
 
 
@@ -45,11 +47,22 @@ def make_repo(path: Path, files: dict[str, str]) -> Path:
     return path
 
 
-class HardenedEnvironment(unittest.TestCase):
+class GitEnvironment(unittest.TestCase):
     def test_turns_off_implicit_lfs_downloads(self) -> None:
-        env = service.hardened_env({"PATH": "x"})
-        self.assertEqual(env["GIT_LFS_SKIP_SMUDGE"], "1")
-        self.assertEqual(env["PATH"], "x")
+        self.assertEqual(project_import_service.git_env()["GIT_LFS_SKIP_SMUDGE"], "1")
+
+    def test_add_git_config_appends_to_existing_entries(self) -> None:
+        env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.b", "GIT_CONFIG_VALUE_0": "1"}
+        project_import_service.add_git_config(env, "c.d", "2")
+        self.assertEqual(env["GIT_CONFIG_COUNT"], "2")
+        self.assertEqual((env["GIT_CONFIG_KEY_1"], env["GIT_CONFIG_VALUE_1"]), ("c.d", "2"))
+        self.assertEqual(env["GIT_CONFIG_KEY_0"], "a.b")
+
+    def test_add_git_config_starts_from_nothing_and_ignores_a_bad_count(self) -> None:
+        for env in ({}, {"GIT_CONFIG_COUNT": "oops"}):
+            project_import_service.add_git_config(env, "c.d", "2")
+            self.assertEqual(env["GIT_CONFIG_COUNT"], "1")
+            self.assertEqual(env["GIT_CONFIG_KEY_0"], "c.d")
 
 
 class DetectsLfsTracking(unittest.TestCase):
@@ -157,86 +170,6 @@ class LfsPolicy(unittest.TestCase):
                 progress=None, check_cancelled=None,
             )
         self.assertEqual(self.report.lfs_status, "unavailable")
-
-
-POINTER = (
-    "version https://git-lfs.github.com/spec/v1\n"
-    "oid sha256:{oid}\n"
-    "size 5\n"
-)
-OID = "a" * 64
-
-
-class LfsPointersInHistory(unittest.TestCase):
-    def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.repo = make_repo(
-            Path(self._tmp.name) / "repo", {"model.step": POINTER.format(oid=OID), "a.txt": "plain"}
-        )
-        self.git_dir = self.repo / ".git"
-
-    def store(self, data: bytes) -> None:
-        target = self.git_dir / "lfs" / "objects" / OID[:2] / OID[2:4]
-        target.mkdir(parents=True)
-        (target / OID).write_bytes(data)
-
-    def test_non_pointers_pass_through(self) -> None:
-        self.assertEqual(service.resolve_lfs_content(b"plain", self.git_dir), b"plain")
-        big = service._LFS_POINTER_PREFIX + b"\n" + b"x" * 2000
-        self.assertEqual(service.resolve_lfs_content(big, self.git_dir), big)
-
-    def test_pointer_resolves_to_the_stored_object(self) -> None:
-        self.store(b"hello")
-        pointer = POINTER.format(oid=OID).encode()
-        self.assertEqual(service.resolve_lfs_content(pointer, self.git_dir), b"hello")
-
-    def test_missing_object_is_reported_not_returned_as_pointer_text(self) -> None:
-        pointer = POINTER.format(oid=OID).encode()
-        with self.assertRaises(service.LfsObjectMissing):
-            service.resolve_lfs_content(pointer, self.git_dir)
-
-    def test_commit_file_reader_uses_it(self) -> None:
-        from fastapi import HTTPException
-
-        from app.services import file_service
-
-        head = git(self.repo, "rev-parse", "HEAD").strip()
-        with self.assertRaises(HTTPException) as caught:
-            file_service.read_file_from_commit(str(self.repo), head, "model.step")
-        self.assertEqual(caught.exception.status_code, 404)
-        self.assertIn("LFS", caught.exception.detail)
-
-        self.store(b"hello")
-        self.assertEqual(
-            file_service.read_file_from_commit(str(self.repo), head, "model.step").content,
-            b"hello",
-        )
-        self.assertEqual(
-            file_service.read_file_from_commit(str(self.repo), head, "a.txt").content, b"plain"
-        )
-
-
-class LfsSizeLimitInHistory(unittest.TestCase):
-    def huge_pointer(self) -> str:
-        return POINTER.format(oid=OID).replace("size 5", f"size {60 * 1024 * 1024}")
-
-    def test_huge_pointer_is_refused_before_reading(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(service.LfsObjectTooLarge):
-                service.resolve_lfs_content(self.huge_pointer().encode(), tmp)
-
-    def test_history_reader_answers_413(self) -> None:
-        from fastapi import HTTPException
-
-        from app.services import file_service
-
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = make_repo(Path(tmp) / "repo", {"model.step": self.huge_pointer()})
-            head = git(repo, "rev-parse", "HEAD").strip()
-            with self.assertRaises(HTTPException) as caught:
-                file_service.read_file_from_commit(str(repo), head, "model.step")
-            self.assertEqual(caught.exception.status_code, 413)
 
 
 if __name__ == "__main__":

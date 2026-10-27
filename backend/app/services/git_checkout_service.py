@@ -4,9 +4,10 @@ A plain ``git clone`` or ``merge --ff-only`` leaves LFS-tracked files as small
 pointer files. Release Studio refuses to build from them, and the viewers cannot
 parse a pointer. This module downloads them after the clone or fast-forward.
 
-Downloads happen here and nowhere else. Every other checkout command runs with
-``GIT_LFS_SKIP_SMUDGE``, and the image installs LFS with ``--skip-smudge``, so
-the deployment's LFS mode and size limit always apply.
+Downloads happen here and nowhere else. ``project_import_service.git_env`` sets
+``GIT_LFS_SKIP_SMUDGE`` for every Git command the backend runs, and the image
+installs LFS with ``--skip-smudge``, so the deployment's LFS mode and size limit
+always apply. Reading a pointer back into a file is :mod:`git_lfs`.
 
 The module does not import the application config or the import service, so it
 can be tested against small local repositories. Callers pass in the base
@@ -16,7 +17,6 @@ environment and the LFS settings.
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,20 +24,14 @@ from typing import Callable, Iterable, Optional
 
 __all__ = [
     "CheckoutReport",
-    "LfsObjectMissing",
-    "LfsObjectTooLarge",
     "LfsSettings",
     "describe_failure",
-    "hardened_env",
     "hydrate_checkout",
     "lfs_available",
-    "resolve_lfs_content",
     "tracks_lfs",
 ]
 
 COMMAND_TIMEOUT_SECONDS = 1800
-# History views read a file into memory per request; refuse to load a huge one.
-MAX_HISTORY_LFS_BYTES = 50 * 1024 * 1024
 
 LFS_AUTO = "auto"
 LFS_OFF = "off"
@@ -70,19 +64,6 @@ class CheckoutReport:
             "lfs_missing": self.lfs_missing,
             "warnings": list(self.warnings),
         }
-
-
-def hardened_env(base: dict) -> dict:
-    """Return ``base`` with the settings every checkout command must run under.
-
-    ``GIT_LFS_SKIP_SMUDGE`` keeps clone, checkout and merge from downloading LFS
-    files implicitly, so the size limit and the off switch are decided in one
-    place (:func:`_hydrate_lfs`) rather than by whichever command touched the
-    tree first.
-    """
-    env = dict(base)
-    env["GIT_LFS_SKIP_SMUDGE"] = "1"
-    return env
 
 
 def _run(
@@ -122,56 +103,6 @@ def lfs_available(env: dict) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return True
-
-
-# --- LFS pointers in history -------------------------------------------------
-
-_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
-_LFS_POINTER_MAX_BYTES = 1024
-_LFS_OID_RE = re.compile(rb"^oid sha256:(?P<oid>[0-9a-f]{64})$", re.MULTILINE)
-_LFS_SIZE_RE = re.compile(rb"^size (?P<size>\d+)$", re.MULTILINE)
-
-
-class LfsObjectMissing(Exception):
-    """A committed LFS pointer whose file was never downloaded to this server."""
-
-    def __init__(self, oid: str) -> None:
-        super().__init__(f"LFS object {oid[:12]} is not downloaded")
-        self.oid = oid
-
-
-class LfsObjectTooLarge(Exception):
-    """A committed LFS file too big to read into memory for a history view."""
-
-    def __init__(self, size: int) -> None:
-        super().__init__(f"LFS object is {size} bytes")
-        self.size = size
-
-
-def resolve_lfs_content(content: bytes, git_dir: Path | str) -> bytes:
-    """Swap a committed LFS pointer for the file it names.
-
-    History readers see the blob Git stores, which for an LFS file is a short
-    pointer. Returns ``content`` unchanged when it is not a pointer, and raises
-    :class:`LfsObjectMissing` when it is one but the object is not in the
-    repository's LFS store, and :class:`LfsObjectTooLarge` past
-    ``MAX_HISTORY_LFS_BYTES``. Never contacts a server: history views must stay
-    fast, and download policy belongs to import and sync.
-    """
-    if len(content) > _LFS_POINTER_MAX_BYTES or not content.startswith(_LFS_POINTER_PREFIX):
-        return content
-    match = _LFS_OID_RE.search(content)
-    if not match:
-        return content
-    oid = match["oid"].decode("ascii")
-    size_match = _LFS_SIZE_RE.search(content)
-    if size_match and int(size_match["size"]) > MAX_HISTORY_LFS_BYTES:
-        raise LfsObjectTooLarge(int(size_match["size"]))
-    stored = Path(git_dir) / "lfs" / "objects" / oid[:2] / oid[2:4] / oid
-    try:
-        return stored.read_bytes()
-    except OSError:
-        raise LfsObjectMissing(oid) from None
 
 
 # --- hydration --------------------------------------------------------------
@@ -297,7 +228,7 @@ def hydrate_checkout(
     report = CheckoutReport()
     _hydrate_lfs(
         [Path(repo_path)],
-        env=hardened_env(env),
+        env=env,
         lfs=lfs,
         report=report,
         progress=progress,

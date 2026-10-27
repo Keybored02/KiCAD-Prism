@@ -117,6 +117,21 @@ def _describe_target(parsed: ParsedRemote) -> str:
     return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
 
 
+def add_git_config(env: dict, key: str, value: str) -> None:
+    """Set one ``git -c``-style option for the commands run with ``env``.
+
+    ``GIT_CONFIG_*`` applies for a single invocation and leaves nothing on disk.
+    The parent environment may already carry entries, so this appends.
+    """
+    try:
+        index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
+    except ValueError:
+        index = 0
+    env[f"GIT_CONFIG_KEY_{index}"] = key
+    env[f"GIT_CONFIG_VALUE_{index}"] = value
+    env["GIT_CONFIG_COUNT"] = str(index + 1)
+
+
 def _inject_github_token(env: dict) -> None:
     """Supply GITHUB_TOKEN to one Git invocation, and leave nothing behind.
 
@@ -130,14 +145,7 @@ def _inject_github_token(env: dict) -> None:
     token = settings.GITHUB_TOKEN.strip()
     if not token:
         return
-    # The parent environment may already carry GIT_CONFIG_* entries; append.
-    try:
-        index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
-    except ValueError:
-        index = 0
-    env[f"GIT_CONFIG_KEY_{index}"] = f"url.https://{token}@github.com/.insteadOf"
-    env[f"GIT_CONFIG_VALUE_{index}"] = "https://github.com/"
-    env["GIT_CONFIG_COUNT"] = str(index + 1)
+    add_git_config(env, f"url.https://{token}@github.com/.insteadOf", "https://github.com/")
 
 
 def git_env() -> dict:
@@ -150,6 +158,10 @@ def git_env() -> dict:
     # action, taken after comparing the fingerprint against what the Git server's
     # operator publishes.
     env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
+    # No command downloads LFS files as a side effect of a clone, checkout or
+    # merge. Downloads happen in `git_checkout_service`, where the LFS mode and
+    # size limit apply.
+    env["GIT_LFS_SKIP_SMUDGE"] = "1"
     _inject_github_token(env)
     return env
 
@@ -1183,7 +1195,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     repo_url,
                     str(target_path),
                     progress=V3CloneProgress(context, stage="clone-repository"),
-                    env=git_checkout_service.hardened_env(git_env()),
+                    env=git_env(),
                     **clone_options,
                 )
             except GitAccessError:
@@ -1547,7 +1559,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         origin = repo.remote('origin')
 
         # Reuse the clone's pinned-host-key and noninteractive Git policy.
-        env = git_checkout_service.hardened_env(git_env())
+        env = git_env()
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
