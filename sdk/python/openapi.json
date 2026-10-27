@@ -8682,6 +8682,194 @@
         "title": "DetectedPaths",
         "type": "object"
       },
+      "DiscoveredProjectView": {
+        "additionalProperties": true,
+        "properties": {
+          "has_pcb": {
+            "title": "Has Pcb",
+            "type": "boolean"
+          },
+          "has_schematic": {
+            "title": "Has Schematic",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_key": {
+            "title": "Project Key",
+            "type": "string"
+          },
+          "relative_path": {
+            "title": "Relative Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "relative_path",
+          "project_key",
+          "has_schematic",
+          "has_pcb"
+        ],
+        "title": "DiscoveredProjectView",
+        "type": "object"
+      },
+      "DiscoveredRepository": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "cloneUrl": {
+            "title": "Cloneurl",
+            "type": "string"
+          },
+          "defaultBranch": {
+            "title": "Defaultbranch",
+            "type": "string"
+          },
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "fullName": {
+            "title": "Fullname",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "importedCount": {
+            "title": "Importedcount",
+            "type": "integer"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredProjectView"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "repositoryImported": {
+            "title": "Repositoryimported",
+            "type": "boolean"
+          },
+          "scannedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scannedat"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "webUrl": {
+            "title": "Weburl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fullName",
+          "webUrl",
+          "cloneUrl",
+          "defaultBranch",
+          "archived",
+          "state",
+          "projects",
+          "importedCount",
+          "repositoryImported",
+          "dismissed",
+          "error",
+          "scannedAt"
+        ],
+        "title": "DiscoveredRepository",
+        "type": "object"
+      },
+      "DiscoveredRepositoryList": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredRepository"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "hiddenCount": {
+            "title": "Hiddencount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidates",
+          "hiddenCount"
+        ],
+        "title": "DiscoveredRepositoryList",
+        "type": "object"
+      },
+      "DiscoveryDismissal": {
+        "additionalProperties": false,
+        "properties": {
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dismissed"
+        ],
+        "title": "DiscoveryDismissal",
+        "type": "object"
+      },
+      "DiscoverySource": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "title": "Displayname",
+            "type": "string"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "displayName",
+          "host"
+        ],
+        "title": "DiscoverySource",
+        "type": "object"
+      },
       "DocFileContent": {
         "additionalProperties": true,
         "properties": {
@@ -38749,6 +38937,200 @@
         "summary": "Search the released components KiCad may place",
         "tags": [
           "remote-provider"
+        ]
+      }
+    },
+    "/api/v1/repo-discovery/candidates/{candidate_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_discovered_repository",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryDismissal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Hide a discovered repository",
+        "tags": [
+          "repo-discovery"
+        ]
+      }
+    },
+    "/api/v1/repo-discovery/candidates/{candidate_id}/restore": {
+      "post": {
+        "operationId": "restore_discovered_repository",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryDismissal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Show a hidden repository again",
+        "tags": [
+          "repo-discovery"
+        ]
+      }
+    },
+    "/api/v1/repo-discovery/sources": {
+      "get": {
+        "operationId": "list_discovery_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoverySource"
+                  },
+                  "title": "Response List Discovery Sources",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Connected hosts repositories can be discovered on",
+        "tags": [
+          "repo-discovery"
+        ]
+      }
+    },
+    "/api/v1/repo-discovery/sources/{connector_id}/candidates": {
+      "get": {
+        "operationId": "list_discovered_repositories",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveredRepositoryList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The repositories a scan found on a host",
+        "tags": [
+          "repo-discovery"
+        ]
+      }
+    },
+    "/api/v1/repo-discovery/sources/{connector_id}/scan": {
+      "post": {
+        "description": "List the host's repositories and read each one's default branch. Runs as a job.",
+        "operationId": "scan_discovery_source",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scan a connected host for KiCad repositories",
+        "tags": [
+          "repo-discovery"
         ]
       }
     },

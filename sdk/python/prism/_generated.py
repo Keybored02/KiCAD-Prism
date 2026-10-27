@@ -1543,6 +1543,47 @@ class DetectedPaths(TypedDict, total=True):
     validation: PathConfigValidation
 
 
+class DiscoveredProjectView(TypedDict, total=True):
+    has_pcb: bool
+    has_schematic: bool
+    name: str
+    project_key: str
+    relative_path: str
+
+
+class DiscoveredRepository(TypedDict, total=True):
+    archived: bool
+    cloneUrl: str
+    defaultBranch: str
+    dismissed: bool
+    error: str
+    fullName: str
+    id: str
+    importedCount: int
+    projects: list[DiscoveredProjectView]
+    repositoryImported: bool
+    scannedAt: str | None
+    state: str
+    webUrl: str
+
+
+class DiscoveredRepositoryList(TypedDict, total=True):
+    candidates: list[DiscoveredRepository]
+    hiddenCount: int
+
+
+class DiscoveryDismissal(TypedDict, total=True):
+    dismissed: bool
+    id: str
+
+
+class DiscoverySource(TypedDict, total=True):
+    displayName: str
+    host: str
+    id: str
+    provider: str
+
+
 class DocFileContent(TypedDict, total=True):
     content: str
     path: str
@@ -4719,6 +4760,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def dismiss_discovered_repository(self, candidate_id: str) -> DiscoveryDismissal:
+        """Hide a discovered repository"""
+        return self._request(
+            "POST",
+            "/api/v1/repo-discovery/candidates/{candidate_id}/dismiss",
+            path_params={"candidate_id": candidate_id},
+        )
+
     def download_asset(self, asset_id: str, *, rev: str, representation: str = '', exp: int, sig: str) -> Any:
         """Download one signed asset for placement"""
         return self._request(
@@ -5867,6 +5916,21 @@ class GeneratedClient:
             "/api/v1/admin/trackers/connectors",
         )
 
+    def list_discovered_repositories(self, connector_id: str) -> DiscoveredRepositoryList:
+        """The repositories a scan found on a host"""
+        return self._request(
+            "GET",
+            "/api/v1/repo-discovery/sources/{connector_id}/candidates",
+            path_params={"connector_id": connector_id},
+        )
+
+    def list_discovery_sources(self) -> list[DiscoverySource]:
+        """Connected hosts repositories can be discovered on"""
+        return self._request(
+            "GET",
+            "/api/v1/repo-discovery/sources",
+        )
+
     def list_document_sheets(self, project_id: str, build_id: str) -> DocumentSheetList:
         """List the composed documentation sheets of a build"""
         return self._request(
@@ -6488,6 +6552,14 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
+    def restore_discovered_repository(self, candidate_id: str) -> DiscoveryDismissal:
+        """Show a hidden repository again"""
+        return self._request(
+            "POST",
+            "/api/v1/repo-discovery/candidates/{candidate_id}/restore",
+            path_params={"candidate_id": candidate_id},
+        )
+
     def restore_metadata_field(self, field_id: str) -> MetadataField:
         """Restore a metadata field"""
         return self._request(
@@ -6623,6 +6695,14 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/catalog-usage/scan",
             path_params={"project_id": project_id},
             body=body,
+        )
+
+    def scan_discovery_source(self, connector_id: str) -> JobStarted:
+        """Scan a connected host for KiCad repositories"""
+        return self._request(
+            "POST",
+            "/api/v1/repo-discovery/sources/{connector_id}/scan",
+            path_params={"connector_id": connector_id},
         )
 
     def scan_git_host_key(self, *, body: dict[str, Any] | None = None) -> HostKeyScanResponse:

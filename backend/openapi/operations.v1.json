@@ -339,6 +339,11 @@
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
     "typed": true
   },
+  "dismiss_discovered_repository": {
+    "method": "POST",
+    "path": "/api/v1/repo-discovery/candidates/{candidate_id}/dismiss",
+    "typed": true
+  },
   "download_asset": {
     "method": "GET",
     "path": "/api/v1/remote-provider/assets/{asset_id}",
@@ -1034,6 +1039,16 @@
     "path": "/api/v1/admin/trackers/connectors",
     "typed": true
   },
+  "list_discovered_repositories": {
+    "method": "GET",
+    "path": "/api/v1/repo-discovery/sources/{connector_id}/candidates",
+    "typed": true
+  },
+  "list_discovery_sources": {
+    "method": "GET",
+    "path": "/api/v1/repo-discovery/sources",
+    "typed": true
+  },
   "list_document_sheets": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets",
@@ -1429,6 +1444,11 @@
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/repromote",
     "typed": true
   },
+  "restore_discovered_repository": {
+    "method": "POST",
+    "path": "/api/v1/repo-discovery/candidates/{candidate_id}/restore",
+    "typed": true
+  },
   "restore_metadata_field": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/fields/{field_id}/restore",
@@ -1512,6 +1532,11 @@
   "scan_catalog_usage": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/catalog-usage/scan",
+    "typed": true
+  },
+  "scan_discovery_source": {
+    "method": "POST",
+    "path": "/api/v1/repo-discovery/sources/{connector_id}/scan",
     "typed": true
   },
   "scan_git_host_key": {
