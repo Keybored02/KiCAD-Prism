@@ -7,7 +7,7 @@ import posixpath
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -22,6 +22,7 @@ from app.services import (
     derived_assets,
     file_service,
     git_access_service,
+    git_lfs,
     path_config_service,
     project_import_service,
     project_metadata_service,
@@ -325,6 +326,19 @@ def _commit_file_response(
         f'{disposition}; filename="{safe_name}"; filename*=UTF-8\'\'{quote(commit_file.name)}'
     )
     return Response(content=commit_file.content, media_type=media_type, headers=response_headers)
+
+
+def _checkout_file_response(path: Path | str, **kwargs: Any) -> FileResponse:
+    """Serve a working-tree file, never the LFS pointer standing in for it.
+
+    A checkout whose LFS files were not downloaded (the mode is off, the size
+    limit was passed, or the download failed) holds a short text pointer where
+    the file should be. Served as the schematic or the 3D model, it fails in the
+    viewer with a parse error that says nothing about LFS.
+    """
+    if git_lfs.is_pointer_file(path):
+        raise HTTPException(status_code=404, detail=git_lfs.NOT_DOWNLOADED_DETAIL)
+    return FileResponse(path, **kwargs)
 
 
 def _files_from_commit(
@@ -1419,7 +1433,7 @@ async def download_file(
         raise HTTPException(status_code=400, detail="Cannot download directory")
 
     disposition = "inline" if inline else "attachment"
-    return FileResponse(file_path, filename=file_path.name, content_disposition_type=disposition)
+    return _checkout_file_response(file_path, filename=file_path.name, content_disposition_type=disposition)
 
 @router.get("/{project_id}/readme")
 async def get_project_readme(
@@ -1467,7 +1481,7 @@ async def get_project_asset(
     if file_path.is_dir():
         raise HTTPException(status_code=400, detail="Cannot serve directory")
 
-    return FileResponse(file_path)
+    return _checkout_file_response(file_path)
 
 @router.get("/{project_id}/docs")
 async def get_docs_files(
@@ -1728,7 +1742,7 @@ async def get_project_schematic(
     )
     if not path:
         raise HTTPException(status_code=404, detail="Schematic not found")
-    return FileResponse(path)
+    return _checkout_file_response(path)
 
 @router.get("/{project_id}/schematic/subsheets")
 async def get_project_subsheets(
@@ -1925,7 +1939,7 @@ async def get_project_pcb(
     )
     if not path:
         raise HTTPException(status_code=404, detail="PCB not found")
-    return FileResponse(path)
+    return _checkout_file_response(path)
 
 @router.get("/{project_id}/3d-model")
 async def get_project_3d_model(
@@ -1947,7 +1961,7 @@ async def get_project_3d_model(
     path = project_service.find_3d_model(project.path)
     if not path:
         raise HTTPException(status_code=404, detail="3D model not found")
-    return FileResponse(path, headers={"Cache-Control": "public, max-age=300"})
+    return _checkout_file_response(path, headers={"Cache-Control": "public, max-age=300"})
 
 @router.get("/{project_id}/ibom")
 async def get_project_ibom(
@@ -1969,7 +1983,7 @@ async def get_project_ibom(
     path = project_service.find_ibom_file(project.path)
     if not path:
         raise HTTPException(status_code=404, detail="iBoM not found")
-    return FileResponse(path, headers={"Cache-Control": "public, max-age=60"})
+    return _checkout_file_response(path, headers={"Cache-Control": "public, max-age=60"})
 
 
 # Path Configuration Endpoints

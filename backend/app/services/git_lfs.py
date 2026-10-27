@@ -30,6 +30,7 @@ __all__ = [
     "LfsPointer",
     "LfsSourcesUnavailable",
     "MAX_HISTORY_LFS_BYTES",
+    "NOT_DOWNLOADED_DETAIL",
     "common_git_dir",
     "hydrate_sources",
     "hydrate_tree",
@@ -45,6 +46,9 @@ POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 POINTER_MAX_BYTES = 1024
 # History views read a file into memory per request; refuse to load a huge one.
 MAX_HISTORY_LFS_BYTES = 50 * 1024 * 1024
+
+# What a person is told when a file is an LFS pointer and its content is not here.
+NOT_DOWNLOADED_DETAIL = "This file is stored in Git LFS and has not been downloaded to the server."
 
 # The files a build parses. A pointer in their place is an error to report, where
 # a pointer standing in for a 3D model only costs the viewer a model.

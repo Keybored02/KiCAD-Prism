@@ -353,7 +353,7 @@ def read_blob(commit, blob) -> bytes:
     except git_lfs.LfsObjectMissing as error:
         raise HTTPException(
             status_code=404,
-            detail="This file is stored in Git LFS and has not been downloaded to the server.",
+            detail=git_lfs.NOT_DOWNLOADED_DETAIL,
         ) from error
 
 

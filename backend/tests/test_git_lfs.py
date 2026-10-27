@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
+from app.api import projects as projects_api
 from app.services import design_compare_service, file_service, git_lfs, project_source_snapshot
 from app.services import semantic_visualizer_service
 
@@ -337,6 +338,29 @@ class CommitSnapshots(TempRepoCase):
             project_source_snapshot._checkout_sources(
                 self.repo, self.head, self.out, "board.kicad_pro"
             )
+
+
+class ServingTheCheckout(TempRepoCase):
+    def test_a_pointer_is_a_404_about_lfs_not_a_file(self) -> None:
+        text, _ = pointer_for(b"hello")
+        path = self.root / "model.step"
+        path.write_text(text, encoding="utf-8", newline="")
+        with self.assertRaises(HTTPException) as caught:
+            projects_api._checkout_file_response(path)
+        self.assertEqual(caught.exception.status_code, 404)
+        self.assertEqual(caught.exception.detail, git_lfs.NOT_DOWNLOADED_DETAIL)
+
+    def test_a_real_file_is_served_with_the_options_it_was_given(self) -> None:
+        path = self.root / "model.step"
+        path.write_bytes(b"hello")
+        response = projects_api._checkout_file_response(path, headers={"Cache-Control": "no-store"})
+        self.assertEqual(Path(response.path), path)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_a_path_given_as_text_works_too(self) -> None:
+        path = self.root / "board.kicad_pcb"
+        path.write_bytes(b"(kicad_pcb)")
+        self.assertEqual(Path(projects_api._checkout_file_response(str(path)).path), path)
 
 
 if __name__ == "__main__":
