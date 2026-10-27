@@ -566,6 +566,12 @@ class ComponentCatalogDomainService:
         runtime.category_cache_ts = now
         return result
 
+    def component_identities(self, component_ids: list[str]) -> dict[str, tuple[str, str]]:
+        """Manufacturer and MPN per active component id, without building any component payload."""
+        self.initialize()
+        with self._connect() as conn:
+            return self._component_read_models.identities(conn, component_ids)
+
     def get_component(
         self,
         component_id: str,

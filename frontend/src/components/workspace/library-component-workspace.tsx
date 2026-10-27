@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowLeft,
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { SupplyNavIcon } from "@/features/supply/supply-nav-icon";
 import { inventoryWarnings } from "@/lib/inventory-presentation";
 import {
   AVAILABILITY_BADGE_TITLE,
@@ -61,7 +62,8 @@ import {
   releaseComponent,
   verifyComponentAudit,
 } from "./catalog-client";
-import { canAdministerCatalog, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
+import { canAdministerCatalog, canOpenSupply, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
@@ -118,7 +120,11 @@ import { useReleasedAssetDownload } from "./library-component-asset-download";
 import { resolveLibraryPreviewPairAssetIds } from "./library-preview-pair";
 import { useLibraryComponentValidation } from "./library-component-validation";
 
-type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "audit";
+type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "sourcing" | "audit";
+
+// Supply data is read-only for everyone who can read it, so the tab follows the Supply read role.
+const SourcingPanel = lazy(() => import("@/features/supply/sourcing-panel"));
+const BomWhereUsed = lazy(() => import("@/features/supply/bom-where-used"));
 
 const COMPONENT_TABS: Array<{ id: ComponentTab; label: string; icon: typeof Boxes }> = [
   { id: "overview", label: "Overview", icon: Boxes },
@@ -126,6 +132,7 @@ const COMPONENT_TABS: Array<{ id: ComponentTab; label: string; icon: typeof Boxe
   { id: "revisions", label: "Revisions / Compare", icon: GitCompareArrows },
   { id: "review", label: "Release Review", icon: UserRoundCheck },
   { id: "usage", label: "Where Used", icon: Link2 },
+  { id: "sourcing", label: "Supply", icon: SupplyNavIcon },
   { id: "audit", label: "Audit", icon: ShieldCheck },
 ];
 
@@ -299,11 +306,12 @@ export function LibraryComponentWorkspace({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("componentTab") as ComponentTab | null;
-  const activeTab: ComponentTab = requestedTab && COMPONENT_TABS.some((tab) => tab.id === requestedTab) ? requestedTab : "overview";
+  const tabs = COMPONENT_TABS.filter((tab) => tab.id !== "sourcing" || canOpenSupply(user?.role));
+  const activeTab: ComponentTab = requestedTab && tabs.some((tab) => tab.id === requestedTab) ? requestedTab : "overview";
   const requestedRevisionId = searchParams.get("revision") || "";
   const compareRevisionId = searchParams.get("compare") || "";
   const returnView = searchParams.get("libraryView") || "catalog";
-  const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : "Catalog";
+  const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : returnView === "ending" ? "Ending Parts" : "Catalog";
   const [currentComponent, setCurrentComponent] = useState<CatalogComponent | null>(null);
   const [activeComponent, setActiveComponent] = useState<CatalogComponent | null>(null);
   // Every tab's evidence belongs to one component generation, so it is stored
@@ -697,7 +705,7 @@ export function LibraryComponentWorkspace({
         <div className="flex items-center overflow-x-auto border-t px-2 py-1.5">
           <Tabs value={activeTab} activationMode="manual" className="shrink-0">
             <StudioTabsList aria-label="Component workspace sections">
-              {COMPONENT_TABS.map(({ id, label, icon: Icon }) => (
+              {tabs.map(({ id, label, icon: Icon }) => (
                 <StudioTabsTrigger
                   key={id}
                   value={id}
@@ -754,8 +762,24 @@ export function LibraryComponentWorkspace({
           ) : null}
           {activeTab === "usage" ? (
             <EvidenceBoundary state={usageTabState} loadingLabel="Loading project usage evidence…" onRetry={retryActiveEvidence}>
-              <WhereUsedPanel usage={usage} projects={projects} />
+              <div className="space-y-4">
+                <WhereUsedPanel usage={usage} projects={projects} />
+                {canOpenSupply(user?.role) ? (
+                  <Suspense fallback={null}>
+                    <BomWhereUsed
+                      manufacturer={activeComponent.manufacturer}
+                      mpn={activeComponent.mpn}
+                      knownProjectIds={new Set(usage.map((entry) => entry.project_id))}
+                    />
+                  </Suspense>
+                ) : null}
+              </div>
             </EvidenceBoundary>
+          ) : null}
+          {activeTab === "sourcing" ? (
+            <Suspense fallback={<Skeleton className="h-40 w-full" aria-label="Loading supply" />}>
+              <SourcingPanel componentId={activeComponent.id} manufacturer={activeComponent.manufacturer} mpn={activeComponent.mpn} user={user} />
+            </Suspense>
           ) : null}
           {activeTab === "audit" ? (
             <EvidenceBoundary state={auditTabState} loadingLabel="Loading audit-chain and release evidence…" onRetry={retryActiveEvidence}>

@@ -43,6 +43,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CatalogSupplyDot, RestrictionTag } from "@/features/supply/catalog-supply-dot";
+import { CatalogSupplyBar } from "@/features/supply/catalog-supply-bar";
+import { passesSupplyFilter, supplyFilterFrom } from "@/features/supply/catalog-supply-filter";
+import { useCatalogPicks } from "@/features/supply/use-catalog-picks";
+import { useCatalogSupply } from "@/features/supply/use-catalog-supply";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { createComponent, getComponent, listCategories, listComponents } from "./catalog-client";
 import {
@@ -54,7 +59,7 @@ import {
   WORKFLOW_BADGE_VARIANT,
 } from "@/lib/catalog-badges";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { canAdministerCatalog, canWriteCatalog } from "@/lib/roles";
+import { canAdministerCatalog, canEditSupply, canWriteCatalog } from "@/lib/roles";
 import { useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -412,9 +417,14 @@ export function LibraryCatalogWorkspace({
   const isFiltered = Boolean(urlQuery || activeFilterCount);
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastItem = Math.min(page * PAGE_SIZE, total);
+  const picks = useCatalogPicks();
+  const { standing: supplyStanding, refresh: refreshSupply } = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
+  // The Watched and At risk filters narrow the page that is loaded; the server does not know about supply.
+  const supplyFilter = supplyFilterFrom(searchParams.get("catalogSupply"));
+  const shownItems = supplyFilter ? items.filter((item) => passesSupplyFilter(supplyFilter, supplyStanding[item.id])) : items;
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
-  const lastVisibleRow = Math.min(items.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
-  const visibleItems = items.slice(firstVisibleRow, lastVisibleRow);
+  const lastVisibleRow = Math.min(shownItems.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
+  const visibleItems = shownItems.slice(firstVisibleRow, lastVisibleRow);
 
   const clearFilters = () => {
     setQuery("");
@@ -425,6 +435,7 @@ export function LibraryCatalogWorkspace({
       catalogAvailability: null,
       catalogValidation: null,
       catalogCategory: null,
+      catalogSupply: null,
     });
   };
 
@@ -452,6 +463,16 @@ export function LibraryCatalogWorkspace({
         <Select value={availability} onValueChange={(value) => updateCatalogParams({ catalogAvailability: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by CAD availability"><SelectValue placeholder="CAD" /></SelectTrigger><SelectContent><SelectItem value="all">Any CAD</SelectItem>{Object.entries(AVAILABILITY_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
         <Select value={validation} onValueChange={(value) => updateCatalogParams({ catalogValidation: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by validation"><SelectValue placeholder="Validation" /></SelectTrigger><SelectContent><SelectItem value="all">Any validation</SelectItem>{Object.entries(VALIDATION_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
         <Select value={category} onValueChange={(value) => updateCatalogParams({ catalogCategory: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by category" className="max-w-48"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">Any category</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
+        <CatalogSupplyBar
+          filter={supplyFilter}
+          onFilter={(next) => updateCatalogParams({ catalogSupply: next || null })}
+          rows={shownItems}
+          standing={supplyStanding}
+          role={user?.role}
+          onChanged={() => void refreshSupply()}
+          picked={picks.picked}
+          onClearPicks={picks.clear}
+        />
         {isFiltered ? <Button size="sm" variant="ghost" className="h-7" title="Clear filters" onClick={clearFilters}><FilterX className="h-3.5 w-3.5" />{activeFilterCount ? activeFilterCount : null}</Button> : null}
         <div className="ml-auto flex items-center gap-1.5">
           {canAdministerCatalog(user?.role) ? <LibraryCatalogFileCheck /> : null}
@@ -497,12 +518,12 @@ export function LibraryCatalogWorkspace({
                 <button
                   key={component.id}
                   type="button"
-                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary")}
+                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary", picks.picked.has(component.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
                   style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: CATALOG_GRID_TEMPLATE }}
-                  onClick={() => selectComponent(component)}
+                  onClick={(event) => (event.ctrlKey || event.metaKey) && canEditSupply(user?.role) ? picks.toggle(component.id) : selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
-                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><span className="truncate">{component.name}</span></p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
+                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><CatalogSupplyDot standing={supplyStanding[component.id]} /><RestrictionTag standing={supplyStanding[component.id]} /><span className="truncate">{component.name}</span></p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
                   <div className="flex min-w-0"><AvailabilityBadge state={component.availability_state} /></div>

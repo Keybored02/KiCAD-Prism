@@ -62,6 +62,7 @@ msgspec==0.21.1
     # via kicad-monkey
 numpy==2.5.3
     # via
+    #   -r requirements/runtime.in
     #   kicad-monkey
     #   shapely
     #   trimesh

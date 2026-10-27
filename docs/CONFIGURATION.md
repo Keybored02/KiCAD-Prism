@@ -217,6 +217,19 @@ project destination. It requires the tracker credential root key on both API
 and general workers. See [Tracker integration](TRACKER_INTEGRATION.md) for
 `TRACKER_CREDENTIAL_ROOT_KEY*`, rotation, webhooks, and recovery.
 
+### Supply chain data
+
+Distributor connector credentials are encrypted with the tracker credential
+root key (`TRACKER_CREDENTIAL_ROOT_KEY`); without it, connectors that need
+credentials cannot be saved. `SUPPLY_ENABLE_SIMULATED_PROVIDER=true` allows a
+simulated distributor for development and demos. Leave it unset in production.
+
+Distributor calls ignore the `HTTPS_PROXY` environment variables on purpose.
+Behind a corporate proxy, set `SUPPLY_HTTPS_PROXY` (for example
+`http://proxy.example.com:3128`). The proxy then resolves host names, so Prism
+still checks each host against the provider's allowlist but cannot check the
+addresses itself.
+
 ### MCP server
 
 Connecting clients and what they can do: [Automating Prism](AUTOMATING_PRISM.md).

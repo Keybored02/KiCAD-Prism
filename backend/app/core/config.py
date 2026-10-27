@@ -334,6 +334,20 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
     )
 
+    SUPPLY_ENABLE_SIMULATED_PROVIDER: bool = Field(
+        default=False,
+        description="Allow connectors for the simulated distributor. For development, tests and demos only.",
+    )
+
+    SUPPLY_HTTPS_PROXY: str = Field(
+        default="",
+        description=(
+            "HTTPS proxy for distributor calls, for example http://proxy.example.com:3128. "
+            "Environment proxy variables are ignored on purpose. With a proxy set, the proxy resolves "
+            "host names, so Prism checks the host against the allowlist but cannot check addresses itself."
+        ),
+    )
+
     PRISM_MCP_ENABLED: bool = Field(
         default=False,
         description=(
@@ -388,6 +402,15 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
             "and other request-derived links) when Prism sits behind a reverse proxy. "
             "Example: https://prism.example.com. If empty, helpers use forwarded headers "
             "or request.base_url."
+        ),
+    )
+
+    SUPPLY_OAUTH_BASE_URL: str = Field(
+        default="",
+        description=(
+            "Origin a distributor sign-in (DigiKey change notices) returns to, when it must differ from "
+            "PUBLIC_BASE_URL, for example https://localhost while the app is registered with that address. "
+            "Must be HTTPS. Empty uses PUBLIC_BASE_URL."
         ),
     )
 

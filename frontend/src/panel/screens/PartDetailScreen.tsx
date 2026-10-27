@@ -29,12 +29,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
+import { SupplyAvailability } from "@/panel/screens/SupplyAvailability";
 import {
   classifyPanelLoadFailure,
   getComponent,
   getInlineBundle,
   getPartManifest,
+  refreshSupplyPart,
 } from "@/panel/lib/panel-api";
+import { refreshText } from "@/panel/lib/supply-summary";
 import { usePanelAssetLoader } from "@/panel/lib/use-panel-asset-loader";
 import { getSessionId, KiCadRpcError, sendRpcCommand } from "@/panel/lib/kicad-bridge";
 import { formatPlacementError, PLACEMENT_RESPONSE_TIMEOUT_MS } from "@/panel/lib/panel-placement";
@@ -119,6 +122,19 @@ export function PartDetailScreen({
     preview: previewFor(componentId, prefetched),
   }));
   const [retryNonce, setRetryNonce] = useState(0);
+  const refreshAvailability = async () => {
+    const partId = load.phase === "ready" ? load.component.supply?.summary?.part_id : undefined;
+    if (!partId) {
+      appendLog("Prism does not track this part's availability yet.");
+      return;
+    }
+    try {
+      appendLog(refreshText(await refreshSupplyPart(partId)));
+      setRetryNonce((value) => value + 1);
+    } catch (err) {
+      appendLog((err as Error).message);
+    }
+  };
   const [showAllParams, setShowAllParams] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
@@ -453,22 +469,30 @@ export function PartDetailScreen({
       <Section
         label="Availability"
         action={
-          vendorSources.length > 0 ? (
+          vendorSources.length > 0 || component.supply?.summary ? (
             <button
               aria-label="Refresh availability"
               title="Refresh availability"
               className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={() => appendLog("Vendor refresh is not configured yet.")}
+              onClick={() => void refreshAvailability()}
             >
               <RefreshCw className="h-3 w-3" />
             </button>
           ) : null
         }
       >
-        {sources.length === 0 ? (
-          <p className="px-0.5 py-1 text-[11px] leading-snug text-muted-foreground">
-            No availability data.
+        {component.supply?.restriction === "not_for_new_designs" ? (
+          <p role="alert" className="rounded border border-amber-500/50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+            Not for new designs. The library marked this component. Placed symbols keep working; pick another for a new design.
           </p>
+        ) : null}
+        {component.supply?.summary ? <SupplyAvailability supply={component.supply} /> : null}
+        {sources.length === 0 ? (
+          component.supply?.summary ? null : (
+            <p className="px-0.5 py-1 text-[11px] leading-snug text-muted-foreground">
+              No availability data.
+            </p>
+          )
         ) : (
           <div className="flex flex-col gap-1.5">
             {sources.map((source) => (
