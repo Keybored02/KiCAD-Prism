@@ -38,9 +38,9 @@ Supply > Connectors. One connector per provider and storefront.
 | Farnell, Newark, element14 | API key, store, currency | Choose the store carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. Farnell's answer does not name its currency, so Prism uses the store's own for UK (GBP), the euro-zone stores (EUR) and Newark US and Canada. For any other store, set the currency on the connector or offers show no price. Product links are the store's search for the SKU. Checked against the live service on 2026-10-13. |
 | Avnet | Client ID, client secret, scope, subscription key | From the Avnet API portal after Avnet approves a subscription to the price and quantity API: the subscription key and a client secret are on the portal's Profile page, with the client ID and scope. Avnet answers by manufacturer part number only (at least 4 characters), with one price at the quantity it offers, customer specific. Not yet run against the live service. |
 | Arrow | Login, API key, address of this server | Arrow's Pricing & Availability API (Item Service v4); the key comes from developers.arrow.com. The storefront picks the regions kept (ACNA, EUROPE, ASIA, VERICAL, or ALL). Every orderable line Arrow lists is a listing, numbered `part number\|Arrow source id`; prices stay in the region's own currency and Prism converts them. Stock, pipeline (incoming) dates, manufacturer lead time in weeks, RoHS (the European label), export class and package (shown as the case, such as SOT-23) are read. Arrow does not document its lifecycle or container wording: unknown words are logged once and read as unknown. Not yet run against the live service. |
-| LCSC | Nothing | Searches by manufacturer part number through EasyEDA's part search, or reads an LCSC number (`C2040`) directly. Prices are in US dollars. Not a published API; it can change. |
-| JLCPCB (assembly) | Nothing | What JLCPCB can place on a board and at what price, from the parts search its own site uses (unpublished; it can change, and it may answer 403, which Prism reads as a block and pauses for 12 hours). It is read only for a project that is built at JLCPCB (Track this project asks "Built at JLCPCB?"). Its stock is for its own assembly: it is shown on its own line and never counted in a total, status or check. Basic, Extended and Preferred show as a small icon (B, E, a star) in the parts list, the BOM line, the part sheet and the project's parts. Paced like LCSC (a call about every 1.5 seconds), 300 a day. |
-| CSV | A file you upload | For air-gapped installs. The file replaces the previous one. |
+| LCSC | A file you upload | An LCSC connector is fed the same offers file as CSV: an administrator uploads it, and Prism reads the offers, stock and prices from it with no calls and no credentials. The key, label and colour are unchanged, so saved listings, BOM links and preferences keep pointing at it. Prices are whatever the file says (LCSC's own are in US dollars). |
+| JLCPCB (assembly) | A file you upload | Fed like CSV: an administrator uploads the offers file and Prism makes no calls. It is read only for a project that is built at JLCPCB (Track this project asks "Built at JLCPCB?"). Its stock is for its own assembly: every offer is marketplace, so it is shown on its own line and never counted in a total, status or check. The file's optional `jlc_library` (`basic` or `extended`) and `jlc_preferred` (`yes` or `no`) columns become facts, shown as a small icon (B, E, a star) in the parts list, the BOM line, the part sheet and the project's parts. |
+| CSV | A file you upload | For air-gapped installs and distributors without an API. The file replaces the previous one. |
 
 Credentials are encrypted and never shown again. `TRACKER_CREDENTIAL_ROOT_KEY` must be set (see
 [Configuration](CONFIGURATION.md)). Use **Test connection** after saving: it makes one real call. Of the providers checked (2026-10-15), only DigiKey reports its limit and what is left, in every answer; the card shows it. From those readings, or from a refusal that lasted hours, Prism works out when the provider's day resets; once two days agree the card says so and an administrator can use that time, after which Prism takes DigiKey's own count as the truth for the day. The card shows how
@@ -170,8 +170,8 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
 - **Costing.** The line drawer shows the pieces bought beyond the need and the next price break. The project tab follows the cost of a
   board over time, shows the rounding waste, and downloads the costing as a zip (see the project page). Spares can be set
   **by package** (small passives get 2%, other parts none).
-- **Alternatives.** On the part sheet, **Find alternatives** lists what distributors suggest first (LCSC's alternate parts and Mouser's
-  suggested replacement come with the answers Prism already reads; **Ask DigiKey for substitutes** asks DigiKey, one call, once an hour
+- **Alternatives.** On the part sheet, **Find alternatives** lists what distributors suggest first (Mouser's
+  suggested replacement comes with the answers Prism already reads; **Ask DigiKey for substitutes** asks DigiKey, one call, once an hour
   per part, and Prism asks by itself once, from the committed budget, when a tracked part turns not recommended for new designs, last
   time buy or obsolete, or a distributor drops it, and again after 30 days). Prism has not compared those with the part, and says so; a
   suggested part can be tracked. Then it grades other parts in the same category as direct, same form-fit-function or functional,
@@ -194,8 +194,7 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
   promise to be back by that day. The part sheet shows each distributor's open promise and its record on that part. Insights > Sourcing has a
   scorecard: stock-outs and days out, restocked first, promises kept, the wait said against the real one, and days in stock, judged only on
   parts two or more distributors list. A figure shows from five events; it needs months of readings to say much.
-- **LCSC in your currency.** A LCSC connector set to a currency other than USD asks LCSC for it (a cookie, as its site does) and takes LCSC's own
-  price in it, the one an order is charged; if LCSC answers in dollars anyway, the dollar price is converted. The market price index follows each
+- **CSV-fed prices in your currency.** An offers file may state any currency; prices are converted to the base currency with the day's rates like any other distributor. The market price index follows each
   part's own quantity once price breaks have been kept.
 - **Mouser's suggestion.** Mouser names its suggested replacement by Mouser number; **Ask DigiKey for substitutes** also reads each such number
   at Mouser (one call each, from the interactive reserve) and shows the part number, which stays when Mouser is read again.
@@ -206,8 +205,7 @@ A catalog component can be watched as a whole (Sourcing tab > Watch component): 
 - **MCP.** `POST /api/supply/mcp` is a read-only Model Context Protocol endpoint (parts at risk in a project, part status, best
   alternate). It answers as the caller's role.
 
-Not built: JLCPCB and TME suggestions (JLCPCB's alternatives field was empty in every recorded answer and TME's answers carry no similar-parts
-field, so there is no format to read), IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
+Not built: JLCPCB and TME suggestions (neither offers them to Prism), IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
 observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.
 
 ## Forecasts
@@ -302,7 +300,7 @@ part or only pin the listing.
 
 ## Datasheets
 
-A distributor's answer can carry the manufacturer's datasheet address (Mouser, DigiKey, Farnell and LCSC do). The part
+A distributor's answer can carry the manufacturer's datasheet address (Mouser, DigiKey and Farnell do). The part
 sheet links to it and it opens in the browser. Designers and administrators can set the address by hand. Prism downloads
 and keeps no files: no datasheets, no versions, no copies of notices.
 
@@ -324,7 +322,7 @@ listing them. People's own declarations are never changed.
 
 ## Parameters
 
-Prism keeps the attributes distributors give for a part (Mouser, DigiKey and LCSC give them when the part is found). The part
+Prism keeps the attributes distributors give for a part (Mouser and DigiKey give them when the part is found). The part
 sheet does not show them any more; they are kept and sent with the part's detail. For resistors, capacitors and inductors the common ones (resistance, capacitance, inductance,
 tolerance, voltage and power rating, package, dielectric) are put in one vocabulary first, with the value in SI units next
 to the distributor's own text; everything else is shown as written, with who gave it. A text Prism cannot read is shown
