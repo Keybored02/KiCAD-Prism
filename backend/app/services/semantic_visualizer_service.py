@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from app.core.config import settings
-from app.services import path_config_service
+from app.services import git_lfs, path_config_service
 from app.services.job_service import jobs
 from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
 
@@ -1249,3 +1249,5 @@ def _archive_checkout(repo_root: Path, commit: str, destination: Path) -> None:
     p1.wait()
     if p1.returncode != 0 or p2.returncode != 0:
         raise ValueError(f"Failed to archive checkout commit {commit}")
+    # `git archive` writes the pointer Git stores for an LFS file.
+    git_lfs.hydrate_sources(destination, git_lfs.common_git_dir(repo_root))

@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Optional
 
 from app.services import (
+    git_lfs,
     path_config_service,
     semantic_index_service,
     semantic_visualizer_service,
@@ -234,6 +235,7 @@ def _checkout_sources(repo_root: Path, commit: str, destination: Path, project_r
         sources.append((path, blob.decode("ascii")))
     if not sources:
         raise ValueError("No KiCad sources found in the selected revision")
+    git_dir = git_lfs.common_git_dir(repo_root)
     objects = subprocess.run(
         ["git", "-C", str(repo_root), "cat-file", "--batch"],
         input="".join(blob + "\n" for _, blob in sources).encode("ascii"),
@@ -251,5 +253,9 @@ def _checkout_sources(repo_root: Path, commit: str, destination: Path, project_r
         if not target.resolve().is_relative_to(destination.resolve()):
             raise ValueError("Invalid repository source path")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(objects[start:offset])
+        try:
+            content = git_lfs.resolve_content(objects[start:offset], git_dir)
+        except git_lfs.LfsObjectUnavailable:
+            raise git_lfs.LfsSourcesUnavailable(path) from None
+        target.write_bytes(content)
         offset += 1

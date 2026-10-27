@@ -26,9 +26,12 @@ __all__ = [
     "LfsObjectMissing",
     "LfsObjectTooLarge",
     "LfsObjectUnavailable",
+    "KICAD_SOURCE_SUFFIXES",
     "LfsPointer",
+    "LfsSourcesUnavailable",
     "MAX_HISTORY_LFS_BYTES",
     "common_git_dir",
+    "hydrate_sources",
     "hydrate_tree",
     "is_pointer_file",
     "object_path",
@@ -42,6 +45,10 @@ POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 POINTER_MAX_BYTES = 1024
 # History views read a file into memory per request; refuse to load a huge one.
 MAX_HISTORY_LFS_BYTES = 50 * 1024 * 1024
+
+# The files a build parses. A pointer in their place is an error to report, where
+# a pointer standing in for a 3D model only costs the viewer a model.
+KICAD_SOURCE_SUFFIXES = (".kicad_pro", ".kicad_sch", ".kicad_pcb", ".kicad_sym", ".kicad_mod")
 
 _VERSION_BYTES = POINTER_VERSION.encode("ascii")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -81,6 +88,16 @@ class LfsObjectTooLarge(LfsObjectUnavailable):
     def __init__(self, oid: str, size: int) -> None:
         super().__init__(oid, f"LFS object {oid[:12]} is {size} bytes")
         self.size = size
+
+
+class LfsSourcesUnavailable(ValueError):
+    """A KiCad source file is stored in Git LFS and its content is not on this server."""
+
+    def __init__(self, path: str) -> None:
+        super().__init__(
+            f"{path} is stored in Git LFS and has not been downloaded to the server."
+        )
+        self.path = path
 
 
 def parse_pointer(content: bytes, *, strict: bool = False) -> Optional[LfsPointer]:
@@ -234,3 +251,24 @@ def hydrate_tree(
                 continue
             path.write_bytes(content)
     return sorted(unresolved)
+
+
+def hydrate_sources(
+    root: Path | str,
+    git_dir: Path | str,
+    *,
+    source_suffixes: tuple[str, ...] | frozenset[str] | set[str] = KICAD_SOURCE_SUFFIXES,
+) -> list[str]:
+    """:func:`hydrate_tree` for a snapshot that is about to be parsed.
+
+    Pointers that name a file with one of ``source_suffixes`` raise
+    :class:`LfsSourcesUnavailable`, so a build fails with a message about LFS
+    rather than with a parser error on a pointer. Other unresolved files are
+    returned and left as pointers.
+    """
+    unresolved = hydrate_tree(root, git_dir)
+    suffixes = tuple(suffix.lower() for suffix in source_suffixes)
+    for path in unresolved:
+        if path.lower().endswith(suffixes):
+            raise LfsSourcesUnavailable(path)
+    return unresolved

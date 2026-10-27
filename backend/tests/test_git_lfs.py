@@ -18,7 +18,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app.services import file_service, git_lfs
+from app.services import design_compare_service, file_service, git_lfs, project_source_snapshot
+from app.services import semantic_visualizer_service
 
 POINTER = "version https://git-lfs.github.com/spec/v1\noid sha256:{oid}\nsize {size}\n"
 
@@ -266,6 +267,76 @@ class HistoryEndpoints(TempRepoCase):
         with self.assertRaises(HTTPException) as caught:
             file_service.read_file_from_commit(str(repo), head, "model.step")
         self.assertEqual(caught.exception.status_code, 413)
+
+
+class CommitSnapshots(TempRepoCase):
+    """The readers that copy a commit out of Git all see the LFS file, not the pointer."""
+
+    SCHEMATIC = b"(kicad_sch (version 1))"
+    MODEL = b"solid model"
+
+    def setUp(self) -> None:
+        super().setUp()
+        sch_pointer, self.sch_oid = pointer_for(self.SCHEMATIC)
+        model_pointer, self.model_oid = pointer_for(self.MODEL)
+        self.model_pointer = model_pointer
+        self.repo = make_repo(
+            self.root / "repo",
+            {
+                "board.kicad_pro": "{}",
+                "board.kicad_sch": sch_pointer,
+                "board.kicad_pcb": "(kicad_pcb)",
+                "3d/part.step": model_pointer,
+            },
+        )
+        self.head = git(self.repo, "rev-parse", "HEAD").strip()
+        self.out = self.root / "out"
+
+    def store_schematic(self) -> None:
+        store_object(self.repo / ".git", self.SCHEMATIC)
+
+    def store_model(self) -> None:
+        store_object(self.repo / ".git", self.MODEL)
+
+    def test_semantic_archive_fills_in_stored_files(self) -> None:
+        self.store_schematic()
+        self.store_model()
+        semantic_visualizer_service._archive_checkout(self.repo, self.head, self.out)
+        self.assertEqual((self.out / "board.kicad_sch").read_bytes(), self.SCHEMATIC)
+        self.assertEqual((self.out / "3d" / "part.step").read_bytes(), self.MODEL)
+
+    def test_semantic_archive_keeps_a_missing_model_as_a_pointer(self) -> None:
+        self.store_schematic()
+        semantic_visualizer_service._archive_checkout(self.repo, self.head, self.out)
+        self.assertEqual((self.out / "3d" / "part.step").read_text(), self.model_pointer)
+
+    def test_semantic_archive_refuses_a_missing_kicad_source(self) -> None:
+        with self.assertRaises(git_lfs.LfsSourcesUnavailable) as caught:
+            semantic_visualizer_service._archive_checkout(self.repo, self.head, self.out)
+        self.assertEqual(caught.exception.path, "board.kicad_sch")
+        self.assertIn("Git LFS", str(caught.exception))
+
+    def test_comparison_snapshot_fills_in_stored_sources(self) -> None:
+        self.store_schematic()
+        design_compare_service._snapshot_commit(self.repo, self.head, self.out, None)
+        self.assertEqual((self.out / "board.kicad_sch").read_bytes(), self.SCHEMATIC)
+
+    def test_comparison_snapshot_refuses_a_missing_source(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Git LFS"):
+            design_compare_service._snapshot_commit(self.repo, self.head, self.out, None)
+
+    def test_variant_snapshot_fills_in_stored_sources(self) -> None:
+        self.store_schematic()
+        project_source_snapshot._checkout_sources(
+            self.repo, self.head, self.out, "board.kicad_pro"
+        )
+        self.assertEqual((self.out / "board.kicad_sch").read_bytes(), self.SCHEMATIC)
+
+    def test_variant_snapshot_refuses_a_missing_source(self) -> None:
+        with self.assertRaises(git_lfs.LfsSourcesUnavailable):
+            project_source_snapshot._checkout_sources(
+                self.repo, self.head, self.out, "board.kicad_pro"
+            )
 
 
 if __name__ == "__main__":

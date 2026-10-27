@@ -25,6 +25,7 @@ from app.services import (
     bom_diff_service,
     document_diff_service,
     fabrication_compare_service,
+    git_lfs,
     semantic_index_service,
 )
 from app.services.design_compare_benchmark import DesignCompareBenchmark
@@ -212,6 +213,13 @@ def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_p
         raise RuntimeError(
             f"tar extract failed for {commit}: {tar_err.decode('utf-8', errors='replace')}"
         )
+    # `git archive` writes the pointer Git stores for an LFS file.
+    try:
+        git_lfs.hydrate_sources(
+            destination, git_lfs.common_git_dir(repo_path), source_suffixes=_SNAPSHOT_SUFFIXES
+        )
+    except git_lfs.LfsSourcesUnavailable as error:
+        raise RuntimeError(str(error)) from error
     # Type-2 archives extract as <sub_path>/... — flatten to destination root
     if relative_path:
         nested = destination / relative_path
