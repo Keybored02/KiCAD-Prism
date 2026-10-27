@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
@@ -153,12 +155,12 @@ def _handle(func, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/manufacturers", dependencies=[Depends(require_viewer)])
+@router.get("/manufacturers", dependencies=[Depends(require_viewer)], response_model=list[dict[str, Any]])
 async def list_manufacturers():
     return await asyncio.to_thread(mfg.list_manufacturers)
 
 
-@router.post("/manufacturers", dependencies=[Depends(require_designer)])
+@router.post("/manufacturers", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def create_manufacturer(request: ManufacturerRequest):
     mfr_id = await asyncio.to_thread(
         _handle, mfg.create_manufacturer,
@@ -167,7 +169,7 @@ async def create_manufacturer(request: ManufacturerRequest):
     return {"id": mfr_id}
 
 
-@router.patch("/manufacturers/{mfr_id}", dependencies=[Depends(require_designer)])
+@router.patch("/manufacturers/{mfr_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def update_manufacturer(mfr_id: str, request: ManufacturerRequest):
     updated = await asyncio.to_thread(
         _handle, mfg.update_manufacturer, mfr_id,
@@ -179,7 +181,7 @@ async def update_manufacturer(mfr_id: str, request: ManufacturerRequest):
     return {"status": "success"}
 
 
-@router.delete("/manufacturers/{mfr_id}", dependencies=[Depends(require_designer)])
+@router.delete("/manufacturers/{mfr_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def delete_manufacturer(mfr_id: str):
     if not await asyncio.to_thread(mfg.delete_manufacturer, mfr_id):
         raise HTTPException(status_code=404, detail="Manufacturer not found")
@@ -191,12 +193,12 @@ async def delete_manufacturer(mfr_id: str):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/projects/{project_id}/board-spec", dependencies=[Depends(require_viewer)])
+@router.get("/projects/{project_id}/board-spec", dependencies=[Depends(require_viewer)], response_model=dict[str, Any] | None)
 async def get_board_spec(project_id: str):
     return await asyncio.to_thread(mfg.get_board_spec, project_id)
 
 
-@router.put("/projects/{project_id}/board-spec")
+@router.put("/projects/{project_id}/board-spec", response_model=dict[str, Any] | None)
 async def save_board_spec(
     project_id: str,
     request: BoardSpecRequest,
@@ -209,7 +211,7 @@ async def save_board_spec(
     )
 
 
-@router.get("/projects/{project_id}/spec-sheet.pdf", dependencies=[Depends(require_viewer)])
+@router.get("/projects/{project_id}/spec-sheet.pdf", dependencies=[Depends(require_viewer)], responses={200: {"description": "The file.", "content": {"application/pdf": {}}}})
 async def download_spec_sheet(project_id: str, spec_id: str | None = None):
     """A themed PDF spec sheet. With ``spec_id`` it reflects that named spec as it
     stands now (so schema edits show); otherwise the project board profile."""
@@ -233,7 +235,7 @@ async def download_spec_sheet(project_id: str, spec_id: str | None = None):
     )
 
 
-@router.post("/projects/{project_id}/board-spec/extract", dependencies=[Depends(require_designer)])
+@router.post("/projects/{project_id}/board-spec/extract", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def extract_board_spec(project_id: str):
     """Suggest specs from the project's .kicad_pcb. Read-only; the caller decides
     whether to save them."""
@@ -250,7 +252,7 @@ async def extract_board_spec(project_id: str):
     return {"suggested": suggested}
 
 
-@router.get("/pcb-rule-fields", dependencies=[Depends(require_viewer)])
+@router.get("/pcb-rule-fields", dependencies=[Depends(require_viewer)], response_model=dict[str, Any])
 async def get_pcb_rule_fields():
     """The canonical PCB rule/capability fields, so the UI need not hardcode them."""
     return {"fields": pcb_rules_service.PCB_RULE_FIELDS}
@@ -269,7 +271,7 @@ def _project_pcb_path(project_id: str) -> tuple[dict | None, str | None]:
     return project, os.path.join(project.get("path", ""), pcb_rel)
 
 
-@router.post("/projects/{project_id}/pcb-rules/extract", dependencies=[Depends(require_viewer)])
+@router.post("/projects/{project_id}/pcb-rules/extract", dependencies=[Depends(require_viewer)], response_model=dict[str, Any])
 async def extract_pcb_rules(project_id: str):
     """Read the board's fabrication rules from its KiCad files. Read-only, so anyone who
     can see the project can ask: the project tab's capability check does it for every viewer."""
@@ -282,7 +284,7 @@ async def extract_pcb_rules(project_id: str):
     return {"rules": rules}
 
 
-@router.get("/projects/{project_id}/spec-config", dependencies=[Depends(require_viewer)])
+@router.get("/projects/{project_id}/spec-config", dependencies=[Depends(require_viewer)], response_model=dict[str, Any])
 async def get_spec_config(project_id: str):
     """The project's spec schema: the raw .config text plus its parsed form."""
     spec = await asyncio.to_thread(mfg.get_board_spec, project_id)
@@ -291,7 +293,7 @@ async def get_spec_config(project_id: str):
     return {"spec_config": config_text, "parsed": parsed.to_dict()}
 
 
-@router.put("/projects/{project_id}/spec-config")
+@router.put("/projects/{project_id}/spec-config", response_model=dict[str, Any])
 async def save_spec_config(
     project_id: str,
     request: SpecConfigRequest,
@@ -306,7 +308,7 @@ async def save_spec_config(
     return {"spec_config": saved.get("spec_config") or "", "parsed": parsed.to_dict()}
 
 
-@router.post("/spec-config/preview", dependencies=[Depends(require_designer)])
+@router.post("/spec-config/preview", dependencies=[Depends(require_designer)], response_model=dict[str, Any] | None)
 async def preview_spec_config(request: SpecConfigRequest):
     """Parse spec-config text without saving, for live editor validation."""
     parsed = spec_config_service.parse_spec_config(request.spec_config)
@@ -318,25 +320,25 @@ async def preview_spec_config(request: SpecConfigRequest):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/projects/{project_id}/manufacturers", dependencies=[Depends(require_viewer)])
+@router.get("/projects/{project_id}/manufacturers", dependencies=[Depends(require_viewer)], response_model=list[dict[str, Any]])
 async def list_project_manufacturers(project_id: str):
     return await asyncio.to_thread(mfg.list_project_manufacturers, project_id)
 
 
-@router.post("/projects/{project_id}/manufacturers", dependencies=[Depends(require_designer)])
+@router.post("/projects/{project_id}/manufacturers", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def attach_manufacturer(project_id: str, request: AttachManufacturerRequest):
     await asyncio.to_thread(_handle, mfg.attach_manufacturer, project_id, request.manufacturer_id)
     return {"status": "success"}
 
 
-@router.delete("/projects/{project_id}/manufacturers/{mfr_id}", dependencies=[Depends(require_designer)])
+@router.delete("/projects/{project_id}/manufacturers/{mfr_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def detach_manufacturer(project_id: str, mfr_id: str):
     if not await asyncio.to_thread(mfg.detach_manufacturer, project_id, mfr_id):
         raise HTTPException(status_code=404, detail="Manufacturer not attached to this project")
     return {"status": "success"}
 
 
-@router.get("/projects/{project_id}/specs", dependencies=[Depends(require_viewer)])
+@router.get("/projects/{project_id}/specs", dependencies=[Depends(require_viewer)], response_model=list[dict[str, Any]])
 async def list_project_specs(project_id: str, manufacturer_id: str | None = None):
     return await asyncio.to_thread(mfg.list_project_specs, project_id, manufacturer_id)
 
@@ -344,6 +346,7 @@ async def list_project_specs(project_id: str, manufacturer_id: str | None = None
 @router.get(
     "/projects/{project_id}/manufacturers/{mfr_id}/spec",
     dependencies=[Depends(require_viewer)],
+    response_model=dict[str, Any],
 )
 async def get_project_spec_for_manufacturer(project_id: str, mfr_id: str):
     """The project+manufacturer's single spec, created on first read if absent."""
@@ -356,7 +359,7 @@ async def get_project_spec_for_manufacturer(project_id: str, mfr_id: str):
     return {**spec, "parsed": parsed.to_dict()}
 
 
-@router.post("/projects/{project_id}/specs")
+@router.post("/projects/{project_id}/specs", response_model=dict[str, Any])
 async def create_project_spec(
     project_id: str,
     request: ProjectSpecCreateRequest,
@@ -369,7 +372,7 @@ async def create_project_spec(
     return {"id": spec_id}
 
 
-@router.get("/specs/{spec_id}", dependencies=[Depends(require_viewer)])
+@router.get("/specs/{spec_id}", dependencies=[Depends(require_viewer)], response_model=dict[str, Any])
 async def get_project_spec(spec_id: str):
     spec = await asyncio.to_thread(mfg.get_project_spec, spec_id)
     if not spec:
@@ -378,7 +381,7 @@ async def get_project_spec(spec_id: str):
     return {**spec, "parsed": parsed.to_dict()}
 
 
-@router.patch("/specs/{spec_id}")
+@router.patch("/specs/{spec_id}", response_model=dict[str, Any])
 async def update_project_spec(
     spec_id: str,
     request: ProjectSpecUpdateRequest,
@@ -393,14 +396,14 @@ async def update_project_spec(
     return {"status": "success"}
 
 
-@router.delete("/specs/{spec_id}", dependencies=[Depends(require_designer)])
+@router.delete("/specs/{spec_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def delete_project_spec(spec_id: str):
     if not await asyncio.to_thread(mfg.delete_project_spec, spec_id):
         raise HTTPException(status_code=404, detail="Spec not found")
     return {"status": "success"}
 
 
-@router.post("/specs/{spec_id}/apply-template")
+@router.post("/specs/{spec_id}/apply-template", response_model=dict[str, Any])
 async def apply_template_to_spec(
     spec_id: str,
     request: ApplyTemplateRequest,
@@ -418,13 +421,13 @@ async def apply_template_to_spec(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/templates", dependencies=[Depends(require_viewer)])
+@router.get("/templates", dependencies=[Depends(require_viewer)], response_model=list[dict[str, Any]])
 async def list_templates(manufacturer_id: str | None = None):
     """Templates for one manufacturer, or all. Names + metadata, not full config."""
     return await asyncio.to_thread(mfg.list_templates, manufacturer_id)
 
 
-@router.get("/templates/{template_id}", dependencies=[Depends(require_viewer)])
+@router.get("/templates/{template_id}", dependencies=[Depends(require_viewer)], response_model=dict[str, Any] | None)
 async def get_template(template_id: str):
     """One template, including its full .config text."""
     template = await asyncio.to_thread(mfg.get_template, template_id)
@@ -433,7 +436,7 @@ async def get_template(template_id: str):
     return template
 
 
-@router.post("/manufacturers/{mfr_id}/templates", dependencies=[Depends(require_designer)])
+@router.post("/manufacturers/{mfr_id}/templates", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def create_template(mfr_id: str, request: TemplateRequest):
     template_id = await asyncio.to_thread(
         _handle, mfg.create_template, mfr_id, request.name, request.spec_config,
@@ -443,7 +446,7 @@ async def create_template(mfr_id: str, request: TemplateRequest):
     return {"id": template_id}
 
 
-@router.patch("/templates/{template_id}", dependencies=[Depends(require_designer)])
+@router.patch("/templates/{template_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def update_template(template_id: str, request: TemplateUpdateRequest):
     updated = await asyncio.to_thread(
         _handle, mfg.update_template, template_id, **request.model_dump(exclude_none=True)
@@ -453,14 +456,14 @@ async def update_template(template_id: str, request: TemplateUpdateRequest):
     return {"status": "success"}
 
 
-@router.delete("/templates/{template_id}", dependencies=[Depends(require_designer)])
+@router.delete("/templates/{template_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def delete_template(template_id: str):
     if not await asyncio.to_thread(mfg.delete_template, template_id):
         raise HTTPException(status_code=404, detail="Template not found")
     return {"status": "success"}
 
 
-@router.post("/projects/{project_id}/spec-config/apply-template")
+@router.post("/projects/{project_id}/spec-config/apply-template", response_model=dict[str, Any])
 async def apply_template(
     project_id: str,
     request: ApplyTemplateRequest,
@@ -487,12 +490,12 @@ async def apply_template(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/runs", dependencies=[Depends(require_viewer)])
-async def list_runs(project_id: str | None = None):
+@router.get("/runs", dependencies=[Depends(require_viewer)], response_model=list[dict[str, Any]])
+async def list_manufacturing_runs(project_id: str | None = None):
     return await asyncio.to_thread(mfg.list_runs, project_id)
 
 
-@router.post("/runs")
+@router.post("/runs", response_model=dict[str, Any])
 async def create_run(request: RunRequest, user: AuthenticatedUser = Depends(require_designer)):
     run_id = await asyncio.to_thread(
         _handle, mfg.create_run, request.project_id,
@@ -510,7 +513,7 @@ async def create_run(request: RunRequest, user: AuthenticatedUser = Depends(requ
     return {"id": run_id}
 
 
-@router.get("/runs/{run_id}", dependencies=[Depends(require_viewer)])
+@router.get("/runs/{run_id}", dependencies=[Depends(require_viewer)], response_model=dict[str, Any] | None)
 async def get_run(run_id: str):
     run = await asyncio.to_thread(mfg.get_run, run_id)
     if not run:
@@ -518,7 +521,7 @@ async def get_run(run_id: str):
     return run
 
 
-@router.get("/runs/{run_id}/report.pdf", dependencies=[Depends(require_viewer)])
+@router.get("/runs/{run_id}/report.pdf", dependencies=[Depends(require_viewer)], responses={200: {"description": "The file.", "content": {"application/pdf": {}}}})
 async def download_run_report(run_id: str):
     """A themed PDF report of a run: info, spec snapshot, defects, and evidence."""
     from fastapi.responses import Response
@@ -543,7 +546,7 @@ async def download_run_report(run_id: str):
     )
 
 
-@router.patch("/runs/{run_id}", dependencies=[Depends(require_designer)])
+@router.patch("/runs/{run_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def update_run(run_id: str, request: RunUpdateRequest):
     updated = await asyncio.to_thread(
         _handle, mfg.update_run, run_id, **request.model_dump(exclude_none=True)
@@ -553,7 +556,7 @@ async def update_run(run_id: str, request: RunUpdateRequest):
     return {"status": "success"}
 
 
-@router.patch("/runs/{run_id}/status", dependencies=[Depends(require_run_status_actor)])
+@router.patch("/runs/{run_id}/status", dependencies=[Depends(require_run_status_actor)], response_model=dict[str, Any])
 async def update_run_status(run_id: str, request: RunStatusRequest):
     """Advance a run's status. QA/Admin only, mirroring component QA."""
     updated = await asyncio.to_thread(_handle, mfg.update_run, run_id, status=request.status)
@@ -562,7 +565,7 @@ async def update_run_status(run_id: str, request: RunStatusRequest):
     return {"status": "success"}
 
 
-@router.delete("/runs/{run_id}", dependencies=[Depends(require_designer)])
+@router.delete("/runs/{run_id}", dependencies=[Depends(require_designer)], response_model=dict[str, Any])
 async def delete_run(run_id: str):
     if not await asyncio.to_thread(mfg.delete_run, run_id):
         raise HTTPException(status_code=404, detail="Run not found")
@@ -575,7 +578,7 @@ async def delete_run(run_id: str):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/runs/{run_id}/defects")
+@router.post("/runs/{run_id}/defects", response_model=dict[str, Any])
 async def log_defect(
     run_id: str,
     request: DefectRequest,
@@ -590,7 +593,7 @@ async def log_defect(
     return {"id": def_id}
 
 
-@router.patch("/defects/{defect_id}")
+@router.patch("/defects/{defect_id}", response_model=dict[str, Any])
 async def update_defect(
     defect_id: str,
     request: DefectUpdateRequest,
@@ -605,7 +608,7 @@ async def update_defect(
     return {"status": "success"}
 
 
-@router.delete("/defects/{defect_id}", dependencies=[Depends(require_project_release_actor)])
+@router.delete("/defects/{defect_id}", dependencies=[Depends(require_project_release_actor)], response_model=dict[str, Any])
 async def delete_defect(defect_id: str):
     defect = await asyncio.to_thread(mfg.get_defect, defect_id)
     if not defect:
@@ -624,7 +627,7 @@ async def delete_defect(defect_id: str):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/defects/{defect_id}/evidence")
+@router.post("/defects/{defect_id}/evidence", response_model=dict[str, Any] | None)
 async def upload_evidence(
     defect_id: str,
     file: UploadFile = File(...),
@@ -660,7 +663,7 @@ async def upload_evidence(
     return descriptor
 
 
-@router.get("/runs/{run_id}/evidence/{digest}", dependencies=[Depends(require_viewer)])
+@router.get("/runs/{run_id}/evidence/{digest}", dependencies=[Depends(require_viewer)], responses={200: {"description": "The file.", "content": {"application/octet-stream": {}}}})
 async def get_evidence(run_id: str, digest: str):
     from fastapi.responses import FileResponse
 
@@ -670,7 +673,7 @@ async def get_evidence(run_id: str, digest: str):
     return FileResponse(str(path))
 
 
-@router.delete("/defects/{defect_id}/evidence/{digest}", dependencies=[Depends(require_project_release_actor)])
+@router.delete("/defects/{defect_id}/evidence/{digest}", dependencies=[Depends(require_project_release_actor)], response_model=dict[str, Any])
 async def delete_evidence(defect_id: str, digest: str):
     defect = await asyncio.to_thread(mfg.get_defect, defect_id)
     if not defect:
