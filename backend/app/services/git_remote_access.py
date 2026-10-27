@@ -69,6 +69,13 @@ def _inject_git_credentials(env: dict) -> None:
         env[f"GIT_CONFIG_KEY_{index}"] = f"url.{credential.authenticated_prefix()}.insteadOf"
         env[f"GIT_CONFIG_VALUE_{index}"] = credential.url_prefix
         index += 1
+        if credential.path_scoped:
+            # curl keeps credentials on a redirect within the same host, so a
+            # redirect from /team/ to /other/ would carry /team/'s token out of
+            # its prefix. Redirects to another host or port already drop it.
+            env[f"GIT_CONFIG_KEY_{index}"] = f"http.{credential.url_prefix}.followRedirects"
+            env[f"GIT_CONFIG_VALUE_{index}"] = "false"
+            index += 1
     env["GIT_CONFIG_COUNT"] = str(index)
 
 

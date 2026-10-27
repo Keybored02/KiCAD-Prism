@@ -7,6 +7,8 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
+from dotenv import dotenv_values
+from functools import lru_cache
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
@@ -1153,3 +1155,33 @@ def environment_value(name: str) -> str:
     configuration reader.
     """
     return os.environ.get(name, "")
+
+
+def configured_value(name: str) -> str:
+    """A variable named by data, read from the same sources as ``Settings``.
+
+    A Git credential's `token_name` (PRISM_GIT_CREDENTIALS) is documented as
+    another variable in the environment file. Settings reads that file without
+    exporting it, so a process started outside Compose would see the setting
+    but not the token. The process environment wins, as it does for Settings.
+    """
+    if name in os.environ:
+        return os.environ[name]
+    values = _env_file_values()
+    if name in values:
+        return values[name]
+    folded = name.casefold()
+    return next((value for key, value in values.items() if key.casefold() == folded), "")
+
+
+def _env_file_values() -> dict[str, str]:
+    path = Settings.model_config.get("env_file")
+    if not path or not os.path.isfile(path):
+        return {}
+    return _read_env_file(str(path), os.stat(path).st_mtime_ns)
+
+
+@lru_cache(maxsize=4)
+def _read_env_file(path: str, _mtime_ns: int) -> dict[str, str]:
+    encoding = Settings.model_config.get("env_file_encoding") or "utf-8"
+    return {key: value or "" for key, value in dotenv_values(path, encoding=encoding).items()}

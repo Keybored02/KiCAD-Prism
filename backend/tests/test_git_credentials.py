@@ -19,7 +19,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.services import git_credentials, git_remote_access
 from app.services.git_access_service import check_repository_access
 from app.services.git_credentials import (
@@ -29,7 +29,7 @@ from app.services.git_credentials import (
     verify_git_credentials_or_exit,
 )
 from app.services.git_failures import GitAccessError, describe_git_failure
-from app.services.git_remote_url import RemoteUrlPolicy, parse_remote_url
+from app.services.git_remote_url import RemoteUrlError, RemoteUrlPolicy, parse_remote_url
 from support.repo import git
 
 
@@ -140,6 +140,25 @@ class ValidatesTheList(_Configured):
             "IMPORT_ALLOW_INSECURE_HTTP",
         )
 
+    def test_tokens_named_by_entries_are_read_from_the_env_file(self) -> None:
+        token, override = _token(), _token()
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = os.path.join(directory, ".env")
+            with open(env_file, "w", encoding="utf-8") as handle:
+                handle.write(f"FILE_ONLY_GIT_TOKEN={token}\nSHADOWED_GIT_TOKEN=from-file\n")
+            raw = _entries(
+                {"url_prefix": "https://git.example.test/", "token_name": "FILE_ONLY_GIT_TOKEN"},
+                {"url_prefix": "https://other.example.test/", "token_name": "SHADOWED_GIT_TOKEN"},
+            )
+            with patch.dict(Settings.model_config, {"env_file": env_file}), patch.dict(
+                os.environ, {"SHADOWED_GIT_TOKEN": override}
+            ):
+                os.environ.pop("FILE_ONLY_GIT_TOKEN", None)
+                first, second = parse_git_credentials(raw)
+        self.assertEqual(first.token, token)
+        # The process environment wins over the file, as it does for Settings.
+        self.assertEqual(second.token, override)
+
     def test_startup_check_exits_and_names_the_problem(self) -> None:
         with patch.object(settings, "PRISM_GIT_CREDENTIALS", "["):
             stderr = io.StringIO()
@@ -241,14 +260,46 @@ class MatchesExactly(_Configured):
                 self.assertIsNone(credential_for_url(url))
 
 
+class RefusesDotSegments(unittest.TestCase):
+    """curl removes dot segments after Git has attached the token."""
+
+    def test_dot_segments_are_rejected(self) -> None:
+        for url in (
+            "https://git.example.test/team/../other/repo.git",
+            "https://git.example.test/team/%2e%2e/other/repo.git",
+            "https://git.example.test/team/%2E%2e/other/repo.git",
+            "https://git.example.test/team/./repo.git",
+            "ssh://git@git.example.test/team/../other/repo.git",
+            "git@git.example.test:team/../other/repo.git",
+        ):
+            with self.subTest(url=url), self.assertRaises(RemoteUrlError) as caught:
+                parse_remote_url(url)
+            self.assertIn("'..'", str(caught.exception))
+
+    def test_dots_inside_names_are_fine(self) -> None:
+        for url in (
+            "https://git.example.test/team/repo.v2.git",
+            "https://git.example.test/team/..repo.git",
+            "git@git.example.test:team/.dotfiles.git",
+        ):
+            with self.subTest(url=url):
+                parse_remote_url(url)
+
+
 class _Recorder(BaseHTTPRequestHandler):
     """Challenge for Basic auth, record what comes back, then fail the request."""
 
     authorizations: list[str]
+    paths: list[tuple[str, bool]]
 
     def do_GET(self) -> None:  # noqa: N802 - http.server's API
         header = self.headers.get("Authorization")
-        if header is None:
+        self.paths.append((self.path.split("?", 1)[0], header is not None))
+        if header is not None and self.path.startswith("/team/"):
+            # Same host, outside the prefix.
+            self.send_response(302)
+            self.send_header("Location", self.path.replace("/team/", "/other/", 1))
+        elif header is None:
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="git"')
         else:
@@ -261,9 +312,9 @@ class _Recorder(BaseHTTPRequestHandler):
         pass
 
 
-def _serve() -> tuple[ThreadingHTTPServer, list[str]]:
+def _serve(paths: list[tuple[str, bool]] | None = None) -> tuple[ThreadingHTTPServer, list[str]]:
     seen: list[str] = []
-    handler = type("Recorder", (_Recorder,), {"authorizations": seen})
+    handler = type("Recorder", (_Recorder,), {"authorizations": seen, "paths": [] if paths is None else paths})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, seen
@@ -309,6 +360,24 @@ class NeverLeaksTheToken(_Configured):
         )
         self.assertFalse(result.authorized)
         self.assertEqual(self.other_seen, [])
+
+    def test_a_path_scoped_token_does_not_follow_a_redirect_out_of_its_prefix(self) -> None:
+        paths: list[tuple[str, bool]] = []
+        server, _ = _serve(paths)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}/"
+        self.configure(
+            entries=({"url_prefix": f"{base}team/", "token_name": "TEAM_GIT_TOKEN"},),
+            env={"TEAM_GIT_TOKEN": _token()},
+            insecure_http=True,
+        )
+        result = check_repository_access(
+            parse_remote_url(f"{base}team/repo.git", self.policy), git_env=git_remote_access.git_env()
+        )
+        self.assertFalse(result.authorized)
+        self.assertIn(("/team/repo.git/info/refs", True), paths)
+        self.assertFalse([path for path in paths if path[0].startswith("/other/")])
 
     def test_urls_git_echoes_lose_their_userinfo(self) -> None:
         class Failed(Exception):

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote, urlsplit
 
-from app.core.config import environment_value, settings
+from app.core.config import configured_value, settings
 
 GITHUB_PREFIX = "https://github.com/"
 
@@ -43,6 +43,11 @@ class GitCredential:
     token_name: str
     token: str = field(repr=False)
     username: Optional[str] = None
+
+    @property
+    def path_scoped(self) -> bool:
+        """True when the prefix names a path, not a whole server."""
+        return urlsplit(self.url_prefix).path != "/"
 
     @property
     def insecure(self) -> bool:
@@ -111,7 +116,7 @@ def _parse_entry(item: object, index: int) -> GitCredential:
     username = item.get("username")
     if username is not None and (not isinstance(username, str) or not username.strip()):
         raise GitCredentialConfigError(f"{where} username must be a non-empty string")
-    token = environment_value(token_name).strip()
+    token = configured_value(token_name).strip()
     if not token:
         raise GitCredentialConfigError(
             f"{where} names {token_name} for {prefix}, but {token_name} is not set"

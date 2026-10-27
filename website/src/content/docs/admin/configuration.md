@@ -261,6 +261,9 @@ written. The scheme, host and port must all match: a token for
 to `http://git.example.test/` or to `https://git.example.test.other.example/`.
 Write the prefix the way users paste clone URLs. When several prefixes match,
 the longest wins, so `https://git.example.test/team/` can carry its own token.
+Prism refuses repository URLs with `.` or `..` path segments, so a URL cannot
+climb out of a prefix's path. Git does not follow redirects for a prefix with a
+path, so the server cannot send the token elsewhere on the same host.
 
 `GITHUB_TOKEN` always covers `https://github.com/`, so don't list GitHub here.
 
