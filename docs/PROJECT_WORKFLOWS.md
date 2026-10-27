@@ -57,9 +57,17 @@ Studio can build from it.
   `PRISM_GIT_LFS_MAX_MB` skips the download for a repository over that size.
 - A failed download is a warning in the job message. It does not undo the
   import or sync. Fix access, then sync again.
-- A committed LFS file is read from the server's LFS store when viewing
-  history. If it was never downloaded, it reads as not found, with an LFS
-  message. Files over 50 MB are not read from history.
+- Sync downloads the LFS files of the commit that is checked out. A file that
+  is still a pointer reads as not found, with an LFS message, instead of being
+  served as the file.
+- History views, comparison and the semantic viewer read a committed LFS file
+  from the server's LFS store. The stored copy is checked against its pointer,
+  so an incomplete download reads as not found too. If a KiCad source file is
+  missing from the store, the build fails with an LFS message. A missing 3D
+  model stays a pointer. Files over 50 MB are not read from history.
+- A Release Studio build downloads the LFS files of its pinned commit first,
+  under the same mode and size limit, so a build of an older commit works. If
+  the download fails, the build stops with a message about the missing file.
 
 ## Synchronize
 
