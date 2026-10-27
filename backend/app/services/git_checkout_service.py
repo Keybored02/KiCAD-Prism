@@ -25,7 +25,9 @@ from typing import Callable, Iterable, Optional
 __all__ = [
     "CheckoutReport",
     "LfsSettings",
+    "LfsFetchReport",
     "describe_failure",
+    "fetch_lfs_objects",
     "hydrate_checkout",
     "lfs_available",
     "tracks_lfs",
@@ -108,10 +110,13 @@ def lfs_available(env: dict) -> bool:
 # --- hydration --------------------------------------------------------------
 
 
-def _lfs_files(worktree: Path, env: dict) -> Optional[list[dict]]:
-    """LFS files the tree tracks, or ``None`` when the query itself failed."""
+def _lfs_files(worktree: Path, env: dict, ref: Optional[str] = None) -> Optional[list[dict]]:
+    """LFS files the tree (or ``ref``) tracks, or ``None`` when the query itself failed."""
+    args = ["lfs", "ls-files", "--json"]
+    if ref:
+        args.append(ref)
     try:
-        result = _run(["lfs", "ls-files", "--json"], cwd=worktree, env=env)
+        result = _run(args, cwd=worktree, env=env)
         return list(json.loads(result.stdout or "{}").get("files") or [])
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
@@ -135,6 +140,25 @@ def tracks_lfs(worktree: Path | str, env: dict, *, ref: Optional[str] = None) ->
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
+def _lfs_blocked(env: dict, lfs: LfsSettings) -> Optional[tuple[str, Optional[str]]]:
+    """Why LFS may not be used here, as ``(status, warning)``, or ``None`` when it may.
+
+    ``pointers-only`` is a deliberate choice, so it carries no warning.
+    """
+    if lfs.mode != LFS_AUTO:
+        if lfs.mode == LFS_OFF:
+            return "disabled", (
+                "This repository uses Git LFS, which is turned off on this server. "
+                "LFS files are left as pointers."
+            )
+        return "disabled", None
+    if not lfs_available(env):
+        return "unavailable", (
+            "This repository uses Git LFS, but git-lfs is not installed on the server."
+        )
+    return None
+
+
 def _hydrate_lfs(
     worktrees: Iterable[Path],
     *,
@@ -149,19 +173,11 @@ def _hydrate_lfs(
         return
     report.uses_lfs = True
 
-    if lfs.mode != LFS_AUTO:
-        report.lfs_status = "disabled"
-        if lfs.mode == LFS_OFF:
-            report.warnings.append(
-                "This repository uses Git LFS, which is turned off on this server. "
-                "LFS files are left as pointers."
-            )
-        return
-    if not lfs_available(env):
-        report.lfs_status = "unavailable"
-        report.warnings.append(
-            "This repository uses Git LFS, but git-lfs is not installed on the server."
-        )
+    blocked = _lfs_blocked(env, lfs)
+    if blocked:
+        report.lfs_status, warning = blocked
+        if warning:
+            report.warnings.append(warning)
         return
 
     pull_env = {key: value for key, value in env.items() if key != "GIT_LFS_SKIP_SMUDGE"}
@@ -234,4 +250,86 @@ def hydrate_checkout(
         progress=progress,
         check_cancelled=check_cancelled,
     )
+    return report
+
+
+@dataclass
+class LfsFetchReport:
+    """What fetching a commit's LFS objects did."""
+
+    uses_lfs: bool = False
+    # ok | not-used | disabled | unavailable | too-large | partial
+    status: str = "not-used"
+    fetched: int = 0
+    missing: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+def fetch_lfs_objects(
+    repo_path: Path | str,
+    commit: str,
+    *,
+    env: dict,
+    lfs: LfsSettings,
+    check_cancelled: Optional[Callable[[], None]] = None,
+) -> LfsFetchReport:
+    """Download the LFS objects ``commit`` names into the repository's LFS store.
+
+    Sync downloads only the files of the commit that is checked out, so reading
+    or building any other commit finds the store without them. This fills it in,
+    under the same LFS mode and size limit, and touches no working tree. It is
+    for background jobs: a download can take minutes, and a request must never
+    wait on it.
+
+    Never raises for a remote or transport failure; the caller's own reader
+    reports what is still missing.
+    """
+    report = LfsFetchReport()
+    root = Path(repo_path)
+    if not tracks_lfs(root, env, ref=commit):
+        return report
+    report.uses_lfs = True
+    blocked = _lfs_blocked(env, lfs)
+    if blocked:
+        report.status, warning = blocked
+        if warning:
+            report.warnings.append(warning)
+        return report
+
+    files = _lfs_files(root, env, ref=commit)
+    if files is None:
+        report.status = "partial"
+        report.warnings.append("Could not list the LFS files of this commit.")
+        return report
+    absent = [item for item in files if not item.get("downloaded")]
+    if not absent:
+        report.status = "ok"
+        return report
+
+    total_bytes = sum(int(item.get("size") or 0) for item in absent)
+    if lfs.max_mb > 0 and total_bytes > lfs.max_mb * 1024 * 1024:
+        report.status = "too-large"
+        report.missing = len(absent)
+        report.warnings.append(
+            f"LFS files for this commit total {total_bytes // (1024 * 1024)} MB, over the "
+            f"{lfs.max_mb} MB limit. They are not downloaded."
+        )
+        return report
+
+    if check_cancelled:
+        check_cancelled()
+    fetch_env = {key: value for key, value in env.items() if key != "GIT_LFS_SKIP_SMUDGE"}
+    try:
+        _run(["lfs", "fetch", "origin", commit], cwd=root, env=fetch_env)
+    except (OSError, subprocess.SubprocessError) as error:
+        report.warnings.append(f"LFS download failed: {describe_failure(error)}")
+
+    remaining = _lfs_files(root, env, ref=commit)
+    report.missing = (
+        len([item for item in remaining if not item.get("downloaded")])
+        if remaining is not None
+        else len(absent)
+    )
+    report.fetched = max(len(absent) - report.missing, 0)
+    report.status = "partial" if report.missing else "ok"
     return report

@@ -172,6 +172,24 @@ def _lfs_settings() -> git_checkout_service.LfsSettings:
     )
 
 
+def fetch_lfs_objects(
+    repo_path: str | Path,
+    commit: str,
+    context: Optional[JobContext] = None,
+) -> git_checkout_service.LfsFetchReport:
+    """Download the LFS objects of ``commit`` under this deployment's LFS policy.
+
+    For background jobs that read a commit other than the one checked out.
+    """
+    return git_checkout_service.fetch_lfs_objects(
+        repo_path,
+        commit,
+        env=git_env(),
+        lfs=_lfs_settings(),
+        check_cancelled=context.check_cancelled if context is not None else None,
+    )
+
+
 def hydrate_checkout(
     checkout_path: str | Path,
     context: Optional[JobContext] = None,

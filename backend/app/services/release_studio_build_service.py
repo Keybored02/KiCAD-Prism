@@ -689,6 +689,20 @@ def configuration_for_candidate(
     return config
 
 
+def _fetch_lfs_objects(repo_root: Path, commit_sha: str) -> None:
+    """Make sure the LFS store holds the files this commit names.
+
+    Sync downloads only the checked-out commit's files, and a candidate pins the
+    commit it was created at, which may be older. Best effort: when the store
+    still lacks a file, the closure refuses the build with its own message.
+    """
+    from app.services import project_import_service
+
+    report = project_import_service.fetch_lfs_objects(repo_root, commit_sha)
+    for warning in report.warnings:
+        logger.warning("Release Studio LFS fetch for %s: %s", commit_sha[:12], warning)
+
+
 def prepare_candidate(
     *,
     project_id: str,
@@ -726,6 +740,7 @@ def prepare_candidate(
     closure_root = workspace_root / "closure"
     if closure_root.exists():
         shutil.rmtree(closure_root)
+    _fetch_lfs_objects(repo_root, commit_sha)
     closure = materialize_input_closure(
         repo_root,
         commit_sha,
