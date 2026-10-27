@@ -21,6 +21,8 @@ class SupplyStore:
     """
 
     schema = CATALOG_SCHEMA
+    # Tests that need catalog tables beside supply ones point a subclass at the catalog test database.
+    url: str | None = None
 
     def __init__(self) -> None:
         self._init_lock = threading.Lock()
@@ -49,6 +51,14 @@ class SupplyStore:
     def connection(self) -> Iterator[object]:
         """A pooled connection with the search path on the catalog schema (or the test's schema)."""
 
+        if self.url:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(self.url, row_factory=dict_row) as conn:
+                conn.execute(f'SET search_path TO "{self.schema}", public')
+                yield conn
+            return
         with database.connection() as conn:
             conn.execute(f'SET search_path TO "{self.schema}", public')
             yield conn

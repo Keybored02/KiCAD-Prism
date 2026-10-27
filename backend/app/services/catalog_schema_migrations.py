@@ -506,6 +506,29 @@ def _supply_tables(conn: Any) -> None:
     create_supply_tables(getattr(conn, "_connection", conn))
 
 
+def _component_parts(conn: Any) -> None:
+    """Which manufacturer parts a component may be built with: its main part (from the current revision's
+    manufacturer and MPN) and alternates a designer proposed and QA decided. Kept outside revisions, like stock."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS component_parts (
+            component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK (role IN ('main', 'alternate')),
+            approval TEXT NOT NULL DEFAULT 'approved' CHECK (approval IN ('pending', 'approved', 'rejected')),
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            decided_by TEXT NOT NULL DEFAULT '',
+            decided_at TIMESTAMPTZ,
+            PRIMARY KEY (component_id, part_id),
+            CHECK (role = 'alternate' OR approval = 'approved')
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_component_parts_main ON component_parts (component_id) WHERE role = 'main'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_component_parts_part ON component_parts (part_id)")
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -525,6 +548,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (15, "harness_fields", _harness_fields),
     (16, "retire_system_entries", _retire_system_entries),
     (17, "supply_tables", _supply_tables),
+    (18, "component_parts", _component_parts),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

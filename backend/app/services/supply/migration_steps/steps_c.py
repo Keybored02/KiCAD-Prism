@@ -99,7 +99,7 @@ def _m065_family_done(conn) -> None:
 def _m066_drop_demands(conn) -> None:
     """Demand and planned builds are left to the manufacturing feature: the table that held them goes."""
 
-    conn.execute("DROP TABLE IF EXISTS demands", prepare=False)
+    conn.execute("DROP TABLE IF EXISTS supply_demands", prepare=False)
 
 
 def _m067_cost_history_outliers(conn) -> None:
@@ -121,7 +121,7 @@ def _m067_cost_history_outliers(conn) -> None:
 def _m068_drop_worker_seen(conn) -> None:
     """The worker no longer reports itself; the table that held its report goes."""
 
-    conn.execute("DROP TABLE IF EXISTS worker_seen", prepare=False)
+    conn.execute("DROP TABLE IF EXISTS supply_worker_seen", prepare=False)
 
 
 def _m069_offer_reel(conn) -> None:
@@ -426,7 +426,7 @@ def _m091_remove_approved_parts(conn) -> None:
 
     conn.execute(
         """
-        DROP TABLE IF EXISTS component_sources;
+        DROP TABLE IF EXISTS supply_component_sources;
         ALTER TABLE supply_component_watches DROP COLUMN IF EXISTS include_alternates;
         ALTER TABLE supply_release_snapshots DROP COLUMN IF EXISTS avl;
         DELETE FROM supply_part_summaries;

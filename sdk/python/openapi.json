@@ -251,6 +251,28 @@
         "title": "AlignmentRequest",
         "type": "object"
       },
+      "AlternateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "manufacturer": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Mpn",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mpn"
+        ],
+        "title": "AlternateRequest",
+        "type": "object"
+      },
       "AnalyzeRequest": {
         "properties": {
           "ref": {
@@ -6346,6 +6368,98 @@
         "title": "ComponentPage",
         "type": "object"
       },
+      "ComponentPart": {
+        "properties": {
+          "approval": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "title": "Approval",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "title": "Decided By",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "main",
+              "alternate"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "role",
+          "approval",
+          "manufacturer",
+          "mpn",
+          "created_by",
+          "created_at",
+          "decided_by",
+          "decided_at"
+        ],
+        "title": "ComponentPart",
+        "type": "object"
+      },
+      "ComponentParts": {
+        "properties": {
+          "component_id": {
+            "title": "Component Id",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "component_id",
+          "parts"
+        ],
+        "title": "ComponentParts",
+        "type": "object"
+      },
       "ComponentPayload": {
         "additionalProperties": true,
         "description": "One released component as ``_component_payload`` shapes it for KiCad.",
@@ -7984,6 +8098,20 @@
           "loggers"
         ],
         "title": "DebugLoggingWindow",
+        "type": "object"
+      },
+      "DecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approve": {
+            "title": "Approve",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "approve"
+        ],
+        "title": "DecisionRequest",
         "type": "object"
       },
       "Declaration": {
@@ -42500,6 +42628,206 @@
           }
         },
         "summary": "Load Svhc List",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/components/{component_id}/alternates": {
+      "post": {
+        "operationId": "propose_alternate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlternateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentParts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Propose Alternate",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/components/{component_id}/alternates/{part_id}": {
+      "delete": {
+        "operationId": "remove_alternate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Alternate",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/components/{component_id}/alternates/{part_id}/decision": {
+      "post": {
+        "operationId": "decide_alternate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentParts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Alternate",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/components/{component_id}/parts": {
+      "get": {
+        "description": "The component's main part and alternates. The main part is brought in step with the current revision first.",
+        "operationId": "get_component_parts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentParts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Component Parts",
         "tags": [
           "supply"
         ]
