@@ -104,8 +104,7 @@ describe("the next repository to import", () => {
     expect(nextToImport(list, DEFAULT_DISCOVERY_FILTERS, "id-d")).toBeUndefined();
   });
 
-  it("starts from the top when the current repository has left the list", () => {
-    // The one just imported is gone from the default view.
-    expect(nextToImport([repo("c"), repo("d")], DEFAULT_DISCOVERY_FILTERS, "id-gone")?.fullName).toBe("c");
+  it("is nothing when the current repository is not in the list, so skipped ones never come back", () => {
+    expect(nextToImport([repo("a"), repo("c")], DEFAULT_DISCOVERY_FILTERS, "id-gone")).toBeUndefined();
   });
 });

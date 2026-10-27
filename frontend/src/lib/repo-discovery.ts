@@ -86,7 +86,10 @@ export function visibleRepositories(
   return repositories.filter((repository) => isVisible(repository, filters));
 }
 
-/** The repository after `currentId` in the visible list that still has something to import. */
+/**
+ * The repository after `currentId` in the visible list that still has something
+ * to import; nothing when `currentId` is not in the list.
+ */
 export function nextToImport(
   repositories: DiscoveredRepository[],
   filters: DiscoveryFilters,
@@ -94,6 +97,7 @@ export function nextToImport(
 ): DiscoveredRepository | undefined {
   const visible = visibleRepositories(repositories, filters);
   const index = visible.findIndex((repository) => repository.id === currentId);
+  if (index < 0) return undefined;
   return visible
     .slice(index + 1)
     .find((repository) => isKicad(repository) && importStatus(repository) !== "all");

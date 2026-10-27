@@ -167,6 +167,10 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportComplete: () => void;
+  /** Skip the URL step and analyse this repository as soon as the dialog opens. */
+  initialUrl?: string;
+  /** When set, a finished import offers to go on to the next repository. */
+  onNext?: () => void;
 }
 
 type ImportState =
@@ -215,9 +219,13 @@ export function ImportDialog({
   open,
   onOpenChange,
   onImportComplete,
+  initialUrl,
+  onNext,
 }: ImportDialogProps) {
-  const [state, setState] = useState<ImportState>({ step: "input" });
-  const [url, setUrl] = useState("");
+  const [state, setState] = useState<ImportState>(
+    initialUrl ? { step: "analyzing", url: initialUrl } : { step: "input" },
+  );
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   // Empty means "whatever the remote's HEAD points at". The value feeds the
   // next analysis request but never the screen, so it is not state.
@@ -241,6 +249,15 @@ export function ImportDialog({
       stopPolling();
     }
   }, [open, stopPolling]);
+
+  // A repository handed in by discovery is analysed once, when the dialog opens.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!open || !initialUrl || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    void analyzeRepo("", initialUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- starts once per mount
+  }, [open, initialUrl]);
 
   const reset = () => {
     stopPolling();
@@ -901,6 +918,11 @@ export function ImportDialog({
                   onClick={() => retryAnalysis(state.retryUrl as string)}
                 >
                   Try again
+                </Button>
+              )}
+              {state.success && onNext && (
+                <Button variant="outline" onClick={onNext}>
+                  Next repository
                 </Button>
               )}
               <Button onClick={handleClose}>Close</Button>
