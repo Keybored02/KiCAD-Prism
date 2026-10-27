@@ -22,7 +22,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
-__all__ = ["GitAccessError", "describe_git_failure", "git_failure_message"]
+__all__ = ["GitAccessError", "describe_git_failure", "git_failure_message", "strip_url_credentials"]
 
 
 class GitAccessError(RuntimeError):
@@ -193,6 +193,16 @@ def _sensitive_path_pattern() -> "re.Pattern[str]":
 
 _SENSITIVE_PATH_RE = _sensitive_path_pattern()
 
+# A remote URL with userinfo. Prism's HTTPS credentials are rewritten into the
+# URL Git uses (``git_remote_access._inject_git_credentials``), so any URL git
+# echoes may carry a token. Git usually strips it; this does not rely on that.
+_URL_USERINFO_RE = re.compile(r"(://)[^/\s@]+@")
+
+
+def strip_url_credentials(text: str) -> str:
+    """``text`` with the userinfo removed from every URL in it."""
+    return _URL_USERINFO_RE.sub(r"\1", text)
+
 
 def _stderr_of(error: BaseException) -> str:
     """Best-effort read of git's stderr from a GitPython error."""
@@ -220,7 +230,8 @@ def describe_git_failure(
 
     # Nothing recognised. Surface git's own words, which are more useful than a
     # generic apology, but strip the server-side paths out of them.
-    detail = _SENSITIVE_PATH_RE.sub("…", _stderr_of(error)).strip()
+    detail = _SENSITIVE_PATH_RE.sub("…", _stderr_of(error))
+    detail = strip_url_credentials(detail).strip()
     # GitPython prefixes its own repr; keep only what git actually printed.
     lines = [
         line.strip()

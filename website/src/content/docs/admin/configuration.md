@@ -224,6 +224,7 @@ that looks empty.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `GITHUB_TOKEN` | empty | Used for `https://github.com/` clones and for Release Studio publishing to GitHub. |
+| `PRISM_GIT_CREDENTIALS` | empty | HTTPS tokens for other Git servers, each tied to one URL prefix. See [Git credentials](#git-credentials). |
 | `IMPORT_ALLOWED_HOSTS_STR` | empty | Comma-separated Git hosts projects may be imported from. Empty allows any host, and Prism logs a warning. |
 | `IMPORT_ALLOW_INSECURE_HTTP` | `false` | Allows `http://` repository URLs. |
 | `PRISM_AUTO_SYNC_INTERVAL_SECONDS` | `300` | How often each project fetches from its remote. `0` turns background fetch off. |
@@ -232,6 +233,48 @@ that looks empty.
 
 Prism never imports from `file://` URLs, local paths, URLs with embedded
 credentials or Git remote-helper transports, whatever these settings say.
+
+### Git credentials
+
+To import private repositories over HTTPS from a server other than GitHub, list
+a token for each server in `PRISM_GIT_CREDENTIALS`. Prism uses these tokens to
+import, sync and push configuration commits, never to publish Releases; for
+that, see [Release Studio](#release-studio).
+
+Each entry names a URL prefix and the variable that holds its token:
+
+```env
+PRISM_GIT_CREDENTIALS='[{"url_prefix":"https://git.example.test/","token_name":"EXAMPLE_GIT_TOKEN"},{"url_prefix":"https://gitlab.example.test/","token_name":"EXAMPLE_GITLAB_TOKEN","username":"oauth2"}]'
+EXAMPLE_GIT_TOKEN=<token with read access>
+EXAMPLE_GITLAB_TOKEN=<token with read_repository scope>
+```
+
+| Field | Required | What it does |
+| --- | --- | --- |
+| `url_prefix` | yes | The remotes the token is for: `https://`, the host, an optional port and path, ending in `/`. |
+| `token_name` | yes | The variable in the same environment file that holds the token. |
+| `username` | no | Sent with the token for servers that need a user name. GitLab needs one; use `oauth2`. GitHub and Gitea do not. |
+
+A token is sent only to remote URLs that start with its prefix exactly as
+written. The scheme, host and port must all match: a token for
+`https://git.example.test/` is not sent to `https://git.example.test:8443/`,
+to `http://git.example.test/` or to `https://git.example.test.other.example/`.
+Write the prefix the way users paste clone URLs. When several prefixes match,
+the longest wins, so `https://git.example.test/team/` can carry its own token.
+
+`GITHUB_TOKEN` always covers `https://github.com/`, so don't list GitHub here.
+
+Prism checks the list when the API and the workers start, and refuses to start
+when a prefix lacks a scheme, host or trailing `/`, contains credentials, or
+when a variable that `token_name` names is empty. Tokens are handed to Git one
+command at a time, never written to disk, and left out of logs, error messages
+and job messages.
+
+An `http://` prefix needs `IMPORT_ALLOW_INSECURE_HTTP=true`. Prism then sends
+the token in cleartext and logs a warning at startup and on each import from
+that server.
+
+Repository URLs that users paste must still not contain credentials.
 
 ![Settings → Git & SSH: the workspace SSH key with its fingerprint and copy button, and Check access buttons for two projects](../../../assets/screenshots/settings-git-ssh.jpg)
 

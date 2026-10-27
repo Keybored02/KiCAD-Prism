@@ -291,6 +291,16 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
             "Publishing a Release Studio zip needs contents:write, not clone-only."
         ),
     )
+    PRISM_GIT_CREDENTIALS: str = Field(
+        default="",
+        description=(
+            "Extra HTTPS Git credentials for clone, fetch and push, as a JSON array of "
+            "{url_prefix, token_name, username?} objects. Each token is read from the "
+            "environment variable token_name names, and is sent only to remotes whose URL "
+            "starts with url_prefix (scheme, host, port and a trailing '/'). GITHUB_TOKEN "
+            "always covers https://github.com/. Release publishing uses PRISM_FORGE_HOSTS."
+        ),
+    )
     GITLAB_TOKEN: str = Field(
         default="",
         description=(
@@ -1136,7 +1146,8 @@ settings = Settings()
 def environment_value(name: str) -> str:
     """A variable whose name comes from data rather than code.
 
-    A forge host's `token_name` (PRISM_FORGE_HOSTS) and a KiCad path variable
+    A forge host's or Git credential's `token_name` (PRISM_FORGE_HOSTS,
+    PRISM_GIT_CREDENTIALS) and a KiCad path variable
     such as `${KICAD9_3DMODEL_DIR}` in a 3D model path name variables that no
     `Settings` field can declare. Read them here so this module stays the only
     configuration reader.
