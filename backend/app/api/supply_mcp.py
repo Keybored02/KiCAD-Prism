@@ -145,7 +145,10 @@ def handle(user: AuthenticatedUser, message: Any) -> dict[str, Any] | None:
     return _answer(request_id, error=(-32601, "Method not found."))
 
 
-@router.post("")
+@router.post(
+    "",
+    responses={200: {"description": "A JSON-RPC answer, or 202 with no body for a notification.", "content": {"application/json": {"schema": {"type": "object"}}}}},
+)
 async def mcp(request: Request, user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
     import json
 

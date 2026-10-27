@@ -154,19 +154,19 @@ async def list_providers(_user: AuthenticatedUser = Depends(require_supply_reade
 
 
 @router.get("/connectors")
-async def list_connectors(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+async def list_supply_connectors(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
     return await _run(service.list)
 
 
 @router.post("/connectors", status_code=201)
-async def create_connector(
+async def create_supply_connector(
     body: CreateConnectorRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.create(actor=_actor(admin), **body.model_dump()))
 
 
 @router.patch("/connectors/{connector_id}")
-async def update_connector(
+async def update_supply_connector(
     connector_id: str, body: UpdateConnectorRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     changes = body.model_dump(exclude_unset=True)
@@ -183,7 +183,7 @@ async def set_connector_credentials(
 
 
 @router.post("/connectors/{connector_id}/pause")
-async def pause_connector(
+async def pause_supply_connector(
     connector_id: str, body: PauseRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.pause(connector_id, actor=_actor(admin), reason=body.reason))
@@ -208,14 +208,14 @@ async def get_capacity(_user: AuthenticatedUser = Depends(require_supply_reader)
 
 
 @router.post("/connectors/{connector_id}/resume")
-async def resume_connector(
+async def resume_supply_connector(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.resume(connector_id, actor=_actor(admin)))
 
 
 @router.delete("/connectors/{connector_id}", status_code=204)
-async def delete_connector(
+async def delete_supply_connector(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> Response:
     await _run(lambda: service.delete(connector_id, actor=_actor(admin)))
@@ -241,7 +241,10 @@ def _rejection(exc: CsvRejected) -> HTTPException:
     )
 
 
-@router.get("/csv-template")
+@router.get(
+    "/csv-template",
+    responses={200: {"description": "The CSV template for an offers upload.", "content": {"text/csv": {}}}},
+)
 async def csv_template(_user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
     return Response(
         TEMPLATE,

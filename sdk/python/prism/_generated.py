@@ -30,6 +30,14 @@ class ActiveSession(TypedDict, total=False):
     user_agent: str
 
 
+class AddWatchRequest(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+    packaging: str
+    pinned: bool
+    threshold: int | None
+
+
 class AgentTokenView(TypedDict, total=False):
     created_at: str | None
     email: str
@@ -87,6 +95,23 @@ class ApprovalState(TypedDict, total=True):
     published: PublishRecord | None
     qa: ReviewDecision | None
     unpinned_models: list[UnpinnedModel]
+
+
+class AssessmentSettingsBody(TypedDict, total=False):
+    alert_likely_out_percent: int
+    alert_price_rise_percent: int
+    base_currency: str
+    distributor_order: list[str]
+    last_buy_error_days: int
+    late_hours: int
+    lead_time_days: int
+    prefer_distributors: bool
+    price_quantity: int
+    severity: dict[str, str]
+    spares_mode: str
+    spares_others: float
+    spares_percent: float
+    spares_small_passives: float
 
 
 class AssetBrowseResult(TypedDict, total=True):
@@ -267,6 +292,10 @@ class BuildDetail(TypedDict, total=True):
     forge_release: ForgeRelease | None
     members: list[MemberRecord]
     vendor_readiness: list[VendorReadiness]
+
+
+class BuildIn(TypedDict, total=True):
+    build_quantity: int
 
 
 class BuildLogStep(TypedDict, total=True):
@@ -718,6 +747,16 @@ class CheckAccessRequest(TypedDict, total=True):
     url: str
 
 
+class CheckIn(TypedDict, total=False):
+    kind: str
+    lines: list[app__api__supply_checks__LineIn]
+    project_id: str
+
+
+class ChoiceRequest(TypedDict, total=True):
+    key: str
+
+
 class ClaimAttemptOut(TypedDict, total=False):
     ended_at: str | None
     fence: int | None
@@ -790,6 +829,11 @@ class CommentHistoryEntry(TypedDict, total=True):
     status: str | None
     targetId: str
     targetKind: str
+
+
+class CommentIn(TypedDict, total=True):
+    body: str
+    line_key: str
 
 
 class CommentLiveChange(TypedDict, total=True):
@@ -1205,6 +1249,16 @@ class ComponentValidation(TypedDict, total=True):
     summary: ValidationSummary
 
 
+class ComponentWatchRequest(TypedDict, total=False):
+    packaging: str
+
+
+class ConfirmAliasRequest(TypedDict, total=False):
+    alias_key: str
+    manufacturer_id: str | None
+    new_manufacturer_name: str | None
+
+
 class ConnectorCredentials(TypedDict, total=False):
     appId: str
     installationId: str
@@ -1243,15 +1297,6 @@ class CreateComparisonCommentRequest(TypedDict, total=False):
     semanticItemId: str | None
     semanticItemRef: str | None
     severity: str | None
-
-
-class CreateConnectorRequest(TypedDict, total=False):
-    baseUrl: str
-    credentials: ConnectorCredentials | None
-    displayName: str
-    id: str | None
-    instanceKind: str
-    provider: str
 
 
 class CreateDisplayedRevision(TypedDict, total=False):
@@ -1353,11 +1398,19 @@ class CreatedWebhook(TypedDict, total=False):
     url: str
 
 
+class CredentialsRequest(TypedDict, total=True):
+    credentials: dict[str, str]
+
+
 class DatabasePoolMetrics(TypedDict, total=True):
     connectionWaitCount: int
     connectionWaitMaxMs: float
     connectionWaitMeanMs: float
     pool: dict[str, Any]
+
+
+class DatasheetAddress(TypedDict, total=False):
+    url: str
 
 
 class DebugLoggingCleared(TypedDict, total=True):
@@ -1375,6 +1428,11 @@ class DebugLoggingWindow(TypedDict, total=True):
     """The DEBUG window currently in force."""
     loggers: list[str]
     until: str
+
+
+class Declaration(TypedDict, total=False):
+    cas: str
+    note: str
 
 
 class DeleteDesignCompareResponse(TypedDict, total=True):
@@ -1538,6 +1596,13 @@ class DestinationBody(TypedDict, total=False):
     visibility: str | None
 
 
+class DetailsRequest(TypedDict, total=False):
+    connector_id: str
+    manufacturer: str
+    mpn: str
+    sku: str
+
+
 class DetectedPaths(TypedDict, total=True):
     detected: PathConfig
     validation: PathConfigValidation
@@ -1618,6 +1683,11 @@ class EvidenceRecord(TypedDict, total=True):
     id: str
     kind: str
     report_digest: str
+
+
+class Exemption(TypedDict, total=False):
+    code: str
+    note: str
 
 
 class FabricationLayer(TypedDict, total=True):
@@ -2304,6 +2374,11 @@ class LatencyTotals(TypedDict, total=True):
     status5xx: int
 
 
+class LineChoiceIn(TypedDict, total=True):
+    manufacturer: str
+    part_id: str
+
+
 class LinkAssetRequest(TypedDict, total=False):
     counterpart_asset_id: str
     file_path: str
@@ -2335,6 +2410,12 @@ class ListedBuild(TypedDict, total=True):
     warnings: list[Any]
 
 
+class LoadList(TypedDict, total=False):
+    csv: str
+    source_name: str
+    xlsx_base64: str
+
+
 class LocalInventory(TypedDict, total=True):
     fetch_status: str
     fetched_at: str
@@ -2360,6 +2441,17 @@ class LoginStartResponse(TypedDict, total=True):
     authorization_url: str
 
 
+class LookupRequest(TypedDict, total=False):
+    attrition_percent: float | None
+    build_quantity: int
+    lines: list[app__api__supply_bom__LineIn]
+
+
+class MakerSpellingBody(TypedDict, total=False):
+    group_key: str | None
+    spelling: str
+
+
 class ManifestAsset(TypedDict, total=True):
     asset_type: str
     content_type: str
@@ -2370,6 +2462,11 @@ class ManifestAsset(TypedDict, total=True):
     size_bytes: int
     target_library: str
     target_name: str
+
+
+class ManualRates(TypedDict, total=True):
+    day: str
+    rates: dict[str, float]
 
 
 class MateOut(TypedDict, total=True):
@@ -2678,6 +2775,25 @@ class MoveProjectsRequest(TypedDict, total=False):
     project_ids: list[str]
 
 
+class NoticeIn(TypedDict, total=False):
+    kind: str
+    last_time_buy: str | None
+    last_time_ship: str | None
+    notes: str
+    notice_url: str
+    parts: list[NoticePart]
+    title: str
+
+
+class NoticePart(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+
+
+class NumbersRequest(TypedDict, total=True):
+    keys: list[str]
+
+
 class OAuthBeginResponse(TypedDict, total=True):
     authorizeUrl: str
 
@@ -2711,6 +2827,11 @@ class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
     tools: list[str]
+
+
+class PartIn(TypedDict, total=False):
+    rate: str
+    tier: int
 
 
 class PartManifest(TypedDict, total=True):
@@ -2763,6 +2884,10 @@ class PathConfigValidation(TypedDict, total=True):
     warnings: list[str]
 
 
+class PauseRequest(TypedDict, total=True):
+    reason: str
+
+
 class PersonalTokenView(TypedDict, total=False):
     """A token as its owner (or an admin) may see it: no secret, no hash."""
     created_at: str
@@ -2776,8 +2901,16 @@ class PersonalTokenView(TypedDict, total=False):
     user_email: str
 
 
+class PickIn(TypedDict, total=True):
+    listing_id: str
+
+
 class PinCommentRequest(TypedDict, total=True):
     commit: str
+
+
+class PinRequest(TypedDict, total=False):
+    add_number: bool
 
 
 class PlacedPart(TypedDict, total=True):
@@ -2833,6 +2966,14 @@ class PoolAndWorkers(TypedDict, total=True):
     queue: list[QueueDepth]
     resources: list[ResourceUsage]
     workers: list[WorkerInfo]
+
+
+class PreferredIn(TypedDict, total=True):
+    connector_id: str
+
+
+class PriceQuantityIn(TypedDict, total=False):
+    quantity: int | None
 
 
 class ProcessInfo(TypedDict, total=True):
@@ -2975,6 +3116,15 @@ class ProjectImportRequest(TypedDict, total=False):
     source_revision: str
 
 
+class ProjectIn(TypedDict, total=False):
+    all_variants: bool
+    build_quantity: int | None
+    connector_ids: list[str] | None
+    packaging: str
+    spares: str | None
+    variants: list[str]
+
+
 class ProjectName(TypedDict, total=True):
     display_name: str | None
     fallback_name: str
@@ -3104,6 +3254,12 @@ class ProjectVariantCatalog(TypedDict, total=True):
     variants: list[VariantCatalogEntry]
 
 
+class ProposeWaiverRequest(TypedDict, total=False):
+    check: str
+    quantity: int | None
+    reason: str
+
+
 class PublishRecord(TypedDict, total=True):
     acknowledged_models: list[str]
     asset_names: list[str]
@@ -3120,6 +3276,7 @@ class PublishRecord(TypedDict, total=True):
 
 class PublishRequest(TypedDict, total=False):
     acknowledged_models: list[str]
+    attach_compliance_draft: bool
     notes: str
     tag: str
     title: str
@@ -3192,6 +3349,10 @@ class RegeneratedBundles(TypedDict, total=True):
     removedAliases: int
     removedBundles: int
     scope: str
+
+
+class RejectManyRequest(TypedDict, total=True):
+    listing_ids: list[str]
 
 
 class ReleaseQueuePage(TypedDict, total=True):
@@ -3347,6 +3508,12 @@ class ResourceUsage(TypedDict, total=True):
     resource: str
 
 
+class RestrictionIn(TypedDict, total=False):
+    level: str
+    reason: str
+    replacement_component_id: str
+
+
 class ReviewDecision(TypedDict, total=True):
     acknowledged_models: list[str]
     actor: str
@@ -3427,6 +3594,14 @@ class RouteLatencyRow(TypedDict, total=True):
     status5xx: int
 
 
+class RulesRequest(TypedDict, total=False):
+    likely_out_percent: int | None
+    muted: list[str]
+    price_rise_percent: int | None
+    target_currency: str
+    target_price: str | None
+
+
 class SSHKeyResponse(TypedDict, total=False):
     comment: str | None
     created_at: str | None
@@ -3447,6 +3622,15 @@ class SavedImportDrafts(TypedDict, total=True):
 class ScanRequest(TypedDict, total=False):
     commit: str | None
     force: bool
+
+
+class ScheduleIn(TypedDict, total=True):
+    spare: dict[str, bool]
+
+
+class SearchRequest(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
 
 
 class SemanticIndexGenerateQueued(TypedDict, total=True):
@@ -3545,6 +3729,12 @@ class SheetPdf(TypedDict, total=True):
     released_digest: str
 
 
+class SimilarIn(TypedDict, total=True):
+    connector_id: str
+    packaging: str
+    part_ids: list[str]
+
+
 class SlowQueriesOut(TypedDict, total=False):
     available: bool
     order: str
@@ -3561,6 +3751,10 @@ class SlowQueryOut(TypedDict, total=True):
     sharedBlksHit: int
     sharedBlksRead: int
     totalMs: float
+
+
+class SnoozeRequest(TypedDict, total=True):
+    hours: int
 
 
 class SourceDefaults(TypedDict, total=True):
@@ -3618,6 +3812,10 @@ class StatusReadiness(TypedDict, total=True):
     stage: str
 
 
+class StatusRequest(TypedDict, total=True):
+    components: list[app__api__supply_bom__LineIn]
+
+
 class SubmitSetupRequest(TypedDict, total=True):
     analysis_id: str
 
@@ -3631,6 +3829,11 @@ class SubsheetFile(TypedDict, total=False):
 
 class Subsheets(TypedDict, total=True):
     files: list[SubsheetFile]
+
+
+class SuffixBody(TypedDict, total=True):
+    ending: str
+    kind: str
 
 
 class Supply(TypedDict, total=True):
@@ -3768,6 +3971,11 @@ class TrackerProjectionView(TypedDict, total=False):
     syncState: str | None
 
 
+class TradeMarkIn(TypedDict, total=False):
+    control: str
+    eccn: str
+
+
 class UnpinnedModel(TypedDict, total=True):
     key: str
     location: str
@@ -3806,13 +4014,6 @@ class UpdateComponentMetadataRequest(TypedDict, total=False):
     vendor_part_number: str | None
 
 
-class UpdateConnectorRequest(TypedDict, total=False):
-    baseUrl: str | None
-    credentials: ConnectorCredentials | None
-    displayName: str | None
-    instanceKind: str | None
-
-
 class UpdateFolderRequest(TypedDict, total=False):
     name: str | None
     parent_id: str | None
@@ -3839,6 +4040,12 @@ class UpdateRepresentationRequest(TypedDict, total=False):
     is_default: bool | None
     label: str | None
     symbol_asset_id: str | None
+
+
+class UpdateWatchRequest(TypedDict, total=False):
+    packaging: str | None
+    pinned: bool | None
+    threshold: int | None
 
 
 class UpsertRoleRequest(TypedDict, total=True):
@@ -3964,6 +4171,12 @@ class ViewerSupportFile(TypedDict, total=True):
 
 class ViewerSupportFiles(TypedDict, total=True):
     files: list[ViewerSupportFile]
+
+
+class WatchRequest(TypedDict, total=False):
+    lines: list[app__api__supply_bom__LineIn]
+    rate: str
+    tier: int
 
 
 class WebGpu3dAnalytic(TypedDict, total=False):
@@ -4155,6 +4368,61 @@ class app__api__jobs__JobEvent(TypedDict, total=True):
     stage: str | None
 
 
+class app__api__supply_bom__LineIn(TypedDict, total=False):
+    footprint: str
+    key: str
+    lcsc: str
+    manufacturer: str
+    mpn: str
+    prism_id: str
+    quantity: int
+    value: str
+
+
+class app__api__supply_checks__LineIn(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+
+
+class app__api__supply_connectors__CreateConnectorRequest(TypedDict, total=False):
+    credentials: dict[str, str]
+    currency: str
+    daily_budget: int | None
+    display_name: str
+    interactive_reserve_pct: int
+    provider: str
+    storefront: str
+
+
+class app__api__supply_connectors__UpdateConnectorRequest(TypedDict, total=False):
+    currency: str | None
+    daily_budget: int | None
+    display_name: str | None
+    enabled: bool | None
+    interactive_reserve_pct: int | None
+    keep_days: int | None
+    reset_time: str | None
+    reset_tz: str | None
+    retention_days: int | None
+    storefront: str | None
+
+
+class app__api__tracker_connectors__CreateConnectorRequest(TypedDict, total=False):
+    baseUrl: str
+    credentials: ConnectorCredentials | None
+    displayName: str
+    id: str | None
+    instanceKind: str
+    provider: str
+
+
+class app__api__tracker_connectors__UpdateConnectorRequest(TypedDict, total=False):
+    baseUrl: str | None
+    credentials: ConnectorCredentials | None
+    displayName: str | None
+    instanceKind: str | None
+
+
 class GeneratedClient:
     """One method per operation in the /api/v1 OpenAPI document."""
 
@@ -4174,11 +4442,28 @@ class GeneratedClient:
             body=body,
         )
 
+    def acknowledge_alert(self, alert_id: int) -> None:
+        """Acknowledge Alert"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/alerts/{alert_id}/acknowledge",
+            path_params={"alert_id": alert_id},
+        )
+
     def acknowledge_project_tracker(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Acknowledge Project Tracker"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/tracker/acknowledge",
+            path_params={"project_id": project_id},
+            body=body,
+        )
+
+    def add_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Add Comment"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/projects/{project_id}/bom-comments",
             path_params={"project_id": project_id},
             body=body,
         )
@@ -4192,6 +4477,23 @@ class GeneratedClient:
             query={"replyId": replyId},
         )
 
+    def add_exemption(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Add Exemption"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/exemptions",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def add_maker_spelling(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Add Maker Spelling"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/settings/makers",
+            body=body,
+        )
+
     def add_mate(self, component_id: str, *, body: dict[str, Any] | None = None) -> MatePage:
         """Mark two parts as mating"""
         return self._request(
@@ -4201,12 +4503,36 @@ class GeneratedClient:
             body=body,
         )
 
+    def add_notice(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Add Notice"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/notices",
+            body=body,
+        )
+
+    def add_number_ending(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Add Number Ending"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/settings/number-endings",
+            body=body,
+        )
+
     def add_reply(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> ReplyCreatedView:
         """Reply to an existing comment"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies",
             path_params={"project_id": project_id, "comment_id": comment_id},
+            body=body,
+        )
+
+    def add_watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Add Watch"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/watches",
             body=body,
         )
 
@@ -4251,6 +4577,22 @@ class GeneratedClient:
             body=body,
         )
 
+    def apply_proposed(self, part_id: str) -> dict[str, int]:
+        """Apply Proposed"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/packaging/auto/{part_id}",
+            path_params={"part_id": part_id},
+        )
+
+    def apply_similar(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+        """Apply Similar"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/packaging/similar",
+            body=body,
+        )
+
     def approve_build(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> ApprovalDecision:
         """Record a designer or QA approval on a build"""
         return self._request(
@@ -4268,12 +4610,28 @@ class GeneratedClient:
             path_params={"batch_id": batch_id},
         )
 
+    def approve_waiver(self, waiver_id: str) -> None:
+        """Approve Waiver"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/waivers/{waiver_id}/approve",
+            path_params={"waiver_id": waiver_id},
+        )
+
     def archive_metadata_field(self, field_id: str) -> MetadataField:
         """Archive a metadata field"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/fields/{field_id}/archive",
             path_params={"field_id": field_id},
+        )
+
+    def ask_substitutes(self, part_id: str) -> dict[str, Any]:
+        """Ask Substitutes"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/ask-substitutes",
+            path_params={"part_id": part_id},
         )
 
     def begin_oauth(self, connector_id: str, *, returnTo: str = '/') -> OAuthBeginResponse:
@@ -4293,12 +4651,35 @@ class GeneratedClient:
             query={"since": since},
         )
 
+    def bom_health(self, project_id: str, *, build_quantity: int = 1, variant: str = '') -> dict[str, Any]:
+        """Bom Health"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/bom-health",
+            path_params={"project_id": project_id},
+            query={"build_quantity": build_quantity, "variant": variant},
+        )
+
     def browse_library_assets(self, *, asset_type: str, q: str = '', limit: int = 50) -> AssetBrowseResult:
         """Browse stored library assets"""
         return self._request(
             "GET",
             "/api/v1/catalog/assets/browse",
             query={"asset_type": asset_type, "q": q, "limit": limit},
+        )
+
+    def budget(self) -> list[dict[str, Any]]:
+        """Budget"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/budget",
+        )
+
+    def build_usage(self) -> dict[str, int]:
+        """Build Usage"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/usage/build",
         )
 
     def bulk_accept_project_import_proposals(self, session_id: str, *, body: dict[str, Any] | None = None) -> BulkImportAcceptance:
@@ -4358,6 +4739,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def check_notices(self, part_id: str) -> dict[str, Any]:
+        """Check Notices"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/check-notices",
+            path_params={"part_id": part_id},
+        )
+
     def check_release_tag(self, project_id: str, tag: str) -> ReleaseTagCheck:
         """Whether the forge already has a release tag"""
         return self._request(
@@ -4366,12 +4755,78 @@ class GeneratedClient:
             path_params={"project_id": project_id, "tag": tag},
         )
 
+    def choose_line(self, project_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Choose Line"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/tracking/projects/{project_id}/lines/choose",
+            path_params={"project_id": project_id},
+            body=body,
+        )
+
+    def choose_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+        """Choose Maker"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/choices/{part_id}/choose",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def clear(self, part_id: str, connector_id: str) -> None:
+        """Clear"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/packaging/{part_id}/{connector_id}",
+            path_params={"part_id": part_id, "connector_id": connector_id},
+        )
+
+    def clear_offers_csv(self, connector_id: str) -> None:
+        """Clear Offers Csv"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/connectors/{connector_id}/csv",
+            path_params={"connector_id": connector_id},
+        )
+
+    def clear_preferred(self, part_id: str) -> None:
+        """Clear Preferred"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/parts/{part_id}/preferred",
+            path_params={"part_id": part_id},
+        )
+
     def clear_project_thumbnail(self, project_id: str) -> ThumbnailCleared:
         """Drop an uploaded thumbnail and fall back to the rendered board"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}/thumbnail",
             path_params={"project_id": project_id},
+        )
+
+    def clear_restriction(self, component_id: str) -> None:
+        """Clear Restriction"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/ending/{component_id}/restriction",
+            path_params={"component_id": component_id},
+        )
+
+    def clear_trade_mark(self, part_id: str) -> None:
+        """Clear Trade Mark"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/parts/{part_id}/trade-mark",
+            path_params={"part_id": part_id},
+        )
+
+    def close_notice(self, notice_id: str) -> None:
+        """Close Notice"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/notices/{notice_id}/close",
+            path_params={"notice_id": notice_id},
         )
 
     def compare_component_revisions(self, component_id: str, *, before: str, after: str) -> RevisionComparison:
@@ -4400,11 +4855,27 @@ class GeneratedClient:
             query={"category": category, "page": page, "page_size": page_size, "include_total": include_total},
         )
 
+    def components_status(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Components Status"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/components-status",
+            body=body,
+        )
+
     def config(self) -> dict[str, bool]:
         """Config"""
         return self._request(
             "GET",
             "/api/v1/agent/config",
+        )
+
+    def confirm_alias(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+        """Confirm Alias"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/aliases/confirm",
+            body=body,
         )
 
     def connector_health(self, connector_id: str) -> dict[str, Any]:
@@ -4422,6 +4893,15 @@ class GeneratedClient:
             "/api/v1/catalog/components/{component_id}/models/convert",
             path_params={"component_id": component_id},
             query={"revisionId": revisionId},
+        )
+
+    def costing_zip(self, project_id: str, *, variant: str = '', build_quantity: int = 1) -> Any:
+        """Costing Zip"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/costing.zip",
+            path_params={"project_id": project_id},
+            query={"variant": variant, "build_quantity": build_quantity},
         )
 
     def create_anchored_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
@@ -4549,11 +5029,57 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_supply_connector(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Create Supply Connector"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors",
+            body=body,
+        )
+
     def create_webhook(self, *, body: dict[str, Any] | None = None) -> CreatedWebhook:
         """Create an outbound webhook"""
         return self._request(
             "POST",
             "/api/v1/settings/webhooks",
+            body=body,
+        )
+
+    def cross_reference_of(self, part_id: str) -> dict[str, Any]:
+        """Cross Reference Of"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/cross-reference",
+            path_params={"part_id": part_id},
+        )
+
+    def csv_template(self) -> Any:
+        """Csv Template"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/csv-template",
+        )
+
+    def current_rates(self) -> dict[str, Any]:
+        """Current Rates"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/fx",
+        )
+
+    def dashboard_figures(self) -> dict[str, Any]:
+        """Dashboard Figures"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/dashboard",
+        )
+
+    def declare_substance(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Declare Substance"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/substances",
+            path_params={"part_id": part_id},
             body=body,
         )
 
@@ -4654,6 +5180,14 @@ class GeneratedClient:
             path_params={"project_id": project_id, "setup_id": setup_id},
         )
 
+    def delete_supply_connector(self, connector_id: str) -> None:
+        """Delete Supply Connector"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/connectors/{connector_id}",
+            path_params={"connector_id": connector_id},
+        )
+
     def delete_user_password(self, email: str) -> UserPasswordDeletedResponse:
         """Remove a user's local password"""
         return self._request(
@@ -4700,6 +5234,14 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/catalog/components/{component_id}/assets/id/{asset_id}",
             path_params={"component_id": component_id, "asset_id": asset_id},
+        )
+
+    def details(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Details"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/fill/details",
+            body=body,
         )
 
     def detect_project_paths(self, project_id: str) -> DetectedPaths:
@@ -4795,6 +5337,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def enter_rates(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Enter Rates"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/fx/rates",
+            body=body,
+        )
+
     def event_and_webhook_health(self) -> EventAndWebhookHealth:
         """Event-log head, retention and webhook lag and delivery health"""
         return self._request(
@@ -4832,12 +5382,35 @@ class GeneratedClient:
             query={"field": field},
         )
 
+    def find_part(self, *, mpn: str, manufacturer: str = '') -> dict[str, Any]:
+        """Find Part"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/part-lookup",
+            query={"mpn": mpn, "manufacturer": manufacturer},
+        )
+
+    def forecasts_insights(self) -> dict[str, Any]:
+        """Forecasts Insights"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/forecasts/insights",
+        )
+
     def forget_git_host_key(self, host: str) -> HostKeyForgetResponse:
         """Forget a pinned Git host key"""
         return self._request(
             "DELETE",
             "/api/v1/settings/git-access/host-keys/{host}",
             path_params={"host": host},
+        )
+
+    def forget_signin(self, connector_id: str) -> None:
+        """Forget Signin"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/connectors/{connector_id}/signin",
+            path_params={"connector_id": connector_id},
         )
 
     def generate_missing_previews(self) -> CatalogJobQueued:
@@ -4871,6 +5444,30 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/webgpu-3d/generate",
             path_params={"project_id": project_id},
             body=body,
+        )
+
+    def get_alert_rules(self, part_id: str) -> dict[str, Any]:
+        """Get Alert Rules"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/alert-rules",
+            path_params={"part_id": part_id},
+        )
+
+    def get_assessment(self, part_id: str, *, quantity: int | None = None) -> dict[str, Any]:
+        """Get Assessment"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/assessment",
+            path_params={"part_id": part_id},
+            query={"quantity": quantity},
+        )
+
+    def get_assessment_settings(self) -> dict[str, Any]:
+        """Get Assessment Settings"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/settings/assessment",
         )
 
     def get_asset_content(self, asset_id: str) -> Any:
@@ -4919,6 +5516,13 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
             path_params={"project_id": project_id, "candidate_id": candidate_id},
+        )
+
+    def get_capacity(self) -> list[dict[str, Any]]:
+        """Get Capacity"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/capacity",
         )
 
     def get_catalog_asset_content(self, asset_id: str) -> Any:
@@ -5058,6 +5662,14 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
+    def get_component_watch(self, component_id: str) -> dict[str, Any]:
+        """Get Component Watch"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/components/{component_id}/watch",
+            path_params={"component_id": component_id},
+        )
+
     def get_connector(self, connector_id: str) -> dict[str, Any]:
         """Get Connector"""
         return self._request(
@@ -5071,6 +5683,14 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/auth/me",
+        )
+
+    def get_datasheet(self, part_id: str) -> dict[str, Any]:
+        """Get Datasheet"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/datasheet",
+            path_params={"part_id": part_id},
         )
 
     def get_design_bundles(self, project_id: str) -> DesignBundleStatus:
@@ -5207,6 +5827,13 @@ class GeneratedClient:
             query={"log_lines": log_lines},
         )
 
+    def get_makers(self) -> dict[str, Any]:
+        """Get Makers"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/settings/makers",
+        )
+
     def get_mcp_governance(self) -> McpGovernanceView:
         """Get Mcp Governance"""
         return self._request(
@@ -5246,6 +5873,13 @@ class GeneratedClient:
             query={"subpath": subpath},
         )
 
+    def get_number_endings(self) -> dict[str, Any]:
+        """Get Number Endings"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/settings/number-endings",
+        )
+
     def get_oauth_callback_url(self) -> dict[str, str]:
         """Get Oauth Callback Url"""
         return self._request(
@@ -5278,6 +5912,30 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/placement",
             path_params={"project_id": project_id},
             query={"type": type, "folder": folder, "commit": commit},
+        )
+
+    def get_overview(self) -> dict[str, Any]:
+        """Get Overview"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/overview",
+        )
+
+    def get_part(self, part_id: str) -> dict[str, Any]:
+        """Get Part"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}",
+            path_params={"part_id": part_id},
+        )
+
+    def get_part_history(self, part_id: str, *, days: int = 90) -> dict[str, Any]:
+        """Get Part History"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/history",
+            path_params={"part_id": part_id},
+            query={"days": days},
         )
 
     def get_part_manifest(self, part_id: str, *, representation: str = '', revision: str = '') -> PartManifest:
@@ -5554,12 +6212,26 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
+    def get_review_queue(self) -> dict[str, Any]:
+        """Get Review Queue"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/review",
+        )
+
     def get_route_latency(self, *, window_minutes: int = 60, route_prefix: str | None = None, limit: int = 50) -> RouteLatencyOut:
         """Route latency over a window"""
         return self._request(
             "GET",
             "/api/v1/ops/route-latency",
             query={"window_minutes": window_minutes, "route_prefix": route_prefix, "limit": limit},
+        )
+
+    def get_schedule(self) -> dict[str, Any]:
+        """Get Schedule"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/schedule",
         )
 
     def get_semantic_index_identity(self, project_id: str, *, commit: str | None = None) -> dict[str, Any]:
@@ -5742,6 +6414,30 @@ class GeneratedClient:
             query={"commit": commit},
         )
 
+    def insights_overview(self) -> dict[str, Any]:
+        """Insights Overview"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/insights",
+        )
+
+    def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Keep Usual Build"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/projects/{project_id}/build",
+            path_params={"project_id": project_id},
+            body=body,
+        )
+
+    def library_component_of(self, part_id: str) -> dict[str, Any]:
+        """Library Component Of"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/library-component",
+            path_params={"part_id": part_id},
+        )
+
     def link_library_asset(self, component_id: str, asset_type: str, *, body: dict[str, Any] | None = None) -> ComponentMutation:
         """Link a stored library asset to a component"""
         return self._request(
@@ -5756,6 +6452,14 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/settings/access/users",
+        )
+
+    def list_alerts(self, *, include_resolved: bool = False) -> dict[str, Any]:
+        """List Alerts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/alerts",
+            query={"include_resolved": include_resolved},
         )
 
     def list_all_mcp_clients(self) -> list[McpClientAdminView]:
@@ -5809,6 +6513,14 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/remote-provider/categories",
+        )
+
+    def list_comments(self, project_id: str) -> dict[str, Any]:
+        """List Comments"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/bom-comments",
+            path_params={"project_id": project_id},
         )
 
     def list_component_audit(self, component_id: str) -> AuditEventPage:
@@ -5875,6 +6587,13 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
+    def list_ending(self) -> dict[str, Any]:
+        """List Ending"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/ending",
+        )
+
     def list_engines(self) -> list[dict[str, Any]]:
         """List Engines"""
         return self._request(
@@ -5909,6 +6628,13 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/trackers/linkable-connectors",
+        )
+
+    def list_manufacturers(self) -> dict[str, Any]:
+        """List Manufacturers"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/manufacturers",
         )
 
     def list_mates_with(self, component_id: str) -> MatePage:
@@ -5973,6 +6699,14 @@ class GeneratedClient:
             "/api/v1/auth/sessions",
         )
 
+    def list_parts(self, *, scope: str = 'watched', only: str = '', q: str = '', limit: int = 100, offset: int = 0, project_id: str = '', vendor: str = '', sort: str = '') -> dict[str, Any]:
+        """List Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts",
+            query={"scope": scope, "only": only, "q": q, "limit": limit, "offset": offset, "project_id": project_id, "vendor": vendor, "sort": sort},
+        )
+
     def list_personal_tokens(self) -> list[PersonalTokenView]:
         """List Personal Tokens"""
         return self._request(
@@ -6000,6 +6734,13 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/projects/",
+        )
+
+    def list_providers(self) -> list[dict[str, Any]]:
+        """List Providers"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/providers",
         )
 
     def list_recent_requests(self, *, limit: int = 50, min_duration_ms: int | None = None, status_min: int | None = None, route_prefix: str | None = None) -> list[RecentRequestOut]:
@@ -6031,6 +6772,13 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/sim/a0/setups",
             path_params={"project_id": project_id},
+        )
+
+    def list_supply_connectors(self) -> list[dict[str, Any]]:
+        """List Supply Connectors"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/connectors",
         )
 
     def list_tokens(self, *, all_users: bool = False) -> list[AgentTokenView]:
@@ -6071,6 +6819,14 @@ class GeneratedClient:
             "/api/v1/health/live",
         )
 
+    def load_svhc_list(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Load Svhc List"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/compliance/svhc",
+            body=body,
+        )
+
     def login(self, *, body: dict[str, Any] | None = None) -> UserSession:
         """Login"""
         return self._request(
@@ -6092,6 +6848,36 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/auth/logout",
+        )
+
+    def lookup(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Lookup"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/lookup",
+            body=body,
+        )
+
+    def market_history(self, *, metric: str) -> dict[str, Any]:
+        """Market History"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/market/history",
+            query={"metric": metric},
+        )
+
+    def market_overview(self) -> dict[str, Any]:
+        """Market Overview"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/market",
+        )
+
+    def mcp(self) -> dict[str, Any]:
+        """Mcp"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/mcp",
         )
 
     def metadata_batch_report(self, batch_id: str) -> Any:
@@ -6206,6 +6992,71 @@ class GeneratedClient:
             "/api/v1/ops/status",
         )
 
+    def options(self, part_id: str, connector_id: str) -> dict[str, Any]:
+        """Options"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/packaging/{part_id}/{connector_id}",
+            path_params={"part_id": part_id, "connector_id": connector_id},
+        )
+
+    def other_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+        """Other Maker"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/choices/{part_id}/other",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def overview(self) -> dict[str, Any]:
+        """Overview"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking",
+        )
+
+    def part_compliance(self, part_id: str) -> dict[str, Any]:
+        """Part Compliance"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/compliance",
+            path_params={"part_id": part_id},
+        )
+
+    def part_forecast(self, part_id: str, *, quantity: int | None = None) -> dict[str, Any]:
+        """Part Forecast"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/forecast",
+            path_params={"part_id": part_id},
+            query={"quantity": quantity},
+        )
+
+    def part_groups(self, *, scope: str = 'watched', only: str = '', q: str = '', vendor: str = '') -> dict[str, Any]:
+        """Part Groups"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/part-groups",
+            query={"scope": scope, "only": only, "q": q, "vendor": vendor},
+        )
+
+    def part_notices(self, part_id: str) -> dict[str, Any]:
+        """Part Notices"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/parts/{part_id}/notices",
+            path_params={"part_id": part_id},
+        )
+
+    def part_state(self, part_id: str) -> dict[str, Any]:
+        """Part State"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking/parts/{part_id}",
+            path_params={"part_id": part_id},
+        )
+
     def patch_setup(self, project_id: str, setup_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Patch Setup"""
         return self._request(
@@ -6223,12 +7074,39 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
+    def pause_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Pause Supply Connector"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/pause",
+            path_params={"connector_id": connector_id},
+            body=body,
+        )
+
+    def pick(self, part_id: str, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Pick"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/packaging/{part_id}/{connector_id}",
+            path_params={"part_id": part_id, "connector_id": connector_id},
+            body=body,
+        )
+
     def pin_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
         """Pin an unpinned comment to an exact commit"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/pin",
             path_params={"project_id": project_id, "comment_id": comment_id},
+            body=body,
+        )
+
+    def pin_listing(self, listing_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Pin Listing"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/listings/{listing_id}/pin",
+            path_params={"listing_id": listing_id},
             body=body,
         )
 
@@ -6269,6 +7147,73 @@ class GeneratedClient:
             "/api/v1/catalog/metadata/import-csv/preview",
         )
 
+    def preview_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Preview Part"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/tracking/parts/{part_id}/preview",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def preview_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Preview Project"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/tracking/projects/{project_id}/preview",
+            path_params={"project_id": project_id},
+            body=body,
+        )
+
+    def preview_watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Preview Watch"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/watch/preview",
+            body=body,
+        )
+
+    def progress(self, request_id: str) -> dict[str, Any]:
+        """Progress"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/checks/{request_id}",
+            path_params={"request_id": request_id},
+        )
+
+    def project_open(self, project_id: str) -> dict[str, Any]:
+        """Project Open"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking/projects/{project_id}/open",
+            path_params={"project_id": project_id},
+        )
+
+    def project_overview(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '') -> dict[str, Any]:
+        """Project Overview"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/supply",
+            path_params={"project_id": project_id},
+            query={"build_quantity": build_quantity, "variant": variant, "spares": spares},
+        )
+
+    def project_progress(self, project_id: str) -> dict[str, Any]:
+        """Project Progress"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking/projects/{project_id}/progress",
+            path_params={"project_id": project_id},
+        )
+
+    def project_state(self, project_id: str) -> dict[str, Any]:
+        """Project State"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking/projects/{project_id}",
+            path_params={"project_id": project_id},
+        )
+
     def project_tracker_health(self, project_id: str) -> dict[str, Any]:
         """Project Tracker Health"""
         return self._request(
@@ -6283,6 +7228,23 @@ class GeneratedClient:
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/promote",
             path_params={"project_id": project_id, "comment_id": comment_id},
+        )
+
+    def propose_waiver(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+        """Propose Waiver"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/waivers",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def proposed(self, part_id: str) -> dict[str, Any]:
+        """Proposed"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/packaging/auto/{part_id}",
+            path_params={"part_id": part_id},
         )
 
     def publish_build(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> PublishResult:
@@ -6302,11 +7264,36 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
+    def put_alert_rules(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Put Alert Rules"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/parts/{part_id}/alert-rules",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def put_assessment_settings(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Put Assessment Settings"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/settings/assessment",
+            body=body,
+        )
+
     def put_mcp_governance(self, *, body: dict[str, Any] | None = None) -> McpGovernance:
         """Put Mcp Governance"""
         return self._request(
             "PUT",
             "/api/v1/settings/mcp",
+            body=body,
+        )
+
+    def put_schedule(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Put Schedule"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/schedule",
             body=body,
         )
 
@@ -6323,6 +7310,30 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/layout",
             path_params={"project_id": project_id, "setup_id": setup_id},
+        )
+
+    def read_part_now(self, part_id: str) -> dict[str, Any]:
+        """Read Part Now"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/refresh",
+            path_params={"part_id": part_id},
+        )
+
+    def read_project_bom(self, project_id: str) -> dict[str, str]:
+        """Read Project Bom"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/tracking/projects/{project_id}/read",
+            path_params={"project_id": project_id},
+        )
+
+    def read_release_bom(self, project_id: str, build_id: str) -> dict[str, Any]:
+        """Read Release Bom"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/projects/{project_id}/release-builds/{build_id}/read-bom",
+            path_params={"project_id": project_id, "build_id": build_id},
         )
 
     def read_result(self, project_id: str, run_id: str) -> dict[str, Any]:
@@ -6389,6 +7400,28 @@ class GeneratedClient:
             body=body,
         )
 
+    def refresh_rates(self) -> dict[str, Any]:
+        """Refresh Rates"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/fx/refresh",
+        )
+
+    def refresh_supply_part(self, part_id: str) -> dict[str, Any]:
+        """Refresh Supply Part"""
+        return self._request(
+            "POST",
+            "/api/v1/remote-provider/supply/parts/{part_id}/refresh",
+            path_params={"part_id": part_id},
+        )
+
+    def refresh_usage(self) -> dict[str, int]:
+        """Refresh Usage"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/usage/refresh",
+        )
+
     def regenerate_component_previews(self, component_id: str) -> CatalogComponent:
         """Regenerate a component's previews"""
         return self._request(
@@ -6422,6 +7455,22 @@ class GeneratedClient:
             body=body,
         )
 
+    def reject_listing(self, listing_id: str) -> None:
+        """Reject Listing"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/listings/{listing_id}/reject",
+            path_params={"listing_id": listing_id},
+        )
+
+    def reject_listings(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+        """Reject Listings"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/listings/reject-many",
+            body=body,
+        )
+
     def reject_project_import_proposal(self, proposal_id: str) -> ImportProposal:
         """Reject an import proposal"""
         return self._request(
@@ -6430,12 +7479,61 @@ class GeneratedClient:
             path_params={"proposal_id": proposal_id},
         )
 
+    def reject_waiver(self, waiver_id: str) -> None:
+        """Reject Waiver"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/waivers/{waiver_id}/reject",
+            path_params={"waiver_id": waiver_id},
+        )
+
+    def release_check_for(self, project_id: str, build_id: str) -> dict[str, Any]:
+        """Release Check For"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/release-builds/{build_id}/check",
+            path_params={"project_id": project_id, "build_id": build_id},
+        )
+
+    def release_compliance(self, project_id: str, build_id: str, *, format: str = 'json') -> Any:
+        """Release Compliance"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/releases/{build_id}/compliance",
+            path_params={"project_id": project_id, "build_id": build_id},
+            query={"format": format},
+        )
+
     def release_queue(self, *, q: str = '', workflow_stage: str = 'all', page: int = 1, page_size: int = 50) -> ReleaseQueuePage:
         """List the release queue"""
         return self._request(
             "GET",
             "/api/v1/catalog/release-queue",
             query={"q": q, "workflow_stage": workflow_stage, "page": page, "page_size": page_size},
+        )
+
+    def release_snapshot(self, project_id: str, build_id: str) -> dict[str, Any]:
+        """Release Snapshot"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/releases/{build_id}/supply",
+            path_params={"project_id": project_id, "build_id": build_id},
+        )
+
+    def release_snapshot_status(self, project_id: str, build_id: str) -> dict[str, Any]:
+        """Release Snapshot Status"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/releases/{build_id}/supply-status",
+            path_params={"project_id": project_id, "build_id": build_id},
+        )
+
+    def remove_comment(self, project_id: str, comment_id: str) -> None:
+        """Remove Comment"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/projects/{project_id}/bom-comments/{comment_id}",
+            path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
     def remove_comment_reaction(self, project_id: str, comment_id: str, reaction: str, *, replyId: str | None = None) -> CommentView:
@@ -6447,12 +7545,52 @@ class GeneratedClient:
             query={"replyId": replyId},
         )
 
+    def remove_component_watch(self, component_id: str) -> None:
+        """Remove Component Watch"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/components/{component_id}/watch",
+            path_params={"component_id": component_id},
+        )
+
+    def remove_exemption(self, part_id: str, code: str) -> None:
+        """Remove Exemption"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/parts/{part_id}/exemptions/{code}",
+            path_params={"part_id": part_id, "code": code},
+        )
+
+    def remove_maker_spelling(self, alias_key: str) -> None:
+        """Remove Maker Spelling"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/settings/makers/{alias_key}",
+            path_params={"alias_key": alias_key},
+        )
+
     def remove_mate(self, component_id: str, other_id: str) -> MatePage:
         """Remove a mating between two parts"""
         return self._request(
             "DELETE",
             "/api/v1/catalog/components/{component_id}/mates-with/{other_id}",
             path_params={"component_id": component_id, "other_id": other_id},
+        )
+
+    def remove_number_ending(self, key: str) -> None:
+        """Remove Number Ending"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/settings/number-endings/{key}",
+            path_params={"key": key},
+        )
+
+    def remove_watch(self, watch_id: str) -> None:
+        """Remove Watch"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/watches/{watch_id}",
+            path_params={"watch_id": watch_id},
         )
 
     def render_png(self, project_id: str, render_id: str) -> Any:
@@ -6501,6 +7639,14 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/admin/trackers/connectors/{connector_id}/resume",
+            path_params={"connector_id": connector_id},
+        )
+
+    def resume_supply_connector(self, connector_id: str) -> dict[str, Any]:
+        """Resume Supply Connector"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/resume",
             path_params={"connector_id": connector_id},
         )
 
@@ -6565,6 +7711,14 @@ class GeneratedClient:
             "POST",
             "/api/v1/auth/sessions/revoke-user/{email}",
             path_params={"email": email},
+        )
+
+    def revoke_waiver(self, waiver_id: str) -> None:
+        """Revoke Waiver"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/waivers/{waiver_id}",
+            path_params={"waiver_id": waiver_id},
         )
 
     def rotate_service_client_secret(self, client_id: str) -> ServiceClientWithSecret:
@@ -6633,6 +7787,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def search(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Search"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/fill/search",
+            body=body,
+        )
+
     def search_catalog_assets(self, *, asset_type: str = 'footprint', q: str = '', limit: int = 25) -> AssetSearchPage:
         """Search catalog assets"""
         return self._request(
@@ -6658,6 +7820,14 @@ class GeneratedClient:
             query={"q": q, "kind": kind, "revision": revision, "limit": limit},
         )
 
+    def search_parts(self, *, q: str = '', limit: int = 8) -> dict[str, Any]:
+        """Search Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/search/parts",
+            query={"q": q, "limit": limit},
+        )
+
     def search_projects(self, *, q: str = '', limit: int = 100) -> ProjectSearchResults:
         """Search projects by name, description or repository"""
         return self._request(
@@ -6666,12 +7836,75 @@ class GeneratedClient:
             query={"q": q, "limit": limit},
         )
 
+    def set_component_watch(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set Component Watch"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/components/{component_id}/watch",
+            path_params={"component_id": component_id},
+            body=body,
+        )
+
+    def set_connector_credentials(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set Connector Credentials"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/connectors/{connector_id}/credentials",
+            path_params={"connector_id": connector_id},
+            body=body,
+        )
+
+    def set_datasheet_url(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Set Datasheet Url"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/parts/{part_id}/datasheet-url",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
     def set_model_alignment(self, component_id: str, asset_id: str, *, body: dict[str, Any] | None = None) -> ModelPage:
         """Save a model's alignment"""
         return self._request(
             "PUT",
             "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
             path_params={"component_id": component_id, "asset_id": asset_id},
+            body=body,
+        )
+
+    def set_part_tier(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set Part Tier"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/parts/{part_id}",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def set_preferred(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Set Preferred"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/parts/{part_id}/preferred",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def set_price_quantity(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set Price Quantity"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/parts/{part_id}/price-quantity",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def set_restriction(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set Restriction"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/ending/{component_id}/restriction",
+            path_params={"component_id": component_id},
             body=body,
         )
 
@@ -6684,6 +7917,15 @@ class GeneratedClient:
             body=body,
         )
 
+    def set_trade_mark(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Set Trade Mark"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/parts/{part_id}/trade-mark",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
     def set_user_password(self, email: str, *, body: dict[str, Any] | None = None) -> SetUserPasswordResponse:
         """Set or reset a user's local password"""
         return self._request(
@@ -6693,12 +7935,44 @@ class GeneratedClient:
             body=body,
         )
 
+    def several(self) -> dict[str, Any]:
+        """Several"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/packaging/several",
+        )
+
     def share_reply_to_tracker(self, project_id: str, comment_id: str, reply_id: str) -> dict[str, Any]:
         """Share Reply To Tracker"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/share",
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
+        )
+
+    def signin_status(self, connector_id: str) -> dict[str, Any]:
+        """Signin Status"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/connectors/{connector_id}/signin",
+            path_params={"connector_id": connector_id},
+        )
+
+    def snooze_alert(self, alert_id: int, *, body: dict[str, Any] | None = None) -> None:
+        """Snooze Alert"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/alerts/{alert_id}/snooze",
+            path_params={"alert_id": alert_id},
+            body=body,
+        )
+
+    def start(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Start"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/checks",
+            body=body,
         )
 
     def start_design_compare(self, project_id: str, *, body: dict[str, Any] | None = None) -> StartDesignCompareResponse:
@@ -6726,6 +8000,22 @@ class GeneratedClient:
             body=body,
         )
 
+    def start_signin(self, connector_id: str) -> dict[str, str]:
+        """Start Signin"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/signin",
+            path_params={"connector_id": connector_id},
+        )
+
+    def stop_tracking_part(self, part_id: str) -> None:
+        """Stop Tracking Part"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/tracking/parts/{part_id}",
+            path_params={"part_id": part_id},
+        )
+
     def submit_setup(self, project_id: str, setup_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Submit Setup"""
         return self._request(
@@ -6733,6 +8023,20 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/submit",
             path_params={"project_id": project_id, "setup_id": setup_id},
             body=body,
+        )
+
+    def supply_health(self) -> dict[str, Any]:
+        """Supply Health"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/health",
+        )
+
+    def svhc_list_info(self) -> dict[str, Any]:
+        """Svhc List Info"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/compliance/svhc",
         )
 
     def sync_project_endpoint(self, project_id: str) -> SyncQueued:
@@ -6748,6 +8052,14 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/admin/trackers/connectors/{connector_id}/test",
+            path_params={"connector_id": connector_id},
+        )
+
+    def test_connector_connection(self, connector_id: str) -> dict[str, Any]:
+        """Test Connector Connection"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/test",
             path_params={"connector_id": connector_id},
         )
 
@@ -6790,12 +8102,35 @@ class GeneratedClient:
             path_params={"request_id": request_id},
         )
 
+    def track_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Track Project"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/projects/{project_id}",
+            path_params={"project_id": project_id},
+            body=body,
+        )
+
+    def track_record(self) -> dict[str, Any]:
+        """Track Record"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/forecasts/track-record",
+        )
+
     def tracker_webhook(self, provider: str, connector_id: str) -> WebhookAccepted:
         """Accept a signed tracker webhook delivery into the inbox"""
         return self._request(
             "POST",
             "/api/v1/trackers/webhooks/{provider}/{connector_id}",
             path_params={"provider": provider, "connector_id": connector_id},
+        )
+
+    def tracking_room(self) -> dict[str, Any]:
+        """Tracking Room"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/room",
         )
 
     def transition_release_status(self, component_id: str, *, body: dict[str, Any] | None = None) -> CatalogComponent:
@@ -6824,6 +8159,30 @@ class GeneratedClient:
             body=body,
         )
 
+    def undeclare_substance(self, part_id: str, cas: str) -> None:
+        """Undeclare Substance"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/parts/{part_id}/substances/{cas}",
+            path_params={"part_id": part_id, "cas": cas},
+        )
+
+    def undo_alias(self, alias_key: str) -> dict[str, int]:
+        """Undo Alias"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/aliases/{alias_key}/undo",
+            path_params={"alias_key": alias_key},
+        )
+
+    def undo_settled(self, part_id: str) -> dict[str, bool]:
+        """Undo Settled"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/parts/{part_id}/undo",
+            path_params={"part_id": part_id},
+        )
+
     def unlink_comment_tracker(self, project_id: str, comment_id: str) -> dict[str, Any]:
         """Unlink Comment Tracker"""
         return self._request(
@@ -6838,6 +8197,14 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/trackers/identities/{connector_id}",
             path_params={"connector_id": connector_id},
+        )
+
+    def untrack_project(self, project_id: str) -> None:
+        """Untrack Project"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/tracking/projects/{project_id}",
+            path_params={"project_id": project_id},
         )
 
     def update_catalog_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> CatalogComponent:
@@ -6939,6 +8306,24 @@ class GeneratedClient:
             body=body,
         )
 
+    def update_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Update Supply Connector"""
+        return self._request(
+            "PATCH",
+            "/api/v1/supply/connectors/{connector_id}",
+            path_params={"connector_id": connector_id},
+            body=body,
+        )
+
+    def update_watch(self, watch_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Update Watch"""
+        return self._request(
+            "PATCH",
+            "/api/v1/supply/watches/{watch_id}",
+            path_params={"watch_id": watch_id},
+            body=body,
+        )
+
     def update_webhook(self, webhook_id: str, *, body: dict[str, Any] | None = None) -> WebhookView:
         """Edit an outbound webhook"""
         return self._request(
@@ -6964,6 +8349,15 @@ class GeneratedClient:
             path_params={"snapshot_id": snapshot_id},
         )
 
+    def upload_offers_csv(self, connector_id: str, *, filename: str = '') -> dict[str, Any]:
+        """Upload Offers Csv"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/csv",
+            path_params={"connector_id": connector_id},
+            query={"filename": filename},
+        )
+
     def upload_project_thumbnail(self, project_id: str) -> ThumbnailUploaded:
         """Replace the project's thumbnail with an uploaded image"""
         return self._request(
@@ -6978,6 +8372,15 @@ class GeneratedClient:
             "PUT",
             "/api/v1/settings/access/users/{email}",
             path_params={"email": email},
+            body=body,
+        )
+
+    def use_numbers(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+        """Use Numbers"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/review/choices/{part_id}/numbers",
+            path_params={"part_id": part_id},
             body=body,
         )
 
@@ -7010,6 +8413,21 @@ class GeneratedClient:
             "GET",
             "/api/v1/catalog/components/{component_id}/audit/verify",
             path_params={"component_id": component_id},
+        )
+
+    def waiting(self) -> dict[str, Any]:
+        """Waiting"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/packaging/waiting",
+        )
+
+    def watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Watch"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/watch",
+            body=body,
         )
 
     def withdraw_build_approval(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> ApprovalDecision:

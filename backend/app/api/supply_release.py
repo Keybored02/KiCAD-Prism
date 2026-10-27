@@ -91,7 +91,10 @@ async def project_overview(
     return await _run(read)
 
 
-@router.get("/{project_id}/costing.zip")
+@router.get(
+    "/{project_id}/costing.zip",
+    responses={200: {"description": "The costing, trade classification and compliance files as one zip.", "content": {"application/zip": {}}}},
+)
 async def costing_zip(
     project_id: str,
     variant: str = Query(default="", max_length=120),
