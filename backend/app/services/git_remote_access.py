@@ -36,6 +36,15 @@ def default_branch_from_symref(output: str) -> Optional[str]:
     return None
 
 
+def head_sha_from_symref(output: str) -> Optional[str]:
+    """The commit ``HEAD`` points at in ``git ls-remote --symref <url> HEAD`` output."""
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == "HEAD" and not line.startswith("ref:"):
+            return parts[0]
+    return None
+
+
 def describe_target(parsed: ParsedRemote) -> str:
     """How a repository should be named in a message to the user."""
     return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
@@ -76,6 +85,23 @@ def git_env() -> dict:
     env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
     _inject_github_token(env)
     return env
+
+
+def read_remote_head(parsed: ParsedRemote) -> tuple[Optional[str], Optional[str]]:
+    """The remote's default branch and the commit it is at; ``(None, None)`` for an empty repository.
+
+    One ``ls-remote`` round trip, no clone, so a scan can tell that a repository
+    has not changed since it was last read.
+    """
+    git = Git()
+    git.update_environment(**git_env())
+    try:
+        output = git.ls_remote("--symref", parsed.url, "HEAD")
+    except Exception as error:
+        raise as_access_error(
+            error, target=describe_target(parsed), host=parsed.host
+        ) from error
+    return default_branch_from_symref(output), head_sha_from_symref(output)
 
 
 def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:

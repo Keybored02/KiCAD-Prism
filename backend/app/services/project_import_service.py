@@ -769,18 +769,52 @@ def _discover_remote_projects(
     needed, so this stays cheap even against a repository with gigabytes of
     history.
     """
-    temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
-    clone_path = Path(temp_dir) / parsed.repo_name
     context.progress(
         stage=stage,
         message=f"Cloning repository metadata ({ref})" if ref else "Cloning repository metadata",
         percent=0,
         force=True,
     )
+
+    def cloned() -> None:
+        context.check_cancelled()
+        context.progress(
+            stage="discover-projects",
+            message="Discovering KiCad projects",
+            percent=percent_ceiling,
+            force=True,
+        )
+
+    projects = clone_and_discover_projects(
+        parsed,
+        ref=ref,
+        progress=V3CloneProgress(context, stage=stage),
+        on_cloned=cloned,
+    )
+    return projects, classify_import_type(projects)
+
+
+def clone_and_discover_projects(
+    parsed: ParsedRemote,
+    *,
+    ref: Optional[str] = None,
+    progress: Optional[RemoteProgress] = None,
+    on_cloned: Optional[Callable[[], None]] = None,
+) -> List[DiscoveredProject]:
+    """The projects in a remote's branch (its HEAD by default), from a metadata-only clone.
+
+    Shared by the analyze job and repository discovery, so both call a
+    repository valid on exactly the same grounds. Anything git refuses is raised
+    as a ``GitAccessError``.
+    """
+    temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
+    clone_path = Path(temp_dir) / parsed.repo_name
     try:
         clone_options = {}
         if ref:
             clone_options["branch"] = ref
+        if progress is not None:
+            clone_options["progress"] = progress
         try:
             repo = Repo.clone_from(
                 parsed.url,
@@ -790,7 +824,6 @@ def _discover_remote_projects(
                 no_checkout=True,
                 filter="blob:none",
                 **GITPYTHON_CLONE_KWARGS,
-                progress=V3CloneProgress(context, stage=stage),
                 env=git_remote_access.git_env(),
                 **clone_options,
             )
@@ -800,15 +833,9 @@ def _discover_remote_projects(
             raise as_access_error(
                 error, target=git_remote_access.describe_target(parsed), host=parsed.host
             ) from error
-        context.check_cancelled()
-        context.progress(
-            stage="discover-projects",
-            message="Discovering KiCad projects",
-            percent=percent_ceiling,
-            force=True,
-        )
-        projects = discover_projects_from_repo(repo)
-        return projects, classify_import_type(projects)
+        if on_cloned is not None:
+            on_cloned()
+        return discover_projects_from_repo(repo)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
