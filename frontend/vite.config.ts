@@ -1,10 +1,31 @@
+import { execFileSync } from "node:child_process"
 import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
+function git(...args: string[]): string | undefined {
+  try {
+    return execFileSync("git", args, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Image builds pass PRISM_* as build args. A checkout built without them (the
+// dev server, `npm run build`) asks git, so a bug report from a source build
+// still names the commit it came from.
+const prismBuild = {
+  release: process.env.PRISM_RELEASE || git("describe", "--tags", "--always", "--dirty") || "development",
+  revision: process.env.PRISM_REVISION || git("rev-parse", "HEAD") || "unknown",
+  buildDate: process.env.PRISM_BUILD_DATE || "unknown",
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __PRISM_BUILD__: JSON.stringify(prismBuild),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -85,13 +106,7 @@ export default defineConfig({
           if (id.includes("node_modules/lucide-react")) {
             return "icons-runtime"
           }
-          if (id.includes("node_modules/online-3d-viewer")) {
-            return "viewer3d-runtime"
-          }
-          if (id.includes("node_modules/three")) {
-            return "three-runtime"
-          }
-          // System Builder's diagram canvas; loaded only with that tab.
+          // Simulation Studio's diagram canvas; loaded only with that studio.
           if (
             id.includes("node_modules/@xyflow/") ||
             id.includes("node_modules/d3-") ||

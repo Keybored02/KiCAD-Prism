@@ -5,8 +5,12 @@ testers of unreleased behavior work from `dev`.
 
 ## Release notes
 
-- [v4.0.0-alpha](releases/v4.0.0-alpha.md) covers the next major alpha and its
-  catalog migration requirements; it supersedes the unpublished v3.1 plan.
+- [v5.1.0-alpha](releases/v5.1.0-alpha.md) is the latest alpha: the scripting
+  API, SDK and CLI, webhooks, and the MCP server.
+- Earlier: [v5.0.2-alpha](releases/v5.0.2-alpha.md),
+  [v5.0.1-alpha](releases/v5.0.1-alpha.md),
+  [v5.0.0-alpha](releases/v5.0.0-alpha.md),
+  [v4.0.0-alpha](releases/v4.0.0-alpha.md).
 
 ## Evaluate Prism
 
@@ -55,15 +59,30 @@ testers of unreleased behavior work from `dev`.
   reconnect behavior, and transport rollback.
 - [Release Studio](release-studio/README.md) covers committed-revision
   manufacturing documents, dual sign-off, and GitHub/GitLab publish.
+- [Design data](PROJECT_WORKFLOWS.md#design-data) explains how Prism prepares
+  each revision, and what *Preparing design data…* and *could not be built*
+  mean.
+- [Simulation Studio](SIMULATION_STUDIO.md) (experimental, off by default)
+  covers DC IR-drop setups, runs and results.
+- [Automating Prism](AUTOMATING_PRISM.md) covers personal access tokens, the
+  `/api/v1` API, the Python SDK and `prism` CLI, and connecting AI assistants
+  over MCP.
 
 ## Contributor references
 
-- [System Builder](system-builder/README.md) is in development: multi-board
-  systems whose interface control documents track revisioned KiCad sources.
+- [System Builder](system-builder/README.md) was removed on 2026-10-23 and is
+  being re-scoped on its own branch.
 
+- [Native design bundle ADR](architecture/adr-native-design-bundle.md) and its
+  amendments record why Prism parses KiCad in Rust, once per revision; the
+  contracts are in `native/contracts/prism/` and the parity records in
+  `native/parity/`.
+- [Scripting and MCP ADR](architecture/adr-scripting-and-mcp.md)
+  records how Prism becomes scriptable: the versioned API, tokens and scopes,
+  and the MCP server.
+- [Addressing](architecture/addressing.md) lists the `/project/:projectId`
+  query parameters and the `prism://` resource URI grammar.
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
-- [Experimental Rust PCB geometry](PCB_RUST_GEOMETRY.md) covers explicit
-  opt-in, limitations, verification, and rollback.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.
 
 ## Participate

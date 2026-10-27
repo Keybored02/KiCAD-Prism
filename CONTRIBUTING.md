@@ -100,15 +100,46 @@ PostgreSQL integration tests use `TEST_POSTGRES_URL` and, for the catalog
 epoch-2 cutover, `LEGACY_SURVIVOR_TEST_POSTGRES_URL`. Use disposable test
 databases; do not point either suite at a production database.
 
+Tests get their schemas and repositories from `backend/tests/support/`:
+`support.postgres` hands out a scratch schema migrated by the production
+ledgers (dropped after the test) plus seed rows, and `support.repo` makes Git
+repositories with a fixed author. `tests/test_test_support.py` fails if a test
+module writes its own `DROP SCHEMA`, copies a production table, or runs Git
+with its own identity.
+
 ### Semantic viewer
 
 ```bash
 cd kicad-prism-viewer
 npm ci
-npm run test:gltf
 npm run test:viewer
+npm run test:harness
 npm run build
 ```
+
+### Native parser and design bundle (Rust)
+
+When `native/` changed (see `native/AGENTS.md`):
+
+```bash
+cd native
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run -p prism-kicad-codegen -- --check
+cargo deny check licenses sources
+scripts/rust_hygiene.sh    # size/complexity ratchet; no new violations
+```
+
+A change to a contract (`native/src/tsp/prism/`, `native/contracts/`) also runs
+`node scripts/contracts/check-contract.mjs` (Node 24.22.0). A change to a bundle
+member's output runs the parity checks from `native/parity/` (`python3 -m
+unittest discover -s tests`, `python3 -m prism_parity selftest`, and
+`node parity/validate.mjs parity/goldens` from `native/`); a deliberate output
+change updates the member's golden in the same pull request. Rebuild the
+analytic WASM (`npm run build:analytic-wasm` in `kicad-prism-viewer/`) when the
+crates it compiles change. Rust is pinned to 1.98.0 by
+`native/rust-toolchain.toml`.
 
 ### Compose configuration
 
@@ -170,7 +201,7 @@ matters to a user's decision, state it directly.
 - The PR targets `dev`.
 - The description explains the problem, solution, and user impact.
 - Tests cover the changed behavior.
-- Frontend, backend, viewer, or Compose checks relevant to the change pass.
+- Frontend, backend, viewer, native, or Compose checks relevant to the change pass.
 - Documentation and configuration examples are current.
 - No secrets, private design data, generated builds, or local caches are added.
 - Breaking or feature-freeze changes have explicit maintainer approval.

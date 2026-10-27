@@ -12,6 +12,7 @@ import {
     X,
 } from "lucide-react";
 import { commentClassLabel, type Comment } from "@/types/comments";
+import { CommentAuthorKindBadge } from "@/components/comment-author-kind-badge";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
 import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
@@ -273,6 +274,11 @@ function PanelCommentCard({
                             <span className="h-2 w-2 shrink-0 rounded-full bg-primary" role="img" aria-label="New activity" />
                         )}
                         <span className="text-sm font-semibold">{comment.author}</span>
+                        <CommentAuthorKindBadge
+                            authorKind={comment.authorKind}
+                            authorClientId={comment.authorClientId}
+                            authorClientName={comment.authorClientName}
+                        />
                         {comment.elementRef && (
                             <Badge variant="outline" className="h-5 px-1 text-[10px]">
                                 {comment.elementRef}
@@ -341,34 +347,38 @@ function PanelCommentCard({
                                 <ReplyIcon className="mr-1 h-3 w-3" />
                                 Reply
                             </Button>
+                            {comment.permissions?.canDelete !== false && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => setConfirmDelete(true)}
+                                >
+                                    <Trash2 className="mr-1 h-3 w-3" />
+                                    Delete
+                                </Button>
+                            )}
+                        </div>
+                        {comment.permissions?.canResolve !== false && (
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => setConfirmDelete(true)}
+                                className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
+                                onClick={() => onResolve(comment.id, !isResolved)}
                             >
-                                <Trash2 className="mr-1 h-3 w-3" />
-                                Delete
+                                {isResolved ? (
+                                    <>
+                                        <CheckCircle className="mr-1 h-3 w-3" />
+                                        Resolved
+                                    </>
+                                ) : (
+                                    <>
+                                        <Circle className="mr-1 h-3 w-3" />
+                                        Resolve
+                                    </>
+                                )}
                             </Button>
-                        </div>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
-                            onClick={() => onResolve(comment.id, !isResolved)}
-                        >
-                            {isResolved ? (
-                                <>
-                                    <CheckCircle className="mr-1 h-3 w-3" />
-                                    Resolved
-                                </>
-                            ) : (
-                                <>
-                                    <Circle className="mr-1 h-3 w-3" />
-                                    Resolve
-                                </>
-                            )}
-                        </Button>
+                        )}
                     </>
                 ) : (
                     <div className="text-xs text-muted-foreground">Read-only</div>
@@ -396,7 +406,14 @@ function PanelCommentCard({
                                 comment.replies.map((item) => (
                                     <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
                                         <div className="mb-1 flex items-center justify-between">
-                                            <span className="text-xs font-medium">{item.author}</span>
+                                            <span className="flex items-center gap-1">
+                                                <span className="text-xs font-medium">{item.author}</span>
+                                                <CommentAuthorKindBadge
+                                                    authorKind={item.authorKind}
+                                                    authorClientId={item.authorClientId}
+                                                    authorClientName={item.authorClientName}
+                                                />
+                                            </span>
                                             <span className="text-[10px] text-muted-foreground">
                                                 {new Date(item.timestamp).toLocaleDateString()}
                                             </span>

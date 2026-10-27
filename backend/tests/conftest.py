@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import os
 
+# A route whose response breaks its declared model fails the test instead of
+# being served unvalidated (app.core.errors._response_validation_handler).
+os.environ.setdefault("PRISM_STRICT_RESPONSE_MODELS", "1")
+
 import pytest
 from urllib.parse import urlsplit, urlunsplit
 
@@ -36,20 +40,6 @@ def _worker_databases(worker: str) -> None:
 _WORKER = os.environ.get("PYTEST_XDIST_WORKER")
 if _WORKER:
     _worker_databases(_WORKER)
-
-
-# SB2-93: every hit of the process-wide interface cache checks that no caller mutated it.
-os.environ.setdefault("PRISM_INTERFACE_CACHE_VERIFY", "1")
-
-
-@pytest.fixture(autouse=True)
-def _fresh_interface_cache():
-    """Tests reuse cache keys across schemas with different payloads; production never does."""
-    from app.services.systems.interface_cache import clear_all
-
-    clear_all()
-    yield
-    clear_all()
 
 
 # ---------------------------------------------------------------------------
@@ -97,3 +87,23 @@ def pytest_collection_modifyitems(config, items):
     keep = [item for item in items if plan[module_of(item)] == index - 1]
     config.hook.pytest_deselected(items=[item for item in items if plan[module_of(item)] != index - 1])
     items[:] = keep
+
+
+# ---------------------------------------------------------------------------
+# The worker's application database, migrated once like the backend's startup.
+# ``_worker_databases`` copies the three test databases at import, so a fresh
+# worker's ``PRISM_DATABASE_URL`` has no ``workspace`` schema. The comments and
+# tracker tests read workspace tables through the application connection (and
+# the design-bundle commit index reads them in ``comment_anchor_service``), so
+# bring that database to head before any test runs.
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _application_schema_at_head():
+    # A run without databases (focused unit tests) has nothing to migrate.
+    if not os.environ.get("PRISM_DATABASE_URL"):
+        return
+    from app.services.schema_head import bring_every_schema_to_head
+
+    bring_every_schema_to_head()
+

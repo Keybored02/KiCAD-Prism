@@ -1,16 +1,19 @@
-"""Ordered registry and runner for the workspace schema migrations.
+"""Ordered registry of the workspace schema migrations.
 
 Each body is frozen in its own module under ``app.services.workspace_migrations``;
-this file only lists them in order and applies the ones a database has not
-recorded yet. Add a migration by adding a module and one registry line.
+this file only lists them in order. :mod:`app.services.schema_ledger` applies the
+ones a database has not recorded in ``ws_schema_migrations``. Add a migration by
+adding a module and one registry line.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from typing import Any
 
+from app.services.manufacturing_schema import MANUFACTURING_SCHEMA_SQL
+from app.services.schema_ledger import Ledger, Renumbered, Step
+from app.services.workspace_migrations import m000_base_tables
 from app.services.workspace_migrations import m001_v3_job_foundation
 from app.services.workspace_migrations import m002_workspace_read_versions
 from app.services.workspace_migrations import m003_git_read_cache
@@ -31,50 +34,49 @@ from app.services.workspace_migrations import m021_project_metadata
 from app.services.workspace_migrations import m022_project_metadata_repository
 from app.services.workspace_migrations import m024_tracker_connector_delete_cascade
 from app.services.workspace_migrations import m025_tracker_webhook_oauth
-from app.services.workspace_migrations import m026_system_builder
-from app.services.workspace_migrations import m027_system_workspace_version
-from app.services.workspace_migrations import m028_system_review_pending_changes
-from app.services.workspace_migrations import m029_system_import_sessions
-from app.services.workspace_migrations import m030_system_snapshot_manifest
-from app.services.workspace_migrations import m031_system_exports
-from app.services.workspace_migrations import m032_system_catalog_binding
-from app.services.workspace_migrations import m033_system_catalog_instances
-from app.services.workspace_migrations import m034_system_child_reviews
-from app.services.workspace_migrations import m035_system_optional_rules
-from app.services.workspace_migrations import m036_system_port_mating
-from app.services.workspace_migrations import m037_system_link_types
-from app.services.workspace_migrations import m038_system_harnesses
-from app.services.workspace_migrations import m039_system_harness_part_pins
-from app.services.workspace_migrations import m040_system_poses
 from app.services.trackers import migrations as tracker_migrations
 from app.services.workspace_migrations import m041_repository_origin
-from app.services.workspace_migrations import m042_system_archive
-from app.services.workspace_migrations import m043_system_driving_mates
-from app.services.workspace_migrations import m044_system_harness_nodes
-from app.services.workspace_migrations import m045_system_git
-from app.services.workspace_migrations import m046_system_manifest_reviews
-from app.services.workspace_migrations import m047_system_bundle_frames
-from app.services.workspace_migrations import m048_system_finding_waivers
-from app.services.workspace_migrations import m049_system_finding_counts
-from app.services.workspace_migrations import m050_system_subports
-from app.services.workspace_migrations import m051_system_net_renames
-from app.services.workspace_migrations import m052_system_parts_collisions
-from app.services.workspace_migrations import m053_system_step_exports
-from app.services.workspace_migrations import m054_system_harness_outputs
+from app.services.workspace_migrations import m055_project_path_settings
+from app.services.workspace_migrations import m056_release_studio_model_inputs
+from app.services.workspace_migrations import m057_job_retention_indexes
+from app.services.workspace_migrations import m100_design_bundle_commit_index
+from app.services.workspace_migrations import m101_design_bundles
+from app.services.workspace_migrations import m102_design_bundle_outcomes
+from app.services.workspace_migrations import m103_design_bundle_aliases
+from app.services.workspace_migrations import m118_design_bundle_design_keys
+from app.services.workspace_migrations import m120_sim_studio_setups
+from app.services.workspace_migrations import m121_sim_studio_runs
+from app.services.workspace_migrations import m122_sim_studio_layouts
+from app.services.workspace_migrations import m123_drop_system_builder_v1
+from app.services.workspace_migrations import m124_drop_mesh_viewer_readiness
+from app.services.workspace_migrations import m129_drop_system_builder_v2
+from app.services.workspace_migrations import m130_sim_run_solved_commit
+from app.services.workspace_migrations import m131_idempotency_keys
+from app.services.workspace_migrations import m132_workspace_events
+from app.services.workspace_migrations import m133_personal_access_tokens
+from app.services.workspace_migrations import m134_mcp_grants
+from app.services.workspace_migrations import m135_mcp_governance
+from app.services.workspace_migrations import m136_mcp_audit
+from app.services.workspace_migrations import m137_webhooks
+from app.services.workspace_migrations import m138_token_audit
+from app.services.workspace_migrations import m139_ops_instrumentation
+from app.services.workspace_migrations import m140_ops_workers_settings
+from app.services.workspace_migrations import m141_pg_stat_statements
+from app.services.workspace_migrations import m142_ops_profiles
 
-
-logger = logging.getLogger(__name__)
 
 Migration = Callable[[Any], None]
 
 def _manufacturing_spec_config(conn: Any) -> None:
-    """Create the board-specs table (if absent) and add its spec-schema column.
+    """Create the manufacturing tables (if absent) and add the board specs' spec-schema column.
 
-    The manufacturing tables are also created in _create_schema; creating the base
-    table here too makes this migration self-contained, so a database that runs
-    the migration ladder without _create_schema (some test harnesses) does not
-    fail on the ALTER. IF NOT EXISTS keeps everything a no-op on a fresh database.
+    The workspace schema used to be created by ``_create_schema``, which held the
+    manufacturing tables. The ledger replaced it, so the first manufacturing step
+    creates them all. Every statement is IF NOT EXISTS, so a database that already
+    has them (made by ``_create_schema``) is unchanged, and the later steps, which
+    ALTER them, find their tables on a fresh database.
     """
+    conn.execute(MANUFACTURING_SCHEMA_SQL, prepare=False)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ws_board_specs (
@@ -359,6 +361,7 @@ def _manufacturing_defect_disposition(conn: Any) -> None:
 
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
+    (0, "base_tables", m000_base_tables.migrate),
     (1, "v3_job_foundation", m001_v3_job_foundation.migrate),
     (2, "workspace_read_versions", m002_workspace_read_versions.migrate),
     (3, "git_read_cache", m003_git_read_cache.migrate),
@@ -380,100 +383,96 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (23, tracker_migrations.WORKSPACE_MIGRATION_NAME, tracker_migrations.migrate),
     (24, tracker_migrations.WORKSPACE_FK_CASCADE_NAME, m024_tracker_connector_delete_cascade.migrate),
     (25, tracker_migrations.WORKSPACE_WEBHOOK_OAUTH_NAME, m025_tracker_webhook_oauth.migrate),
-    (26, "system_builder", m026_system_builder.migrate),
-    (27, "system_workspace_version", m027_system_workspace_version.migrate),
-    (28, "system_review_pending_changes", m028_system_review_pending_changes.migrate),
-    (29, "system_import_sessions", m029_system_import_sessions.migrate),
-    (30, "system_snapshot_manifest", m030_system_snapshot_manifest.migrate),
-    (31, "system_exports", m031_system_exports.migrate),
-    (32, "system_catalog_binding", m032_system_catalog_binding.migrate),
-    (33, "system_catalog_instances", m033_system_catalog_instances.migrate),
-    (34, "system_child_reviews", m034_system_child_reviews.migrate),
-    (35, "system_optional_rules", m035_system_optional_rules.migrate),
-    (36, "system_port_mating", m036_system_port_mating.migrate),
-    (37, "system_link_types", m037_system_link_types.migrate),
-    (38, "system_harnesses", m038_system_harnesses.migrate),
-    (39, "system_harness_part_pins", m039_system_harness_part_pins.migrate),
-    (40, "system_poses", m040_system_poses.migrate),
     (41, "repository_origin", m041_repository_origin.migrate),
-    (42, "system_archive", m042_system_archive.migrate),
-    (43, "system_driving_mates", m043_system_driving_mates.migrate),
-    (44, "system_harness_nodes", m044_system_harness_nodes.migrate),
-    (45, "system_git", m045_system_git.migrate),
-    (46, "system_manifest_reviews", m046_system_manifest_reviews.migrate),
-    (47, "system_bundle_frames", m047_system_bundle_frames.migrate),
-    (48, "system_finding_waivers", m048_system_finding_waivers.migrate),
-    (49, "system_finding_counts", m049_system_finding_counts.migrate),
-    (50, "system_subports", m050_system_subports.migrate),
-    (51, "system_net_renames", m051_system_net_renames.migrate),
-    (52, "system_parts_collisions", m052_system_parts_collisions.migrate),
-    (53, "system_step_exports", m053_system_step_exports.migrate),
-    (54, "system_harness_outputs", m054_system_harness_outputs.migrate),
-    (55, "manufacturing_spec_config", _manufacturing_spec_config),
-    (56, "manufacturing_spec_templates", _manufacturing_spec_templates),
-    (57, "manufacturing_active_sections", _manufacturing_active_sections),
-    (58, "manufacturing_builtin_templates", _manufacturing_builtin_templates),
-    (59, "manufacturing_run_release_tag", _manufacturing_run_release_tag),
-    (60, "manufacturing_project_manufacturers_and_specs", _manufacturing_project_manufacturers_and_specs),
-    (61, "manufacturing_run_spec_id", _manufacturing_run_spec_id),
-    (62, "manufacturing_manufacturer_capabilities", _manufacturing_manufacturer_capabilities),
-    (63, "manufacturing_capabilities_per_template", _manufacturing_capabilities_per_template),
-    (64, "manufacturing_run_job_number", _manufacturing_run_job_number),
-    (65, "manufacturing_capability_meta", _manufacturing_capability_meta),
-    (66, "manufacturing_capability_config", _manufacturing_capability_config),
-    (67, "manufacturing_one_spec_per_manufacturer", _manufacturing_one_spec_per_manufacturer),
-    (68, "manufacturing_defect_disposition", _manufacturing_defect_disposition),
+    (55, "project_path_settings", m055_project_path_settings.migrate),
+    (56, "release_studio_model_inputs", m056_release_studio_model_inputs.migrate),
+    (57, "job_retention_indexes", m057_job_retention_indexes.migrate),
+    # 100-103 and 118: the design bundle (WP-K; reserved block, native/contracts/prism/ownership.md §5).
+    (100, "design_bundle_commit_index", m100_design_bundle_commit_index.migrate),
+    (101, "design_bundles", m101_design_bundles.migrate),
+    (102, "design_bundle_outcomes", m102_design_bundle_outcomes.migrate),
+    (103, "design_bundle_aliases", m103_design_bundle_aliases.migrate),
+    (118, "design_bundle_design_keys", m118_design_bundle_design_keys.migrate),
+    (120, "sim_studio_setups", m120_sim_studio_setups.migrate),
+    (121, "sim_studio_runs", m121_sim_studio_runs.migrate),
+    (122, "sim_studio_layouts", m122_sim_studio_layouts.migrate),
+    # 26-54 (but 41) were System Builder v1; 123 drops what they made.
+    (123, "drop_system_builder_v1", m123_drop_system_builder_v1.migrate),
+    (124, "drop_mesh_viewer_readiness", m124_drop_mesh_viewer_readiness.migrate),
+    # 125-128 were System Builder v2; 129 drops what they made.
+    (129, "drop_system_builder_v2", m129_drop_system_builder_v2.migrate),
+    (130, "sim_run_solved_commit", m130_sim_run_solved_commit.migrate),
+    (131, "idempotency_keys", m131_idempotency_keys.migrate),
+    (132, "workspace_events", m132_workspace_events.migrate),
+    (133, "personal_access_tokens", m133_personal_access_tokens.migrate),
+    (134, "mcp_grants", m134_mcp_grants.migrate),
+    (135, "mcp_governance", m135_mcp_governance.migrate),
+    (136, "mcp_audit", m136_mcp_audit.migrate),
+    (137, "webhooks", m137_webhooks.migrate),
+    (138, "token_audit", m138_token_audit.migrate),
+    (139, "ops_instrumentation", m139_ops_instrumentation.migrate),
+    (140, "ops_workers_settings", m140_ops_workers_settings.migrate),
+    (141, "pg_stat_statements", m141_pg_stat_statements.migrate),
+    (142, "ops_profiles", m142_ops_profiles.migrate),
+    # 143-156: manufacturing. They sat at 26-39, then 55-68; dev took 55-57 and 100-142, so they follow its head.
+    (143, "manufacturing_spec_config", _manufacturing_spec_config),
+    (144, "manufacturing_spec_templates", _manufacturing_spec_templates),
+    (145, "manufacturing_active_sections", _manufacturing_active_sections),
+    (146, "manufacturing_builtin_templates", _manufacturing_builtin_templates),
+    (147, "manufacturing_run_release_tag", _manufacturing_run_release_tag),
+    (148, "manufacturing_project_manufacturers_and_specs", _manufacturing_project_manufacturers_and_specs),
+    (149, "manufacturing_run_spec_id", _manufacturing_run_spec_id),
+    (150, "manufacturing_manufacturer_capabilities", _manufacturing_manufacturer_capabilities),
+    (151, "manufacturing_capabilities_per_template", _manufacturing_capabilities_per_template),
+    (152, "manufacturing_run_job_number", _manufacturing_run_job_number),
+    (153, "manufacturing_capability_meta", _manufacturing_capability_meta),
+    (154, "manufacturing_capability_config", _manufacturing_capability_config),
+    (155, "manufacturing_one_spec_per_manufacturer", _manufacturing_one_spec_per_manufacturer),
+    (156, "manufacturing_defect_disposition", _manufacturing_defect_disposition),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
-# The ledger keys on version, so without this the old row would hide another
-# migration's version and the new one would fail on the unique name.
 RENUMBERED: tuple[tuple[str, int, int], ...] = (
     ("repository_origin", 26, 41),
-    ("manufacturing_spec_config", 26, 55),
-    ("manufacturing_spec_templates", 27, 56),
-    ("manufacturing_active_sections", 28, 57),
-    ("manufacturing_builtin_templates", 29, 58),
-    ("manufacturing_run_release_tag", 30, 59),
-    ("manufacturing_project_manufacturers_and_specs", 31, 60),
-    ("manufacturing_run_spec_id", 32, 61),
-    ("manufacturing_manufacturer_capabilities", 33, 62),
-    ("manufacturing_capabilities_per_template", 34, 63),
-    ("manufacturing_run_job_number", 35, 64),
-    ("manufacturing_capability_meta", 36, 65),
-    ("manufacturing_capability_config", 37, 66),
-    ("manufacturing_one_spec_per_manufacturer", 38, 67),
-    ("manufacturing_defect_disposition", 39, 68),
+    # Simulation Studio's first deployment recorded its migrations as 9056-9058.
+    ("sim_studio_setups", 9056, 120),
+    ("sim_studio_runs", 9057, 121),
+    ("sim_studio_layouts", 9058, 122),
+    ("manufacturing_spec_config", 26, 143),
+    ("manufacturing_spec_config", 55, 143),
+    ("manufacturing_spec_templates", 27, 144),
+    ("manufacturing_spec_templates", 56, 144),
+    ("manufacturing_active_sections", 28, 145),
+    ("manufacturing_active_sections", 57, 145),
+    ("manufacturing_builtin_templates", 29, 146),
+    ("manufacturing_builtin_templates", 58, 146),
+    ("manufacturing_run_release_tag", 30, 147),
+    ("manufacturing_run_release_tag", 59, 147),
+    ("manufacturing_project_manufacturers_and_specs", 31, 148),
+    ("manufacturing_project_manufacturers_and_specs", 60, 148),
+    ("manufacturing_run_spec_id", 32, 149),
+    ("manufacturing_run_spec_id", 61, 149),
+    ("manufacturing_manufacturer_capabilities", 33, 150),
+    ("manufacturing_manufacturer_capabilities", 62, 150),
+    ("manufacturing_capabilities_per_template", 34, 151),
+    ("manufacturing_capabilities_per_template", 63, 151),
+    ("manufacturing_run_job_number", 35, 152),
+    ("manufacturing_run_job_number", 64, 152),
+    ("manufacturing_capability_meta", 36, 153),
+    ("manufacturing_capability_meta", 65, 153),
+    ("manufacturing_capability_config", 37, 154),
+    ("manufacturing_capability_config", 66, 154),
+    ("manufacturing_one_spec_per_manufacturer", 38, 155),
+    ("manufacturing_one_spec_per_manufacturer", 67, 155),
+    ("manufacturing_defect_disposition", 39, 156),
+    ("manufacturing_defect_disposition", 68, 156),
 )
 
 
-def apply_workspace_migrations(conn: Any) -> None:
-    """Apply versioned, additive workspace migrations under the caller's lock."""
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ws_schema_migrations (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    for name, old_version, new_version in RENUMBERED:
-        conn.execute(
-            "UPDATE ws_schema_migrations SET version = %s WHERE version = %s AND name = %s",
-            (new_version, old_version, name),
-        )
-    applied = {
-        int(row["version"])
-        for row in conn.execute("SELECT version FROM ws_schema_migrations").fetchall()
-    }
-    for version, name, migration in MIGRATIONS:
-        if version in applied:
-            continue
-        logger.info("Applying workspace schema migration %s (%s)", version, name)
-        migration(conn)
-        conn.execute(
-            "INSERT INTO ws_schema_migrations(version, name) VALUES (%s, %s)",
-            (version, name),
-        )
+WORKSPACE_LEDGER = Ledger(
+    name="workspace",
+    schema="workspace",
+    table="ws_schema_migrations",
+    steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
+    renumbered=tuple(Renumbered(name, old, new) for name, old, new in RENUMBERED),
+)

@@ -78,9 +78,22 @@ export interface ReplySync {
     externalUrl?: string | null;
 }
 
+/** How the author reached Prism; ``agent`` is an MCP client acting for a signed-in user. */
+export type CommentAuthorKind =
+    | "user"
+    | "agent"
+    | "service"
+    | "guest"
+    | "legacy"
+    | "remote"
+    | "system";
+
 export interface CommentReply {
     id?: string;
     author: string;
+    authorKind?: CommentAuthorKind;
+    authorClientId?: string | null;
+    authorClientName?: string | null;
     timestamp: string;
     content: string;
     contentFormat?: CommentContentFormat;
@@ -98,6 +111,9 @@ export interface CommentReply {
 export interface Comment {
     id: string;
     author: string;
+    authorKind?: CommentAuthorKind;
+    authorClientId?: string | null;
+    authorClientName?: string | null;
     timestamp: string;
     status: CommentStatus;
     context: CommentContext;
@@ -139,9 +155,10 @@ export interface Comment {
     revision?: number;
     permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean;
         canPublish?: boolean; canRetry?: boolean };
-    anchor?: { state: string; commit?: string | null; source?: string | null };
+    anchor?: { state: string; commit?: string | null; source?: string | null;
+        designKey?: string | null; sourceRevisionKey?: string | null };
     anchorResolution?:
-        | { state: "candidate"; binding: {
+        | { state: "candidate"; sameDesign?: boolean; binding: {
             commit: string;
             elementId?: string | null;
             location: CommentLocation;

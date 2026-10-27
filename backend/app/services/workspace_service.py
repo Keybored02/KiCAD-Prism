@@ -14,13 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+from app.core import errors
 from app.core.config import settings
-from app.core.roles import Role, role_matches_allowed_role
+from app.core.policy import folder_visibility_params, folder_visible, folder_visible_sql
+from app.core.roles import Role
 from app.services.postgres_database import database
-from app.services.workspace_schema_migrations import apply_workspace_migrations
-from app.services.manufacturing_schema import MANUFACTURING_SCHEMA_SQL
-from app.services.systems.store import SystemStore
-from app.services.systems.visibility import visible_systems
+from app.services.project_anchor_backfill import backfill_project_anchors
+from app.services.project_settings_service import import_working_tree_settings, restore_committed_prism_json
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,12 @@ _RELEASE_IMMUTABLE_TRIGGERS = (
 )
 
 
-class ProjectHasSignedReleasesError(Exception):
-    """Raised when a non-admin delete is blocked by signed release records."""
+class WorkspaceNotFound(errors.NotFound, ValueError):
+    """A folder or project named in a workspace change does not exist (404; still a ``ValueError``)."""
+
+
+class ProjectHasSignedReleasesError(errors.Conflict):
+    """Raised when a non-admin delete is blocked by signed release records (409)."""
 
     def __init__(self, project_id: str, record_count: int) -> None:
         self.project_id = project_id
@@ -104,12 +109,12 @@ class WorkspaceService:
         with self._lock:
             if self._initialized:
                 return
-            with self._connect() as conn:
-                conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-                self._create_schema(conn)
-                apply_workspace_migrations(conn)
-                self._backfill_origin(conn)
-                conn.commit()
+            dirtied: list = []
+            WORKSPACE_LEDGER.migrate(self._connect, after=(
+                self._backfill_origin,
+                lambda conn: backfill_project_anchors(conn, self._abs_clone_path),
+                lambda conn: import_working_tree_settings(conn, self._abs_clone_path, dirtied)))
+            restore_committed_prism_json(dirtied)  # after the commit (D3)
             self._initialized = True
             logger.info("Workspace service initialized in PostgreSQL schema workspace")
 
@@ -159,94 +164,12 @@ class WorkspaceService:
             yield conn
 
     # ------------------------------------------------------------------
-    # Schema
-    # ------------------------------------------------------------------
-
-    def _create_schema(self, conn: Any) -> None:
-        conn.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-        conn.execute("SET search_path TO workspace, public")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ws_repositories (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                url         TEXT NOT NULL UNIQUE,
-                clone_path  TEXT NOT NULL UNIQUE,
-                import_type TEXT NOT NULL DEFAULT 'single',
-                cloned_at   TIMESTAMPTZ NOT NULL,
-                last_synced_at TIMESTAMPTZ
-            );
-
-            CREATE TABLE IF NOT EXISTS ws_folders (
-                id              TEXT PRIMARY KEY,
-                name            TEXT NOT NULL,
-                parent_id       TEXT REFERENCES ws_folders(id) ON DELETE CASCADE,
-                visibility_mode TEXT,
-                allowed_roles   JSONB NOT NULL DEFAULT '[]'::jsonb,
-                created_at      TIMESTAMPTZ NOT NULL,
-                updated_at      TIMESTAMPTZ NOT NULL,
-                UNIQUE(parent_id, name)
-            );
-            CREATE INDEX IF NOT EXISTS idx_ws_folders_parent ON ws_folders(parent_id);
-
-            CREATE TABLE IF NOT EXISTS ws_projects (
-                id              TEXT PRIMARY KEY,
-                repo_id         TEXT NOT NULL REFERENCES ws_repositories(id) ON DELETE CASCADE,
-                name            TEXT NOT NULL,
-                display_name    TEXT,
-                description     TEXT NOT NULL DEFAULT '',
-                relative_path   TEXT NOT NULL DEFAULT '.',
-                project_file_rel TEXT NOT NULL DEFAULT '',
-                folder_id       TEXT REFERENCES ws_folders(id) ON DELETE SET NULL,
-                schematic_rel   TEXT,
-                pcb_rel         TEXT,
-                thumbnail_rel   TEXT,
-                jobset_rel      TEXT,
-                has_3d_model    BOOLEAN NOT NULL DEFAULT FALSE,
-                has_ibom        BOOLEAN NOT NULL DEFAULT FALSE,
-                registered_at   TIMESTAMPTZ NOT NULL,
-                last_modified   TIMESTAMPTZ NOT NULL,
-                prism_json_hash TEXT,
-                -- A directory can hold more than one KiCad project, so it does
-                -- not identify one on its own. Keying uniqueness on the
-                -- directory alone made a repository with two projects in its
-                -- root importable only as one of them.
-                CONSTRAINT ws_projects_repo_path_file_key
-                    UNIQUE (repo_id, relative_path, project_file_rel)
-            );
-            CREATE INDEX IF NOT EXISTS idx_ws_projects_folder ON ws_projects(folder_id);
-            CREATE INDEX IF NOT EXISTS idx_ws_projects_repo   ON ws_projects(repo_id);
-
-            CREATE TABLE IF NOT EXISTS ws_project_portfolio (
-                project_id  TEXT PRIMARY KEY REFERENCES ws_projects(id) ON DELETE CASCADE,
-                model_rel   TEXT,
-                tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
-                scene_config JSONB
-            );
-
-            CREATE TABLE IF NOT EXISTS ws_jobs (
-                id         TEXT PRIMARY KEY,
-                kind       TEXT NOT NULL,
-                status     TEXT NOT NULL,
-                message    TEXT NOT NULL DEFAULT '',
-                percent    REAL NOT NULL DEFAULT 0,
-                payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL,
-                updated_at TIMESTAMPTZ NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_ws_jobs_kind_status ON ws_jobs(kind, status);
-
-        """ + MANUFACTURING_SCHEMA_SQL, prepare=False)
-
-    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     @staticmethod
     def _projects_root() -> str:
-        return os.environ.get(
-            "KICAD_PROJECTS_ROOT",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
-        )
+        return settings.KICAD_PROJECTS_ROOT
 
     def _abs_clone_path(self, relative_clone_path: str) -> str:
         return os.path.join(self._projects_root(), relative_clone_path)
@@ -271,15 +194,9 @@ class WorkspaceService:
 
     @staticmethod
     def _is_folder_visible(row: Dict[str, Any], user_role: Optional[Role]) -> bool:
-        if user_role is None:
-            return True
-        if row.get("visibility_mode") != "roles":
-            return True
         raw_allowed = row.get("allowed_roles") or []
         allowed = json.loads(raw_allowed) if isinstance(raw_allowed, str) else raw_allowed
-        if not allowed:
-            return True
-        return role_matches_allowed_role(user_role, allowed)
+        return folder_visible(user_role, row.get("visibility_mode"), allowed)
 
     # ------------------------------------------------------------------
     # Repository CRUD
@@ -470,10 +387,9 @@ class WorkspaceService:
     ) -> Optional[Dict[str, Any]]:
         """Resolve and authorize a project in one PostgreSQL query."""
 
-        viewer_fallback = user_role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
                        r.name AS parent_repo, r.import_type,
                        r.origin_url, r.origin_owner,
@@ -481,16 +397,10 @@ class WorkspaceService:
                 FROM ws_projects p
                 JOIN ws_repositories r ON r.id = p.repo_id
                 LEFT JOIN ws_folders f ON f.id = p.folder_id
-                WHERE p.id = %s
-                  AND (
-                    f.id IS NULL
-                    OR f.visibility_mode IS DISTINCT FROM 'roles'
-                    OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
-                    OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
-                    OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
-                  )
+                WHERE p.id = %(project_id)s
+                  AND {folder_visible_sql("f")}
                 """,
-                (project_id, user_role, viewer_fallback),
+                {"project_id": project_id, **folder_visibility_params(user_role)},
             ).fetchone()
         return self._project_row_to_dict(row) if row else None
 
@@ -515,7 +425,7 @@ class WorkspaceService:
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
             "thumbnail_source", "thumbnail_digest", "thumbnail_media_type",
             "thumbnail_size_bytes",
-            "has_3d_model", "has_ibom", "last_modified", "prism_json_hash",
+            "has_3d_model", "has_ibom", "last_modified", "prism_json_hash", "path_settings",
         }
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:
@@ -563,7 +473,7 @@ class WorkspaceService:
                     (folder_id,),
                 ).fetchone()
                 if not folder:
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
 
             rows = conn.execute(
                 "SELECT id FROM ws_projects WHERE id = ANY(%s) FOR UPDATE",
@@ -577,7 +487,7 @@ class WorkspaceService:
             ]
             if missing_ids:
                 noun = "Project" if len(missing_ids) == 1 else "Projects"
-                raise ValueError(f"{noun} not found: {', '.join(missing_ids)}")
+                raise WorkspaceNotFound(f"{noun} not found: {', '.join(missing_ids)}")
 
             cursor = conn.execute(
                 "UPDATE ws_projects SET folder_id=%s WHERE id = ANY(%s)",
@@ -615,8 +525,6 @@ class WorkspaceService:
                     raise ProjectHasSignedReleasesError(project_id, record_count)
 
             self._purge_project_associated_rows(conn, project_id)
-            # System Builder keeps the project's board instances as unresolved (§5.1).
-            SystemStore(conn).mark_project_unresolved(project_id)
             cur = conn.execute("DELETE FROM ws_projects WHERE id=%s", (project_id,))
             conn.execute("DELETE FROM ws_jobs WHERE project_id=%s", (project_id,))
             conn.commit()
@@ -697,10 +605,6 @@ class WorkspaceService:
             )
             conn.execute(
                 "DELETE FROM ws_release_audit_events WHERE project_id = %s",
-                (project_id,),
-            )
-            conn.execute(
-                "DELETE FROM ws_webgpu_ready WHERE project_id = %s",
                 (project_id,),
             )
         finally:
@@ -919,7 +823,7 @@ class WorkspaceService:
             if parent_id is not None:
                 parent = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (parent_id,)).fetchone()
                 if not parent:
-                    raise ValueError("Parent folder not found")
+                    raise WorkspaceNotFound("Parent folder not found")
             try:
                 conn.execute(
                     """INSERT INTO ws_folders (id,name,parent_id,visibility_mode,allowed_roles,created_at,updated_at)
@@ -950,7 +854,7 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
             if not row:
-                raise ValueError("Folder not found")
+                raise WorkspaceNotFound("Folder not found")
             folder = self._row_to_dict(row)
             target_name = name.strip() if name is not None else folder["name"]
             target_parent = parent_id if _use_parent else folder["parent_id"]
@@ -961,7 +865,7 @@ class WorkspaceService:
             if target_parent is not None:
                 p = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (target_parent,)).fetchone()
                 if not p:
-                    raise ValueError("Parent folder not found")
+                    raise WorkspaceNotFound("Parent folder not found")
                 # Prevent cycles
                 current = target_parent
                 visited = {folder_id}
@@ -1075,12 +979,12 @@ class WorkspaceService:
             if folder_id is not None:
                 row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
                 if not row:
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
                 fd = self._row_to_dict(row)
                 raw_roles = fd.get("allowed_roles") or []
                 fd["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
                 if not self._is_folder_visible(fd, user_role):
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
             child_folders = conn.execute(
                 "SELECT * FROM ws_folders WHERE parent_id IS NOT DISTINCT FROM %s ORDER BY name",
                 (folder_id,),
@@ -1092,7 +996,6 @@ class WorkspaceService:
                    WHERE p.folder_id IS NOT DISTINCT FROM %s ORDER BY p.name""",
                 (folder_id,),
             ).fetchall()
-            systems = visible_systems(conn, user_role, folder_id=folder_id)
         cf_list = []
         for f in child_folders:
             fd = self._row_to_dict(f)
@@ -1104,7 +1007,6 @@ class WorkspaceService:
         return {
             "folders": cf_list,
             "projects": [self._project_row_to_dict(p) for p in projects],
-            "systems": systems,
         }
 
     def is_folder_visible_to_role(self, folder_id: Optional[str], user_role: Optional[Role]) -> bool:
@@ -1122,18 +1024,13 @@ class WorkspaceService:
     def get_bootstrap_data(self, user_role: Optional[Role] = None) -> Dict[str, Any]:
         role = user_role or "admin"
         bypass_visibility = user_role is None
-        viewer_fallback = role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 WITH visible_folders AS (
                     SELECT f.*
                     FROM ws_folders f
-                    WHERE %s
-                       OR f.visibility_mode IS DISTINCT FROM 'roles'
-                       OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
-                       OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
-                       OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
+                    WHERE %(bypass)s OR {folder_visible_sql("f")}
                 ),
                 project_rows AS (
                     SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
@@ -1144,7 +1041,7 @@ class WorkspaceService:
                     JOIN ws_repositories r ON r.id = p.repo_id
                     LEFT JOIN ws_folders f ON f.id = p.folder_id
                     WHERE f.id IS NULL
-                       OR %s
+                       OR %(bypass)s
                        OR f.id IN (SELECT id FROM visible_folders)
                 ),
                 folder_counts AS (
@@ -1174,16 +1071,14 @@ class WorkspaceService:
                         1
                     ) AS version
                 """,
-                (bypass_visibility, role, viewer_fallback, bypass_visibility),
+                {"bypass": bypass_visibility, **folder_visibility_params(role)},
             ).fetchone()
-            systems = visible_systems(conn, None if bypass_visibility else role)
         projects = [
             self._project_row_to_dict(project)
             for project in list(row["projects"] or [])
         ]
         return {
             "projects": projects,
-            "systems": systems,
             "folders": self._build_folder_tree(
                 list(row["folders"] or []),
                 list(row["counts"] or []),

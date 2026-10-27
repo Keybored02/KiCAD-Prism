@@ -1,4 +1,5 @@
 import { GeometryArena } from "./geometry-arena.js";
+import { buildVariant, featureKey, hook, sortedFeatures, stripHooks } from "./shader-variants.js";
 import {
   FEATURE_MASK_WGSL,
   MIN_FEATURE_MASK_CAPACITY,
@@ -16,7 +17,6 @@ import {
   packOccurrenceEmphasis,
 } from "./net-emphasis.js";
 import {
-  BARREL_RECORD_STRIDE,
   IDENTITY,
   OCCURRENCE_STRIDE,
   OCCURRENCE_WGSL,
@@ -28,9 +28,28 @@ import {
   isIdentity,
   normalizeLodThresholds,
   normalizeOccurrences,
-  packBarrels,
   packOccurrences,
 } from "./occurrences.js";
+import {
+  BARREL_INPUT_WGSL,
+  BARREL_INSTANCE_LAYOUT,
+  BARREL_RECORD_STRIDE,
+  BARREL_STORAGE_WGSL,
+  packBarrelInstances,
+  packBarrels,
+} from "./barrel-records.js";
+import { ANALYTIC_PICK_TAG } from "./analytic-shaders.js";
+import { mat4Multiply } from "./math.js";
+
+const LIGHT_DIRECTION = Object.freeze([0.35, -0.5, 0.8, 0]);
+
+/** The world light direction in a model's own frame: its rotation's transpose applied. */
+function lightInModel(model) {
+  const [x, y, z] = LIGHT_DIRECTION;
+  const local = [0, 1, 2].map((axis) => model[axis * 4] * x + model[axis * 4 + 1] * y + model[axis * 4 + 2] * z);
+  const length = Math.hypot(...local) || 1;
+  return [...local.map((value) => value / length), 0];
+}
 
 // position unorm16×4 within the primitive's bounds (SB2-89), normal snorm8×4
 // (SB2-84), netId, objectId. SB2-82 dropped the per-primitive layer and material
@@ -53,7 +72,27 @@ const STENCIL_MARKED = { compare: "equal", passOp: "keep" };
 // SB2-89: positions are unorm16 within the primitive's bounds; the draw names the bounds.
 const DEQUANT_WGSL = `fn dequant(p: vec3f) -> vec3f { return draw.quantMin.xyz + p * draw.quantSize.xyz; }`;
 
-const MAIN_SHADER = `
+// A barrel is a stadium tube (a round drill is one of length 0): its plating
+// grows inward from the drill wall, as the finished hole does, so its inner
+// surface sits inside the substrate's drill wall instead of z-fighting it, and
+// end caps close the plating's ring at the copper faces. The unit mesh's x/y
+// is a point on the unit circle (never on its y axis), pushed along the long
+// axis by half the straight length and turned by the record's angle.
+// The caps' outer rim (radiusMix 2) circumscribes the drill circle, so no
+// sliver of the substrate's wall shows between the cap's chords and the copper
+// cut at the true circle; the cap sits just under the copper face, which
+// covers the overhang.
+const BARREL_SEGMENTS = 32;
+const BARREL_RADIUS_WGSL = `  let plating = input.dimensions.w - input.dimensions.z;
+  let rim = select(1.0, ${(1 / Math.cos(Math.PI / BARREL_SEGMENTS)).toFixed(6)}, input.radiusMix > 1.5);
+  let radius = mix(max(input.dimensions.z - plating, input.dimensions.z * 0.5), input.dimensions.z, min(input.radiusMix, 1.0)) * rim;
+  let turn = vec2f(cos(input.shape.y), sin(input.shape.y));
+  let local = vec2f(input.unit.x * radius + select(-input.shape.x, input.shape.x, input.unit.x >= 0.0), input.unit.y * radius);
+  let planar = vec2f(local.x * turn.x - local.y * turn.y, local.x * turn.y + local.y * turn.x);
+  let turnedNormal = vec3f(input.normal.x * turn.x - input.normal.y * turn.y, input.normal.x * turn.y + input.normal.y * turn.x, input.normal.z);
+`;
+
+const MAIN_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -85,7 +124,7 @@ ${NET_MASK_WGSL}
 // Set on the pipeline that draws the solder mask over copper.
 override COVERED: bool = false;
 
-struct VertexInput {
+${hook("decl")}struct VertexInput {
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) netId: u32,
@@ -96,7 +135,7 @@ struct VertexOutput {
   @location(0) normal: vec3f,
   @location(1) @interpolate(flat) netId: u32,
   @location(2) @interpolate(flat) objectId: u32,
-  @location(3) world: vec3f,
+${hook("vs-out")}  @location(3) world: vec3f,
 };
 @vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -105,7 +144,7 @@ struct VertexOutput {
   output.normal = normalize(input.normal);
   output.netId = input.netId;
   output.objectId = input.objectId;
-  return output;
+${hook("vs-end")}  return output;
 }
 fn aces(color: vec3f) -> vec3f {
   let a = 2.51;
@@ -116,7 +155,7 @@ fn aces(color: vec3f) -> vec3f {
   return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3f(0), vec3f(1));
 }
 @fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
-  let kind = u32(draw.flags.x);
+${hook("fs-begin")}  let kind = u32(draw.flags.x);
   let copper = kind == 1u;
   let component = kind == 2u;
   if (component && featureHidden(input.objectId)) { discard; }
@@ -161,11 +200,12 @@ fn aces(color: vec3f) -> vec3f {
   // Translucent placeholders (material.z = full component opacity) turn solid when selected.
   if (selectedComponent) { alpha = max(alpha, draw.material.z * 0.9); }
   if (COVERED) { alpha = min(1.0, alpha * 1.2); }
-  return vec4f(aces(lit), alpha);
+${hook("fs-return")}  return vec4f(aces(lit), alpha);
 }
 `;
+const MAIN_SHADER = stripHooks(MAIN_SOURCE);
 
-const PICK_SHADER = `
+const PICK_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -186,7 +226,7 @@ ${DEQUANT_WGSL}
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${FEATURE_MASK_WGSL}
 ${NET_MASK_WGSL}
-struct Input {
+${hook("decl")}struct Input {
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) netId: u32,
@@ -195,25 +235,26 @@ struct Input {
 struct Output {
   @builtin(position) position: vec4f,
   @location(2) @interpolate(flat) netId: u32,
-  @location(0) @interpolate(flat) objectId: u32,
+${hook("vs-out")}  @location(0) @interpolate(flat) objectId: u32,
 };
 @vertex fn vs(input: Input) -> Output {
   var output: Output;
   output.position = globals.viewProjection * vec4f(dequant(input.position) + draw.offset.xyz, 1.0);
   output.objectId = input.objectId;
   output.netId = input.netId;
-  return output;
+${hook("vs-end")}  return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec2u {
-  if (u32(draw.flags.x) == 2u && featureHidden(input.objectId)) { discard; }
+${hook("fs-begin")}  if (u32(draw.flags.x) == 2u && featureHidden(input.objectId)) { discard; }
   // Isolated (flags.z), unlit copper is not drawn, so it is not there to pick (SB2-31e).
   let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   if (u32(draw.flags.x) == 1u && draw.flags.z > 0.5 && !lit) { discard; }
-  return vec2u(1u, input.objectId);
+${hook("fs-return")}  return vec2u(1u, input.objectId);
 }
 `;
+const PICK_SHADER = stripHooks(PICK_SOURCE);
 
-const BARREL_SHADER = `
+const BARREL_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -232,43 +273,35 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${NET_MASK_WGSL}
-struct Input {
-  @location(0) unit: vec3f,
-  @location(1) normal: vec3f,
-  @location(2) radiusMix: f32,
-  @location(3) dimensions: vec4f,
-  @location(4) span: vec2f,
-  @location(5) ids: vec4u,
-};
+${hook("decl")}${BARREL_INPUT_WGSL}
 struct Output {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
   @location(1) @interpolate(flat) netId: u32,
   @location(2) @interpolate(flat) objectId: u32,
-  @location(3) @interpolate(flat) visible: u32,
+${hook("vs-out")}  @location(3) @interpolate(flat) visible: u32,
 };
 @vertex fn vs(input: Input) -> Output {
-  let radius = mix(input.dimensions.z, input.dimensions.w, input.radiusMix);
-  let z0 = input.span.x + layerOffsets[input.ids.z];
+${BARREL_RADIUS_WGSL}  let z0 = input.span.x + layerOffsets[input.ids.z];
   let z1 = input.span.y + layerOffsets[input.ids.w];
   let world = vec3f(
-    input.dimensions.x + input.unit.x * radius,
-    input.dimensions.y + input.unit.y * radius,
+    input.dimensions.x + planar.x,
+    input.dimensions.y + planar.y,
     mix(z0, z1, input.unit.z)
   );
   var output: Output;
   output.position = globals.viewProjection * vec4f(world, 1.0);
-  output.normal = input.normal;
+  output.normal = turnedNormal;
   output.netId = input.ids.x;
   output.objectId = input.ids.y;
   output.visible = 0u;
   if (globals.selectedLayer == 0u || (globals.selectedLayer >= input.ids.z && globals.selectedLayer <= input.ids.w)) {
     output.visible = 1u;
   }
-  return output;
+${hook("vs-end")}  return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec4f {
-  if (input.visible == 0u) { discard; }
+${hook("fs-begin")}  if (input.visible == 0u) { discard; }
   let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   var base = draw.color.rgb;
   if (selected) {
@@ -281,11 +314,12 @@ struct Output {
   if (draw.flags.z > 0.5 && !selected) { discard; }
   let light = normalize(globals.lightDirection.xyz);
   let lit = base * (0.38 + max(dot(normalize(input.normal), light), 0.0) * 0.72);
-  return vec4f(lit, 1.0);
+${hook("fs-return")}  return vec4f(lit, 1.0);
 }
 `;
+const BARREL_SHADER = stripHooks(BARREL_SOURCE);
 
-const BARREL_PICK_SHADER = `
+const BARREL_PICK_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -304,25 +338,17 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${NET_MASK_WGSL}
-struct Input {
-  @location(0) unit: vec3f,
-  @location(1) normal: vec3f,
-  @location(2) radiusMix: f32,
-  @location(3) dimensions: vec4f,
-  @location(4) span: vec2f,
-  @location(5) ids: vec4u,
-};
+${hook("decl")}${BARREL_INPUT_WGSL}
 struct Output {
   @builtin(position) position: vec4f,
   @location(3) @interpolate(flat) netId: u32,
   @location(0) @interpolate(flat) objectId: u32,
-  @location(1) @interpolate(flat) visible: u32,
+${hook("vs-out")}  @location(1) @interpolate(flat) visible: u32,
 };
 @vertex fn vs(input: Input) -> Output {
-  let radius = mix(input.dimensions.z, input.dimensions.w, input.radiusMix);
-  let world = vec3f(
-    input.dimensions.x + input.unit.x * radius,
-    input.dimensions.y + input.unit.y * radius,
+${BARREL_RADIUS_WGSL}  let world = vec3f(
+    input.dimensions.x + planar.x,
+    input.dimensions.y + planar.y,
     mix(input.span.x + layerOffsets[input.ids.z], input.span.y + layerOffsets[input.ids.w], input.unit.z)
   );
   var output: Output;
@@ -333,15 +359,16 @@ struct Output {
   if (globals.selectedLayer == 0u || (globals.selectedLayer >= input.ids.z && globals.selectedLayer <= input.ids.w)) {
     output.visible = 1u;
   }
-  return output;
+${hook("vs-end")}  return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec2u {
-  if (input.visible == 0u) { discard; }
+${hook("fs-begin")}  if (input.visible == 0u) { discard; }
   let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   if (draw.flags.z > 0.5 && !lit) { discard; }
-  return vec2u(1u, input.objectId);
+${hook("fs-return")}  return vec2u(1u, input.objectId);
 }
 `;
+const BARREL_PICK_SHADER = stripHooks(BARREL_PICK_SOURCE);
 
 // Occurrence-instanced variants (System Builder SB2-23). Every draw runs once
 // per occurrence and places the board-local position (after the explode and
@@ -376,7 +403,7 @@ const PICK_LIT = "  let lit = netEmphasized(input.netId) || (globals.activeNet !
 const PICK_LIT_INSTANCED = `  let lit = emphasisOf(input.occurrence, input.netId) != 0u
     || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);`;
 
-const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
+const MAIN_SOURCE_INSTANCED = variant(MAIN_SOURCE, [
   SELECTED_OCCURRENCE,
   [`  @location(3) world: vec3f,
 };`, `  @location(3) world: vec3f,
@@ -418,8 +445,9 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   ["      base = vec3f(0.08, 1.0, 0.2) * pulse;", "      base = emphasisColor(mark, vec3f(0.08, 1.0, 0.2)) * pulse;"],
   ["  var alpha = draw.flags.y;", "  var alpha = draw.flags.y * input.fade;"],
 ]);
+const MAIN_SHADER_INSTANCED = stripHooks(MAIN_SOURCE_INSTANCED);
 
-const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
+const PICK_SOURCE_INSTANCED = variant(PICK_SOURCE, [
   SELECTED_OCCURRENCE,
   [`  @location(0) @interpolate(flat) objectId: u32,
 };`, `  @location(0) @interpolate(flat) objectId: u32,
@@ -441,12 +469,14 @@ const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
     output.position = vec4f(0.0, 0.0, 2.0, 1.0);
   }`],
   // Board context draws (kind 0) pick as feature 0: "this board", no feature.
-  [`  return vec2u(1u, input.objectId);`,
+  // The fs-return hook moves with the return line.
+  [`${hook("fs-return")}  return vec2u(1u, input.objectId);`,
   `  let kind = u32(draw.flags.x);
-  return vec2u(input.occurrence, select(input.objectId, 0u, kind == 0u));`],
+${hook("fs-return")}  return vec2u(input.occurrence, select(input.objectId, 0u, kind == 0u));`],
   ...EMPHASIS_TABLE,
   [PICK_LIT, PICK_LIT_INSTANCED],
 ]);
+const PICK_SHADER_INSTANCED = stripHooks(PICK_SOURCE_INSTANCED);
 
 // Component instancing (SB2-86): a component model is uploaded once and drawn at
 // every placement. A placement is a 3×4 transform (board frame, the GLB's axes
@@ -468,7 +498,7 @@ const PLACED_OBJECT = ["  output.objectId = input.objectId;", "  output.objectId
 const INSTANCED_PLACEMENT = ["  let index = listedOccurrence(u32(draw.material.w + 0.5), instance);",
   "  let placement = placements[draw.placement.x + instance % draw.placement.y];\n  let index = listedOccurrence(u32(draw.material.w + 0.5), instance / draw.placement.y);"];
 
-const COMPONENT_SHADER = variant(MAIN_SHADER, [
+const COMPONENT_SOURCE = variant(MAIN_SOURCE, [
   PLACEMENT_PRELUDE,
   [`@vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -479,7 +509,7 @@ const COMPONENT_SHADER = variant(MAIN_SHADER, [
   ["  output.normal = normalize(input.normal);", "  output.normal = normalize(turn(placement, input.normal));"],
   PLACED_OBJECT,
 ]);
-const COMPONENT_SHADER_INSTANCED = variant(MAIN_SHADER_INSTANCED, [
+const COMPONENT_SOURCE_INSTANCED = variant(MAIN_SOURCE_INSTANCED, [
   PLACEMENT_PRELUDE,
   INSTANCED_PLACEMENT,
   ["occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)",
@@ -487,7 +517,7 @@ const COMPONENT_SHADER_INSTANCED = variant(MAIN_SHADER_INSTANCED, [
   ["(occurrence.normal * vec4f(input.normal, 0.0))", "(occurrence.normal * vec4f(turn(placement, input.normal), 0.0))"],
   PLACED_OBJECT,
 ]);
-const COMPONENT_PICK_SHADER = variant(PICK_SHADER, [
+const COMPONENT_PICK_SOURCE = variant(PICK_SOURCE, [
   PLACEMENT_PRELUDE,
   [`@vertex fn vs(input: Input) -> Output {
   var output: Output;
@@ -497,32 +527,23 @@ const COMPONENT_PICK_SHADER = variant(PICK_SHADER, [
   output.position = globals.viewProjection * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz, 1.0);`],
   PLACED_OBJECT,
 ]);
-const COMPONENT_PICK_SHADER_INSTANCED = variant(PICK_SHADER_INSTANCED, [
+const COMPONENT_PICK_SOURCE_INSTANCED = variant(PICK_SOURCE_INSTANCED, [
   PLACEMENT_PRELUDE,
   INSTANCED_PLACEMENT,
   ["occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)",
     "occurrence.model * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz + lift, 1.0)"],
   PLACED_OBJECT,
 ]);
+const COMPONENT_SHADER = stripHooks(COMPONENT_SOURCE);
+const COMPONENT_SHADER_INSTANCED = stripHooks(COMPONENT_SOURCE_INSTANCED);
+const COMPONENT_PICK_SHADER = stripHooks(COMPONENT_PICK_SOURCE);
+const COMPONENT_PICK_SHADER_INSTANCED = stripHooks(COMPONENT_PICK_SOURCE_INSTANCED);
 // A placement record: three rows of the transform, then the feature id.
 export const PLACEMENT_STRIDE = 64;
 // Instanced component slots carry their placement count in the class word: 6 | count << 3.
 const COMPONENT_SLOT_CLASS = 6;
 
-const BARREL_INPUT = `struct Input {
-  @location(0) unit: vec3f,
-  @location(1) normal: vec3f,
-  @location(2) radiusMix: f32,
-  @location(3) dimensions: vec4f,
-  @location(4) span: vec2f,
-  @location(5) ids: vec4u,
-};`;
-const BARREL_INPUT_INSTANCED = `struct Barrel {
-  dimensions: vec4f,
-  span: vec2f,
-  ids: vec4u,
-};
-@group(0) @binding(6) var<storage, read> barrels: array<Barrel>;
+const BARREL_INPUT_INSTANCED = `${BARREL_STORAGE_WGSL}
 ${OCCURRENCE_WGSL}
 struct Input {
   @location(0) unit: vec3f,
@@ -538,13 +559,14 @@ function barrelVariant(source, positionLine, extra = []) {
     SELECTED_OCCURRENCE,
     // OCCURRENCE_WGSL declares the layer offsets for every instanced shader.
     ["@group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;\n", ""],
-    [BARREL_INPUT, BARREL_INPUT_INSTANCED],
+    [BARREL_INPUT_WGSL, BARREL_INPUT_INSTANCED],
     [`@vertex fn vs(input: Input) -> Output {`, `struct Record {
   unit: vec3f,
   normal: vec3f,
   radiusMix: f32,
   dimensions: vec4f,
   span: vec2f,
+  shape: vec2f,
   ids: vec4u,
 };
 @vertex fn vs(vertex: Input, @builtin(instance_index) instance: u32) -> Output {
@@ -554,20 +576,20 @@ function barrelVariant(source, positionLine, extra = []) {
   let occurrence = occurrences[index];
   // An occurrence that explodes itself (SB2-31f) scales the renderer's per-layer steps by its own gap.
   let spread = select(1.0, occurrence.explode.x, occurrence.explode.w > 0.5);
-  let input = Record(vertex.unit, vertex.normal, vertex.radiusMix, barrel.dimensions, barrel.span, barrel.ids);`],
+  let input = Record(vertex.unit, vertex.normal, vertex.radiusMix, barrel.dimensions, barrel.span, barrel.shape, barrel.ids);`],
     [positionLine, positionLine.replace("vec4f(world, 1.0)", "vec4f((occurrence.model * vec4f(world, 1.0)).xyz, 1.0)")],
     ["  output.objectId = input.ids.y;", "  output.objectId = input.ids.y;\n  output.occurrence = index + 1u + globals.occurrenceBase;"],
     ...extra,
   ]);
 }
 
-const BARREL_SHADER_INSTANCED = barrelVariant(
-  BARREL_SHADER,
-  "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.normal = input.normal;",
+const BARREL_SOURCE_INSTANCED = barrelVariant(
+  BARREL_SOURCE,
+  "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.normal = turnedNormal;",
   [
     ["  let z0 = input.span.x + layerOffsets[input.ids.z];\n  let z1 = input.span.y + layerOffsets[input.ids.w];",
       "  let z0 = input.span.x + layerOffsets[input.ids.z] * spread;\n  let z1 = input.span.y + layerOffsets[input.ids.w] * spread;"],
-    ["  output.normal = input.normal;\n  output.netId", "  output.normal = (occurrence.normal * vec4f(input.normal, 0.0)).xyz;\n  output.netId"],
+    ["  output.normal = turnedNormal;\n  output.netId", "  output.normal = (occurrence.normal * vec4f(turnedNormal, 0.0)).xyz;\n  output.netId"],
     ["  @location(3) @interpolate(flat) visible: u32,\n};", "  @location(3) @interpolate(flat) visible: u32,\n  @location(4) @interpolate(flat) occurrence: u32,\n};"],
     ["  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);",
       "  let mark = emphasisOf(input.occurrence, input.netId);\n  let selected = mark != 0u\n    || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);"],
@@ -575,8 +597,8 @@ const BARREL_SHADER_INSTANCED = barrelVariant(
     ["      base = vec3f(0.1, 1.0, 0.22) * (", "      base = emphasisColor(mark, vec3f(0.1, 1.0, 0.22)) * ("],
   ],
 );
-const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
-  BARREL_PICK_SHADER,
+const BARREL_PICK_SOURCE_INSTANCED = barrelVariant(
+  BARREL_PICK_SOURCE,
   "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.objectId",
   [
     ["mix(input.span.x + layerOffsets[input.ids.z], input.span.y + layerOffsets[input.ids.w], input.unit.z)",
@@ -587,6 +609,8 @@ const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
     [PICK_LIT, PICK_LIT_INSTANCED],
   ],
 );
+const BARREL_SHADER_INSTANCED = stripHooks(BARREL_SOURCE_INSTANCED);
+const BARREL_PICK_SHADER_INSTANCED = stripHooks(BARREL_PICK_SOURCE_INSTANCED);
 
 // The stand-in for an occurrence at box detail: the board's bounding box
 // (draw.offset = minimum, draw.material.xyz = size, in the board's own frame).
@@ -607,14 +631,14 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
 ${OCCURRENCE_WGSL}
-struct Input {
+${hook("decl")}struct Input {
   @location(0) corner: vec3f,
   @location(1) normal: vec3f,
 };
 struct Output {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
-  @location(1) @interpolate(flat) occurrence: u32,
+${hook("vs-out")}  @location(1) @interpolate(flat) occurrence: u32,
 };
 @vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
   let index = listedOccurrence(LIST_BOX, instance);
@@ -624,20 +648,22 @@ struct Output {
   output.position = globals.viewProjection * vec4f((occurrence.model * vec4f(local, 1.0)).xyz, 1.0);
   output.normal = (occurrence.normal * vec4f(input.normal, 0.0)).xyz;
   output.occurrence = index + 1u + globals.occurrenceBase;
-  return output;
+${hook("vs-end")}  return output;
 }
 `;
-const BOX_SHADER = `${BOX_SHADER_HEAD}
+const BOX_SOURCE = `${BOX_SHADER_HEAD}
 @fragment fn fs(input: Output) -> @location(0) vec4f {
-  let light = normalize(globals.lightDirection.xyz);
-  return vec4f(draw.color.rgb * (0.45 + max(dot(normalize(input.normal), light), 0.0) * 0.55), 1.0);
+${hook("fs-begin")}  let light = normalize(globals.lightDirection.xyz);
+${hook("fs-return")}  return vec4f(draw.color.rgb * (0.45 + max(dot(normalize(input.normal), light), 0.0) * 0.55), 1.0);
 }
 `;
-const BOX_PICK_SHADER = `${BOX_SHADER_HEAD}
+const BOX_SHADER = stripHooks(BOX_SOURCE);
+const BOX_PICK_SOURCE = `${BOX_SHADER_HEAD}
 @fragment fn fs(input: Output) -> @location(0) vec2u {
-  return vec2u(input.occurrence, 0u);
+${hook("fs-begin")}${hook("fs-return")}  return vec2u(input.occurrence, 0u);
 }
 `;
+const BOX_PICK_SHADER = stripHooks(BOX_PICK_SOURCE);
 
 // The cull pass (SB2-25). `classify` runs per occurrence: frustum test on the
 // transformed board box, then a level of detail from its projected radius with
@@ -761,8 +787,59 @@ export const INSTANCED_SHADERS = Object.freeze({
   componentPickInstanced: COMPONENT_PICK_SHADER_INSTANCED,
 });
 
+// Every draw shader with its hook markers (VT-01), one-board and instanced, and
+// where a feature finds the vertex's scene-space position at the vs-end hook.
+// Box draws exist only for occurrences.
+const SHADER_FAMILIES = Object.freeze({
+  main: { output: "color", single: MAIN_SOURCE, instanced: MAIN_SOURCE_INSTANCED, world: ["output.world", "output.world"] },
+  pick: { output: "pick", single: PICK_SOURCE, instanced: PICK_SOURCE_INSTANCED, world: ["(dequant(input.position) + draw.offset.xyz)", "world"] },
+  barrel: { output: "color", single: BARREL_SOURCE, instanced: BARREL_SOURCE_INSTANCED, world: ["world", "(occurrence.model * vec4f(world, 1.0)).xyz"] },
+  barrelPick: { output: "pick", single: BARREL_PICK_SOURCE, instanced: BARREL_PICK_SOURCE_INSTANCED, world: ["world", "(occurrence.model * vec4f(world, 1.0)).xyz"] },
+  component: { output: "color", single: COMPONENT_SOURCE, instanced: COMPONENT_SOURCE_INSTANCED, world: ["output.world", "output.world"] },
+  componentPick: {
+    output: "pick",
+    single: COMPONENT_PICK_SOURCE,
+    instanced: COMPONENT_PICK_SOURCE_INSTANCED,
+    world: ["(place(placement, dequant(input.position)) + draw.offset.xyz)", "world"],
+  },
+  box: { output: "color", single: null, instanced: BOX_SOURCE, world: [null, "(occurrence.model * vec4f(local, 1.0)).xyz"] },
+  boxPick: { output: "pick", single: null, instanced: BOX_PICK_SOURCE, world: [null, "(occurrence.model * vec4f(local, 1.0)).xyz"] },
+});
+
+export const SHADER_FAMILY_NAMES = Object.freeze(Object.keys(SHADER_FAMILIES));
+
+// A draw shader for a set of features; with none, the shader the renderer has always used.
+export function shaderVariant(family, instanced, features = []) {
+  const entry = SHADER_FAMILIES[family];
+  const source = entry?.[instanced ? "instanced" : "single"];
+  if (!source) throw new Error(`No ${instanced ? "instanced" : "one-board"} ${family} shader`);
+  return buildVariant(source, features, { family, instanced, output: entry.output, world: entry.world[instanced ? 1 : 0] });
+}
+
+// For tests: the shaders that must never change while no feature is on.
+export const BASE_SHADERS = Object.freeze({
+  main: MAIN_SHADER,
+  pick: PICK_SHADER,
+  barrel: BARREL_SHADER,
+  barrelPick: BARREL_PICK_SHADER,
+  mainInstanced: MAIN_SHADER_INSTANCED,
+  pickInstanced: PICK_SHADER_INSTANCED,
+  barrelInstanced: BARREL_SHADER_INSTANCED,
+  barrelPickInstanced: BARREL_PICK_SHADER_INSTANCED,
+  component: COMPONENT_SHADER,
+  componentInstanced: COMPONENT_SHADER_INSTANCED,
+  componentPick: COMPONENT_PICK_SHADER,
+  componentPickInstanced: COMPONENT_PICK_SHADER_INSTANCED,
+  box: BOX_SHADER,
+  boxPick: BOX_PICK_SHADER,
+  cull: CULL_SHADER,
+});
+
+/** No exploded offsets: the 2D view lays each layer flat on its own. */
+const FLAT_LAYER_OFFSETS = new Float32Array(256);
+
 export class Renderer {
-  static async create(canvas) {
+  static async create(canvas, { sampleCount = 4 } = {}) {
     if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) throw new Error("No WebGPU adapter is available");
@@ -770,7 +847,7 @@ export class Renderer {
     // the mask draws one shade everywhere.
     const stencil = adapter.features.has("depth32float-stencil8");
     const device = await adapter.requestDevice(stencil ? { requiredFeatures: ["depth32float-stencil8"] } : undefined);
-    return new Renderer(canvas, device, { stencil });
+    return new Renderer(canvas, device, { stencil, sampleCount });
   }
 
   /**
@@ -780,11 +857,14 @@ export class Renderer {
    * always draws through the instanced pipelines. A `SceneRenderer` encodes the
    * passes for all of them.
    */
-  constructor(canvas, device, { shareFrom = null, stencil = false } = {}) {
+  constructor(canvas, device, { shareFrom = null, stencil = false, sampleCount = 1 } = {}) {
     this.canvas = canvas;
     this.device = device;
     this.shareFrom = shareFrom;
     this.stencil = shareFrom ? shareFrom.stencil : Boolean(stencil);
+    // Samples per pixel of the colour passes (4 anti-aliases; WebGPU allows 1
+    // or 4). Picking always draws one sample, into its own depth.
+    this.sampleCount = shareFrom ? shareFrom.sampleCount : (sampleCount === 4 ? 4 : 1);
     // Reversed depth (see math.js): cleared to 0, nearer fragments are greater.
     this.depthFormat = this.stencil ? "depth32float-stencil8" : "depth32float";
     // Bumped by every change that alters the picture outside the per-frame inputs.
@@ -818,6 +898,11 @@ export class Renderer {
     this.freeDrawSlots = [];
     this.nextDrawSlot = 0;
     this.globalBuffer = device.createBuffer({ size: GLOBAL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // A system scene's asset (stage 3b): its analytic board reads its own globals,
+    // the view times its occurrence's matrix, as the analytic shaders take no model.
+    this.analyticGlobalBuffer = shareFrom
+      ? device.createBuffer({ label: "analytic-globals", size: GLOBAL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+      : null;
     this.layerOffsetBuffer = device.createBuffer({ size: 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     // Occurrences (SB2-23): the one-board viewer is a single identity
     // occurrence drawn by the original pipelines; anything else switches to the
@@ -836,6 +921,14 @@ export class Renderer {
     this.placementBuffer = device.createBuffer({ label: "component-placements", size: PLACEMENT_STRIDE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.componentPipelineSets = new Map();
     this.instancedPipelines = null;
+    // Shader features (VT-01): none by default, so the original pipelines draw.
+    // Pipeline sets for a feature set compile on first use and are kept by the
+    // renderer that owns the pipelines; their number is bounded by the feature
+    // combinations in use.
+    this.shaderFeatures = [];
+    this.shaderFeatureKey = "";
+    this.featurePipelineSets = new Map();
+    this.pipelineSetKinds = new WeakMap();
     // Culled lists the instanced shaders read (SB2-25): three u32 per occurrence.
     this.listBuffer = this.createListBuffer(this.occurrenceCapacity);
     // Indirect draw arguments: a five-word slot per draw. Slot 0 is the barrels,
@@ -873,7 +966,10 @@ export class Renderer {
       this.createSinglePipelines();
     }
     this.depth = null;
+    this.colorTarget = null;
+    this.pickDepth = null;
     this.pickTexture = null;
+    this.insetColor = null;
     this.pickSerial = Promise.resolve();
     this.bundleCache = new Map();
     this.globalScratch = new ArrayBuffer(GLOBAL_UNIFORM_SIZE);
@@ -885,6 +981,8 @@ export class Renderer {
     // id. It always exists so every bind group is valid before any hide call.
     this.hiddenFeatureIds = new Set();
     this.showPlaceholders = true;
+    // "role:side" keys of the board layers hidden (`setHiddenBoardLayers`).
+    this.hiddenBoardLayers = new Set();
     this.featureMaskCapacity = MIN_FEATURE_MASK_CAPACITY;
     this.featureMaskBuffer = this.createFeatureMaskBuffer(
       this.featureMaskCapacity,
@@ -931,12 +1029,7 @@ export class Renderer {
         { shaderLocation: 3, offset: 16, format: "uint32" },
       ],
     }];
-    this.singlePipelines = {
-      ...this.makeMainPipelines(MAIN_SHADER, ""),
-      pick: this.makePipeline(layout, PICK_SHADER, PICK_FORMAT, vertexBuffers, "pick"),
-      barrel: this.makeBarrelPipeline(layout, BARREL_SHADER, this.format, "barrel"),
-      barrelPick: this.makeBarrelPipeline(layout, BARREL_PICK_SHADER, PICK_FORMAT, "barrel-pick"),
-    };
+    this.singlePipelines = this.makePipelineSet(false, []);
     this.pipeline = this.singlePipelines.main;
     this.pickPipeline = this.singlePipelines.pick;
     this.barrelPipeline = this.singlePipelines.barrel;
@@ -958,6 +1051,10 @@ export class Renderer {
       main,
       mark: this.stencil ? make("main-mark", { stencil: STENCIL_MARK }) : main,
       blend,
+      // Translucent stand-ins (placeholder boxes) test depth but do not write it:
+      // overlapping footprints' boxes share their top plane and would z-fight.
+      // Their back faces are culled, so each box still blends one layer deep.
+      translucent: make("main-translucent", { depthWrite: false, cullMode: "back" }),
       mask: this.stencil ? make("mask", { stencil: STENCIL_UNMARKED }) : blend,
       maskCovered: this.stencil ? make("mask-covered", { stencil: STENCIL_MARKED, constants: { COVERED: 1 } }) : null,
     };
@@ -1117,6 +1214,28 @@ export class Renderer {
   }
 
   /** Force a level of detail for every occurrence (LOD_FULL…LOD_BOX), or null for automatic. */
+  /**
+   * Draw analytic slices from a materialization pack (an `AnalyticRenderer`),
+   * or stop with null. Their layers' mesh copper steps aside.
+   */
+  setAnalytic(analytic) {
+    if (this.analytic && this.analytic !== analytic) this.analytic.destroy();
+    this.analytic = analytic || null;
+    this.bundleCache.clear();
+    this.invalidate();
+  }
+
+  /**
+   * The view an analytic board draws with: `matrix` (view-projection) times its
+   * occurrence's model matrix in a system scene (stage 3b). An analytic board
+   * is one occurrence of its asset; the one-board view is the identity.
+   */
+  analyticView(matrix) {
+    if (!this.alwaysInstanced || this.occurrenceMatrices.length !== 1) return matrix;
+    const model = this.occurrenceMatrices[0];
+    return isIdentity(model) ? matrix : mat4Multiply(matrix, model);
+  }
+
   setLodOverride(lod) {
     this.lodOverride = lod == null ? null : Number(lod);
     this.invalidate();
@@ -1298,6 +1417,7 @@ export class Renderer {
     for (const buffer of [this.barrels?.vertexBuffer, this.barrels?.indexBuffer, this.barrels?.instanceBuffer,
       this.barrelRecordBuffer, this.occurrenceBuffer, this.listBuffer, this.argsBuffer, this.classesBuffer,
       this.featureMaskBuffer, this.netMaskBuffer, this.cull?.lods]) bytes += buffer?.size || 0;
+    bytes += this.analytic?.gpuMemoryBytes() || 0;
     // Depth (4 bytes) and pick (rg32uint, 8 bytes) targets.
     bytes += this.canvas.width * this.canvas.height * 12;
     return bytes;
@@ -1323,7 +1443,8 @@ export class Renderer {
       this.netMaskBuffer, this.cull?.lods].reduce((sum, buffer) => sum + (buffer?.size || 0), 0);
     // SB2-90: the arena chunks that hold the geometry (shared in a scene; reported by their owner).
     const arena = this.shareFrom ? null : this.arenaStats();
-    return { vertex, index, geometry, barrels, occurrences, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length, arena };
+    const analytic = this.analytic?.gpuMemoryBytes() || 0;
+    return { vertex, index, geometry, barrels, occurrences, analytic, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length, arena };
   }
 
   ensureInstancedPipelines() {
@@ -1336,26 +1457,73 @@ export class Renderer {
       this.createCull();
       return;
     }
-    const layout = this.pipelineLayout;
-    this.instancedPipelines = {
-      ...this.makeMainPipelines(MAIN_SHADER_INSTANCED, "-instanced"),
-      pick: this.makePipeline(layout, PICK_SHADER_INSTANCED, PICK_FORMAT, this.vertexBuffers, "pick-instanced"),
-      barrel: this.makeBarrelPipeline(layout, BARREL_SHADER_INSTANCED, this.format, "barrel-instanced", false),
-      barrelPick: this.makeBarrelPipeline(layout, BARREL_PICK_SHADER_INSTANCED, PICK_FORMAT, "barrel-pick-instanced", false),
-      box: this.makePipeline(layout, BOX_SHADER, this.format, BOX_VERTEX_BUFFERS, "box"),
-      boxPick: this.makePipeline(layout, BOX_PICK_SHADER, PICK_FORMAT, BOX_VERTEX_BUFFERS, "box-pick"),
-    };
+    this.instancedPipelines = this.makePipelineSet(true, []);
     this.createBox();
     this.createCull();
+  }
+
+  /**
+   * One set of draw pipelines (VT-01), one-board or occurrence-instanced, for a
+   * list of shader features. With no features the shaders are the original
+   * text and the labels the original names.
+   */
+  makePipelineSet(instanced, features) {
+    const layout = this.pipelineLayout;
+    const key = featureKey(features);
+    const variant = (family) => shaderVariant(family, instanced, features);
+    const tag = key ? `+${key}` : "";
+    const suffix = `${instanced ? "-instanced" : ""}${tag}`;
+    const set = {
+      ...this.makeMainPipelines(variant("main"), suffix),
+      pick: this.makePipeline(layout, variant("pick"), PICK_FORMAT, this.vertexBuffers, `pick${suffix}`),
+      barrel: this.makeBarrelPipeline(layout, variant("barrel"), this.format, `barrel${suffix}`, !instanced),
+      barrelPick: this.makeBarrelPipeline(layout, variant("barrelPick"), PICK_FORMAT, `barrel-pick${suffix}`, !instanced),
+    };
+    if (instanced) {
+      set.box = this.makePipeline(layout, variant("box"), this.format, BOX_VERTEX_BUFFERS, `box${tag}`);
+      set.boxPick = this.makePipeline(layout, variant("boxPick"), PICK_FORMAT, BOX_VERTEX_BUFFERS, `box-pick${tag}`);
+    }
+    this.pipelineSetKinds.set(set, { instanced, features: sortedFeatures(features), key });
+    return set;
+  }
+
+  /**
+   * Shader features for every draw (VT-01): `{ name, decl?, vsOut?, vsEnd?,
+   * fsBegin?, fsReturn? }` objects (shader-variants.js). A name stands for one
+   * definition: pipelines are cached by the sorted names. An empty list goes
+   * back to the original pipelines. Scene assets follow their scene's list.
+   */
+  setShaderFeatures(features = []) {
+    const ordered = sortedFeatures(features);
+    const key = featureKey(ordered);
+    if (key === this.shaderFeatureKey) return;
+    this.shaderFeatures = ordered;
+    this.shaderFeatureKey = key;
+    this.bundleCache.clear();
+    this.invalidate();
+  }
+
+  // The pipeline set for this renderer's shader features.
+  pipelinesFor(instanced) {
+    const owner = this.shareFrom || this;
+    if (instanced) this.ensureInstancedPipelines();
+    if (!this.shaderFeatureKey) return instanced ? owner.instancedPipelines : owner.singlePipelines;
+    const cacheKey = `${instanced ? "instanced" : "single"}|${this.shaderFeatureKey}`;
+    let set = owner.featurePipelineSets.get(cacheKey);
+    if (!set) {
+      set = owner.makePipelineSet(instanced, this.shaderFeatures);
+      owner.featurePipelineSets.set(cacheKey, set);
+    }
+    return set;
   }
 
   // The pipelines and instance counts for the current occurrences.
   // The one-board view draws directly; occurrences draw indirectly, counted by the cull pass.
   drawSet() {
     if (this.identityOnly) {
-      return { pipelines: this.singlePipelines, indirect: false, barrelInstances: this.barrels?.instanceCount || 0 };
+      return { pipelines: this.pipelinesFor(false), indirect: false, barrelInstances: this.barrels?.instanceCount || 0 };
     }
-    return { pipelines: this.instancedPipelines, indirect: true, barrelInstances: 0 };
+    return { pipelines: this.pipelinesFor(true), indirect: true, barrelInstances: 0 };
   }
 
   drawEntry(pass, entry, indirect) {
@@ -1575,8 +1743,8 @@ export class Renderer {
     this.invalidate();
   }
 
-  depthStencilState(stencil = null) {
-    const state = { format: this.depthFormat, depthWriteEnabled: true, depthCompare: "greater" };
+  depthStencilState(stencil = null, depthWrite = true) {
+    const state = { format: this.depthFormat, depthWriteEnabled: depthWrite, depthCompare: "greater" };
     if (this.stencil && stencil) {
       state.stencilFront = stencil;
       state.stencilBack = stencil;
@@ -1601,9 +1769,9 @@ export class Renderer {
           },
         }],
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
-      depthStencil: this.depthStencilState(variant.stencil),
-      multisample: { count: 1 },
+      primitive: { topology: "triangle-list", cullMode: variant.cullMode ?? "none" },
+      depthStencil: this.depthStencilState(variant.stencil, variant.depthWrite ?? true),
+      multisample: { count: this.samplesFor(format) },
     });
   }
 
@@ -1624,15 +1792,7 @@ export class Renderer {
             ],
           },
           // Instanced pipelines read barrel records from storage instead.
-          ...(instanceBuffer ? [{
-            arrayStride: 40,
-            stepMode: "instance",
-            attributes: [
-              { shaderLocation: 3, offset: 0, format: "float32x4" },
-              { shaderLocation: 4, offset: 16, format: "float32x2" },
-              { shaderLocation: 5, offset: 24, format: "uint32x4" },
-            ],
-          }] : []),
+          ...(instanceBuffer ? [BARREL_INSTANCE_LAYOUT] : []),
         ],
       },
       fragment: {
@@ -1648,7 +1808,13 @@ export class Renderer {
       },
       primitive: { topology: "triangle-list", cullMode: "none" },
       depthStencil: this.depthStencilState(),
+      multisample: { count: this.samplesFor(format) },
     });
+  }
+
+  /** Samples a pipeline drawing to `format` takes: one when it picks. */
+  samplesFor(format) {
+    return format === PICK_FORMAT ? 1 : this.sampleCount;
   }
 
   createShaderModule(code, label) {
@@ -1677,8 +1843,18 @@ export class Renderer {
     this.canvas.width = width;
     this.canvas.height = height;
     this.depth?.destroy();
+    this.colorTarget?.destroy();
+    this.pickDepth?.destroy();
     this.pickTexture?.destroy();
-    this.depth = this.device.createTexture({ size: [width, height], format: this.depthFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    const samples = this.sampleCount;
+    this.depth = this.device.createTexture({ label: "depth", size: [width, height], format: this.depthFormat, sampleCount: samples, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    // The multisampled frame, resolved into the canvas.
+    this.colorTarget = samples > 1
+      ? this.device.createTexture({ label: "color-msaa", size: [width, height], format: this.format, sampleCount: samples, usage: GPUTextureUsage.RENDER_ATTACHMENT })
+      : null;
+    this.pickDepth = samples > 1
+      ? this.device.createTexture({ label: "pick-depth", size: [width, height], format: this.depthFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT })
+      : this.depth;
     this.pickTexture = this.device.createTexture({ size: [width, height], format: PICK_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   }
 
@@ -1769,12 +1945,12 @@ export class Renderer {
     const owner = this.shareFrom || this;
     let set = owner.componentPipelineSets.get(pipelines);
     if (!set) {
-      const instanced = pipelines !== owner.singlePipelines;
+      const { instanced, features, key } = owner.pipelineSetKinds.get(pipelines);
       const layout = owner.pipelineLayout;
       const buffers = owner.vertexBuffers;
-      const draw = instanced ? COMPONENT_SHADER_INSTANCED : COMPONENT_SHADER;
-      const pick = instanced ? COMPONENT_PICK_SHADER_INSTANCED : COMPONENT_PICK_SHADER;
-      const suffix = instanced ? "-instanced" : "";
+      const draw = shaderVariant("component", instanced, features);
+      const pick = shaderVariant("componentPick", instanced, features);
+      const suffix = `${instanced ? "-instanced" : ""}${key ? `+${key}` : ""}`;
       set = {
         main: owner.makePipeline(layout, draw, owner.format, buffers, `component${suffix}`, { stencil: STENCIL_OPAQUE }),
         blend: owner.makePipeline(layout, draw, owner.format, buffers, `component-blend${suffix}`),
@@ -1864,6 +2040,9 @@ export class Renderer {
       this.barrels = null;
     }
     this.depth?.destroy();
+    this.colorTarget?.destroy();
+    if (this.pickDepth !== this.depth) this.pickDepth?.destroy();
+    this.insetColor?.texture.destroy();
     this.pickTexture?.destroy();
     this.featureMaskBuffer?.destroy?.();
     this.occurrenceBuffer?.destroy?.();
@@ -1877,6 +2056,9 @@ export class Renderer {
     this.cull = null;
     this.drawSlotBuffer?.destroy?.();
     this.depth = null;
+    this.colorTarget = null;
+    this.pickDepth = null;
+    this.insetColor = null;
     this.pickTexture = null;
     this.featureMaskBuffer = null;
     this.bundleCache.clear();
@@ -1884,41 +2066,41 @@ export class Renderer {
 
   setBarrels(records) {
     if (!records?.length) return;
-    const segments = 20;
+    // Even, and a multiple of 4: half-step angles keep every vertex off the
+    // unit circle's y axis, where a stadium splits into its two ends.
+    const segments = BARREL_SEGMENTS;
     const vertices = [];
     const indices = [];
-    for (const inner of [0, 1]) {
+    const ring = (radiusMix, t, normal) => {
       const base = vertices.length / 7;
       for (let index = 0; index < segments; index += 1) {
-        const angle = (Math.PI * 2 * index) / segments;
+        const angle = (Math.PI * 2 * (index + 0.5)) / segments;
         const x = Math.cos(angle);
         const y = Math.sin(angle);
-        for (const t of [0, 1]) vertices.push(x, y, t, inner ? -x : x, inner ? -y : y, 0, inner);
+        const [nx, ny, nz] = normal(x, y);
+        vertices.push(x, y, t, nx, ny, nz, radiusMix);
       }
+      return base;
+    };
+    const band = (a, b) => {
       for (let index = 0; index < segments; index += 1) {
         const next = (index + 1) % segments;
-        const a = base + index * 2;
-        const b = base + next * 2;
-        indices.push(a, b, b + 1, a, b + 1, a + 1);
+        indices.push(a + index, a + next, b + next, a + index, b + next, b + index);
       }
+    };
+    // Walls: the plating's inner surface (radiusMix 0) and the drill wall (1).
+    for (const radiusMix of [0, 1]) {
+      const normal = radiusMix ? (x, y) => [-x, -y, 0] : (x, y) => [x, y, 0];
+      band(ring(radiusMix, 0, normal), ring(radiusMix, 1, normal));
+    }
+    // Caps at both ends, across the plating, out to the circumscribing rim.
+    for (const [t, z] of [[0, 1], [1, -1]]) {
+      const normal = () => [0, 0, z];
+      band(ring(0, t, normal), ring(2, t, normal));
     }
     const vertexArray = new Float32Array(vertices);
     const indexArray = new Uint16Array(indices);
-    const instances = new ArrayBuffer(records.length * 40);
-    const view = new DataView(instances);
-    records.forEach((record, index) => {
-      const offset = index * 40;
-      view.setFloat32(offset, record.centerMm[0] / 1000, true);
-      view.setFloat32(offset + 4, -record.centerMm[1] / 1000, true);
-      view.setFloat32(offset + 8, Math.min(record.drillWidthMm, record.drillHeightMm) / 2000, true);
-      view.setFloat32(offset + 12, Math.max(record.outerWidthMm, record.outerHeightMm) / 2000, true);
-      view.setFloat32(offset + 16, record.startZMm / 1000, true);
-      view.setFloat32(offset + 20, record.endZMm / 1000, true);
-      view.setUint32(offset + 24, record.netId || 0, true);
-      view.setUint32(offset + 28, record.objectFeatureId || 0, true);
-      view.setUint32(offset + 32, record.startLayerId || 0, true);
-      view.setUint32(offset + 36, record.endLayerId || 0, true);
-    });
+    const instances = packBarrelInstances(records);
     const vertexBuffer = this.device.createBuffer({ size: vertexArray.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     const indexBuffer = this.device.createBuffer({ size: indexArray.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
     const instanceBuffer = this.device.createBuffer({ size: instances.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -1948,17 +2130,13 @@ export class Renderer {
       const encoder = this.device.createCommandEncoder();
       const readCounts = !this.identityOnly && this.encodeCull(encoder, panel);
       const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: targetView,
-          clearValue: { r: 0.91, g: 0.93, b: 0.94, a: 1 },
-          loadOp: panelIndex === 0 ? "clear" : "load",
-          storeOp: "store",
-        }],
+        colorAttachments: [this.colorAttachment(targetView, panelIndex === 0, panelIndex === panels.length - 1)],
         depthStencilAttachment: this.depthAttachment(),
       });
       const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
       pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
       pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+      if (this.analytic) this.analytic.viewport = viewport;
       const counted = this.encodeDraws(pass, panel, options);
       triangles += counted.triangles;
       draws += counted.draws;
@@ -1967,6 +2145,68 @@ export class Renderer {
       if (readCounts) this.readCullCounts();
     });
     this.frameStats = { triangles: Math.round(triangles), draws };
+  }
+
+  /**
+   * The 2D view (compare mode) of an analytic board: `[{ layerId, offset, z }]`
+   * for each shown copper layer the board's slices draw, `offset` its place
+   * in the layer grid (world metres), `z` its height. Empty otherwise.
+   */
+  analyticFlatLayers(options) {
+    if (!this.analytic || !options.compareMode) return [];
+    const layers = [];
+    for (const layerId of options.visibleLayers || []) {
+      const z = this.analytic.layerZ(Number(layerId));
+      if (z === null) continue;
+      layers.push({ layerId: Number(layerId), offset: options.compareOffsets?.get(layerId) || options.compareOffsets?.get(Number(layerId)) || [0, 0, 0], z });
+    }
+    return layers;
+  }
+
+  /**
+   * An analytic board's copper in the 2D view, into the panel's pass: each
+   * layer laid flat at its place in the grid, as the mesh copper is
+   * (`compareOffset`, z to 0), inner layers included; no board, mask or barrels.
+   */
+  encodeFlatLayers(pass, matrix, layers, isolateNet, pick) {
+    const flat = new Map(layers.map((layer) => [layer.layerId, layer]));
+    const context = { matrix, flat, isolateNet, showBoard: false };
+    const innerCopperMode = this.innerCopperMode;
+    this.innerCopperMode = "all";
+    try {
+      return this.analytic.encodeInto(pass, FLAT_LAYER_OFFSETS, new Set(flat.keys()), pick, context);
+    } finally {
+      this.innerCopperMode = innerCopperMode;
+    }
+  }
+
+  /**
+   * IN-60: draw one panel into targets of the caller's (an inset), not
+   * the main canvas. Its own submit, so it never shares the globals or draw
+   * slots of the main frame's; nothing the main frame reads is touched, so
+   * the main view stays pixel-identical. One-board only: no cull pass.
+   *
+   * `target` = { colorView, depthView, width, height }; the panel's viewport
+   * is the inset's rectangle inside those targets.
+   */
+  renderInto(target, panel, options) {
+    if (!this.identityOnly) throw new Error("renderInto: one-board renderer only");
+    const encoder = this.device.createCommandEncoder({ label: "inset" });
+    const depthAttachment = { view: target.depthView, depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "discard" };
+    if (this.stencil) Object.assign(depthAttachment, { stencilClearValue: 0, stencilLoadOp: "clear", stencilStoreOp: "discard" });
+    // `target.depthView` has `sampleCount` samples; the colour resolves through an inset-sized frame.
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [this.colorAttachment(target.colorView, true, true, this.insetColorView(target.width, target.height))],
+      depthStencilAttachment: depthAttachment,
+    });
+    const viewport = clampViewport(panel.viewport, target.width, target.height);
+    pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
+    pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+    if (this.analytic) this.analytic.viewport = viewport;
+    const counted = this.encodeDraws(pass, panel, options);
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+    return counted;
   }
 
   /**
@@ -1989,17 +2229,22 @@ export class Renderer {
     compareOffsets = new Map(),
     layerAlphas = null,
     visibleTileIds = null,
+    layerOffsets = null,
   }) {
     let triangles = 0;
     let draws = 0;
+    let analyticContext = null;
     if (this.stencil) pass.setStencilReference(1);
     this.writeGlobals(panel.matrix, activeNetId, panel.layerId, time, selectedFeatureId);
+    // A field relief (the "mountain" view) replaces the board while it is shown.
+    if (this.relief?.ready && !compareMode) return { triangles: this.relief.vertexCount / 3, draws: this.relief.encode(pass, panel.matrix) };
     const { pipelines, indirect, barrelInstances } = this.drawSet();
     // Paste would sit over highlighted pads; it steps aside while a net is lit.
     const hidePaste = !showPaste || Boolean(activeNetId || this.netHighlightActive);
     const visibleEntries = this.entries.filter((entry) =>
       this.visible(entry, panel.layerId, visibleLayers, showBoard, showComponents, componentOpacity, compareMode, visibleTileIds)
-      && !(hidePaste && entry.boardRole === "paste"));
+      && !(hidePaste && entry.boardRole === "paste")
+      && !(entry.side && this.hiddenBoardLayers?.has(`${entry.boardRole}:${entry.side}`)));
     // Blended entries (mask, silkscreen, placeholders) draw after the opaque
     // ones, the barrels and the stand-in boxes, so the copper under the mask
     // shows through it. Marking copper goes last among the opaque ones, which
@@ -2030,7 +2275,20 @@ export class Renderer {
     }
     for (const entry of visibleEntries) triangles += entry.indexCount / 3 * this.countFor(entry.drawClass) * (entry.placementCount || 1);
     draws += visibleEntries.length;
-    if (!compareMode && this.barrels && (panel.layerId === 0 || visibleLayers.has(panel.layerId))) {
+    // Analytic slices (VT analytic spike) draw with the opaque geometry, before the barrels and the mask.
+    if (this.analytic && !compareMode) {
+      analyticContext = { matrix: this.analyticView(panel.matrix), showBoard, boardOpacity, hidePaste, isolateNet, panelLayer: panel.layerId, assemblyOpacity: showPaste ? 1 : componentOpacity, hiddenBoardLayers: this.hiddenBoardLayers };
+      draws += this.analytic.encodeInto(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, false, analyticContext);
+      // The pack's barrels, exact, in place of the mesh barrels.
+      draws += this.analytic.encodeBarrels(pass, layerOffsets, analyticContext.matrix);
+      // Result arrows lie on the copper just drawn.
+      draws += this.analytic.encodeArrows(pass);
+    }
+    if (this.analytic && compareMode) {
+      const layers = this.analyticFlatLayers({ compareMode, visibleLayers, compareOffsets });
+      if (layers.length) draws += this.encodeFlatLayers(pass, panel.matrix, layers, isolateNet, false);
+    }
+    if (!compareMode && this.barrels && !this.analytic?.hasBarrels() && (panel.layerId === 0 || visibleLayers.has(panel.layerId))) {
       this.writeBarrelDraw(isolateNet);
       this.drawBarrels(pass, pipelines.barrel, indirect, barrelInstances);
       triangles += this.barrels.indexCount / 3 * this.countFor(2);
@@ -2041,12 +2299,43 @@ export class Renderer {
       triangles += 12 * this.countFor(3);
       draws += 1;
     }
+    if (analyticContext) {
+      // Barrels off the lit nets, in a separated stack: translucent, before the other blended layers.
+      draws += this.analytic.encodeGhostBarrels(pass);
+      draws += this.analytic.encodeBlended(pass, layerOffsets, panel.layerId ? new Set([panel.layerId]) : visibleLayers, analyticContext);
+    }
     this.drawBlended(pass, blendedEntries, pipelines, indirect);
     return { triangles, draws };
   }
 
-  depthAttachment() {
-    const attachment = { view: this.depth.createView(), depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "store" };
+  /**
+   * The colour attachment for a frame into `view`: drawn multisampled and
+   * resolved into it when anti-aliased. `first` clears; a frame that is not
+   * `last` keeps its samples for the next panel.
+   */
+  colorAttachment(view, first = true, last = true, samples = this.colorTarget?.createView()) {
+    const attachment = { view, clearValue: { r: 0.91, g: 0.93, b: 0.94, a: 1 }, loadOp: first ? "clear" : "load", storeOp: "store" };
+    if (this.sampleCount === 1) return attachment;
+    return { ...attachment, view: samples, resolveTarget: view, storeOp: last ? "discard" : "store" };
+  }
+
+  insetColorView(width, height) {
+    if (this.sampleCount === 1) return undefined;
+    if (this.insetColor?.width !== width || this.insetColor?.height !== height) {
+      this.insetColor?.texture.destroy();
+      const texture = this.device.createTexture({ label: "inset-msaa", size: [width, height], format: this.format, sampleCount: this.sampleCount, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+      this.insetColor = { texture, view: texture.createView(), width, height };
+    }
+    return this.insetColor.view;
+  }
+
+  /**
+   * The depth attachment of a frame, or of a pick (one sample). Every pass
+   * clears it and nothing reads it after, so it is never stored: a tiled GPU
+   * then keeps it on chip.
+   */
+  depthAttachment(pick = false) {
+    const attachment = { view: (pick ? this.pickDepth : this.depth).createView(), depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "discard" };
     if (this.stencil) Object.assign(attachment, { stencilClearValue: 0, stencilLoadOp: "clear", stencilStoreOp: "discard" });
     return attachment;
   }
@@ -2075,7 +2364,8 @@ export class Renderer {
           this.drawEntry(pass, entry, indirect);
         }
       } else {
-        pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).blend : pipelines.blend);
+        const flat = entry.translucent ? pipelines.translucent ?? pipelines.blend : pipelines.blend;
+        pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).blend : flat);
         this.drawEntry(pass, entry, indirect);
       }
     }
@@ -2087,11 +2377,26 @@ export class Renderer {
     this.invalidate();
   }
 
+  /**
+   * Hide each side's solder mask, silkscreen or paste named in `keys`
+   * ("soldermask:front", "paste:back", ...; see `boardLayerKey`), mesh and
+   * analytic alike.
+   */
+  setHiddenBoardLayers(keys) {
+    this.hiddenBoardLayers = new Set(keys || []);
+    this.invalidate();
+  }
+
   visible(entry, panelLayer, visibleLayers, showBoard, showComponents, componentOpacity, compareMode = false, visibleTileIds = null) {
     if (entry.placeholder && !this.showPlaceholders) return false;
-    if (entry.kind === "board" && entry.boardRole === "pad") return false;
-    if (!compareMode && entry.kind === "copper" && visibleTileIds && !visibleTileIds.has(entry.tileId)) return false;
+    // The flat layer view draws mesh copper only; analytic slices skip it.
     if (compareMode) return entry.kind === "copper" && visibleLayers.has(entry.layerId);
+    // Analytic copper replaces the mesh copper of the layers it draws, and
+    // analytic board layers the mesh substrate, mask, silkscreen and paste.
+    if (entry.kind === "copper" && this.analytic?.coversLayer(entry.layerId)) return false;
+    if (entry.kind === "board" && this.analytic?.coversRole(entry.boardRole)) return false;
+    if (entry.kind === "board" && entry.boardRole === "pad") return false;
+    if (entry.kind === "copper" && visibleTileIds && !visibleTileIds.has(entry.tileId)) return false;
     if (entry.innerCopper && this.innerCopperMode === "none") return false;
     // Paste belongs to its copper layer: shown with it, whatever the substrate does.
     if (entry.boardRole === "paste") return panelLayer === 0 && visibleLayers.has(entry.layerId);
@@ -2115,8 +2420,15 @@ export class Renderer {
     view.setUint32(84, this.selectedOccurrence >= 0 ? this.selectedOccurrence + 1 + this.occurrenceBase : 0, true);
     view.setUint32(88, this.occurrenceBase, true);
     view.setUint32(92, this.emphasisStride, true); // `emphasisStride` (SB2-31), instanced shaders only
-    floats.set([0.35, -0.5, 0.8, 0], 24);
+    floats.set(LIGHT_DIRECTION, 24);
     this.device.queue.writeBuffer(this.globalBuffer, 0, data);
+    if (this.analyticGlobalBuffer && this.analytic) {
+      // The analytic board's own: the view times its model, the light in its own frame.
+      const model = this.occurrenceMatrices.length === 1 ? this.occurrenceMatrices[0] : null;
+      floats.set(this.analyticView(matrix), 0);
+      floats.set(model ? lightInModel(model) : LIGHT_DIRECTION, 24);
+      this.device.queue.writeBuffer(this.analyticGlobalBuffer, 0, data);
+    }
   }
 
   writeDraw(
@@ -2181,12 +2493,13 @@ export class Renderer {
     const { pipelines, indirect } = this.drawSet();
     // A repack (SB2-90) moves geometry: bundles recorded before it name the old ranges.
     const { vertex, index } = this.arenas();
-    const key = `${panelLayerId}:${indirect ? "indirect" : "single"}:${vertex.generation}.${index.generation}:${entries.map((entry) => entry.id).join(",")}`;
+    const key = `${panelLayerId}:${indirect ? "indirect" : "single"}:${this.shaderFeatureKey}:${vertex.generation}.${index.generation}:${entries.map((entry) => entry.id).join(",")}`;
     const cached = this.bundleCache.get(key);
     if (cached) return cached;
     const encoder = this.device.createRenderBundleEncoder({
       colorFormats: [this.format],
       depthStencilFormat: this.depthFormat,
+      sampleCount: this.sampleCount,
     });
     this.drawEntries(encoder, entries, pipelines, indirect);
     const bundle = encoder.finish();
@@ -2209,11 +2522,13 @@ export class Renderer {
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{ view: this.pickTexture.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
-      depthStencilAttachment: this.depthAttachment(),
+      depthStencilAttachment: this.depthAttachment(true),
     });
     const viewport = clampViewport(panel.viewport, this.canvas.width, this.canvas.height);
     pass.setViewport(viewport.x, viewport.y, viewport.width, viewport.height, 0, 1);
-    pass.setScissorRect(viewport.x, viewport.y, viewport.width, viewport.height);
+    // Only the picked pixel is read: nothing else needs shading.
+    pass.setScissorRect(pixelX, pixelY, 1, 1);
+    if (this.analytic) this.analytic.viewport = viewport;
     this.encodePick(pass, panel, options);
     pass.end();
     return this.readPick(encoder, pixelX, pixelY);
@@ -2221,6 +2536,8 @@ export class Renderer {
 
   /** Record this renderer's pick draws into an open pass (see `encodeDraws`). */
   encodePick(pass, panel, options) {
+    // Nothing on a field relief is picked.
+    if (this.relief?.ready && !options.compareMode) return;
     this.writeGlobals(
       panel.matrix,
       options.activeNetId,
@@ -2264,15 +2581,25 @@ export class Renderer {
       pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).pick : pipelines.pick);
       this.drawEntry(pass, entry, indirect);
     }
-    if (!options.compareMode && this.barrels) {
+    if (!options.compareMode && this.barrels && !this.analytic?.hasBarrels()) {
       this.writeBarrelDraw(options.isolateNet);
       this.drawBarrels(pass, pipelines.barrelPick, indirect, barrelInstances);
     }
     if (indirect && !options.compareMode) this.drawBox(pass, pipelines.boxPick);
+    if (this.analytic && !options.compareMode) {
+      const layers = panel.layerId ? new Set([panel.layerId]) : options.visibleLayers;
+      this.analytic.encodeInto(pass, options.layerOffsets, layers, true, { matrix: this.analyticView(panel.matrix), panelLayer: panel.layerId, isolateNet: options.isolateNet, showBoard: options.showBoard });
+      this.analytic.encodeBarrels(pass, options.layerOffsets, this.analyticView(panel.matrix), true);
+    }
+    if (this.analytic && options.compareMode) {
+      const layers = this.analyticFlatLayers(options);
+      if (layers.length) this.encodeFlatLayers(pass, panel.matrix, layers, options.isolateNet, true);
+    }
   }
 
   // Copy one pick texel, submit, and decode it. Occurrence numbers are scene-wide.
-  async readPick(encoder, pixelX, pixelY) {
+  /** Read the pick texel; `owner` is the renderer whose draw it holds (a system scene's asset reads through its host). */
+  async readPick(encoder, pixelX, pixelY, owner = this) {
     const readBuffer = this.device.createBuffer({
       label: "pick-readback", // one rg32uint texel; rows are 256-byte aligned
       size: 256,
@@ -2287,9 +2614,14 @@ export class Renderer {
     try {
       await readBuffer.mapAsync(GPUMapMode.READ);
       const view = new DataView(readBuffer.getMappedRange());
-      const hit = decodePick(view.getUint32(0, true), view.getUint32(4, true));
+      const red = view.getUint32(0, true);
+      const green = view.getUint32(4, true);
       readBuffer.unmap();
-      return { ...hit, occurrenceKey: hit.occurrenceIndex >= 0 ? this.occurrenceKeys[hit.occurrenceIndex] ?? null : null };
+      if (owner.analytic && (red & ANALYTIC_PICK_TAG) && green) {
+        return { kind: "analytic", occurrenceIndex: -1, featureId: 0, operationIndex: green - 1, occurrenceKey: null };
+      }
+      const hit = decodePick(red, green);
+      return { ...hit, occurrenceKey: hit.occurrenceIndex >= 0 ? owner.occurrenceKeys[hit.occurrenceIndex] ?? null : null };
     } finally {
       if (readBuffer.mapState === "mapped") readBuffer.unmap();
       readBuffer.destroy();
