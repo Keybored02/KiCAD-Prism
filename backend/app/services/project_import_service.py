@@ -157,19 +157,23 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     """
     Discover KiCAD projects by inspecting the Git tree directly (no-checkout).
     Returns list of DiscoveredProject.
+    """
+    try:
+        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
+    except Exception:
+        # Fallback for empty repos or other issues
+        return []
+    return discover_projects_from_paths(all_files)
+
+
+def discover_projects_from_paths(all_files: Sequence[str]) -> List[DiscoveredProject]:
+    """Discover KiCAD projects among a repository's file paths (relative to its root).
 
     A directory counts as a project when it holds a ``.kicad_pro``, a
     ``.kicad_pcb`` or a ``.kicad_sch``. Requiring ``.kicad_pro`` used to make
     whole repositories import as nothing at all, because KiCad rewrites that
     file on every open and teams routinely gitignore it.
     """
-    # Get all files in the repo recursively
-    try:
-        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
-    except Exception:
-        # Fallback for empty repos or other issues
-        return []
-
     # Map directory -> list of filenames
     dir_map: dict[str, list[str]] = {}
     for fpath in all_files:
