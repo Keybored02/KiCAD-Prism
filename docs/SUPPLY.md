@@ -418,7 +418,7 @@ A project's Supply tab answers, in this order: can we build N boards and what st
 
 ## BOM file
 
-Supply > Parts > Upload BOM checks a BOM that is not a project. Drop or choose an Excel file (.xls, .xlsx; the first sheet is read) or a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
+Supply > Parts > Upload BOM checks a BOM that is not a project. Drop or choose an Excel file (.xlsx or .xlsm; the server reads the first sheet and keeps nothing) or a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
 rows), confirm which column is the part number, manufacturer, LCSC number, quantity and references (they are guessed from
 the header), set the number of boards, and Prism shows what the parts would cost and whether they can be built, with the
 same rollup as a project BOM. A row needs a part number or an LCSC number. Rows of the same part are added together.
