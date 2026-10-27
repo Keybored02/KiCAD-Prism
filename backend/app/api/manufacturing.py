@@ -143,11 +143,8 @@ class DefectUpdateRequest(BaseModel):
 
 
 def _handle(func, *args, **kwargs):
-    """Run a service call, mapping its ValueError into a 400."""
-    try:
-        return func(*args, **kwargs)
-    except mfg.ManufacturingError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    """Run a service call. A refusal is a ``ManufacturingError``, which the error handler renders as a 400."""
+    return func(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -219,10 +216,7 @@ async def download_spec_sheet(project_id: str, spec_id: str | None = None):
 
     from app.services import spec_sheet_pdf_service
 
-    try:
-        pdf = await asyncio.to_thread(spec_sheet_pdf_service.build_spec_sheet, project_id, spec_id)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+    pdf = await asyncio.to_thread(spec_sheet_pdf_service.build_spec_sheet, project_id, spec_id)
 
     project = await asyncio.to_thread(workspace.get_project_by_id, project_id)
     name = (project or {}).get("display_name") or (project or {}).get("name") or project_id
@@ -528,10 +522,7 @@ async def download_run_report(run_id: str):
 
     from app.services import run_report_pdf_service
 
-    try:
-        pdf = await asyncio.to_thread(run_report_pdf_service.build_run_report, run_id)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+    pdf = await asyncio.to_thread(run_report_pdf_service.build_run_report, run_id)
 
     run = await asyncio.to_thread(mfg.get_run, run_id)
     name = (run or {}).get("project_name") or (run or {}).get("project_id") or run_id
@@ -640,12 +631,9 @@ async def upload_evidence(
     # Read one byte past the cap so an oversized upload is refused on its size.
     data = await file.read(derived_assets.MAX_EVIDENCE_BYTES + 1)
     media_type = file.content_type or "application/octet-stream"
-    try:
-        digest, media_type, size = await asyncio.to_thread(
-            derived_assets.store_evidence, defect["run_id"], data, media_type
-        )
-    except derived_assets.EvidenceError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    digest, media_type, size = await asyncio.to_thread(
+        derived_assets.store_evidence, defect["run_id"], data, media_type
+    )
 
     kind = "report" if media_type == "application/pdf" else "photo"
     descriptor = {

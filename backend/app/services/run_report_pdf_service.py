@@ -33,6 +33,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.core.errors import NotFound
 from app.services import derived_assets, manufacturing_service as mfg
 from app.services.spec_config_service import ParsedSpecConfig, SpecCondition, parse_spec_config
 from app.services.workspace_service import workspace
@@ -68,6 +69,10 @@ _LOGO = (
     / "frontend" / "src" / "assets" / "branding" / "kicad-prism"
     / "kicad-prism-logo-horizontal-1600x366.png"
 )
+
+
+class RunReportNotFound(NotFound, ValueError):
+    """The run a report was asked for does not exist."""
 
 
 def _esc(text: str) -> str:
@@ -393,7 +398,7 @@ def build_run_report(run_id: str) -> bytes:
     """Render a full run report (info, spec snapshot, defects, evidence) to PDF bytes."""
     run = mfg.get_run(run_id)
     if not run:
-        raise ValueError("Run not found.")
+        raise RunReportNotFound("Run not found.")
 
     project = workspace.get_project_by_id(run.get("project_id") or "") or {}
     relative_path = str(run.get("relative_path") or project.get("relative_path") or ".")

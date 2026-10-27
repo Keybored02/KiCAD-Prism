@@ -31,6 +31,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.core.errors import NotFound
 from app.services import manufacturing_service as mfg
 from app.services.spec_config_service import ParsedSpecConfig, SpecCondition, parse_spec_config
 from app.services.workspace_service import workspace
@@ -47,6 +48,10 @@ _LOGO = (
     / "frontend" / "src" / "assets" / "branding" / "kicad-prism"
     / "kicad-prism-logo-horizontal-1600x366.png"
 )
+
+
+class SpecSheetNotFound(NotFound, ValueError):
+    """The project or spec a spec sheet was asked for does not exist."""
 
 
 def _satisfied(condition: dict[str, Any] | None, values: dict[str, Any]) -> bool:
@@ -202,12 +207,12 @@ def build_spec_sheet(project_id: str, spec_id: str | None = None) -> bytes:
     """
     project = workspace.get_project_by_id(project_id)
     if not project:
-        raise ValueError("Project not found.")
+        raise SpecSheetNotFound("Project not found.")
 
     if spec_id:
         spec = mfg.get_project_spec(spec_id)
         if not spec or spec.get("project_id") != project_id:
-            raise ValueError("Spec not found for this project.")
+            raise SpecSheetNotFound("Spec not found for this project.")
     else:
         spec = mfg.get_board_spec(project_id)
     values = spec.get("specs") or {}

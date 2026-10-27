@@ -490,7 +490,7 @@ EVIDENCE_MEDIA_TYPES = {
 }
 
 
-class EvidenceError(ValueError):
+class EvidenceError(errors.BadRequest, ValueError):
     """An uploaded file could not be stored as defect evidence."""
 
 

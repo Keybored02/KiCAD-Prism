@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from app.core.errors import DomainError  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
@@ -177,7 +178,7 @@ class ManufacturingRouteTests(unittest.TestCase):
 
         with patch.object(self.api.mfg, "create_run", side_effect=mfg.ManufacturingError("nope")):
             request = self.api.RunRequest(project_id="prj_missing", quantity_ordered=1)
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(DomainError) as ctx:
                 _run(self.api.create_run(request, user=_User()))
         self.assertEqual(ctx.exception.status_code, 400)
 
@@ -206,7 +207,7 @@ class ManufacturingRouteTests(unittest.TestCase):
 
     def test_accepting_without_a_reason_is_a_400(self) -> None:
         request = self.api.DefectUpdateRequest(status="accepted")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             _run(self.api.update_defect("def_1", request, user=_User(role="qa")))
         self.assertEqual(ctx.exception.status_code, 400)
 
@@ -242,7 +243,7 @@ class EvidenceUploadTests(unittest.TestCase):
         with patch.object(self.api.mfg, "get_defect", return_value=defect), \
              patch.object(self.api.derived_assets, "store_evidence",
                           side_effect=derived_assets.EvidenceError("bad type")):
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(DomainError) as ctx:
                 _run(self.api.upload_evidence(
                     "def_1", file=self._upload(content_type="text/html"), user=_User()
                 ))

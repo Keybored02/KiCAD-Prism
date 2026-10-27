@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
+from app.core.errors import BadRequest
 from app.services.postgres_database import database
 from app.services.workspace_service import workspace
 
@@ -50,7 +51,7 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}{uuid.uuid4().hex[:12]}"
 
 
-class ManufacturingError(ValueError):
+class ManufacturingError(BadRequest, ValueError):
     """A manufacturing operation was rejected for a reason the caller can act on."""
 
 
