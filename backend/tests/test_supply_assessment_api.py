@@ -56,7 +56,7 @@ class AssessmentApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("waivers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_waivers", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
         self.part_id = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": "ABC123"}).json["part_id"]
@@ -68,10 +68,10 @@ class AssessmentApiTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, self.cid, sku, self.part_id))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)",
                 (listing_id, datetime.now(timezone.utc), stock, lifecycle))
 
     def assessment(self, quantity=None, role="qa") -> dict:
@@ -82,7 +82,7 @@ class AssessmentApiTests(unittest.TestCase):
 
     def audited(self) -> list[str]:
         with self.store.connection() as conn:
-            return [r["action"] for r in conn.execute("SELECT action FROM audit_events WHERE action LIKE 'waiver.%' ORDER BY id").fetchall()]
+            return [r["action"] for r in conn.execute("SELECT action FROM supply_audit_events WHERE action LIKE 'waiver.%' ORDER BY id").fetchall()]
 
     def test_a_part_that_has_not_been_read_is_unknown(self) -> None:
         result = self.assessment()
@@ -104,17 +104,17 @@ class AssessmentApiTests(unittest.TestCase):
         today = datetime.now(timezone.utc).date()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'last_buy_date', %s, now())",
+                "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'last_buy_date', %s, now())",
                 (self.part_id, (today + timedelta(days=90)).isoformat()),
             )
         self.assertEqual(self.assessment()["status"], "error", "a date within 180 days")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'a')", (today - timedelta(days=2),))
-            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
+            conn.execute("INSERT INTO supply_pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'a')", (today - timedelta(days=2),))
+            conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
         found = self.assessment()
         self.assertEqual(found["status"], "error", "an open notice's date has passed, the earliest counts, and a distributor still has stock")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET stock = 0")
+            conn.execute("UPDATE supply_offers SET stock = 0")
         found = self.assessment()
         self.assertEqual((found["status"], found["health"]), ("fatal", 0.0), "the date has passed and nobody has stock")
 
@@ -141,7 +141,7 @@ class AssessmentApiTests(unittest.TestCase):
         self.offer(lifecycle="nrnd")
         waiver = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Fine"}).json
         with self.store.connection() as conn:
-            conn.execute("UPDATE waivers SET scope = 'something_else' WHERE id = %s", (waiver["id"],))
+            conn.execute("UPDATE supply_waivers SET scope = 'something_else' WHERE id = %s", (waiver["id"],))
         (finding,) = self.assessment()["findings"]
         self.assertEqual((finding["waiver"]["holds"], finding["waiver"]["outdated"]), (False, True))
         again = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Still fine"})

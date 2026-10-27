@@ -37,10 +37,10 @@ class DashboardTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("part_insights", "figure_history", "samples", "offers", "listings", "watches", "part_tiers", "parts", "manufacturers", "connectors", "alerts"):
+            for table in ("supply_part_insights", "supply_figure_history", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_alerts"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider, storefront) VALUES ('c1', 'fake', 'a'), ('c2', 'fake', 'b')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, storefront) VALUES ('c1', 'fake', 'a'), ('c2', 'fake', 'b')")
 
     def follow(self, mpn: str, stocks: list[int], holders: tuple[str, ...] = ("c1",)) -> str:
         """A tracked part with one reading a day for each stock figure, ending today, at each of the connectors."""
@@ -50,13 +50,13 @@ class DashboardTests(unittest.TestCase):
             for connector in holders:
                 listing = f"l-{mpn}-{connector}"
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'x', 'exact')",
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'x', 'exact')",
                     (listing, connector, f"{mpn}-{connector}", record.part_id),
                 )
-                conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lead_time_days) VALUES (%s, %s, %s, 30)", (listing, NOW, stocks[-1]))
+                conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lead_time_days) VALUES (%s, %s, %s, 30)", (listing, NOW, stocks[-1]))
                 for offset, stock in enumerate(stocks):
                     day = NOW - timedelta(days=len(stocks) - 1 - offset)
-                    conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)", (listing, day, stock))
+                    conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)", (listing, day, stock))
             return record.part_id
 
     def test_the_kept_facts_say_when_stock_runs_out_and_who_holds_it(self) -> None:
@@ -120,10 +120,10 @@ class DashboardTests(unittest.TestCase):
         both = self.follow("BOTH-1", [500] * 9, holders=("c1", "c2"))
         gone = self.follow("GONE-1", [0, 0, 0])
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (f"l-FALL-1-c1",))
-            conn.execute("INSERT INTO pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", ((NOW + timedelta(days=40)).date(),))
-            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (falling,))
-            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'last_buy_date', %s, %s)",
+            conn.execute("UPDATE supply_offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (f"l-FALL-1-c1",))
+            conn.execute("INSERT INTO supply_pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", ((NOW + timedelta(days=40)).date(),))
+            conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (falling,))
+            conn.execute("INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'last_buy_date', %s, %s)",
                          (both, (NOW + timedelta(days=10)).date().isoformat(), NOW))
             self.part_insights.renew(conn, NOW)
             result = self.dashboard.build(conn, NOW)
@@ -147,7 +147,7 @@ class DashboardTests(unittest.TestCase):
         with self.store.connection() as conn:
             for part, rohs, reach, eccn in ((bad, "Non-compliant", "REACH Affected", "3A991"), (good, "Compliant", "Unaffected", "EAR99")):
                 for name, value in (("rohs_status", rohs), ("reach_status", reach), ("eccn", eccn)):
-                    conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', %s, %s, %s)", (part, name, value, NOW))
+                    conn.execute("INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', %s, %s, %s)", (part, name, value, NOW))
             self.part_insights.renew(conn, NOW)
             page = self.insights_page.build(conn)
 
@@ -174,9 +174,9 @@ class DashboardTests(unittest.TestCase):
         two = self.follow("TWO-1", [500] * 5, holders=("c1", "c2"))
         none = self.follow("NONE-1", [0] * 5)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'origin_country', 'China', %s)", (one, NOW))
-            conn.execute("UPDATE connectors SET display_name = 'Alpha' WHERE id = 'c1'")
-            conn.execute("UPDATE connectors SET display_name = 'Beta' WHERE id = 'c2'")
+            conn.execute("INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'origin_country', 'China', %s)", (one, NOW))
+            conn.execute("UPDATE supply_connectors SET display_name = 'Alpha' WHERE id = 'c1'")
+            conn.execute("UPDATE supply_connectors SET display_name = 'Beta' WHERE id = 'c2'")
             self.part_insights.renew(conn, NOW)
             page = self.insights_page.build(conn)
 
@@ -201,7 +201,7 @@ class DashboardTests(unittest.TestCase):
 
         part = self.follow("CTRL-1", [500] * 3)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'eccn', '3A991', %s)", (part, NOW))
+            conn.execute("INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'eccn', '3A991', %s)", (part, NOW))
             self.assertEqual(trade_marks.state(conn, part)["control"], "controlled")
             trade_marks.set_mark(conn, part, "none", "", "ana@example.com")
             self.assertEqual(trade_marks.state(conn, part)["control"], "none")

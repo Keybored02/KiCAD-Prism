@@ -60,7 +60,7 @@ class HardeningTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("events", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_events", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.clock = Clock()
         self.behaviour = None
@@ -88,7 +88,7 @@ class HardeningTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', %s)", (listing_id, connector_id, sku, part_id, state))
         return listing_id
 
@@ -119,7 +119,7 @@ class HardeningTests(unittest.TestCase):
         for _ in range(3):
             poller.poll_connector(cid)
             self.clock.advance(hours=2)
-        (event,) = self.rows("SELECT kind, part_id, listing_id, payload FROM events")
+        (event,) = self.rows("SELECT kind, part_id, listing_id, payload FROM supply_events")
         self.assertEqual((event["kind"], event["part_id"], event["listing_id"]), ("listing_gone", watch.part_id, listing_id))
         self.assertEqual(event["payload"], {"sku": "FAKE-GHOST-CT", "packaging": "unknown"})
 
@@ -131,20 +131,20 @@ class HardeningTests(unittest.TestCase):
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         poller = self.poller()
         poller.poll_connector(cid)
-        (first,) = self.rows("SELECT last_change_at FROM poll_state")
+        (first,) = self.rows("SELECT last_change_at FROM supply_poll_state")
         self.clock.advance(days=2)
         self.altering(lifecycle=Lifecycle.NRND)
         poller.poll_connector(cid)
-        (second,) = self.rows("SELECT last_change_at, tier FROM poll_state")
+        (second,) = self.rows("SELECT last_change_at, tier FROM supply_poll_state")
         self.assertGreater(second["last_change_at"], first["last_change_at"], "NRND is news even when stock and price did not move")
-        self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 2)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples")), 2)
 
     def test_a_missing_listing_keeps_its_schedule_and_urgency(self) -> None:
         cid = self.connector()
         watch = self.watch(pinned=True)
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         self.poller().poll_connector(cid)
-        self.assertEqual(self.rows("SELECT tier, urgency FROM poll_state")[0]["urgency"], 0)
+        self.assertEqual(self.rows("SELECT tier, urgency FROM supply_poll_state")[0]["urgency"], 0)
 
         class DropsAll:
             def __init__(self, inner): self.inner = inner
@@ -153,7 +153,7 @@ class HardeningTests(unittest.TestCase):
         self.behaviour = DropsAll
         self.clock.advance(days=2)
         self.poller().poll_connector(cid)
-        (state,) = self.rows("SELECT tier, urgency, missing_streak FROM poll_state")
+        (state,) = self.rows("SELECT tier, urgency, missing_streak FROM supply_poll_state")
         self.assertEqual((state["tier"], state["urgency"], state["missing_streak"]), ("daily", 0, 1))
 
     def test_a_sample_remembers_marketplace_stock(self) -> None:
@@ -161,7 +161,7 @@ class HardeningTests(unittest.TestCase):
         self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
         self.altering(marketplace=True)
         self.poller().poll_connector(cid)
-        self.assertTrue(self.rows("SELECT marketplace FROM samples")[0]["marketplace"])
+        self.assertTrue(self.rows("SELECT marketplace FROM supply_samples")[0]["marketplace"])
 
     # --- discovery --------------------------------------------------------
 
@@ -178,7 +178,7 @@ class HardeningTests(unittest.TestCase):
         service = self.discovery.DiscoveryService(lambda _cid: Stub(), self.store)
         service.discover(a.part_id, cid)
         service.discover(b.part_id, cid)
-        (listing,) = self.rows("SELECT part_id, match_state FROM listings")
+        (listing,) = self.rows("SELECT part_id, match_state FROM supply_listings")
         self.assertEqual((listing["part_id"], listing["match_state"]), (a.part_id, "near"))
 
     def test_uploading_a_file_has_the_connector_searched_again(self) -> None:
@@ -186,11 +186,11 @@ class HardeningTests(unittest.TestCase):
         watch = self.watch()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)",
+                "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)",
                 (watch.part_id, cid, START))
         self.CsvImportService(self.connectors, self.store).import_file(
             cid, b"sku,mpn,manufacturer,stock\nC1,ABC123,Acme,10\n", actor=ACTOR, filename="f.csv")
-        self.assertEqual(self.rows("SELECT 1 FROM discovery_runs"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_discovery_runs"), [])
 
     # --- budget and cooldown ----------------------------------------------
 
@@ -219,7 +219,7 @@ class HardeningTests(unittest.TestCase):
         cid = self.connector("csv")
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES ('l1', %s, 'C1', %s, 'x', 'Acme', 'exact')", (cid, self.watch().part_id))
         self.assertEqual(self.work(), [cid])
 
@@ -232,7 +232,7 @@ class HardeningTests(unittest.TestCase):
 
         cid = self.connector()
         self.trouble.react(self.connectors, self.store, cid, RateLimited("slow down", retry_after_seconds=10_000_000), self.clock.now)
-        (row,) = self.rows("SELECT cooldown_until FROM connectors WHERE id = %s", cid)
+        (row,) = self.rows("SELECT cooldown_until FROM supply_connectors WHERE id = %s", cid)
         self.assertEqual(row["cooldown_until"], self.clock.now + self.trouble.MAX_COOLDOWN)
 
     def test_a_batch_that_costs_two_calls_is_charged_two(self) -> None:
@@ -248,7 +248,7 @@ class HardeningTests(unittest.TestCase):
             cid = self.connector("demo_twocall", daily_budget=1000)
             self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
             summary = self.poller().poll_connector(cid)
-            (row,) = self.rows("SELECT spent FROM quota_ledger WHERE connector_id = %s", cid)
+            (row,) = self.rows("SELECT spent FROM supply_quota_ledger WHERE connector_id = %s", cid)
             self.assertEqual((summary.calls, row["spent"]), (1, 2), "one batch, two calls on the budget")
         finally:
             registry.unregister("demo_twocall")
@@ -263,16 +263,16 @@ class HardeningTests(unittest.TestCase):
         with self.store.connection() as conn:
             for hours, stock, price in ((0, 10, "1.0"), (6, 4, "1.2"), (12, 7, "1.1")):
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')",
                     (listing, old + timedelta(hours=hours), stock, price))
-            conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 99)", (listing, recent))
+            conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 99)", (listing, recent))
             removed = self.retention.compact_samples(conn, START)
         self.assertEqual(removed, 3)
-        (daily,) = self.rows("SELECT * FROM samples_daily")
+        (daily,) = self.rows("SELECT * FROM supply_samples_daily")
         self.assertEqual((daily["day"], daily["min_stock"], daily["max_stock"], daily["last_stock"], daily["sample_count"]),
                          (old.date(), 4, 10, 7, 3))
         self.assertEqual(str(daily["last_unit_price"]), "1.100000")
-        self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 1, "the recent sample is untouched")
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples")), 1, "the recent sample is untouched")
         with self.store.connection() as conn:
             self.assertEqual(self.retention.compact_samples(conn, START), 0, "nothing left to do")
 
@@ -287,10 +287,10 @@ class HardeningTests(unittest.TestCase):
         stamp = START - timedelta(days=20)
         with self.store.connection() as conn:
             for listing in (one, two):
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, stamp))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, stamp))
             self.assertEqual(self.retention.compact_samples(conn, START), 1, "only the short-keeping connector's sample is old enough")
-        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM samples")], [two])
-        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM samples_daily")], [one])
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_samples")], [two])
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_samples_daily")], [one])
         self.connectors.update(short, actor="a@example.com", retention_days=None)
         self.assertIsNone(self.connectors.get(short)["retention_days"])
 
@@ -318,14 +318,14 @@ class HardeningTests(unittest.TestCase):
         old = START - timedelta(days=45)
         with self.store.connection() as conn:
             for listing in (one, two):
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, old))
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, START - timedelta(days=5)))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, old))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, START - timedelta(days=5)))
                 conn.execute(
-                    "INSERT INTO samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 1, 5, 5, 3)",
+                    "INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 1, 5, 5, 3)",
                     (listing, old.date()))
             self.assertEqual(self.retention.drop_expired(conn, START), 2, "its old sample and its old daily row")
-        self.assertEqual(sorted(r["listing_id"] for r in self.rows("SELECT listing_id FROM samples")), sorted([one, two, two]))
-        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM samples_daily")], [two])
+        self.assertEqual(sorted(r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_samples")), sorted([one, two, two]))
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_samples_daily")], [two])
         self.assertEqual(self.connectors.get(limited)["keep_days"], 30)
 
     def test_the_first_run_on_a_long_history_works_in_slices(self) -> None:
@@ -334,10 +334,10 @@ class HardeningTests(unittest.TestCase):
         first = datetime(2025, 6, 1, 8, 0, tzinfo=timezone.utc)
         with self.store.connection() as conn:
             for day in (0, 20, 40, 90):
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, first + timedelta(days=day)))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, first + timedelta(days=day)))
             removed = [self.retention.compact_samples(conn, START) for _ in range(4)]
         self.assertEqual(removed, [2, 1, 1, 0], "30 days a run: days 0 and 20, then 40, then 90, then nothing")
-        self.assertEqual(len(self.rows("SELECT 1 FROM samples_daily")), 4)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples_daily")), 4)
 
 
 if __name__ == "__main__":

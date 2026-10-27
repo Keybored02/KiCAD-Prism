@@ -55,8 +55,8 @@ class BomCommentTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM bom_comments")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_bom_comments")
+            conn.execute("DELETE FROM supply_audit_events")
 
     def call(self, method, path, *, role="designer", body=None):
         project = SimpleNamespace(id="prj_1")
@@ -99,7 +99,7 @@ class BomCommentTests(unittest.TestCase):
         self.assertEqual(self.call("DELETE", f"/{theirs}", role="admin").status, 404)
         self.assertEqual(self.call("GET", "", role="qa").json["items"], [])
         with self.store.connection() as conn:
-            actions = [r["action"] for r in conn.execute("SELECT action FROM audit_events ORDER BY id").fetchall()]
+            actions = [r["action"] for r in conn.execute("SELECT action FROM supply_audit_events ORDER BY id").fetchall()]
         self.assertEqual(actions, ["bom_comment.add", "bom_comment.remove", "bom_comment.add", "bom_comment.remove"])
 
 

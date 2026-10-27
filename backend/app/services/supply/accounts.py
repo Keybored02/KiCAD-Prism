@@ -52,7 +52,7 @@ def resolve(conn, connector_id: str) -> Account:
     """The account a connector belongs to. An unknown connector is an account of its own with no budget."""
 
     row = conn.execute(
-        "SELECT id, account_key, daily_budget, interactive_reserve_pct, reset_time, reset_tz FROM connectors WHERE id = %s",
+        "SELECT id, account_key, daily_budget, interactive_reserve_pct, reset_time, reset_tz FROM supply_connectors WHERE id = %s",
         (connector_id,),
     ).fetchone()
     if row is None:
@@ -61,12 +61,12 @@ def resolve(conn, connector_id: str) -> Account:
     if row["account_key"]:
         members = [
             item["id"] for item in conn.execute(
-                "SELECT id FROM connectors WHERE account_key = %s ORDER BY created_at, id", (row["account_key"],)
+                "SELECT id FROM supply_connectors WHERE account_key = %s ORDER BY created_at, id", (row["account_key"],)
             ).fetchall()
         ]
         if members[0] != connector_id:
             row = conn.execute(
-                "SELECT id, daily_budget, interactive_reserve_pct, reset_time, reset_tz FROM connectors WHERE id = %s",
+                "SELECT id, daily_budget, interactive_reserve_pct, reset_time, reset_tz FROM supply_connectors WHERE id = %s",
                 (members[0],),
             ).fetchone()
     return Account(
@@ -78,10 +78,10 @@ def refresh_keys(conn, keyring: CredentialKeyring, unseal: Callable[[CredentialK
     """Recompute every connector's account key, for after the keyring's current key changed. Returns how many changed."""
 
     changed = 0
-    for row in conn.execute("SELECT id, provider, account_key, credential_envelope FROM connectors").fetchall():
+    for row in conn.execute("SELECT id, provider, account_key, credential_envelope FROM supply_connectors").fetchall():
         credentials = unseal(keyring, row["id"], row["credential_envelope"]) if row["credential_envelope"] else {}
         key = key_for(keyring, row["provider"], credentials)
         if key != row["account_key"]:
-            conn.execute("UPDATE connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
+            conn.execute("UPDATE supply_connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
             changed += 1
     return changed

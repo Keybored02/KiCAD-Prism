@@ -20,18 +20,18 @@ def record(conn, listing_id: str, previous_stock: int | None, stock: int, lead_d
     if previous_stock > 0 and stock == 0:
         expected = day + timedelta(days=lead_days) if lead_days else None
         conn.execute(
-            "INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected) "
+            "INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected) "
             "VALUES (%s, %s, 'stock_out', %s, %s, %s, %s) ON CONFLICT DO NOTHING",
             (listing_id, day, previous_stock, stock, lead_days or None, expected),
         )
         return "stock_out"
     if previous_stock == 0 and stock > 0:
         conn.execute(
-            "INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'restock', %s, %s) ON CONFLICT DO NOTHING",
+            "INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'restock', %s, %s) ON CONFLICT DO NOTHING",
             (listing_id, day, previous_stock, stock),
         )
         conn.execute(
-            "UPDATE stock_events SET resolved_on = %s WHERE listing_id = %s AND kind = 'stock_out' AND resolved_on IS NULL AND day <= %s",
+            "UPDATE supply_stock_events SET resolved_on = %s WHERE listing_id = %s AND kind = 'stock_out' AND resolved_on IS NULL AND day <= %s",
             (day, listing_id, day),
         )
         return "restock"

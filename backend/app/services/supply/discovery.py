@@ -138,7 +138,7 @@ class DiscoveryService:
             read = [
                 (row["id"], match.offer)
                 for match, row in (
-                    (match, conn.execute("SELECT id, match_state FROM listings WHERE connector_id = %s AND sku = %s", (connector_id, match.sku)).fetchone())
+                    (match, conn.execute("SELECT id, match_state FROM supply_listings WHERE connector_id = %s AND sku = %s", (connector_id, match.sku)).fetchone())
                     for match in matches if match.offer is not None
                 )
                 if row is not None and row["match_state"] in ("exact", "manual")
@@ -173,13 +173,13 @@ class DiscoveryService:
         """Record one listing. Returns the state it ends up in."""
 
         existing = conn.execute(
-            "SELECT id, match_state, part_id FROM listings WHERE connector_id = %s AND sku = %s FOR UPDATE",
+            "SELECT id, match_state, part_id FROM supply_listings WHERE connector_id = %s AND sku = %s FOR UPDATE",
             (connector_id, match.sku),
         ).fetchone()
         if existing is None:
             conn.execute(
                 """
-                INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason)
+                INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (connector_id, sku) DO NOTHING
                 """,
@@ -188,10 +188,10 @@ class DiscoveryService:
             # A sibling number that turns up in a later search, once the part has been searched here before, is news; the first
             # search finds every sibling at once and says nothing.
             if state == NEAR and part_id and conn.execute(
-                "SELECT 1 FROM discovery_runs WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)
+                "SELECT 1 FROM supply_discovery_runs WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)
             ).fetchone():
                 conn.execute(
-                    "INSERT INTO events (kind, part_id, payload) VALUES ('family_member_new', %s, %s::jsonb)",
+                    "INSERT INTO supply_events (kind, part_id, payload) VALUES ('family_member_new', %s, %s::jsonb)",
                     (part_id, json.dumps({"sku": match.sku, "mpn": match.mpn, "manufacturer": match.manufacturer})),
                 )
             return state
@@ -203,12 +203,12 @@ class DiscoveryService:
             keep = True
         if keep:
             conn.execute(
-                "UPDATE listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s WHERE id = %s",
+                "UPDATE supply_listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s WHERE id = %s",
                 (match.mpn, match.manufacturer, existing["id"]),
             )
             return current
         conn.execute(
-            "UPDATE listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s, part_id = %s, "
+            "UPDATE supply_listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s, part_id = %s, "
             "match_state = %s, match_reason = %s, matched_by = 'discovery' WHERE id = %s",
             (match.mpn, match.manufacturer, part_id, state, reason, existing["id"]),
         )
@@ -220,7 +220,7 @@ def remember_datasheet(conn, part_id: str, url: str) -> None:
 
     url = url.strip()
     if url.lower().startswith("https://") and len(url) <= 500:
-        conn.execute("UPDATE parts SET datasheet_url = %s WHERE id = %s AND datasheet_url = ''", (url, part_id))
+        conn.execute("UPDATE supply_parts SET datasheet_url = %s WHERE id = %s AND datasheet_url = ''", (url, part_id))
 
 
 MAX_PARAMETERS = 80
@@ -234,16 +234,16 @@ def remember_parameters(conn, part_id: str, provider: str, attributes) -> None:
         if name and raw:
             # A distributor changing a listed attribute without a notice is worth a line.
             before = conn.execute(
-                "SELECT raw FROM part_params WHERE part_id = %s AND provider = %s AND name = %s", (part_id, provider, name)
+                "SELECT raw FROM supply_part_params WHERE part_id = %s AND provider = %s AND name = %s", (part_id, provider, name)
             ).fetchone()
             if before is not None and before["raw"] != raw:
                 conn.execute(
-                    "INSERT INTO events (kind, part_id, payload) VALUES ('param_changed', %s, %s::jsonb)",
+                    "INSERT INTO supply_events (kind, part_id, payload) VALUES ('param_changed', %s, %s::jsonb)",
                     (part_id, json.dumps({"provider": provider, "name": name, "from": before["raw"], "to": raw})),
                 )
             conn.execute(
                 """
-                INSERT INTO part_params (part_id, provider, name, raw) VALUES (%s, %s, %s, %s)
+                INSERT INTO supply_part_params (part_id, provider, name, raw) VALUES (%s, %s, %s, %s)
                 ON CONFLICT (part_id, provider, name) DO UPDATE SET raw = EXCLUDED.raw, observed_at = NOW()
                 """,
                 (part_id, provider, name, raw),
@@ -256,7 +256,7 @@ def pin_listing(conn, listing_id: str, part_id: str, actor: str) -> None:
     actor = actor_text(actor)
     parts.get_part(conn, part_id)
     result = conn.execute(
-        "UPDATE listings SET part_id = %s, match_state = %s, match_reason = %s, matched_by = %s WHERE id = %s",
+        "UPDATE supply_listings SET part_id = %s, match_state = %s, match_reason = %s, matched_by = %s WHERE id = %s",
         (part_id, MANUAL, "pinned by a person", actor, listing_id),
     )
     if result.rowcount == 0:
@@ -269,7 +269,7 @@ def reject_listing(conn, listing_id: str, actor: str) -> None:
 
     actor = actor_text(actor)
     result = conn.execute(
-        "UPDATE listings SET match_state = %s, match_reason = %s, matched_by = %s WHERE id = %s",
+        "UPDATE supply_listings SET match_state = %s, match_reason = %s, matched_by = %s WHERE id = %s",
         (REJECTED, "rejected by a person", actor, listing_id),
     )
     if result.rowcount == 0:
@@ -281,7 +281,7 @@ def counted_listings(conn, part_id: str) -> list[dict]:
     """The listings that feed stock and price for a part."""
 
     rows = conn.execute(
-        "SELECT id, connector_id, sku, packaging, match_state FROM listings "
+        "SELECT id, connector_id, sku, packaging, match_state FROM supply_listings "
         "WHERE part_id = %s AND match_state IN ('exact', 'manual') ORDER BY connector_id, sku",
         (part_id,),
     ).fetchall()

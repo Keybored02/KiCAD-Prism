@@ -36,7 +36,7 @@ def for_project(conn, project_id: str) -> list[dict[str, Any]]:
     """Every note of a project, oldest first."""
 
     rows = conn.execute(
-        "SELECT id, line_key, body, author, author_name, created_at FROM bom_comments WHERE project_id = %s ORDER BY created_at, id",
+        "SELECT id, line_key, body, author, author_name, created_at FROM supply_bom_comments WHERE project_id = %s ORDER BY created_at, id",
         (project_id,),
     ).fetchall()
     return [_dto(row) for row in rows]
@@ -52,14 +52,14 @@ def add(conn, project_id: str, line_key: str, body: str, actor: str, actor_name:
     if len(body) > MAX_BODY:
         raise CommentError(f"Keep a comment under {MAX_BODY} characters.")
     count = conn.execute(
-        "SELECT COUNT(*) AS n FROM bom_comments WHERE project_id = %s AND line_key = %s", (project_id, line_key)
+        "SELECT COUNT(*) AS n FROM supply_bom_comments WHERE project_id = %s AND line_key = %s", (project_id, line_key)
     ).fetchone()["n"]
     if count >= MAX_PER_LINE:
         raise CommentError(f"A line can have at most {MAX_PER_LINE} comments.")
     comment_id = uuid.uuid4().hex
     row = conn.execute(
         """
-        INSERT INTO bom_comments (id, project_id, line_key, body, author, author_name) VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO supply_bom_comments (id, project_id, line_key, body, author, author_name) VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING id, line_key, body, author, author_name, created_at
         """,
         (comment_id, project_id, line_key, body, actor, actor_name.strip()[:120]),
@@ -71,11 +71,11 @@ def add(conn, project_id: str, line_key: str, body: str, actor: str, actor_name:
 def remove(conn, project_id: str, comment_id: str, actor: str, *, admin: bool) -> None:
     actor = actor_text(actor)
     row = conn.execute(
-        "SELECT author, line_key FROM bom_comments WHERE id = %s AND project_id = %s FOR UPDATE", (comment_id, project_id)
+        "SELECT author, line_key FROM supply_bom_comments WHERE id = %s AND project_id = %s FOR UPDATE", (comment_id, project_id)
     ).fetchone()
     if row is None:
         raise CommentNotFound(comment_id)
     if row["author"] != actor and not admin:
         raise CommentError("Only its author or an administrator can remove a comment.")
-    conn.execute("DELETE FROM bom_comments WHERE id = %s", (comment_id,))
+    conn.execute("DELETE FROM supply_bom_comments WHERE id = %s", (comment_id,))
     write_audit(conn, actor, "bom_comment.remove", comment_id, {"project_id": project_id, "line_key": row["line_key"]}, subject_kind="bom_comment")

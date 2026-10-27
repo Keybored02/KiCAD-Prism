@@ -50,9 +50,9 @@ class PanelPayloadTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
         with self.store.connection() as conn:
             self.part = self.parts.ensure_part(conn, "Acme", "ABC-123", "seed@example.com")
@@ -61,10 +61,10 @@ class PanelPayloadTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, connector_id or self.cid, sku, self.part.id))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, lifecycle, currency, price_breaks, moq) VALUES (%s, %s, %s, %s, 'EUR', %s::jsonb, 1)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle, currency, price_breaks, moq) VALUES (%s, %s, %s, %s, 'EUR', %s::jsonb, 1)",
                 (listing_id, datetime(2026, 3, 1, tzinfo=timezone.utc), stock, offer.get("lifecycle", "active"), offer.get("breaks", '[[1, "0.50"], [100, "0.30"]]')))
 
     def refresh(self, part_id: str, role: str = "qa"):
@@ -128,10 +128,10 @@ class PanelPayloadTests(unittest.TestCase):
     def test_marketplace_stock_is_listed_last_and_does_not_count_as_a_distributor(self) -> None:
         self.listing(stock=50)
         with self.store.connection() as conn:
-            other = conn.execute("SELECT id FROM connectors").fetchone()["id"]
+            other = conn.execute("SELECT id FROM supply_connectors").fetchone()["id"]
             listing_id = uuid.uuid4().hex
-            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'M', %s, 'x', 'Acme', 'exact')", (listing_id, other, self.part.id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, marketplace) VALUES (%s, NOW(), 5000, TRUE)", (listing_id,))
+            conn.execute("INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'M', %s, 'x', 'Acme', 'exact')", (listing_id, other, self.part.id))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, marketplace) VALUES (%s, NOW(), 5000, TRUE)", (listing_id,))
             detail = self.panel_payload.detail(conn, self.component(), "designer", ORIGIN, now=datetime(2026, 3, 1, 2, tzinfo=timezone.utc))
         self.assertEqual([row["sku"] for row in detail["offers"]], ["A", "M"])
         self.assertEqual((detail["summary"]["stock"], detail["summary"]["distributors"]), (50, 1))

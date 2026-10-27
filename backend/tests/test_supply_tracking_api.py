@@ -78,8 +78,8 @@ class TrackingApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("bom_usage_projects", "tracked_projects", "listings", "watches", "parts", "manufacturer_aliases",
-                          "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_bom_usage_projects", "supply_tracked_projects", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases",
+                          "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.bom = components(3)
 
@@ -98,7 +98,7 @@ class TrackingApiTests(unittest.TestCase):
 
     def part_id(self, mpn: str) -> str:
         with self.store.connection() as conn:
-            return conn.execute("SELECT id FROM parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
+            return conn.execute("SELECT id FROM supply_parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
 
     def test_readers_see_the_state_and_only_they(self) -> None:
         for role in ("qa", "designer", "admin"):

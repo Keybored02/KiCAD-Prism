@@ -62,7 +62,7 @@ class RoomTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("call_counts", "discovery_runs", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors"):
+            for table in ("supply_call_counts", "supply_discovery_runs", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
 
     def connector(self, provider: str = "room_demo", budget: int = 100) -> str:
@@ -74,12 +74,12 @@ class RoomTests(unittest.TestCase):
         with self.store.connection() as conn:
             for n in range(count):
                 self.watches.add_watch(conn, "Acme", f"P-{n:03d}", ACTOR, tier=1)
-            ids = [row["part_id"] for row in conn.execute("SELECT part_id FROM part_tiers ORDER BY part_id").fetchall()]
+            ids = [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers ORDER BY part_id").fetchall()]
             for index, part_id in enumerate(ids):
-                conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (part_id, cid, NOW))
+                conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (part_id, cid, NOW))
                 if index < carried:
                     conn.execute(
-                        "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                        "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                         "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (f"{cid}-{index}", cid, f"S{index}", part_id),
                     )
             from app.services.supply import admission
@@ -114,7 +114,7 @@ class RoomTests(unittest.TestCase):
         with self.store.connection() as conn:
             for other in (large, assembly):
                 conn.execute(
-                    "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) SELECT part_id, %s, %s, 0 FROM part_tiers",
+                    "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) SELECT part_id, %s, %s, 0 FROM supply_part_tiers",
                     (other, NOW),
                 )
         found = self.view()
@@ -138,7 +138,7 @@ class RoomTests(unittest.TestCase):
         with self.store.connection() as conn:
             for back in range(1, 9):
                 conn.execute(
-                    "INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 3, 'offers', 'tier1', 16)",
+                    "INSERT INTO supply_call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 3, 'offers', 'tier1', 16)",
                     (cid, NOW.date() - timedelta(days=back)),
                 )
         after = self.view()["accounts"][0]

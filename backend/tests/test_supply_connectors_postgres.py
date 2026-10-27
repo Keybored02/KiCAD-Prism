@@ -66,18 +66,23 @@ class SupplyDatabaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.captured.clear()
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM connectors")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_connectors")
+            conn.execute("DELETE FROM supply_audit_events")
 
     # --- migrations -------------------------------------------------------
 
-    def test_migrations_are_recorded_once_and_reapplying_is_a_no_op(self) -> None:
+    def test_the_supply_steps_are_one_catalog_ledger_step_and_rerunning_them_is_a_no_op(self) -> None:
+        from app.services.catalog_schema_migrations import CATALOG_LEDGER
+
+        step = next(step for step in CATALOG_LEDGER.steps if step.name == "supply_tables")
+        self.assertEqual(step.version, max(s.version for s in CATALOG_LEDGER.steps), "supply tables are the newest catalog step")
+        declared = [version for version, _name, _step in self.schema_migrations.MIGRATIONS]
+        self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "steps are numbered consecutively")
         with self.store.connection() as conn:
-            declared = {version for version, _name, _step in self.schema_migrations.MIGRATIONS}
-            self.assertEqual(self.schema_migrations.applied_versions(conn), declared)
-            # Version 80 is the other checkout's (cross_reference_snapshots), already in the shared dev database; it is skipped here.
-            self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "versions are consecutive")
-            self.assertEqual(self.schema_migrations.apply_supply_migrations(conn), [])
+            before = conn.execute("SELECT count(*) AS n FROM pg_tables WHERE schemaname = current_schema()").fetchone()["n"]
+            self.schema_migrations.create_supply_tables(conn)
+            after = conn.execute("SELECT count(*) AS n FROM pg_tables WHERE schemaname = current_schema()").fetchone()["n"]
+        self.assertEqual(before, after)
 
     def test_migration_90_raises_a_jlcpcb_budget_left_at_the_old_default_and_leaves_a_chosen_one(self) -> None:
         jlc = self.service.create(actor="a@example.com", provider="jlcpcb", display_name="JLCPCB")["id"]
@@ -86,14 +91,14 @@ class SupplyDatabaseTests(unittest.TestCase):
         def budgets():
             with self.store.connection() as conn:
                 self.schema_migrations._m090_jlcpcb_budget(conn)  # noqa: SLF001
-                return {row["id"]: row["daily_budget"] for row in conn.execute("SELECT id, daily_budget FROM connectors").fetchall()}
+                return {row["id"]: row["daily_budget"] for row in conn.execute("SELECT id, daily_budget FROM supply_connectors").fetchall()}
 
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET daily_budget = 300 WHERE id = %s", (jlc,))
+            conn.execute("UPDATE supply_connectors SET daily_budget = 300 WHERE id = %s", (jlc,))
         found = budgets()
         self.assertEqual((found[jlc], found[other]), (1000, 300), "the old default is raised, another provider's budget is not")
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET daily_budget = 250 WHERE id = %s", (jlc,))
+            conn.execute("UPDATE supply_connectors SET daily_budget = 250 WHERE id = %s", (jlc,))
         self.assertEqual(budgets()[jlc], 250, "a budget a person chose is left")
 
     # --- connectors -------------------------------------------------------
@@ -130,8 +135,8 @@ class SupplyDatabaseTests(unittest.TestCase):
         self.assertEqual(connector["currency"], "GBP")
         self.assertNotIn("KEY-123", repr(connector))
         with self.store.connection() as conn:
-            row = conn.execute("SELECT * FROM connectors WHERE id = %s", (connector["id"],)).fetchone()
-            audit = conn.execute("SELECT * FROM audit_events").fetchall()
+            row = conn.execute("SELECT * FROM supply_connectors WHERE id = %s", (connector["id"],)).fetchone()
+            audit = conn.execute("SELECT * FROM supply_audit_events").fetchall()
         self.assertNotIn("KEY-123", row["credential_envelope"])
         self.assertNotIn("SECRET-456", row["credential_envelope"])
         self.assertNotIn("KEY-123", repr(audit))
@@ -152,10 +157,10 @@ class SupplyDatabaseTests(unittest.TestCase):
         second = self._keyed(storefront="it")
         with self.store.connection() as conn:
             envelope = conn.execute(
-                "SELECT credential_envelope FROM connectors WHERE id = %s", (first["id"],)
+                "SELECT credential_envelope FROM supply_connectors WHERE id = %s", (first["id"],)
             ).fetchone()["credential_envelope"]
             conn.execute(
-                "UPDATE connectors SET credential_envelope = %s WHERE id = %s", (envelope, second["id"])
+                "UPDATE supply_connectors SET credential_envelope = %s WHERE id = %s", (envelope, second["id"])
             )
         with self.assertRaises(SecretIntegrityError):
             self.service.load_provider(second["id"])
@@ -225,7 +230,7 @@ class SupplyDatabaseTests(unittest.TestCase):
                 self.service.update(connector["id"], actor="ben@example.com", **bad)
         with self.store.connection() as conn:
             actions = [row["action"] for row in conn.execute(
-                "SELECT action FROM audit_events WHERE subject_id = %s ORDER BY id", (connector["id"],)
+                "SELECT action FROM supply_audit_events WHERE subject_id = %s ORDER BY id", (connector["id"],)
             ).fetchall()]
         self.assertEqual(actions, ["connector.create", "connector.update"])
 
@@ -239,7 +244,7 @@ class SupplyDatabaseTests(unittest.TestCase):
         self.assertEqual(self.captured[-1].credentials["api_key"], "NEW-KEY")
         with self.store.connection() as conn:
             detail = conn.execute(
-                "SELECT detail FROM audit_events WHERE action = 'connector.credentials'"
+                "SELECT detail FROM supply_audit_events WHERE action = 'connector.credentials'"
             ).fetchone()["detail"]
         self.assertEqual(detail, {"names": ["api_key", "secret"]})
 
@@ -390,9 +395,9 @@ class SupplyDatabaseTests(unittest.TestCase):
                              daily_budget=100, reserve_pct=10, now=noon)
         self.service.delete(connector["id"], actor="ana@example.com")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM quota_ledger").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_quota_ledger").fetchone()["n"], 0)
             self.assertEqual(conn.execute(
-                "SELECT COUNT(*) AS n FROM audit_events WHERE action = 'connector.delete'"
+                "SELECT COUNT(*) AS n FROM supply_audit_events WHERE action = 'connector.delete'"
             ).fetchone()["n"], 1)
 
 

@@ -16,7 +16,7 @@ def build_overview(conn, now: datetime | None = None, role: str | None = None) -
     now = now or datetime.now(timezone.utc)
     items, _total = parts_view.ranked_parts(conn, scope="watched")
     read_times = [item["fetched_at"] for item in items if item["fetched_at"]]
-    connectors = conn.execute("SELECT COUNT(*) AS n FROM connectors WHERE enabled").fetchone()["n"]
+    connectors = conn.execute("SELECT COUNT(*) AS n FROM supply_connectors WHERE enabled").fetchone()["n"]
     return {
         "figures": {
             "watched": len(items),

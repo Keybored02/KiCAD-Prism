@@ -78,7 +78,7 @@ class AutoPickTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "tracked_projects", "bom_usage_projects", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_tracked_projects", "supply_bom_usage_projects", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=ACTOR, provider="lcsc", daily_budget=1000)["id"]
 
@@ -87,15 +87,15 @@ class AutoPickTests(unittest.TestCase):
             watch, _ = self.watches.add_watch(conn, "Acme", mpn, ACTOR, tier=1)
             for sku, packaging, moq in ((f"{mpn}-CUT", "cut_tape", 1), (f"{mpn}-REEL", "tape_reel", 3000)):
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
                     "VALUES (%s, %s, %s, %s, %s, 'Acme', 'exact', %s)", (sku, self.cid, sku, watch.part_id, mpn, packaging))
-                conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, packaging, moq, currency) VALUES (%s, %s, 100, %s, %s, 'USD')", (sku, NOW, packaging, moq))
+                conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, packaging, moq, currency) VALUES (%s, %s, 100, %s, %s, 'USD')", (sku, NOW, packaging, moq))
             self.tracking.recompute(conn)
         return watch.part_id
 
     def picked(self, part_id: str) -> str | None:
         with self.store.connection() as conn:
-            row = conn.execute("SELECT listing_id FROM packaging_picks WHERE part_id = %s", (part_id,)).fetchone()
+            row = conn.execute("SELECT listing_id FROM supply_packaging_picks WHERE part_id = %s", (part_id,)).fetchone()
         return row["listing_id"] if row else None
 
     def test_a_part_in_no_project_follows_the_smallest_order(self) -> None:
@@ -109,15 +109,15 @@ class AutoPickTests(unittest.TestCase):
         other = self.part_with_listings("R3")
         with self.store.connection() as conn:
             for project_id in ("p1", "p2"):
-                conn.execute("INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES (%s, %s, 'r', 1, NOW())", (project_id, project_id))
-                conn.execute("INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES (%s, 'k', 'Acme', 'R2', 'acme', 'R2', 1)", (project_id,))
-                conn.execute("INSERT INTO tracked_projects (project_id, variants, packaging, tracked_by) VALUES (%s, ARRAY['']::text[], 'tape_reel', 'x')", (project_id,))
+                conn.execute("INSERT INTO supply_bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES (%s, %s, 'r', 1, NOW())", (project_id, project_id))
+                conn.execute("INSERT INTO supply_bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES (%s, 'k', 'Acme', 'R2', 'acme', 'R2', 1)", (project_id,))
+                conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, packaging, tracked_by) VALUES (%s, ARRAY['']::text[], 'tape_reel', 'x')", (project_id,))
             from app.services.supply import packaging_picks
 
             packaging_picks.pick(conn, other, self.cid, "R3-REEL", ACTOR)
             self.assertEqual(self.auto.policy_of(conn, part), "tape_reel")
             self.assertEqual(self.auto.auto_pick(conn), 1)
-            conn.execute("UPDATE tracked_projects SET packaging = 'cut_tape' WHERE project_id = 'p2'")
+            conn.execute("UPDATE supply_tracked_projects SET packaging = 'cut_tape' WHERE project_id = 'p2'")
             self.assertEqual(self.auto.policy_of(conn, part), "cut_tape", "the smaller packaging wins")
         self.assertEqual(self.picked(part), "R2-REEL")
         self.assertEqual(self.picked(other), "R3-REEL", "a person's pick stays")

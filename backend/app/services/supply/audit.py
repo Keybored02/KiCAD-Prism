@@ -27,7 +27,7 @@ def write_audit(
     """Record one event. Never put credentials or file contents in ``detail``."""
 
     conn.execute(
-        "INSERT INTO audit_events (actor, action, subject_kind, subject_id, detail) "
+        "INSERT INTO supply_audit_events (actor, action, subject_kind, subject_id, detail) "
         "VALUES (%s, %s, %s, %s, %s::jsonb)",
         (actor_text(actor), action, subject_kind, subject_id, json.dumps(dict(detail or {}))),
     )

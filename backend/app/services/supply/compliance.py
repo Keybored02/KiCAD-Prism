@@ -124,15 +124,15 @@ def load_list(conn, text: str, source_name: str, actor: str) -> dict[str, Any]:
     if len(text.encode("utf-8")) > MAX_LIST_BYTES:
         raise ComplianceError("The file is larger than 5 MB.")
     substances = parse_list(text)
-    conn.execute("DELETE FROM svhc_substances")
+    conn.execute("DELETE FROM supply_svhc_substances")
     for item in substances:
         conn.execute(
-            "INSERT INTO svhc_substances (cas, name, ec, added_on) VALUES (%s, %s, %s, %s)",
+            "INSERT INTO supply_svhc_substances (cas, name, ec, added_on) VALUES (%s, %s, %s, %s)",
             (item["cas"], item["name"], item["ec"], item["added_on"]),
         )
     conn.execute(
         """
-        INSERT INTO svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, NOW(), %s, %s, %s)
+        INSERT INTO supply_svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, NOW(), %s, %s, %s)
         ON CONFLICT (id) DO UPDATE SET loaded_at = NOW(), loaded_by = EXCLUDED.loaded_by,
             source_name = EXCLUDED.source_name, substances = EXCLUDED.substances
         """,
@@ -143,7 +143,7 @@ def load_list(conn, text: str, source_name: str, actor: str) -> dict[str, Any]:
 
 
 def list_info(conn) -> dict[str, Any]:
-    row = conn.execute("SELECT loaded_at, loaded_by, source_name, substances FROM svhc_list WHERE id = 1").fetchone()
+    row = conn.execute("SELECT loaded_at, loaded_by, source_name, substances FROM supply_svhc_list WHERE id = 1").fetchone()
     if row is None:
         return {"loaded": False, "substances": 0, "loaded_at": None, "loaded_by": "", "source_name": ""}
     return {"loaded": True, "substances": int(row["substances"]), "loaded_at": row["loaded_at"].isoformat(),
@@ -158,12 +158,12 @@ def declare(conn, part_id: str, cas: str, note: str, actor: str) -> None:
     cas = cas.strip()
     if not valid_cas(cas):
         raise ComplianceError(f"{cas or 'That'} is not a valid CAS number.")
-    count = conn.execute("SELECT COUNT(*) AS n FROM part_substances WHERE part_id = %s", (part_id,)).fetchone()["n"]
+    count = conn.execute("SELECT COUNT(*) AS n FROM supply_part_substances WHERE part_id = %s", (part_id,)).fetchone()["n"]
     if count >= MAX_PER_PART:
         raise ComplianceError(f"A part can have at most {MAX_PER_PART} declared substances.")
     conn.execute(
         """
-        INSERT INTO part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
+        INSERT INTO supply_part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
         ON CONFLICT (part_id, cas) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
         """,
         (part_id, cas, note.strip()[:200], actor),
@@ -187,21 +187,21 @@ def sync_distributor(conn, part_id: str, provider: str, entries: Sequence[str]) 
         numbers = [number for number in _CAS_IN_TEXT.findall(entry) if valid_cas(number)]
         if not numbers:
             row = conn.execute(
-                "SELECT cas FROM svhc_substances WHERE lower(name) = lower(%s) ORDER BY cas LIMIT 1", (entry.strip(),)
+                "SELECT cas FROM supply_svhc_substances WHERE lower(name) = lower(%s) ORDER BY cas LIMIT 1", (entry.strip(),)
             ).fetchone()
             numbers = [row["cas"]] if row else []
         for number in numbers:
             found.setdefault(number, entry[:200])
     source = DISTRIBUTOR_PREFIX + provider
     removed = conn.execute(
-        "DELETE FROM part_substances WHERE part_id = %s AND declared_by = %s AND NOT (cas = ANY(%s))",
+        "DELETE FROM supply_part_substances WHERE part_id = %s AND declared_by = %s AND NOT (cas = ANY(%s))",
         (part_id, source, list(found)),
     ).rowcount
     added = 0
     for number, text in list(found.items())[:MAX_PER_PART]:
         added += conn.execute(
             """
-            INSERT INTO part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
+            INSERT INTO supply_part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
             ON CONFLICT (part_id, cas) DO NOTHING RETURNING cas
             """,
             (part_id, number, text, source),
@@ -220,7 +220,7 @@ def source_label(declared_by: str) -> str:
 
 def remove_declaration(conn, part_id: str, cas: str, actor: str) -> None:
     actor = actor_text(actor)
-    conn.execute("DELETE FROM part_substances WHERE part_id = %s AND cas = %s", (part_id, cas.strip()))
+    conn.execute("DELETE FROM supply_part_substances WHERE part_id = %s AND cas = %s", (part_id, cas.strip()))
     write_audit(conn, actor, "svhc.undeclare", part_id, {"cas": cas.strip()}, subject_kind="part")
 
 
@@ -230,8 +230,8 @@ def declared(conn, part_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT d.cas, d.note, d.declared_by, d.declared_at, s.name AS listed_as
-        FROM part_substances d LEFT JOIN LATERAL (
-            SELECT name FROM svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1
+        FROM supply_part_substances d LEFT JOIN LATERAL (
+            SELECT name FROM supply_svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1
         ) s ON TRUE
         WHERE d.part_id = %s ORDER BY d.cas
         """,
@@ -252,8 +252,8 @@ def listed_substances(conn, part_ids: Sequence[str]) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for row in conn.execute(
         """
-        SELECT d.part_id, (SELECT name FROM svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1) AS name
-        FROM part_substances d WHERE d.part_id = ANY(%s) AND EXISTS (SELECT 1 FROM svhc_substances s WHERE s.cas = d.cas)
+        SELECT d.part_id, (SELECT name FROM supply_svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1) AS name
+        FROM supply_part_substances d WHERE d.part_id = ANY(%s) AND EXISTS (SELECT 1 FROM supply_svhc_substances s WHERE s.cas = d.cas)
         ORDER BY d.part_id, d.cas
         """,
         (list(part_ids),),
@@ -287,12 +287,12 @@ def add_exemption(conn, part_id: str, code: str, note: str, actor: str) -> None:
     code = code.strip()
     if not code or not _EXEMPTION.match(code):
         raise ComplianceError("Give the exemption as its number in Annex III or IV, such as 7(a).")
-    count = conn.execute("SELECT COUNT(*) AS n FROM rohs_exemptions WHERE part_id = %s", (part_id,)).fetchone()["n"]
+    count = conn.execute("SELECT COUNT(*) AS n FROM supply_rohs_exemptions WHERE part_id = %s", (part_id,)).fetchone()["n"]
     if count >= MAX_EXEMPTIONS:
         raise ComplianceError(f"A part can have at most {MAX_EXEMPTIONS} exemptions.")
     conn.execute(
         """
-        INSERT INTO rohs_exemptions (part_id, code, note, declared_by) VALUES (%s, %s, %s, %s)
+        INSERT INTO supply_rohs_exemptions (part_id, code, note, declared_by) VALUES (%s, %s, %s, %s)
         ON CONFLICT (part_id, code) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
         """,
         (part_id, code, note.strip()[:200], actor),
@@ -302,7 +302,7 @@ def add_exemption(conn, part_id: str, code: str, note: str, actor: str) -> None:
 
 def remove_exemption(conn, part_id: str, code: str, actor: str) -> None:
     actor = actor_text(actor)
-    conn.execute("DELETE FROM rohs_exemptions WHERE part_id = %s AND code = %s", (part_id, code))
+    conn.execute("DELETE FROM supply_rohs_exemptions WHERE part_id = %s AND code = %s", (part_id, code))
     write_audit(conn, actor, "rohs.exemption_removed", part_id, {"code": code}, subject_kind="part")
 
 
@@ -313,7 +313,7 @@ def exemptions(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, str]]]
         return {}
     found: dict[str, list[dict[str, str]]] = {}
     for row in conn.execute(
-        "SELECT part_id, code, note, declared_by FROM rohs_exemptions WHERE part_id = ANY(%s) ORDER BY part_id, code", (list(part_ids),)
+        "SELECT part_id, code, note, declared_by FROM supply_rohs_exemptions WHERE part_id = ANY(%s) ORDER BY part_id, code", (list(part_ids),)
     ).fetchall():
         found.setdefault(row["part_id"], []).append({"code": row["code"], "note": row["note"], "declared_by": row["declared_by"]})
     return found

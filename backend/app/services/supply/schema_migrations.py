@@ -1,12 +1,10 @@
-"""Versioned, additive migrations for the ``supply`` schema.
+"""The supply tables' steps, in order.
 
-Supply keeps its own ledger so its numbers cannot collide with the workspace
-or catalog ledgers when branches merge. ``SupplyStore.initialize()`` applies
-these in order under the schema advisory lock and records each one. Every step
-must be safe to apply twice.
+Supply data lives in the component catalog's schema, every table prefixed ``supply_``. The catalog ledger
+(:mod:`app.services.catalog_schema_migrations`) runs all of these as its ``supply_tables`` step, so supply has no
+ledger of its own. A later change to supply tables is a new catalog ledger step, never an edit here.
 
-Table names are unqualified; the caller has set the search path to the supply
-schema (or a disposable test schema).
+Table names are unqualified; the caller has set the search path to the catalog schema (or a disposable test schema).
 """
 
 from __future__ import annotations
@@ -16,7 +14,6 @@ from typing import Callable, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-LEDGER_TABLE = "supply_schema_migrations"
 from app.services.supply.migration_steps.steps_a import (  # noqa: F401
     _m001_connectors_quota_audit,
     _m002_csv_offers,
@@ -215,36 +212,13 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
 ]
 
 
-def applied_versions(conn) -> set[int]:
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    return {int(row["version"]) for row in conn.execute(f"SELECT version FROM {LEDGER_TABLE}").fetchall()}
+def create_supply_tables(conn) -> None:
+    """Run every supply step in order, on the caller's search path and transaction.
 
-
-def apply_supply_migrations(conn) -> List[int]:
-    """Apply every pending migration in order; return the versions applied.
-
-    Runs inside the caller's transaction and advisory lock, so a crash in the
-    middle of a step rolls the step and its ledger row back together.
+    The catalog ledger runs this as one step in the ``catalog`` schema (``supply_tables``); tests run it in a disposable
+    schema. Every step is idempotent, so running it twice changes nothing.
     """
 
-    applied = applied_versions(conn)
-    newly: List[int] = []
     for version, name, migration in MIGRATIONS:
-        if version in applied:
-            continue
-        logger.info("Applying supply schema migration %s (%s)", version, name)
+        logger.debug("Supply step %s (%s)", version, name)
         migration(conn)
-        conn.execute(
-            f"INSERT INTO {LEDGER_TABLE}(version, name) VALUES (%s, %s)",
-            (version, name),
-        )
-        newly.append(version)
-    return newly

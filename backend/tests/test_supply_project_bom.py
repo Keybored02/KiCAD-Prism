@@ -44,9 +44,9 @@ class ProjectBomTests(unittest.TestCase):
         self.project_bom._refreshed_at = None
         self.project_bom._queued_at.clear()
         with self.store.connection() as conn:
-            for table in ("events", "tracked_projects", "bom_usage_projects", "watches", "parts", "manufacturer_aliases", "manufacturers"):
+            for table in ("supply_events", "supply_tracked_projects", "supply_bom_usage_projects", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
         self.project = SimpleNamespace(id="prj_1", name="power", display_name="Power board")
         self.index: dict | None = {"sourceRevisionKey": "r1", "components": [component("R1", "Acme", "A-1"), component("R2", "Acme", "A-2")]}
         self.queued: list[str] = []
@@ -64,10 +64,10 @@ class ProjectBomTests(unittest.TestCase):
 
     @staticmethod
     def tracked(conn) -> bool:
-        return conn.execute("SELECT 1 FROM tracked_projects").fetchone() is not None
+        return conn.execute("SELECT 1 FROM supply_tracked_projects").fetchone() is not None
 
     def tracked_mpns(self, conn) -> set[str]:
-        return {row["mpn"] for row in conn.execute("SELECT p.mpn FROM part_tiers t JOIN parts p ON p.id = t.part_id").fetchall()}
+        return {row["mpn"] for row in conn.execute("SELECT p.mpn FROM supply_part_tiers t JOIN supply_parts p ON p.id = t.part_id").fetchall()}
 
     def test_a_new_revision_is_read_and_its_added_and_removed_parts_follow(self) -> None:
         with self.store.connection() as conn:
@@ -76,7 +76,7 @@ class ProjectBomTests(unittest.TestCase):
             self.assertEqual(self.read(conn)["updated"], 1)
             self.tracking.sync_projects(conn)
             self.assertEqual(self.tracked_mpns(conn), {"A-1", "A-3"})
-            (event,) = conn.execute("SELECT payload FROM events WHERE kind = 'project_bom_changed'").fetchall()
+            (event,) = conn.execute("SELECT payload FROM supply_events WHERE kind = 'project_bom_changed'").fetchall()
         detail = event["payload"]
         self.assertEqual((detail["added_count"], detail["removed_count"]), (1, 1))
         self.assertEqual((detail["added"][0]["mpn"], detail["removed"][0]["mpn"], detail["project_name"]), ("A-3", "A-2", "Power board"))
@@ -84,7 +84,7 @@ class ProjectBomTests(unittest.TestCase):
     def test_the_same_revision_says_nothing(self) -> None:
         with self.store.connection() as conn:
             self.assertEqual(self.read(conn)["unchanged"], 1)
-            self.assertIsNone(conn.execute("SELECT 1 FROM events").fetchone())
+            self.assertIsNone(conn.execute("SELECT 1 FROM supply_events").fetchone())
 
     def test_a_revision_with_no_index_queues_one_once(self) -> None:
         self.index = None
@@ -103,7 +103,7 @@ class ProjectBomTests(unittest.TestCase):
             self.index = {"sourceRevisionKey": "r2", "components": [component("R1", "Acme", "A-1"), component("U1", "Newco Ltd", "N-1")]}
             self.read(conn)
             self.tracking.sync_projects(conn)
-            made = conn.execute("SELECT m.name, m.provisional FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.mpn = 'N-1'").fetchall()
+            made = conn.execute("SELECT m.name, m.provisional FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.mpn = 'N-1'").fetchall()
         self.assertEqual([(row["name"], row["provisional"]) for row in made], [("Newco Ltd", True)])
 
     def test_a_project_deleted_from_the_workspace_is_no_longer_tracked(self) -> None:
@@ -119,12 +119,12 @@ class ProjectBomTests(unittest.TestCase):
     def test_a_project_that_follows_every_design_takes_in_one_added_later(self) -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_1', 'lite', 'k1', 'Acme', 'A-9', 1)"
+                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_1', 'lite', 'k1', 'Acme', 'A-9', 1)"
             )
             self.tracking.track_project(conn, "prj_1", [""], ACTOR, all_variants=True)
             self.assertEqual(self.tracking.tracked_project(conn, "prj_1")["variants"], ["", "lite"])
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_1', 'full', 'k2', 'Acme', 'A-8', 1)"
+                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_1', 'full', 'k2', 'Acme', 'A-8', 1)"
             )
             self.read(conn)
             self.assertEqual(self.tracking.tracked_project(conn, "prj_1")["variants"], ["", "full", "lite"])

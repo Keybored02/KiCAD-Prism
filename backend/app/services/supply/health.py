@@ -24,7 +24,7 @@ def connector_health(conn, now: datetime | None = None) -> list[dict[str, Any]]:
         """
         SELECT c.id, c.display_name, c.provider, c.enabled, c.paused_reason, c.daily_budget, c.last_ok_at,
                c.last_error_code, c.last_error_at, COALESCE(q.spent, 0) AS spent, COALESCE(q.interactive_spent, 0) AS interactive_spent
-        FROM connectors c LEFT JOIN quota_ledger q ON q.connector_id = c.id AND q.day = %s
+        FROM supply_connectors c LEFT JOIN supply_quota_ledger q ON q.connector_id = c.id AND q.day = %s
         ORDER BY lower(c.display_name), c.id
         """,
         (now.astimezone(timezone.utc).date(),),
@@ -38,7 +38,7 @@ def connector_health(conn, now: datetime | None = None) -> list[dict[str, Any]]:
                    MIN(ps.next_poll_at) FILTER (WHERE ps.next_poll_at < %s) AS most_overdue_since,
                    MIN(ps.last_polled_at) AS oldest_read,
                    COUNT(*) FILTER (WHERE ps.error_streak > 0) AS failing
-            FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
+            FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
             WHERE l.match_state IN ('exact', 'manual')
             GROUP BY l.connector_id
             """,

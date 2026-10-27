@@ -30,7 +30,7 @@ def validate(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def load(conn) -> dict[str, Any]:
-    row = conn.execute("SELECT value FROM settings WHERE key = %s", (KEY,)).fetchone()
+    row = conn.execute("SELECT value FROM supply_settings WHERE key = %s", (KEY,)).fetchone()
     if row is None:
         return json.loads(json.dumps(DEFAULTS))
     try:
@@ -46,7 +46,7 @@ def save(conn, payload: Mapping[str, Any], actor: str) -> dict[str, Any]:
     before = load(conn)
     conn.execute(
         """
-        INSERT INTO settings (key, value, updated_by) VALUES (%s, %s::jsonb, %s)
+        INSERT INTO supply_settings (key, value, updated_by) VALUES (%s, %s::jsonb, %s)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
         """,
         (KEY, json.dumps(value), actor),

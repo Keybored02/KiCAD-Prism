@@ -118,10 +118,10 @@ class ComplianceApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("rohs_exemptions", "part_substances", "svhc_list", "svhc_substances", "offers", "listings", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_rohs_exemptions", "supply_part_substances", "supply_svhc_list", "supply_svhc_substances", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
             self.part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com").id
 
     def test_the_list_can_be_sent_as_an_excel_file(self) -> None:
@@ -144,9 +144,9 @@ class ComplianceApiTests(unittest.TestCase):
     def offer(self, *, rohs=None, reach=None) -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'A', %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'A', %s, 'x', 'Acme', 'exact')",
                 (self.part,))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, rohs, reach_affected) VALUES ('l1', %s, 100, %s, %s)", (NOW, rohs, reach))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, rohs, reach_affected) VALUES ('l1', %s, 100, %s, %s)", (NOW, rohs, reach))
 
     def call(self, method, path, *, role="admin", body=None):
         return _request(self.app, method, path, user=self.users[role], body=body)

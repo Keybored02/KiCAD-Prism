@@ -76,17 +76,17 @@ def note(store, connector_id: str, limits: Mapping[str, str], now: datetime, *, 
     _last[(connector_id, scope)] = key
     with store.connection() as conn:
         row = conn.execute(
-            "UPDATE connectors SET rate_limits = rate_limits || jsonb_build_object(%s::text, %s::jsonb), rate_limits_at = %s "
+            "UPDATE supply_connectors SET rate_limits = rate_limits || jsonb_build_object(%s::text, %s::jsonb), rate_limits_at = %s "
             "WHERE id = %s RETURNING reset_from_provider, rate_limits",
             (scope or "api", json.dumps(dict(limits)), now, connector_id),
         ).fetchone()
         if row is None or reading is None:
             return
         conn.execute(
-            "INSERT INTO limit_marks (connector_id, at, kind, remaining, quota, scope) VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO supply_limit_marks (connector_id, at, kind, remaining, quota, scope) VALUES (%s, %s, %s, %s, %s, %s)",
             (connector_id, now, MARK_REMAINING, reading[1], reading[0], scope),
         )
-        conn.execute("DELETE FROM limit_marks WHERE connector_id = %s AND at < %s", (connector_id, now - timedelta(days=HISTORY_DAYS)))
+        conn.execute("DELETE FROM supply_limit_marks WHERE connector_id = %s AND at < %s", (connector_id, now - timedelta(days=HISTORY_DAYS)))
         trusted = bool(row["reset_from_provider"])
         # Only the API with the largest quota is the one the daily budget stands for.
         largest = max((parsed[0] for parsed in (parse(item) for item in (row["rate_limits"] or {}).values()) if parsed), default=0)
@@ -119,15 +119,15 @@ def note_refused(store, connector_id: str, now: datetime) -> None:
             reset_time=account.reset_time, reset_tz=account.reset_tz,
         )
         if account.daily_budget > 0 and state.spent_today >= REFUSAL_SHARE * account.daily_budget:
-            conn.execute("INSERT INTO limit_marks (connector_id, at, kind) VALUES (%s, %s, %s)", (connector_id, now, MARK_REFUSED))
+            conn.execute("INSERT INTO supply_limit_marks (connector_id, at, kind) VALUES (%s, %s, %s)", (connector_id, now, MARK_REFUSED))
 
 
 def note_ok(conn, connector_id: str, now: datetime) -> None:
     """The first answer that worked after a refusal."""
 
-    last = conn.execute("SELECT kind FROM limit_marks WHERE connector_id = %s ORDER BY at DESC LIMIT 1", (connector_id,)).fetchone()
+    last = conn.execute("SELECT kind FROM supply_limit_marks WHERE connector_id = %s ORDER BY at DESC LIMIT 1", (connector_id,)).fetchone()
     if last is not None and last["kind"] == MARK_REFUSED:
-        conn.execute("INSERT INTO limit_marks (connector_id, at, kind) VALUES (%s, %s, %s)", (connector_id, now, MARK_OK))
+        conn.execute("INSERT INTO supply_limit_marks (connector_id, at, kind) VALUES (%s, %s, %s)", (connector_id, now, MARK_OK))
 
 
 def windows(marks: Sequence[Mapping[str, Any]]) -> list[tuple[datetime, datetime]]:
@@ -184,7 +184,7 @@ def suggestions(conn, now: datetime) -> dict[str, dict[str, Any]]:
     largest quota, together with the refusals."""
 
     rows = conn.execute(
-        "SELECT connector_id, at, kind, remaining, quota, scope FROM limit_marks WHERE at >= %s ORDER BY connector_id, at",
+        "SELECT connector_id, at, kind, remaining, quota, scope FROM supply_limit_marks WHERE at >= %s ORDER BY connector_id, at",
         (now - timedelta(days=HISTORY_DAYS),),
     ).fetchall()
     by_connector: dict[str, list[Mapping[str, Any]]] = {}

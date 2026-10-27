@@ -75,9 +75,9 @@ class StorageTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("part_params", "parts", "manufacturers"):
+            for table in ("supply_part_params", "supply_parts", "supply_manufacturers"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
             self.part = self.parts.ensure_part(conn, "Acme", "R-10K", "seed@example.com").id
 
     def test_attributes_are_kept_per_provider_and_the_part_shows_them_normalised_with_their_sources(self) -> None:
@@ -95,7 +95,7 @@ class StorageTests(unittest.TestCase):
     def test_blank_names_and_values_are_not_kept(self) -> None:
         with self.store.connection() as conn:
             self.discovery.remember_parameters(conn, self.part, "mouser", [("", "x"), ("Tolerance", ""), ("Tolerance", "±5%")])
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_params").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_params").fetchone()["n"], 1)
 
 
 if __name__ == "__main__":

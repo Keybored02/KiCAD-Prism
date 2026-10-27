@@ -64,7 +64,7 @@ def _parts(
     alerts = {
         row["part_id"]: int(row["n"])
         for row in conn.execute(
-            "SELECT part_id, COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (part_ids,)
+            "SELECT part_id, COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (part_ids,)
         ).fetchall()
     } if part_ids else {}
     converted = bool(result["rollup"]["converted"])
@@ -90,7 +90,7 @@ def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[
     """Each release's frozen snapshot, with the parts that were fine then and are not today."""
 
     rows = conn.execute(
-        "SELECT build_id, tag, created_at, health, status, assessment FROM release_snapshots WHERE project_id = %s "
+        "SELECT build_id, tag, created_at, health, status, assessment FROM supply_release_snapshots WHERE project_id = %s "
         "ORDER BY created_at DESC LIMIT %s",
         (project_id, MAX_RELEASES),
     ).fetchall()
@@ -124,13 +124,13 @@ def snapshot_costs(conn, now: datetime) -> int:
         for variant in project["variants"]:
             boards = int(project["build_quantity"])
             kept = conn.execute(
-                "SELECT build_quantity FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
+                "SELECT build_quantity FROM supply_bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
             ).fetchone()
             if kept and kept["build_quantity"] == boards:
                 continue
             if kept:
                 # The usual build changed since today's row was written: the row is for another size, so it is worked out again.
-                conn.execute("DELETE FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today))
+                conn.execute("DELETE FROM supply_bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today))
             rows = usage.project_rows(conn, project["project_id"], variant)
             if not rows:
                 continue
@@ -139,7 +139,7 @@ def snapshot_costs(conn, now: datetime) -> int:
             if rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
-                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT DO NOTHING",
                 (project["project_id"], variant, today, rollup["cost_per_board"], rollup["currency"], rollup["lines"], rollup["lines_priced"],
                  json.dumps({key: rollup.get(key) for key in KEPT_ROLLUP}), boards),

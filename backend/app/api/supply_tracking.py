@@ -162,7 +162,7 @@ async def project_state(project_id: str, user: AuthenticatedUser = Depends(requi
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             tracked = tracking.tracked_project(conn, project_id)
-            has_usage = conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone() is not None
+            has_usage = conn.execute("SELECT 1 FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone() is not None
             return {
                 "tracked": {**tracked, "tracked_at": tracked["tracked_at"].isoformat()} if tracked else None,
                 "has_usage": has_usage,
@@ -244,7 +244,7 @@ async def part_state(part_id: str, _user: AuthenticatedUser = Depends(require_su
             parts.get_part(conn, part_id)
             waiting = [
                 row["connector_id"] for row in conn.execute(
-                    "SELECT connector_id FROM admissions WHERE part_id = %s AND state = 'waiting' ORDER BY connector_id", (part_id,)
+                    "SELECT connector_id FROM supply_admissions WHERE part_id = %s AND state = 'waiting' ORDER BY connector_id", (part_id,)
                 ).fetchall()
             ]
             return {"tier": tracking.tier_of(conn, part_id), "waiting_at": waiting}

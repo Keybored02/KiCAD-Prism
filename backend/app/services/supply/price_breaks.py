@@ -20,13 +20,13 @@ def record(conn, listing_id: str, since: datetime, breaks: Sequence[tuple[int, D
         return False
     text = [[int(quantity), format(Decimal(price).normalize(), "f")] for quantity, price in breaks]
     last = conn.execute(
-        "SELECT breaks, currency, moq, order_multiple FROM price_breaks_history WHERE listing_id = %s ORDER BY since DESC LIMIT 1",
+        "SELECT breaks, currency, moq, order_multiple FROM supply_price_breaks_history WHERE listing_id = %s ORDER BY since DESC LIMIT 1",
         (listing_id,),
     ).fetchone()
     if last is not None and _same(last["breaks"], text) and (last["currency"], last["moq"], last["order_multiple"]) == (currency, moq, order_multiple):
         return False
     conn.execute(
-        "INSERT INTO price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, %s, %s, %s) "
+        "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, %s, %s, %s) "
         "ON CONFLICT DO NOTHING",
         (listing_id, since, json.dumps(text), currency, moq, order_multiple),
     )
@@ -44,7 +44,7 @@ def load(conn, listing_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
     if not listing_ids:
         return found
     for row in conn.execute(
-        "SELECT listing_id, since, breaks, currency, moq, order_multiple FROM price_breaks_history WHERE listing_id = ANY(%s) ORDER BY since",
+        "SELECT listing_id, since, breaks, currency, moq, order_multiple FROM supply_price_breaks_history WHERE listing_id = ANY(%s) ORDER BY since",
         (list(listing_ids),),
     ).fetchall():
         found.setdefault(row["listing_id"], []).append({

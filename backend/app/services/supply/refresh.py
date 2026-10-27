@@ -51,7 +51,7 @@ def read_now(
     with store.connection() as conn:
         parts.get_part(conn, part_id)
         last = conn.execute(
-            "SELECT MAX(at) AS at FROM audit_events WHERE action = %s AND subject_id = %s AND actor = %s",
+            "SELECT MAX(at) AS at FROM supply_audit_events WHERE action = %s AND subject_id = %s AND actor = %s",
             (ACTION, part_id, actor),
         ).fetchone()["at"]
         if last is not None and now - last < COOLDOWN:
@@ -59,7 +59,7 @@ def read_now(
         connector_ids = [
             row["connector_id"]
             for row in conn.execute(
-                "SELECT DISTINCT connector_id FROM listings WHERE part_id = %s AND match_state IN ('exact', 'manual') "
+                "SELECT DISTINCT connector_id FROM supply_listings WHERE part_id = %s AND match_state IN ('exact', 'manual') "
                 "ORDER BY connector_id",
                 (part_id,),
             ).fetchall()

@@ -92,10 +92,10 @@ class FxDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("fx_rates", "settings", "offers", "listings", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_fx_rates", "supply_settings", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider, storefront, display_name) VALUES ('c1', 'fake', 'EU', 'Eur shop'), ('c2', 'fake', 'US', 'Usd shop')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, storefront, display_name) VALUES ('c1', 'fake', 'EU', 'Eur shop'), ('c2', 'fake', 'US', 'Usd shop')")
 
     def call(self, method: str, path: str, *, role: str = "admin", body=None, query: str = ""):
         return _request(self.app, method, path, user=self.users[role], body=body, query=query)
@@ -121,10 +121,10 @@ class FxDatabaseTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, connector, sku, part_id))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, price_breaks, currency, moq) VALUES (%s, %s, 5000, %s::jsonb, %s, 1)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, price_breaks, currency, moq) VALUES (%s, %s, 5000, %s::jsonb, %s, 1)",
                 (listing_id, NOW, json.dumps([[1, price]]), currency))
 
     def lookup(self, lines):

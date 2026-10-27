@@ -56,15 +56,15 @@ def due(
         rows = conn.execute(
             """
             SELECT DISTINCT ON (l.part_id) l.id, l.sku, l.part_id, l.raw_manufacturer, 2 AS tier
-            FROM listings l
-            JOIN offers o ON o.listing_id = l.id
+            FROM supply_listings l
+            JOIN supply_offers o ON o.listing_id = l.id
             WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
-              AND NOT EXISTS (SELECT 1 FROM part_tiers pt WHERE pt.part_id = l.part_id)
+              AND NOT EXISTS (SELECT 1 FROM supply_part_tiers pt WHERE pt.part_id = l.part_id)
               AND NOT EXISTS (
-                  SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                  SELECT 1 FROM supply_detail_checks d JOIN supply_listings l2 ON l2.id = d.listing_id
                   WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.checked_at > %(since)s)
               AND NOT EXISTS (
-                  SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                  SELECT 1 FROM supply_detail_checks d JOIN supply_listings l2 ON l2.id = d.listing_id
                   WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.failures > 0
                     AND d.tried_at + LEAST(5 * power(2, d.failures - 1), 1440) * INTERVAL '1 minute' > %(now)s)
             ORDER BY l.part_id, l.sku
@@ -75,30 +75,30 @@ def due(
         return [dict(row) for row in rows]
     rows = conn.execute(
         """
-        SELECT per_part.*, (part_id IN (SELECT e.part_id FROM events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s)) AS news FROM (
+        SELECT per_part.*, (part_id IN (SELECT e.part_id FROM supply_events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s)) AS news FROM (
             SELECT DISTINCT ON (l.part_id) l.id, l.sku, l.part_id, l.raw_manufacturer, pt.tier,
-                   (SELECT MAX(d.checked_at) FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                   (SELECT MAX(d.checked_at) FROM supply_detail_checks d JOIN supply_listings l2 ON l2.id = d.listing_id
                     WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s) AS last_checked
-            FROM listings l
-            JOIN part_tiers pt ON pt.part_id = l.part_id
-            JOIN connectors c ON c.id = l.connector_id
-            LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-            LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+            FROM supply_listings l
+            JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+            JOIN supply_connectors c ON c.id = l.connector_id
+            LEFT JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+            LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
             WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
               AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
               AND (%(kind)s <> 'substances' OR pt.tier = 1)
               AND (%(kind)s <> 'notices' OR NOT EXISTS (
-                  SELECT 1 FROM offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete'))
+                  SELECT 1 FROM supply_offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete'))
               AND NOT EXISTS (
-                  SELECT 1 FROM detail_checks d JOIN listings l2 ON l2.id = d.listing_id
+                  SELECT 1 FROM supply_detail_checks d JOIN supply_listings l2 ON l2.id = d.listing_id
                   WHERE l2.part_id = l.part_id AND l2.connector_id = l.connector_id AND d.kind = %(kind)s AND d.failures > 0
                     AND d.tried_at + LEAST(5 * power(2, d.failures - 1), 1440) * INTERVAL '1 minute' > %(now)s)
             ORDER BY l.part_id, (pk.listing_id = l.id) DESC NULLS LAST, l.sku
         ) per_part
         WHERE last_checked IS NULL OR last_checked <= %(since)s
            OR (%(kind)s = 'notices' AND last_checked <= %(day_ago)s AND part_id IN (
-               SELECT e.part_id FROM events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s))
-        ORDER BY (part_id IN (SELECT e.part_id FROM events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s)) DESC,
+               SELECT e.part_id FROM supply_events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s))
+        ORDER BY (part_id IN (SELECT e.part_id FROM supply_events e WHERE e.kind = ANY(%(news)s) AND e.at >= %(news_since)s)) DESC,
                  last_checked NULLS FIRST, sku
         LIMIT %(limit)s
         """,
@@ -117,10 +117,10 @@ def _record(conn, listing_id: str, kind: str, now: datetime, status: str, *, fai
 
     conn.execute(
         """
-        INSERT INTO detail_checks (listing_id, kind, checked_at, tried_at, status, failures) VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (listing_id, kind) DO UPDATE SET checked_at = CASE WHEN %s THEN detail_checks.checked_at ELSE EXCLUDED.checked_at END,
+        INSERT INTO supply_detail_checks (listing_id, kind, checked_at, tried_at, status, failures) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (listing_id, kind) DO UPDATE SET checked_at = CASE WHEN %s THEN supply_detail_checks.checked_at ELSE EXCLUDED.checked_at END,
             tried_at = EXCLUDED.tried_at, status = EXCLUDED.status,
-            failures = CASE WHEN %s THEN detail_checks.failures + 1 ELSE 0 END
+            failures = CASE WHEN %s THEN supply_detail_checks.failures + 1 ELSE 0 END
         """,
         (listing_id, kind, None if failed else now, now, status[:64], 1 if failed else 0, failed, failed),
     )
@@ -174,14 +174,14 @@ def _notice_quota_used_up(service, connector, now: datetime) -> bool:
         account = accounts.resolve(conn, connector["id"])
         day = quota.provider_day(now, account.reset_time, account.reset_tz)
         refused = conn.execute(
-            "SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day = %s AND kind = %s AND purpose = %s",
+            "SELECT COALESCE(SUM(calls), 0) AS n FROM supply_call_counts WHERE connector_id = ANY(%s) AND day = %s AND kind = %s AND purpose = %s",
             (list(account.members), day, ledger.KIND_REFUSED, ledger.KIND_NOTICES),
         ).fetchone()["n"]
         if refused:
             return True
         start, _end = quota.day_bounds(now, account.reset_time, account.reset_tz)
         latest = conn.execute(
-            "SELECT remaining FROM limit_marks WHERE connector_id = ANY(%s) AND kind = 'remaining' AND scope = 'changenotifications' "
+            "SELECT remaining FROM supply_limit_marks WHERE connector_id = ANY(%s) AND kind = 'remaining' AND scope = 'changenotifications' "
             "AND at >= %s ORDER BY at DESC LIMIT 1",
             (list(account.members), start),
         ).fetchone()
@@ -319,14 +319,14 @@ def check_now(
     with store.connection() as conn:
         parts.get_part(conn, part_id)
         last = conn.execute(
-            "SELECT MAX(at) AS at FROM audit_events WHERE action = %s AND subject_id = %s AND actor = %s", (ASK_ACTION, part_id, actor)
+            "SELECT MAX(at) AS at FROM supply_audit_events WHERE action = %s AND subject_id = %s AND actor = %s", (ASK_ACTION, part_id, actor)
         ).fetchone()["at"]
         if last is not None and now - last < ASK_COOLDOWN:
             minutes = max(1, int((ASK_COOLDOWN - (now - last)).total_seconds() // 60) + 1)
             raise TooSoon(f"You checked this part's notices a moment ago. You can check again in {minutes} {'minute' if minutes == 1 else 'minutes'}.")
         listings = conn.execute(
             """
-            SELECT l.id, l.sku, l.part_id, l.connector_id FROM listings l JOIN connectors c ON c.id = l.connector_id
+            SELECT l.id, l.sku, l.part_id, l.connector_id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id
             WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') ORDER BY l.connector_id, l.sku
             """,
             (part_id,),

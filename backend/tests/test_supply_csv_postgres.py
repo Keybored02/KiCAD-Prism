@@ -51,8 +51,8 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM connectors")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_connectors")
+            conn.execute("DELETE FROM supply_audit_events")
 
     def _connector(self, **overrides):
         values = dict(actor="ana@example.com", provider="csv")
@@ -69,7 +69,7 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
 
     def _audit_actions(self) -> list[str]:
         with self.store.connection() as conn:
-            return [r["action"] for r in conn.execute("SELECT action FROM audit_events ORDER BY id").fetchall()]
+            return [r["action"] for r in conn.execute("SELECT action FROM supply_audit_events ORDER BY id").fetchall()]
 
     # --- import and read back --------------------------------------------
 
@@ -206,8 +206,8 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
         self._import(connector["id"], self.csv_format.TEMPLATE)
         self.connectors.delete(connector["id"], actor="ana@example.com")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM csv_offers").fetchone()["n"], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM csv_imports").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_csv_offers").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_csv_imports").fetchone()["n"], 0)
 
     def test_a_provider_only_sees_its_own_connectors_data(self) -> None:
         connector = self._connector()

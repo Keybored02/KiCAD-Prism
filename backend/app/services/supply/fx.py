@@ -78,7 +78,7 @@ def store(conn, day: date, rates: Mapping[str, Decimal], source: str) -> int:
             continue
         conn.execute(
             """
-            INSERT INTO fx_rates (day, currency, per_eur, source) VALUES (%s, %s, %s, %s)
+            INSERT INTO supply_fx_rates (day, currency, per_eur, source) VALUES (%s, %s, %s, %s)
             ON CONFLICT (day, currency) DO UPDATE SET per_eur = EXCLUDED.per_eur, source = EXCLUDED.source, fetched_at = NOW()
             """,
             (day, code, rate, source),
@@ -94,7 +94,7 @@ def latest(conn) -> Rates:
     """The most recent rate of each currency, and the day of the newest."""
 
     rows = conn.execute(
-        "SELECT DISTINCT ON (currency) currency, per_eur, day FROM fx_rates ORDER BY currency, day DESC"
+        "SELECT DISTINCT ON (currency) currency, per_eur, day FROM supply_fx_rates ORDER BY currency, day DESC"
     ).fetchall()
     if not rows:
         return Rates(None, {})
@@ -109,7 +109,7 @@ def refresh_from_ecb(conn, now: datetime | None = None, client: Any | None = Non
     """Fetch the ECB file unless rates were fetched in the last 20 hours. Returns how many rates were saved."""
 
     now = now or datetime.now(timezone.utc)
-    recent = conn.execute("SELECT MAX(fetched_at) AS at FROM fx_rates WHERE source = 'ecb'").fetchone()["at"]
+    recent = conn.execute("SELECT MAX(fetched_at) AS at FROM supply_fx_rates WHERE source = 'ecb'").fetchone()["at"]
     if recent is not None and now - recent < REFRESH_AFTER:
         return 0
     http = client or SafeHttpClient(ECB_HOSTS)

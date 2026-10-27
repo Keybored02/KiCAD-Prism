@@ -85,7 +85,7 @@ class SupplyJobTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.clock = Clock()
         self.behaviour = None
@@ -130,9 +130,9 @@ class SupplyJobTests(unittest.TestCase):
         self.watch()
         summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.listings, summary.stopped), (1, 1, None))
-        (listing,) = self.rows("SELECT sku, match_state FROM listings")
+        (listing,) = self.rows("SELECT sku, match_state FROM supply_listings")
         self.assertEqual((listing["sku"], listing["match_state"]), ("FAKE-ABC123-CT", "exact"))
-        (run,) = self.rows("SELECT found, last_run_at FROM discovery_runs")
+        (run,) = self.rows("SELECT found, last_run_at FROM supply_discovery_runs")
         self.assertEqual((run["found"], run["last_run_at"]), (1, self.clock.now))
         self.assertEqual(self.discoverer_().run(cid).searched, 0, "already searched")
 
@@ -178,7 +178,7 @@ class SupplyJobTests(unittest.TestCase):
         self.discoverer_().run(cid)
         self.clock.advance(days=31)
         self.discoverer_().run(cid)
-        got = {(r["purpose"], r["kind"]): int(r["n"]) for r in self.rows("SELECT purpose, kind, SUM(calls) AS n FROM call_counts GROUP BY purpose, kind")}
+        got = {(r["purpose"], r["kind"]): int(r["n"]) for r in self.rows("SELECT purpose, kind, SUM(calls) AS n FROM supply_call_counts GROUP BY purpose, kind")}
         self.assertEqual(got, {("tier1", "search"): 2}, "both are tracking work; neither touched the pool")
 
     def test_a_part_the_distributor_does_not_carry_is_not_searched_again_at_once(self) -> None:
@@ -186,7 +186,7 @@ class SupplyJobTests(unittest.TestCase):
         self.watch("NONE-9")
         summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.listings), (1, 0))
-        self.assertEqual(self.rows("SELECT found FROM discovery_runs")[0]["found"], 0)
+        self.assertEqual(self.rows("SELECT found FROM supply_discovery_runs")[0]["found"], 0)
         self.assertEqual(self.discoverer_().run(cid).searched, 0)
 
     def test_first_searches_are_scheduled_work_paid_from_the_background_allowance_and_leave_the_pool_alone(self) -> None:
@@ -195,7 +195,7 @@ class SupplyJobTests(unittest.TestCase):
             self.watch(f"P{n}")
         summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.stopped), (4, None))
-        (row,) = self.rows("SELECT spent, interactive_spent FROM quota_ledger")
+        (row,) = self.rows("SELECT spent, interactive_spent FROM supply_quota_ledger")
         self.assertEqual((row["spent"], row["interactive_spent"]), (4, 0), "nothing was taken from the pool")
 
     def test_with_the_background_allowance_spent_first_searches_fall_back_to_the_pool_and_stop_with_it(self) -> None:
@@ -205,11 +205,11 @@ class SupplyJobTests(unittest.TestCase):
         for n in range(4):
             self.watch(f"P{n}")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO quota_ledger (connector_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
+            conn.execute("INSERT INTO supply_quota_ledger (connector_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
         summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.stopped), (1, "budget"))
-        self.assertEqual(len(self.rows("SELECT * FROM discovery_runs")), 1)
-        self.assertEqual(self.rows("SELECT spent FROM quota_ledger")[0]["spent"], 19)
+        self.assertEqual(len(self.rows("SELECT * FROM supply_discovery_runs")), 1)
+        self.assertEqual(self.rows("SELECT spent FROM supply_quota_ledger")[0]["spent"], 19)
 
     def test_a_search_whose_answer_carries_the_offer_is_also_the_first_read(self) -> None:
         from app.services.supply.models import Offer, PartMatch
@@ -231,9 +231,9 @@ class SupplyJobTests(unittest.TestCase):
 
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _id: Answering(), clock=self.clock)
         self.assertEqual(discoverer.run(cid).searched, 1)
-        (offer,) = self.rows("SELECT o.stock FROM offers o JOIN listings l ON l.id = o.listing_id WHERE l.part_id = %s", record.part_id)
+        (offer,) = self.rows("SELECT o.stock FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id WHERE l.part_id = %s", record.part_id)
         self.assertEqual(offer["stock"], 500, "the search recorded the offer")
-        (state,) = self.rows("SELECT next_poll_at, last_polled_at FROM poll_state")
+        (state,) = self.rows("SELECT next_poll_at, last_polled_at FROM supply_poll_state")
         self.assertGreater(state["next_poll_at"], self.clock.now, "so the listing is not due for a read")
         summary = self.poller_().poll_connector(cid)
         self.assertEqual((summary.calls, summary.polled), (0, 0), "the poller makes no second call for it")
@@ -250,9 +250,9 @@ class SupplyJobTests(unittest.TestCase):
         cid = self.connector()
         self.watch()
         self.discoverer_().run(cid)
-        self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM quota_ledger")[0]["n"], 2, "the search and its retry")
+        self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM supply_quota_ledger")[0]["n"], 2, "the search and its retry")
         self.poller_().poll_connector(cid)
-        self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM quota_ledger")[0]["n"], 4, "the read and its retry")
+        self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM supply_quota_ledger")[0]["n"], 4, "the read and its retry")
 
     def test_free_connectors_search_without_spending(self) -> None:
         cid = self.connector("csv")
@@ -261,7 +261,7 @@ class SupplyJobTests(unittest.TestCase):
         provider.lookup_mpn.return_value = []
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _id: provider, clock=self.clock)
         self.assertEqual(discoverer.run(cid).searched, 1)
-        self.assertEqual(self.rows("SELECT * FROM quota_ledger"), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_quota_ledger"), [])
 
     def test_the_run_is_limited(self) -> None:
         cid = self.connector()
@@ -277,7 +277,7 @@ class SupplyJobTests(unittest.TestCase):
         off = self.connector("fake")
         self.connectors.update(off, actor=ACTOR, enabled=False)
         self.assertEqual(self.discoverer_().run(off).stopped, "inactive")
-        self.assertEqual(self.rows("SELECT * FROM discovery_runs"), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_discovery_runs"), [])
 
     def test_a_failed_search_is_not_recorded_and_the_connector_rests(self) -> None:
         from app.services.supply.providers.base import Unavailable
@@ -286,7 +286,7 @@ class SupplyJobTests(unittest.TestCase):
         self.watch()
         self.failing(Unavailable("down"))
         self.assertEqual(self.discoverer_().run(cid).stopped, "error")
-        self.assertEqual(self.rows("SELECT * FROM discovery_runs"), [], "a failed search is not a search")
+        self.assertEqual(self.rows("SELECT * FROM supply_discovery_runs"), [], "a failed search is not a search")
         self.assertEqual(self.discoverer_().run(cid).stopped, "cooling_down")
         self.clock.advance(minutes=8)  # the first rest is 5 minutes plus up to half again
         self.behaviour = None
@@ -324,7 +324,7 @@ class SupplyJobTests(unittest.TestCase):
         self.failing(Unavailable("down"))
         self.assertEqual(self.poller_().poll_connector(cid).stopped, "error")
         self.assertEqual(self.poller_().poll_connector(cid).stopped, "cooling_down")
-        self.assertEqual(watch.part_id, self.rows("SELECT part_id FROM watches")[0]["part_id"])
+        self.assertEqual(watch.part_id, self.rows("SELECT part_id FROM supply_watches")[0]["part_id"])
 
     # --- the scan ---------------------------------------------------------
 
@@ -347,7 +347,7 @@ class SupplyJobTests(unittest.TestCase):
         watch = self.watch()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES ('l1', %s, 'FAKE-ABC123-CT', %s, 'x', 'Acme', 'exact')", (nosearch, watch.part_id))
         self.assertEqual(self.work(), [nosearch])
         self.poller_().poll_connector(nosearch)
@@ -373,7 +373,7 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.work(), [])
         self.connectors.resume(cid, actor=ACTOR)
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET cooldown_until = %s", (self.clock.now + timedelta(minutes=5),))
+            conn.execute("UPDATE supply_connectors SET cooldown_until = %s", (self.clock.now + timedelta(minutes=5),))
         self.assertEqual(self.work(), [])
         self.clock.advance(minutes=6)
         self.assertEqual(self.work(), [cid])
@@ -386,7 +386,7 @@ class SupplyJobTests(unittest.TestCase):
         with self.store.connection() as conn:
             for n, state in enumerate(("near", "gone", "rejected", "manufacturer_unresolved")):
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, %s, %s, %s, 'x', 'Acme', %s)", (f"l{n}", cid, f"S{n}", watch.part_id, state))
         self.assertEqual(self.work(), [])
 
@@ -417,17 +417,17 @@ class SupplyJobTests(unittest.TestCase):
         record = self.watch()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('ln', %s, 'S1', %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('ln', %s, 'S1', %s, 'x', 'Acme', 'exact')",
                 (cid, record.part_id),
             )
-            conn.execute("INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at) VALUES ('ln', 'daily', 2, %s, %s)",
+            conn.execute("INSERT INTO supply_poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at) VALUES ('ln', 'daily', 2, %s, %s)",
                          (self.clock.now + timedelta(days=1), self.clock.now))
-            conn.execute("UPDATE admissions SET state = 'admitted' WHERE connector_id = %s", (cid,))
+            conn.execute("UPDATE supply_admissions SET state = 'admitted' WHERE connector_id = %s", (cid,))
             with mock.patch.object(oauth, "status", return_value={"signed_in": False}):
                 self.assertNotIn(cid, self.jobs.connectors_with_work(conn, self.clock.now), "nobody signed in: nothing to read")
             with mock.patch.object(oauth, "status", return_value={"signed_in": True}):
                 self.assertIn(cid, self.jobs.connectors_with_work(conn, self.clock.now), "notices have their own quota")
-            conn.execute("INSERT INTO detail_checks (listing_id, kind, checked_at, tried_at, status) VALUES ('ln', 'notices', %s, %s, 'ok')", (self.clock.now, self.clock.now))
+            conn.execute("INSERT INTO supply_detail_checks (listing_id, kind, checked_at, tried_at, status) VALUES ('ln', 'notices', %s, %s, 'ok')", (self.clock.now, self.clock.now))
             with mock.patch.object(oauth, "status", return_value={"signed_in": True}):
                 self.assertNotIn(cid, self.jobs.connectors_with_work(conn, self.clock.now), "read today: not due")
 
@@ -451,11 +451,11 @@ class SupplyJobTests(unittest.TestCase):
         )["id"]
         part = self.watch("H1")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (part.part_id, cid, self.clock.now))
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (part.part_id, cid, self.clock.now))
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES ('h1', %s, 'SKU-H1', %s, 'x', 'Acme', 'exact')", (cid, part.part_id))
-            conn.execute("INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at) VALUES ('h1', 'daily', 2, %s, %s)",
+            conn.execute("INSERT INTO supply_poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at) VALUES ('h1', 'daily', 2, %s, %s)",
                          (self.clock.now - timedelta(minutes=10), self.clock.now - timedelta(days=1)))
             self.admission.sync(conn)
         self.assertEqual(self.work(), [], "one listing due ten minutes ago waits for company: a job would only say nothing is due")
@@ -464,7 +464,7 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.work(), [cid], "held for two hours, it goes out alone")
         self.clock.advance(hours=-2)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET urgency = 0")
+            conn.execute("UPDATE supply_poll_state SET urgency = 0")
         self.assertEqual(self.work(), [cid], "an urgent listing is never held")
 
     def test_parts_waiting_for_room_are_work_for_spare_budget_only(self) -> None:
@@ -474,44 +474,44 @@ class SupplyJobTests(unittest.TestCase):
         for n in range(16):
             part = self.watch(f"W{n:02d}")
             with self.store.connection() as conn:
-                conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
+                conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
                              (part.part_id, cid, self.clock.now))
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (f"w{n}", cid, f"SKU-W{n}", part.part_id))
-                conn.execute("INSERT INTO poll_state (listing_id, tier, next_poll_at) VALUES (%s, 'daily', %s)",
+                conn.execute("INSERT INTO supply_poll_state (listing_id, tier, next_poll_at) VALUES (%s, 'daily', %s)",
                              (f"w{n}", self.clock.now + timedelta(days=3)))
             with self.store.connection() as conn:
                 self.admission.sync(conn)
-        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM admissions WHERE state = 'waiting'")[0]["n"], 1)
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM supply_admissions WHERE state = 'waiting'")[0]["n"], 1)
         self.assertEqual(self.clock.now.weekday(), 6, "a Sunday: no working hours")
         self.assertEqual(self.work(), [], "a part waits, but nothing of it is due: no job for it")
         with self.store.connection() as conn:
             conn.execute(
-                "UPDATE poll_state SET next_poll_at = %s WHERE listing_id IN "
-                "(SELECT l.id FROM listings l JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id WHERE a.state = 'waiting')",
+                "UPDATE supply_poll_state SET next_poll_at = %s WHERE listing_id IN "
+                "(SELECT l.id FROM supply_listings l JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id WHERE a.state = 'waiting')",
                 (self.clock.now - timedelta(hours=1),))
         self.assertEqual(self.work(), [cid], "spare budget is open, and a part waiting for room is due a read")
         self.clock.advance(days=1, hours=-1)  # Monday 11:00, working hours: free calls are spare whatever the hour
         self.assertEqual(self.work(), [cid])
         with self.store.connection() as conn:
-            conn.execute("UPDATE quota_ledger SET spent = 4")
+            conn.execute("UPDATE supply_quota_ledger SET spent = 4")
         self.assertEqual(self.work(), [], "nothing is free once the day is spent")
 
     def test_tier_two_parts_are_spare_work_only_once_a_listing_is_older_than_the_early_gap(self) -> None:
         cid = self.connector()
         record = self.watch("T2", tier=2, rate="weekly")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, cid, self.clock.now))
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, cid, self.clock.now))
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES ('t2l', %s, 'SKU-T2', %s, 'x', 'Acme', 'exact')", (cid, record.part_id))
-            conn.execute("INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at) VALUES ('t2l', 'weekly', %s, %s)",
+            conn.execute("INSERT INTO supply_poll_state (listing_id, tier, next_poll_at, last_polled_at) VALUES ('t2l', 'weekly', %s, %s)",
                          (self.clock.now + timedelta(days=5), self.clock.now - timedelta(hours=6)))
             self.admission.sync(conn)
         self.assertEqual(self.work(), [], "read six hours ago: nothing early to read")
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET last_polled_at = %s", (self.clock.now - timedelta(days=2),))
+            conn.execute("UPDATE supply_poll_state SET last_polled_at = %s", (self.clock.now - timedelta(days=2),))
         self.assertEqual(self.work(), [cid], "read two days ago and not due for five: an early read")
 
     def test_the_scan_does_its_housekeeping_even_when_no_connector_has_work_and_not_every_time(self) -> None:
@@ -546,7 +546,7 @@ class SupplyJobTests(unittest.TestCase):
             self.assertEqual(progress, ["supply-poll", "supply-discover"], "reads come before searches")
             result = self.jobs.run_supply_poll_job(context)
         self.assertEqual((result.details["calls"], result.details["polled"]), (1, 1))
-        self.assertEqual(len(self.rows("SELECT * FROM offers")), 1)
+        self.assertEqual(len(self.rows("SELECT * FROM supply_offers")), 1)
         self.assertIn("polled 1 listing", result.message)
 
     # --- the worker -------------------------------------------------------

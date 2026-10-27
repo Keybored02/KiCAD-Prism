@@ -58,8 +58,8 @@ def _known_keys(conn) -> dict[str, str]:
     """The manufacturer each known name or confirmed spelling stands for, by spelling key."""
 
     makers.refresh(conn)
-    found = {row["name_key"]: row["id"] for row in conn.execute("SELECT id, name_key FROM manufacturers").fetchall()}
-    for row in conn.execute("SELECT alias_key, manufacturer_id FROM manufacturer_aliases WHERE status = 'confirmed'").fetchall():
+    found = {row["name_key"]: row["id"] for row in conn.execute("SELECT id, name_key FROM supply_manufacturers").fetchall()}
+    for row in conn.execute("SELECT alias_key, manufacturer_id FROM supply_manufacturer_aliases WHERE status = 'confirmed'").fetchall():
         found[row["alias_key"]] = row["manufacturer_id"]
     return found
 
@@ -74,7 +74,7 @@ def similar_manufacturer(conn, name: str) -> str | None:
     if key in known:
         return known[key]
     rows = conn.execute(
-        "SELECT id, name FROM manufacturers WHERE name_key <> %s ORDER BY provisional, lower(name)", (UNKNOWN_KEY,)
+        "SELECT id, name FROM supply_manufacturers WHERE name_key <> %s ORDER BY provisional, lower(name)", (UNKNOWN_KEY,)
     ).fetchall()
     for row in rows:
         if same_maker(name, row["name"], known.get):
@@ -108,18 +108,18 @@ def ensure_manufacturer(conn, name: str, actor: str, *, may_create: bool = True,
         return found
     manufacturer_id = uuid.uuid4().hex
     conn.execute(
-        "INSERT INTO manufacturers (id, name, name_key, provisional) VALUES (%s, %s, %s, %s) ON CONFLICT (name_key) DO NOTHING",
+        "INSERT INTO supply_manufacturers (id, name, name_key, provisional) VALUES (%s, %s, %s, %s) ON CONFLICT (name_key) DO NOTHING",
         (manufacturer_id, name.strip(), key, provisional),
     )
-    row = conn.execute("SELECT id FROM manufacturers WHERE name_key = %s", (key,)).fetchone()
+    row = conn.execute("SELECT id FROM supply_manufacturers WHERE name_key = %s", (key,)).fetchone()
     if row["id"] == manufacturer_id:
         # Creating one from a spelling distributors reported settles that spelling and the listings that waited on it.
         pending = conn.execute(
-            "SELECT 1 FROM manufacturer_aliases WHERE alias_key = %s AND status = 'pending' FOR UPDATE", (key,)
+            "SELECT 1 FROM supply_manufacturer_aliases WHERE alias_key = %s AND status = 'pending' FOR UPDATE", (key,)
         ).fetchone()
         if pending:
             conn.execute(
-                "UPDATE manufacturer_aliases SET manufacturer_id = %s, status = 'confirmed', confirmed_by = %s WHERE alias_key = %s",
+                "UPDATE supply_manufacturer_aliases SET manufacturer_id = %s, status = 'confirmed', confirmed_by = %s WHERE alias_key = %s",
                 (row["id"], actor, key),
             )
             _release_waiting(conn, key, row["id"], actor)
@@ -128,10 +128,10 @@ def ensure_manufacturer(conn, name: str, actor: str, *, may_create: bool = True,
 
 def _unknown_manufacturer(conn) -> str:
     conn.execute(
-        "INSERT INTO manufacturers (id, name, name_key, provisional) VALUES (%s, %s, %s, TRUE) ON CONFLICT (name_key) DO NOTHING",
+        "INSERT INTO supply_manufacturers (id, name, name_key, provisional) VALUES (%s, %s, %s, TRUE) ON CONFLICT (name_key) DO NOTHING",
         (uuid.uuid4().hex, UNKNOWN_NAME, UNKNOWN_KEY),
     )
-    return conn.execute("SELECT id FROM manufacturers WHERE name_key = %s", (UNKNOWN_KEY,)).fetchone()["id"]
+    return conn.execute("SELECT id FROM supply_manufacturers WHERE name_key = %s", (UNKNOWN_KEY,)).fetchone()["id"]
 
 
 def record_spelling(conn, part_id: str, text: str, source: str = "learned") -> None:
@@ -140,11 +140,11 @@ def record_spelling(conn, part_id: str, text: str, source: str = "learned") -> N
     key = alias_key(text)
     if not key or key.startswith("~"):
         return
-    owner = conn.execute("SELECT manufacturer_id FROM parts WHERE id = %s", (part_id,)).fetchone()["manufacturer_id"]
+    owner = conn.execute("SELECT manufacturer_id FROM supply_parts WHERE id = %s", (part_id,)).fetchone()["manufacturer_id"]
     if _known_keys(conn).get(key) == owner:
         return
     conn.execute(
-        "INSERT INTO part_spellings (part_id, alias_key, alias_text, source) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+        "INSERT INTO supply_part_spellings (part_id, alias_key, alias_text, source) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
         (part_id, key, text.strip()[:200], source),
     )
 
@@ -152,8 +152,8 @@ def record_spelling(conn, part_id: str, text: str, source: str = "learned") -> N
 def part_number_keys(conn, part_id: str) -> set[str]:
     """The part's own number key and the other numbers it is sold under."""
 
-    keys = {row["match_key"] for row in conn.execute("SELECT match_key FROM part_numbers WHERE part_id = %s", (part_id,)).fetchall()}
-    own = conn.execute("SELECT match_key FROM parts WHERE id = %s", (part_id,)).fetchone()
+    keys = {row["match_key"] for row in conn.execute("SELECT match_key FROM supply_part_numbers WHERE part_id = %s", (part_id,)).fetchall()}
+    own = conn.execute("SELECT match_key FROM supply_parts WHERE id = %s", (part_id,)).fetchone()
     return keys | ({own["match_key"]} if own else set())
 
 
@@ -162,7 +162,7 @@ def searched_numbers(conn, part_id: str) -> list[str]:
     because a search for the part's number may not bring them back. Numbers added by a suffix rule are found by that search."""
 
     rows = conn.execute(
-        "SELECT mpn FROM part_numbers WHERE part_id = %s AND source IN ('person', 'suggested') ORDER BY created_at LIMIT 3", (part_id,)
+        "SELECT mpn FROM supply_part_numbers WHERE part_id = %s AND source IN ('person', 'suggested') ORDER BY created_at LIMIT 3", (part_id,)
     ).fetchall()
     return [row["mpn"] for row in rows]
 
@@ -176,29 +176,29 @@ def add_number(conn, part_id: str, mpn: str, actor: str, source: str = "person")
     if not key or key == part.match_key:
         return False
     added = conn.execute(
-        "INSERT INTO part_numbers (part_id, mpn, match_key, source, created_by) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING match_key",
+        "INSERT INTO supply_part_numbers (part_id, mpn, match_key, source, created_by) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING match_key",
         (part_id, mpn.strip()[:120], key, source, actor),
     ).fetchone()
     if added:
         write_audit(conn, actor, "part.number_add", part_id, {"mpn": mpn.strip(), "source": source}, subject_kind="part")
-        conn.execute("UPDATE discovery_runs SET family_done = FALSE WHERE part_id = %s", (part_id,))
+        conn.execute("UPDATE supply_discovery_runs SET family_done = FALSE WHERE part_id = %s", (part_id,))
     return added is not None
 
 
 def part_spelling_keys(conn, part_id: str) -> set[str]:
-    return {row["alias_key"] for row in conn.execute("SELECT alias_key FROM part_spellings WHERE part_id = %s", (part_id,)).fetchall()}
+    return {row["alias_key"] for row in conn.execute("SELECT alias_key FROM supply_part_spellings WHERE part_id = %s", (part_id,)).fetchall()}
 
 
 def _create_part(conn, manufacturer_id: str, mpn: str, key: str, actor: str) -> str:
     part_id = uuid.uuid4().hex
     created = conn.execute(
-        "INSERT INTO parts (id, manufacturer_id, mpn, match_key) VALUES (%s, %s, %s, %s) "
+        "INSERT INTO supply_parts (id, manufacturer_id, mpn, match_key) VALUES (%s, %s, %s, %s) "
         "ON CONFLICT (manufacturer_id, match_key) DO NOTHING RETURNING id",
         (part_id, manufacturer_id, mpn.strip(), key),
     ).fetchone()
     if created:
         write_audit(conn, actor, "part.create", part_id, {"mpn": mpn.strip()}, subject_kind="part")
-    return conn.execute("SELECT id FROM parts WHERE manufacturer_id = %s AND match_key = %s", (manufacturer_id, key)).fetchone()["id"]
+    return conn.execute("SELECT id FROM supply_parts WHERE manufacturer_id = %s AND match_key = %s", (manufacturer_id, key)).fetchone()["id"]
 
 
 def ensure_part(conn, manufacturer_name: str, mpn: str, actor: str, *, may_create: bool = True) -> PartRecord:
@@ -221,7 +221,7 @@ def ensure_part(conn, manufacturer_name: str, mpn: str, actor: str, *, may_creat
         part_id = _create_part(conn, found, mpn, key, actor)
         record_spelling(conn, part_id, written, "bom")
         return get_part(conn, part_id)
-    candidates = [row["id"] for row in conn.execute("SELECT id FROM parts WHERE match_key = %s ORDER BY created_at", (key,)).fetchall()]
+    candidates = [row["id"] for row in conn.execute("SELECT id FROM supply_parts WHERE match_key = %s ORDER BY created_at", (key,)).fetchall()]
     named = [part_id for part_id in candidates if alias_key(written) and alias_key(written) in part_spelling_keys(conn, part_id)]
     if len(named) == 1:
         return get_part(conn, named[0])
@@ -241,7 +241,7 @@ def find_part(conn, manufacturer_name: str, mpn: str) -> PartRecord | None:
     if not key:
         return None
     rows = conn.execute(
-        "SELECT p.id, p.manufacturer_id, m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s", (key,)
+        "SELECT p.id, p.manufacturer_id, m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s", (key,)
     ).fetchall()
     if not rows:
         return None
@@ -257,7 +257,7 @@ def find_part(conn, manufacturer_name: str, mpn: str) -> PartRecord | None:
 def get_part(conn, part_id: str) -> PartRecord:
     row = conn.execute(
         "SELECT p.id, p.manufacturer_id, m.name AS manufacturer_name, p.mpn, p.match_key, m.provisional "
-        "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s",
+        "FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s",
         (part_id,),
     ).fetchone()
     if row is None:
@@ -269,7 +269,7 @@ def pending_aliases(conn) -> list[dict]:
     """Spellings distributors used that nobody has mapped yet, oldest first."""
 
     rows = conn.execute(
-        "SELECT alias_key, alias_text, seen_at_provider, first_seen_at FROM manufacturer_aliases "
+        "SELECT alias_key, alias_text, seen_at_provider, first_seen_at FROM supply_manufacturer_aliases "
         "WHERE status = 'pending' ORDER BY first_seen_at, alias_key"
     ).fetchall()
     return [dict(row) for row in rows]
@@ -284,16 +284,16 @@ def confirm_alias(conn, key: str, manufacturer_id: str, actor: str) -> int:
 
     actor = actor_text(actor)
     row = conn.execute(
-        "SELECT alias_text, status FROM manufacturer_aliases WHERE alias_key = %s FOR UPDATE", (key,)
+        "SELECT alias_text, status FROM supply_manufacturer_aliases WHERE alias_key = %s FOR UPDATE", (key,)
     ).fetchone()
     if row is None:
         raise AliasError("Unknown spelling.")
     if row["status"] != "pending":
         raise AliasError("This spelling is already mapped.")
-    if conn.execute("SELECT 1 FROM manufacturers WHERE id = %s", (manufacturer_id,)).fetchone() is None:
+    if conn.execute("SELECT 1 FROM supply_manufacturers WHERE id = %s", (manufacturer_id,)).fetchone() is None:
         raise AliasError("Unknown manufacturer.")
     conn.execute(
-        "UPDATE manufacturer_aliases SET manufacturer_id = %s, status = 'confirmed', confirmed_by = %s "
+        "UPDATE supply_manufacturer_aliases SET manufacturer_id = %s, status = 'confirmed', confirmed_by = %s "
         "WHERE alias_key = %s",
         (manufacturer_id, actor, key),
     )
@@ -311,8 +311,8 @@ def _release_waiting(conn, key: str, manufacturer_id: str, actor: str) -> int:
     """
 
     waiting = conn.execute(
-        "SELECT l.id, l.raw_manufacturer, p.manufacturer_id AS part_manufacturer FROM listings l "
-        "JOIN parts p ON p.id = l.part_id WHERE l.match_state = 'manufacturer_unresolved'"
+        "SELECT l.id, l.raw_manufacturer, p.manufacturer_id AS part_manufacturer FROM supply_listings l "
+        "JOIN supply_parts p ON p.id = l.part_id WHERE l.match_state = 'manufacturer_unresolved'"
     ).fetchall()
     moved = 0
     for listing in waiting:
@@ -320,7 +320,7 @@ def _release_waiting(conn, key: str, manufacturer_id: str, actor: str) -> int:
             continue
         same = listing["part_manufacturer"] == manufacturer_id
         conn.execute(
-            "UPDATE listings SET match_state = %s, match_reason = %s, matched_by = %s WHERE id = %s",
+            "UPDATE supply_listings SET match_state = %s, match_reason = %s, matched_by = %s WHERE id = %s",
             (
                 "exact" if same else "near",
                 "manufacturer spelling confirmed" if same else "same part number, different manufacturer",

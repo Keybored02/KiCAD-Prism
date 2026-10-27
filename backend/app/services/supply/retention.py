@@ -29,7 +29,7 @@ def compact_samples(conn, now: datetime) -> int:
 
     keeps = [
         int(row["days"])
-        for row in conn.execute("SELECT DISTINCT COALESCE(retention_days, %s) AS days FROM connectors", (RAW_DAYS,)).fetchall()
+        for row in conn.execute("SELECT DISTINCT COALESCE(retention_days, %s) AS days FROM supply_connectors", (RAW_DAYS,)).fetchall()
     ]
     removed = 0
     for days in keeps or [RAW_DAYS]:
@@ -41,10 +41,10 @@ def drop_expired(conn, now: datetime) -> int:
     """Delete history past its connector's ``keep_days``. Returns how many rows were removed."""
 
     removed = 0
-    for table, column in (("samples", "sampled_at"), ("samples_daily", "day")):
-        cut = "%s - (c.keep_days * INTERVAL '1 day')" if table == "samples" else "(%s - (c.keep_days * INTERVAL '1 day'))::date"
+    for table, column in (("supply_samples", "sampled_at"), ("supply_samples_daily", "day")):
+        cut = "%s - (c.keep_days * INTERVAL '1 day')" if table == "supply_samples" else "(%s - (c.keep_days * INTERVAL '1 day'))::date"
         result = conn.execute(
-            f"DELETE FROM {table} WHERE listing_id IN (SELECT l.id FROM listings l JOIN connectors c ON c.id = l.connector_id "
+            f"DELETE FROM {table} WHERE listing_id IN (SELECT l.id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
             f"WHERE c.keep_days IS NOT NULL AND {table}.{column} < {cut})",
             (now,),
         )
@@ -57,9 +57,9 @@ def _compact(conn, now: datetime, days: int) -> int:
     hold one long transaction. The cut is at a UTC day boundary: a day is rolled up whole or not at all."""
 
     cutoff = (now - timedelta(days=days)).date()
-    mine = "listing_id IN (SELECT l.id FROM listings l JOIN connectors c ON c.id = l.connector_id WHERE COALESCE(c.retention_days, %s) = %s)"
+    mine = "listing_id IN (SELECT l.id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id WHERE COALESCE(c.retention_days, %s) = %s)"
     oldest = conn.execute(
-        f"SELECT MIN((sampled_at AT TIME ZONE 'UTC')::date) AS day FROM samples WHERE sampled_at < %s AND {mine}",
+        f"SELECT MIN((sampled_at AT TIME ZONE 'UTC')::date) AS day FROM supply_samples WHERE sampled_at < %s AND {mine}",
         (_midnight(cutoff), RAW_DAYS, days),
     ).fetchone()["day"]
     if oldest is None:
@@ -67,7 +67,7 @@ def _compact(conn, now: datetime, days: int) -> int:
     stop = min(cutoff, oldest + timedelta(days=BATCH_DAYS))
     conn.execute(
         f"""
-        INSERT INTO samples_daily (listing_id, day, min_stock, max_stock, last_stock, last_unit_price,
+        INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, last_unit_price,
                                    currency, marketplace, sample_count)
         SELECT listing_id,
                (sampled_at AT TIME ZONE 'UTC')::date AS day,
@@ -77,23 +77,23 @@ def _compact(conn, now: datetime, days: int) -> int:
                (ARRAY_AGG(currency ORDER BY sampled_at DESC))[1],
                (ARRAY_AGG(marketplace ORDER BY sampled_at DESC))[1],
                COUNT(*)
-        FROM samples
+        FROM supply_samples
         WHERE sampled_at < %s AND {mine}
         GROUP BY listing_id, (sampled_at AT TIME ZONE 'UTC')::date
         ON CONFLICT (listing_id, day) DO NOTHING
         """,
         (_midnight(stop), RAW_DAYS, days),
     )
-    removed = conn.execute(f"DELETE FROM samples WHERE sampled_at < %s AND {mine}", (_midnight(stop), RAW_DAYS, days)).rowcount
+    removed = conn.execute(f"DELETE FROM supply_samples WHERE sampled_at < %s AND {mine}", (_midnight(stop), RAW_DAYS, days)).rowcount
     return int(removed or 0)
 
 
 def trim_summaries(conn) -> int:
     """Forget kept summaries nobody has read for a week, and the change log nothing kept can still depend on."""
 
-    conn.execute("DELETE FROM part_summaries WHERE computed_at < NOW() - INTERVAL '7 days'")
+    conn.execute("DELETE FROM supply_part_summaries WHERE computed_at < NOW() - INTERVAL '7 days'")
     removed = conn.execute(
-        "DELETE FROM summary_dirty WHERE xid < COALESCE((SELECT MIN(snap) FROM part_summaries), "
+        "DELETE FROM supply_summary_dirty WHERE xid < COALESCE((SELECT MIN(snap) FROM supply_part_summaries), "
         "pg_snapshot_xmin(pg_current_snapshot())::text::bigint)"
     ).rowcount
     return int(removed or 0)

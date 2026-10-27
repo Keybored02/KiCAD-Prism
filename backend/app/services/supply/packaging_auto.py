@@ -46,15 +46,15 @@ def policy_of(conn, part_id: str) -> str:
     """The packaging a part is bought in: the smaller of what its tracked projects ask for, else its watch's, else cut tape."""
 
     rows = conn.execute(
-        "SELECT DISTINCT tp.project_id, tp.packaging FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN tracked_projects tp ON tp.project_id = u.project_id "
+        "SELECT DISTINCT tp.project_id, tp.packaging FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
+        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN supply_tracked_projects tp ON tp.project_id = u.project_id "
         "WHERE p.id = %s",
         (part_id,),
     ).fetchall()
     asked = [row["packaging"] for row in rows if row["packaging"] in _SMALLER]
     if asked:
         return min(asked, key=_SMALLER.__getitem__)
-    watch = conn.execute("SELECT packaging FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     return _WATCH.get(watch["packaging"], DEFAULT) if watch else DEFAULT
 
 
@@ -111,7 +111,7 @@ def repick(conn, project_id: str) -> int:
     """Redo the picks Prism made for a project's parts (its packaging changed). A person's pick stays. Returns how many."""
 
     removed = conn.execute(
-        "DELETE FROM packaging_picks pk USING parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
+        "DELETE FROM supply_packaging_picks pk USING supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
         "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " "
         "WHERE pk.part_id = p.id AND pk.picked_by = %s AND u.project_id = %s",
         (AUTO, project_id),

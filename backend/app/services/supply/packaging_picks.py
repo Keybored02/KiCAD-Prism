@@ -41,7 +41,7 @@ def _listings(conn, part_id: str, connector_id: str) -> list[dict[str, Any]]:
         """
         SELECT l.id, l.sku, l.raw_mpn, l.packaging AS listing_packaging, o.packaging, o.reel_size, o.packaging_inferred, o.moq, o.order_multiple, o.stock, o.lead_time_days,
                o.marketplace, o.currency, o.price_breaks, o.fetched_at, o.product_url
-        FROM listings l LEFT JOIN offers o ON o.listing_id = l.id
+        FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state = ANY(%s) ORDER BY l.sku
         """,
         (part_id, connector_id, list(COUNTED)),
@@ -63,23 +63,23 @@ def _prices(row: dict[str, Any]) -> dict[str, str | None]:
 
 
 def picked_by(conn, part_id: str, connector_id: str) -> str:
-    row = conn.execute("SELECT picked_by FROM packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
+    row = conn.execute("SELECT picked_by FROM supply_packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
     return row["picked_by"] if row else ""
 
 
 def pick_note(conn, part_id: str, connector_id: str) -> str:
-    row = conn.execute("SELECT note FROM packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
+    row = conn.execute("SELECT note FROM supply_packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
     return row["note"] if row else ""
 
 
 def picked(conn, part_id: str, connector_id: str) -> str | None:
-    row = conn.execute("SELECT listing_id FROM packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
+    row = conn.execute("SELECT listing_id FROM supply_packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).fetchone()
     return row["listing_id"] if row else None
 
 
 def _saving(conn, part_id: str, connector_id: str, listings: int) -> float:
     row = conn.execute(
-        "SELECT c.provider, pt.tier, pt.rate FROM connectors c JOIN part_tiers pt ON pt.part_id = %s WHERE c.id = %s", (part_id, connector_id)
+        "SELECT c.provider, pt.tier, pt.rate FROM supply_connectors c JOIN supply_part_tiers pt ON pt.part_id = %s WHERE c.id = %s", (part_id, connector_id)
     ).fetchone()
     if row is None:
         return 0.0
@@ -94,7 +94,7 @@ def mechanical_package(conn, part_id: str, connector_id: str) -> str:
     """The case the part comes in (QFN, SOT-23, 0402), as this distributor lists it, or as any other does."""
 
     rows = conn.execute(
-        "SELECT pp.name, pp.raw, c.id AS connector_id FROM part_params pp LEFT JOIN connectors c ON c.provider = pp.provider WHERE pp.part_id = %s ORDER BY pp.name",
+        "SELECT pp.name, pp.raw, c.id AS connector_id FROM supply_part_params pp LEFT JOIN supply_connectors c ON c.provider = pp.provider WHERE pp.part_id = %s ORDER BY pp.name",
         (part_id,),
     ).fetchall()
     found = [(row["connector_id"] == connector_id, row["raw"]) for row in rows if params.canonical_key(row["name"]) == "package" and row["raw"]]
@@ -139,11 +139,11 @@ def waiting(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.part_id, l.connector_id, COUNT(*) AS listings, p.mpn, m.name AS manufacturer, c.display_name AS connector
-        FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        JOIN supply_parts p ON p.id = l.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
         WHERE l.match_state = ANY(%s) AND pk.part_id IS NULL
         GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name HAVING COUNT(*) > 1
         """,
@@ -163,7 +163,7 @@ def waiting(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
 
 def _check_listing(conn, part_id: str, connector_id: str, listing_id: str) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT id, packaging FROM listings WHERE id = %s AND part_id = %s AND connector_id = %s AND match_state = ANY(%s)",
+        "SELECT id, packaging FROM supply_listings WHERE id = %s AND part_id = %s AND connector_id = %s AND match_state = ANY(%s)",
         (listing_id, part_id, connector_id, list(COUNTED)),
     ).fetchone()
     if row is None:
@@ -177,7 +177,7 @@ def pick(conn, part_id: str, connector_id: str, listing_id: str, actor: str, *, 
     _check_listing(conn, part_id, connector_id, listing_id)
     conn.execute(
         """
-        INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by, note) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by, note) VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (part_id, connector_id) DO UPDATE SET listing_id = EXCLUDED.listing_id, picked_by = EXCLUDED.picked_by,
             note = EXCLUDED.note, picked_at = NOW()
         """,
@@ -189,7 +189,7 @@ def pick(conn, part_id: str, connector_id: str, listing_id: str, actor: str, *, 
 
 def clear(conn, part_id: str, connector_id: str, actor: str) -> bool:
     actor = actor_text(actor)
-    removed = conn.execute("DELETE FROM packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).rowcount
+    removed = conn.execute("DELETE FROM supply_packaging_picks WHERE part_id = %s AND connector_id = %s", (part_id, connector_id)).rowcount
     if removed:
         write_audit(conn, actor, "packaging.clear", part_id, {"connector_id": connector_id}, subject_kind="part")
         admission.sync(conn)
@@ -227,7 +227,7 @@ def apply_similar(conn, connector_id: str, packaging: str, part_ids: Sequence[st
         if len(matching) != 1 or picked(conn, part_id, connector_id):
             continue
         conn.execute(
-            "INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            "INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
             (part_id, connector_id, matching[0]["id"], actor),
         )
         write_audit(conn, actor, "packaging.pick", part_id, {"connector_id": connector_id, "listing_id": matching[0]["id"], "same_for_similar": True},
@@ -250,12 +250,12 @@ def several(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
         SELECT l.part_id, l.connector_id, COUNT(*) AS listings, p.mpn, m.name AS manufacturer, c.display_name AS connector, c.provider,
                pk.listing_id AS picked_id, pl.sku AS picked_sku, pk.picked_by, pk.note,
                COUNT(*) FILTER (WHERE pk.picked_at IS NOT NULL AND l.first_seen_at > pk.picked_at AND l.id <> pk.listing_id) AS newer
-        FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
-        LEFT JOIN listings pl ON pl.id = pk.listing_id
+        FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        JOIN supply_parts p ON p.id = l.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
+        LEFT JOIN supply_listings pl ON pl.id = pk.listing_id
         WHERE l.match_state = ANY(%s)
         GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name, c.provider, pk.listing_id, pl.sku, pk.picked_by, pk.note, pk.picked_at
         HAVING COUNT(*) > 1

@@ -138,7 +138,7 @@ def load(conn, part_id: str, now: datetime, base: str = "EUR") -> dict[str, Any]
     rows = conn.execute(
         """
         SELECT l.id, c.display_name, s.currency, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.unit_price, s.stock
-        FROM samples s JOIN listings l ON l.id = s.listing_id JOIN connectors c ON c.id = l.connector_id
+        FROM supply_samples s JOIN supply_listings l ON l.id = s.listing_id JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND s.sampled_at >= %s ORDER BY s.sampled_at
         """,
         (part_id, since),
@@ -154,7 +154,7 @@ def load(conn, part_id: str, now: datetime, base: str = "EUR") -> dict[str, Any]
         stocks[name][row["day"]] = row["stock"]
     price_series = {name: sorted(items.items()) for name, items in prices.items()}
     stock_series = {name: sorted(items.items()) for name, items in stocks.items()}
-    rate_rows = conn.execute("SELECT day, currency, per_eur FROM fx_rates WHERE day >= %s", (since.date(),)).fetchall()
+    rate_rows = conn.execute("SELECT day, currency, per_eur FROM supply_fx_rates WHERE day >= %s", (since.date(),)).fetchall()
     per_eur: dict[str, dict[date, Decimal]] = defaultdict(dict)
     for rate in rate_rows:
         per_eur[rate["currency"]][rate["day"]] = Decimal(rate["per_eur"])

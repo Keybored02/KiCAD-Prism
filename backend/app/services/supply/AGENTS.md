@@ -147,7 +147,7 @@ root first.
 | `credentials.py` | The one adapter over the credential keyring. |
 | `connectors.py` | Connector setup, credentials, pause, state. |
 | `backend/app/api/supply_connectors.py` | HTTP API for connectors. Readers are admin, designer and qa; only admin changes anything. Strips request bodies from 422 errors. |
-| `schema_migrations.py`, `migration_steps/`, `store.py` | The `supply` schema, its own migration ledger (the list and the runner; the steps are in three modules under `migration_steps/`), and connections. |
+| `schema_migrations.py`, `migration_steps/`, `store.py` | Supply tables live in the catalog's schema, each prefixed `supply_`. `schema_migrations.py` lists the steps (bodies in three modules under `migration_steps/`); the catalog ledger runs them all as its `supply_tables` step. `store.py` hands out connections on the catalog schema (or a test's disposable schema). |
 
 ## Rules
 
@@ -187,8 +187,10 @@ root first.
   data age. Spend only through `ledger.try_spend`.
 - **Audit identity comes from the session**, passed in as `actor`. Never take
   it from a request body.
-- **Migrations are additive and numbered in this package's own ledger.** Do not
-  add supply tables to the workspace or catalog ledgers.
+- **Supply tables are catalog tables.** Every table, index, trigger and function
+  is prefixed `supply_` (`backend/tests/test_supply_schema_names.py` checks). A change is
+  a new step in `backend/app/services/catalog_schema_migrations.py`, never an edit to the steps the
+  `supply_tables` step runs.
 - **Role-aware lookups only** when supply data is joined to projects.
 
 ## Frontend

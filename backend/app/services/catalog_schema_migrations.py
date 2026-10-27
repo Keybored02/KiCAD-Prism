@@ -498,6 +498,14 @@ def _retire_system_entries(conn: Any) -> None:
     )
     conn.execute("DROP INDEX IF EXISTS idx_components_identity_ipn")
 
+def _supply_tables(conn: Any) -> None:
+    """The supply module's tables (stock, prices and their history from distributors), all prefixed ``supply_``."""
+    from app.services.supply.schema_migrations import create_supply_tables
+
+    # The supply steps take a plain psycopg connection (they pass ``prepare=``); the ledger may hand the catalog's wrapper.
+    create_supply_tables(getattr(conn, "_connection", conn))
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -516,6 +524,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (14, "system_entries", _system_entries),
     (15, "harness_fields", _harness_fields),
     (16, "retire_system_entries", _retire_system_entries),
+    (17, "supply_tables", _supply_tables),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

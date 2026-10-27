@@ -56,7 +56,7 @@ def _kinds(conn) -> tuple[set[str], set[str]]:
     """Connector ids that are regular distributors, and those that are assembly-only."""
 
     regular, assembly = set(), set()
-    for row in conn.execute("SELECT id, provider FROM connectors").fetchall():
+    for row in conn.execute("SELECT id, provider FROM supply_connectors").fetchall():
         try:
             only = registry.get_spec(row["provider"]).assembly_only
         except registry.UnknownProvider:
@@ -80,12 +80,12 @@ def _with_choice(conn, row: Any) -> dict[str, Any]:
 
 
 def tracked_project(conn, project_id: str) -> dict[str, Any] | None:
-    row = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    row = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM supply_tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
     return _with_choice(conn, row) if row else None
 
 
 def list_tracked_projects(conn) -> list[dict[str, Any]]:
-    rows = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM tracked_projects ORDER BY project_id").fetchall()
+    rows = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM supply_tracked_projects ORDER BY project_id").fetchall()
     return [_with_choice(conn, row) for row in rows]
 
 
@@ -105,20 +105,20 @@ def project_parts(conn, project_id: str, variants: Sequence[str]) -> list[dict[s
 
 def _stored_variants(conn, project_id: str) -> set[str]:
     return {row["variant"] for row in conn.execute(
-        "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s", (project_id,)
+        "SELECT DISTINCT variant FROM supply_bom_usage_variants WHERE project_id = %s", (project_id,)
     ).fetchall()} | {BASE_VARIANT}
 
 
 def follow_new_variants(conn, project_id: str) -> bool:
     """For a project that follows every design: take in the ones its newest BOM has. True when the list changed."""
 
-    row = conn.execute("SELECT variants, all_variants FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    row = conn.execute("SELECT variants, all_variants FROM supply_tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
     if not row or not row["all_variants"]:
         return False
     now = sorted(_stored_variants(conn, project_id))
     if now == sorted(row["variants"]):
         return False
-    conn.execute("UPDATE tracked_projects SET variants = %s WHERE project_id = %s", (now, project_id))
+    conn.execute("UPDATE supply_tracked_projects SET variants = %s WHERE project_id = %s", (now, project_id))
     return True
 
 
@@ -151,7 +151,7 @@ def track_project(
         raise TrackingError("The packaging is cut tape, custom reel, full reel, tube or tray, or the smallest order.")
     chosen = list(dict.fromkeys(variants)) or [BASE_VARIANT]
     kept_spares = None if spares is None else _spares_text(spares)
-    if not conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone():
         raise TrackingError("Prism has not read this project's BOM yet. Open its Visualizers once so the BOM is built.")
     stored = _stored_variants(conn, project_id)
     if all_variants:
@@ -174,7 +174,7 @@ def track_project(
                 "candidates": [
                     {"part_id": row["id"], "manufacturer": row["name"]}
                     for row in conn.execute(
-                        "SELECT p.id, m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)",
+                        "SELECT p.id, m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)",
                         (match_key(line["mpn"]),),
                     ).fetchall()
                 ],
@@ -187,11 +187,11 @@ def track_project(
         excluded, built_at = sorted(regular - named), sorted(named & assembly)
     conn.execute(
         """
-        INSERT INTO tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, build_quantity, spares)
+        INSERT INTO supply_tracked_projects (project_id, variants, all_variants, packaging, excluded_ids, assembly_ids, tracked_by, build_quantity, spares)
         VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, 100), %s)
         ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, all_variants = EXCLUDED.all_variants, packaging = EXCLUDED.packaging, excluded_ids = EXCLUDED.excluded_ids,
-            assembly_ids = EXCLUDED.assembly_ids, build_quantity = COALESCE(%s, tracked_projects.build_quantity),
-            spares = CASE WHEN %s THEN EXCLUDED.spares ELSE tracked_projects.spares END
+            assembly_ids = EXCLUDED.assembly_ids, build_quantity = COALESCE(%s, supply_tracked_projects.build_quantity),
+            spares = CASE WHEN %s THEN EXCLUDED.spares ELSE supply_tracked_projects.spares END
         """,
         (project_id, chosen, all_variants, packaging, excluded, built_at, actor, build_quantity, kept_spares, build_quantity, spares is not None),
     )
@@ -212,7 +212,7 @@ def project_open(conn, project_id: str) -> dict[str, Any]:
     from app.services.supply import settle
 
     ids = {row["id"] for row in conn.execute(
-        "SELECT DISTINCT p.id FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " WHERE u.project_id = %s",
+        "SELECT DISTINCT p.id FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " WHERE u.project_id = %s",
         (project_id,),
     ).fetchall()}
     variants = ((tracked_project(conn, project_id) or {}).get("variants")) or [BASE_VARIANT]
@@ -227,7 +227,7 @@ def project_open(conn, project_id: str) -> dict[str, Any]:
         if placed[written] or not key:
             continue
         found = conn.execute(
-            "SELECT p.id, m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)", (key,)
+            "SELECT p.id, m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.match_key = %s ORDER BY lower(m.name)", (key,)
         ).fetchall()
         if len(found) > 1 and not any(alias_key(written) in parts.part_spelling_keys(conn, row["id"]) for row in found):
             lines.append({"mpn": line["mpn"], "manufacturer": written, "candidates": [{"part_id": row["id"], "manufacturer": row["name"]} for row in found]})
@@ -238,14 +238,14 @@ def project_progress(conn, project_id: str) -> dict[str, Any]:
     """How far the first searches of a tracked project's parts have got, per distributor it is read at."""
 
     ids = [row["part_id"] for row in conn.execute(
-        "SELECT part_id FROM part_tiers WHERE reasons @> %s::jsonb", (json.dumps([{"kind": "project", "ref": project_id}]),)
+        "SELECT part_id FROM supply_part_tiers WHERE reasons @> %s::jsonb", (json.dumps([{"kind": "project", "ref": project_id}]),)
     ).fetchall()]
     connectors = conn.execute(
         """
         SELECT c.id, c.display_name, COUNT(DISTINCT a.part_id) AS admitted, COUNT(DISTINCT d.part_id) AS searched
-        FROM connectors c
-        LEFT JOIN admissions a ON a.connector_id = c.id AND a.part_id = ANY(%s) AND a.state = 'admitted'
-        LEFT JOIN discovery_runs d ON d.connector_id = c.id AND d.part_id = ANY(%s)
+        FROM supply_connectors c
+        LEFT JOIN supply_admissions a ON a.connector_id = c.id AND a.part_id = ANY(%s) AND a.state = 'admitted'
+        LEFT JOIN supply_discovery_runs d ON d.connector_id = c.id AND d.part_id = ANY(%s)
         WHERE c.enabled GROUP BY c.id, c.display_name ORDER BY lower(c.display_name)
         """,
         (ids, ids),
@@ -280,7 +280,7 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
             f"""
             SELECT DISTINCT u.manufacturer, u.mpn FROM {usage.ALL_USES} u
             WHERE u.project_id = %s AND u.variant = ANY(%s) AND u.match_key <> '' AND NOT EXISTS (
-                SELECT 1 FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE {usage.MATCHES_PART.strip()}
+                SELECT 1 FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE {usage.MATCHES_PART.strip()}
             )
             LIMIT %s
             """,
@@ -322,7 +322,7 @@ def set_usual_build(conn, project_id: str, build_quantity: int, actor: str) -> d
     if not 1 <= build_quantity <= 1_000_000:
         raise TrackingError("The usual build is from 1 to 1,000,000 boards.")
     changed = conn.execute(
-        "UPDATE tracked_projects SET build_quantity = %s WHERE project_id = %s RETURNING project_id", (build_quantity, project_id)
+        "UPDATE supply_tracked_projects SET build_quantity = %s WHERE project_id = %s RETURNING project_id", (build_quantity, project_id)
     ).fetchone()
     if changed is None:
         raise TrackingError("This project is not tracked.")
@@ -332,7 +332,7 @@ def set_usual_build(conn, project_id: str, build_quantity: int, actor: str) -> d
 
 def untrack_project(conn, project_id: str, actor: str) -> bool:
     actor = actor_text(actor)
-    gone = conn.execute("DELETE FROM tracked_projects WHERE project_id = %s RETURNING project_id", (project_id,)).fetchone()
+    gone = conn.execute("DELETE FROM supply_tracked_projects WHERE project_id = %s RETURNING project_id", (project_id,)).fetchone()
     if gone:
         write_audit(conn, actor, "tracking.project_removed", project_id, {}, subject_kind="project")
         recompute(conn)
@@ -348,7 +348,7 @@ def _sources(conn, part_ids: Sequence[str] | None) -> dict[str, list[dict[str, A
     only = list(part_ids) if part_ids is not None else None
     found: dict[str, list[dict[str, Any]]] = {}
     for row in conn.execute(
-        "SELECT id, part_id, tier, rate, origin FROM watches WHERE (%s::text[] IS NULL OR part_id = ANY(%s))", (only, only)
+        "SELECT id, part_id, tier, rate, origin FROM supply_watches WHERE (%s::text[] IS NULL OR part_id = ANY(%s))", (only, only)
     ).fetchall():
         found.setdefault(row["part_id"], []).append(
             {"kind": row["origin"], "ref": row["id"], "tier": int(row["tier"]), "rate": row["rate"]}
@@ -356,10 +356,10 @@ def _sources(conn, part_ids: Sequence[str] | None) -> dict[str, list[dict[str, A
     rows = conn.execute(
         f"""
         SELECT DISTINCT p.id AS part_id, t.project_id, u.variant
-        FROM tracked_projects t
+        FROM supply_tracked_projects t
         JOIN {usage.ALL_USES} u ON u.project_id = t.project_id AND u.variant = ANY(t.variants)
-        JOIN parts p ON p.match_key = u.match_key
-        JOIN manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_parts p ON p.match_key = u.match_key
+        JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE ({usage.MATCHES_PART.strip()}) AND (%s::text[] IS NULL OR p.id = ANY(%s))
         """,
         (only, only),
@@ -385,8 +385,8 @@ def reschedule(conn, part_id: str, rate: str) -> None:
 
     conn.execute(
         """
-        UPDATE poll_state ps SET tier = %s, next_poll_at = LEAST(ps.next_poll_at, ps.last_polled_at + %s)
-        FROM listings l WHERE l.id = ps.listing_id AND l.part_id = %s AND ps.last_polled_at IS NOT NULL
+        UPDATE supply_poll_state ps SET tier = %s, next_poll_at = LEAST(ps.next_poll_at, ps.last_polled_at + %s)
+        FROM supply_listings l WHERE l.id = ps.listing_id AND l.part_id = %s AND ps.last_polled_at IS NOT NULL
         """,
         (rate, tiers.INTERVAL[rate], part_id),
     )
@@ -407,7 +407,7 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
     current = {
         row["part_id"]: row
         for row in conn.execute(
-            "SELECT part_id, tier, rate, reasons FROM part_tiers WHERE (%s::text[] IS NULL OR part_id = ANY(%s))", (only, only)
+            "SELECT part_id, tier, rate, reasons FROM supply_part_tiers WHERE (%s::text[] IS NULL OR part_id = ANY(%s))", (only, only)
         ).fetchall()
     }
     added = changed = removed = 0
@@ -418,21 +418,21 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
         row = current.get(part_id)
         if row is None:
             conn.execute(
-                "INSERT INTO part_tiers (part_id, tier, rate, reasons) VALUES (%s, %s, %s, %s::jsonb) ON CONFLICT (part_id) DO NOTHING",
+                "INSERT INTO supply_part_tiers (part_id, tier, rate, reasons) VALUES (%s, %s, %s, %s::jsonb) ON CONFLICT (part_id) DO NOTHING",
                 (part_id, tier, rate, _json(stored)),
             )
             added += 1
             reschedule(conn, part_id, rate)
         elif (row["tier"], row["rate"], row["reasons"]) != (tier, rate, stored):
             conn.execute(
-                "UPDATE part_tiers SET tier = %s, rate = %s, reasons = %s::jsonb, updated_at = %s WHERE part_id = %s",
+                "UPDATE supply_part_tiers SET tier = %s, rate = %s, reasons = %s::jsonb, updated_at = %s WHERE part_id = %s",
                 (tier, rate, _json(stored), datetime.now(timezone.utc), part_id),
             )
             changed += 1
             reschedule(conn, part_id, rate)
     stale = [part_id for part_id in current if part_id not in wanted]
     if stale:
-        conn.execute("DELETE FROM part_tiers WHERE part_id = ANY(%s)", (stale,))
+        conn.execute("DELETE FROM supply_part_tiers WHERE part_id = ANY(%s)", (stale,))
         removed = len(stale)
     if added or changed or removed:
         admission.sync(conn)
@@ -446,12 +446,12 @@ def _json(value: Any) -> str:
 def tier_of(conn, part_id: str) -> dict[str, Any] | None:
     """The tier, rate and reasons of a part, or None for tier 3."""
 
-    row = conn.execute("SELECT tier, rate, reasons FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+    row = conn.execute("SELECT tier, rate, reasons FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     return {"tier": int(row["tier"]), "rate": row["rate"], "reasons": row["reasons"]} if row else None
 
 
 def counts(conn) -> dict[str, int]:
-    rows = conn.execute("SELECT tier, COUNT(*) AS n FROM part_tiers GROUP BY tier").fetchall()
+    rows = conn.execute("SELECT tier, COUNT(*) AS n FROM supply_part_tiers GROUP BY tier").fetchall()
     by_tier = {int(row["tier"]): int(row["n"]) for row in rows}
     return {"tier1": by_tier.get(TIER_1, 0), "tier2": by_tier.get(TIER_2, 0)}
 

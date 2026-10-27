@@ -57,7 +57,7 @@ def restrictions_of(conn, component_ids: Sequence[str]) -> dict[str, dict[str, A
             "set_by": row["set_by"], "set_at": row["set_at"].isoformat(),
         }
         for row in conn.execute(
-            "SELECT component_id, level, reason, replacement_component_id, set_by, set_at FROM component_restrictions WHERE component_id = ANY(%s)", (ids,)
+            "SELECT component_id, level, reason, replacement_component_id, set_by, set_at FROM supply_component_restrictions WHERE component_id = ANY(%s)", (ids,)
         ).fetchall()
     }
 
@@ -73,7 +73,7 @@ def set_restriction(conn, component_id: str, level: str, reason: str, replacemen
         raise ValueError("A component cannot replace itself.")
     conn.execute(
         """
-        INSERT INTO component_restrictions (component_id, level, reason, replacement_component_id, set_by) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_component_restrictions (component_id, level, reason, replacement_component_id, set_by) VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (component_id) DO UPDATE SET level = EXCLUDED.level, reason = EXCLUDED.reason,
             replacement_component_id = EXCLUDED.replacement_component_id, set_by = EXCLUDED.set_by, set_at = NOW()
         """,
@@ -96,7 +96,7 @@ def status_marks(component_ids: Sequence[str]) -> dict[str, str]:
 
 def clear_restriction(conn, component_id: str, actor: str) -> None:
     actor = actor_text(actor)
-    removed = conn.execute("DELETE FROM component_restrictions WHERE component_id = %s RETURNING level", (component_id,)).fetchone()
+    removed = conn.execute("DELETE FROM supply_component_restrictions WHERE component_id = %s RETURNING level", (component_id,)).fetchone()
     forget_count()
     if removed:
         write_audit(conn, actor, "component.restriction.clear", component_id, {"was": removed["level"]}, subject_kind="component")
@@ -138,7 +138,7 @@ def forget_count() -> None:
 def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, Any]:
     """Components whose part is ending, worst first, without the ones already retired."""
 
-    tracked = [row["part_id"] for row in conn.execute("SELECT part_id FROM part_tiers").fetchall()]
+    tracked = [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers").fetchall()]
     items = {item["id"]: item for item in parts_view.summaries_for(conn, tracked)}
     bands = {row["part_id"]: row.get("outlook_band") for row in part_insights.read_all(conn)}
     ending = [(item, reasons_of(item, bands.get(item["id"]))) for item in items.values()]

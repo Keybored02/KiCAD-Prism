@@ -88,13 +88,13 @@ def add(
     notice_id = uuid.uuid4().hex
     conn.execute(
         """
-        INSERT INTO pcns (id, title, kind, notice_url, last_time_buy, last_time_ship, notes, state, created_by)
+        INSERT INTO supply_pcns (id, title, kind, notice_url, last_time_buy, last_time_ship, notes, state, created_by)
         VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s)
         """,
         (notice_id, title, kind, notice_url, last_time_buy, last_time_ship, notes, actor),
     )
     for part_id in unique:
-        conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES (%s, %s)", (notice_id, part_id))
+        conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES (%s, %s)", (notice_id, part_id))
     write_audit(conn, actor, "pcn.add", notice_id, {"kind": kind, "parts": len(unique), "title": title}, subject_kind="pcn")
     return {"id": notice_id}
 
@@ -135,7 +135,7 @@ def record_external(
     url = notice_url.strip() if notice_url.strip().lower().startswith("https://") else ""
     created = conn.execute(
         """
-        INSERT INTO pcns (id, title, kind, notice_url, notes, state, created_by, source, external_key, published_on)
+        INSERT INTO supply_pcns (id, title, kind, notice_url, notes, state, created_by, source, external_key, published_on)
         VALUES (%s, %s, %s, %s, %s, 'open', %s, %s, %s, %s)
         ON CONFLICT (source, external_key) WHERE external_key <> '' DO NOTHING
         RETURNING id
@@ -145,23 +145,23 @@ def record_external(
     if created:
         notice_id = created["id"]
     else:
-        notice_id = conn.execute("SELECT id FROM pcns WHERE source = %s AND external_key = %s", (source, key)).fetchone()["id"]
+        notice_id = conn.execute("SELECT id FROM supply_pcns WHERE source = %s AND external_key = %s", (source, key)).fetchone()["id"]
         # The distributor's latest reading of the date wins, so a reading corrected later fixes a notice kept before.
-        conn.execute("UPDATE pcns SET published_on = %s WHERE id = %s AND published_on IS DISTINCT FROM %s", (published_on, notice_id, published_on))
+        conn.execute("UPDATE supply_pcns SET published_on = %s WHERE id = %s AND published_on IS DISTINCT FROM %s", (published_on, notice_id, published_on))
     tied = conn.execute(
-        "INSERT INTO pcn_parts (pcn_id, part_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING pcn_id", (notice_id, part_id)
+        "INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING pcn_id", (notice_id, part_id)
     ).fetchone()
     return created is not None or tied is not None
 
 
 def close(conn, notice_id: str, actor: str) -> None:
     actor = actor_text(actor)
-    row = conn.execute("SELECT state FROM pcns WHERE id = %s FOR UPDATE", (notice_id,)).fetchone()
+    row = conn.execute("SELECT state FROM supply_pcns WHERE id = %s FOR UPDATE", (notice_id,)).fetchone()
     if row is None:
         raise NoticeNotFound(notice_id)
     if row["state"] == "closed":
         return
-    conn.execute("UPDATE pcns SET state = 'closed', closed_by = %s, closed_at = NOW() WHERE id = %s", (actor, notice_id))
+    conn.execute("UPDATE supply_pcns SET state = 'closed', closed_by = %s, closed_at = NOW() WHERE id = %s", (actor, notice_id))
     write_audit(conn, actor, "pcn.close", notice_id, {}, subject_kind="pcn")
 
 
@@ -172,8 +172,8 @@ def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[s
         """
         SELECT n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
                n.source, n.published_on,
-               (SELECT COUNT(*) FROM pcn_parts x WHERE x.pcn_id = n.id) AS parts
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id
+               (SELECT COUNT(*) FROM supply_pcn_parts x WHERE x.pcn_id = n.id) AS parts
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id
         WHERE pp.part_id = %s AND (n.state = 'open' OR %s)
         ORDER BY n.last_time_buy NULLS LAST, n.published_on DESC NULLS LAST, n.created_at DESC
         """,

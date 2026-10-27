@@ -37,7 +37,7 @@ def _info(row) -> CsvImportInfo:
 
 
 _INSERT = """
-    INSERT INTO csv_offers (
+    INSERT INTO supply_csv_offers (
         connector_id, sku, mpn, match_key, manufacturer, stock, currency, moq, order_multiple,
         packaging, lead_time_days, lifecycle, discontinued, rohs, product_url,
         incoming_qty, incoming_date, price_breaks, jlc_library, jlc_preferred
@@ -57,7 +57,7 @@ class CsvOfferStore:
     ) -> CsvImportInfo:
         """Swap the connector's offers for ``rows``, in the caller's transaction."""
 
-        conn.execute("DELETE FROM csv_offers WHERE connector_id = %s", (connector_id,))
+        conn.execute("DELETE FROM supply_csv_offers WHERE connector_id = %s", (connector_id,))
         with conn.cursor() as cursor:
             cursor.executemany(
                 _INSERT,
@@ -76,7 +76,7 @@ class CsvOfferStore:
             )
         saved = conn.execute(
             """
-            INSERT INTO csv_imports (connector_id, filename, imported_by, imported_at, row_count)
+            INSERT INTO supply_csv_imports (connector_id, filename, imported_by, imported_at, row_count)
             VALUES (%s, %s, %s, NOW(), %s)
             ON CONFLICT (connector_id) DO UPDATE SET
                 filename = EXCLUDED.filename, imported_by = EXCLUDED.imported_by,
@@ -88,18 +88,18 @@ class CsvOfferStore:
         return _info(saved)
 
     def clear(self, conn, connector_id: str) -> None:
-        conn.execute("DELETE FROM csv_offers WHERE connector_id = %s", (connector_id,))
-        conn.execute("DELETE FROM csv_imports WHERE connector_id = %s", (connector_id,))
+        conn.execute("DELETE FROM supply_csv_offers WHERE connector_id = %s", (connector_id,))
+        conn.execute("DELETE FROM supply_csv_imports WHERE connector_id = %s", (connector_id,))
 
     def import_infos(self, conn) -> dict[str, CsvImportInfo]:
         rows = conn.execute(
-            "SELECT connector_id, filename, imported_by, imported_at, row_count FROM csv_imports"
+            "SELECT connector_id, filename, imported_by, imported_at, row_count FROM supply_csv_imports"
         ).fetchall()
         return {row["connector_id"]: _info(row) for row in rows}
 
     def import_info(self, conn, connector_id: str) -> CsvImportInfo | None:
         row = conn.execute(
-            "SELECT filename, imported_by, imported_at, row_count FROM csv_imports WHERE connector_id = %s",
+            "SELECT filename, imported_by, imported_at, row_count FROM supply_csv_imports WHERE connector_id = %s",
             (connector_id,),
         ).fetchone()
         return _info(row) if row else None
@@ -109,8 +109,8 @@ class CsvOfferStore:
             return []
         rows = conn.execute(
             """
-            SELECT o.*, i.imported_at FROM csv_offers o
-            JOIN csv_imports i ON i.connector_id = o.connector_id
+            SELECT o.*, i.imported_at FROM supply_csv_offers o
+            JOIN supply_csv_imports i ON i.connector_id = o.connector_id
             WHERE o.connector_id = %s AND o.sku = ANY(%s)
             ORDER BY o.sku
             """,
@@ -133,7 +133,7 @@ class CsvOfferStore:
             return []
         rows = conn.execute(
             """
-            SELECT sku, mpn, manufacturer, product_url FROM csv_offers
+            SELECT sku, mpn, manufacturer, product_url FROM supply_csv_offers
             WHERE connector_id = %s AND match_key = %s ORDER BY sku LIMIT %s
             """,
             (connector_id, key, limit),

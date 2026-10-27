@@ -104,9 +104,9 @@ class SettingsApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("settings", "listings", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_settings", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
 
     def call(self, method: str, body=None, role: str = "admin"):
         return _request(self.app, method, "/api/supply/settings/assessment", user=self.users[role], body=body)
@@ -146,7 +146,7 @@ class SettingsApiTests(unittest.TestCase):
         self.assertEqual((response.json["settings"]["lead_time_days"], response.json["settings"]["severity"]["nrnd"]), (30, "error"))
         self.assertEqual(self.call("GET", role="designer").json["settings"]["lead_time_days"], 30)
         with self.store.connection() as conn:
-            row = conn.execute("SELECT actor, detail FROM audit_events WHERE action = 'settings.assessment'").fetchone()
+            row = conn.execute("SELECT actor, detail FROM supply_audit_events WHERE action = 'settings.assessment'").fetchone()
         self.assertEqual(row["actor"], "admin@example.com")
         self.assertEqual(row["detail"]["before"]["lead_time_days"], 84)
 
@@ -169,8 +169,8 @@ class SettingsApiTests(unittest.TestCase):
             part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com")
             connector = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
             listing = uuid.uuid4().hex
-            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'A', %s, 'x', 'Acme', 'exact')", (listing, connector, part.id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle, lead_time_days) VALUES (%s, %s, 10, 'nrnd', 100)", (listing, datetime.now(timezone.utc)))
+            conn.execute("INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'A', %s, 'x', 'Acme', 'exact')", (listing, connector, part.id))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle, lead_time_days) VALUES (%s, %s, 10, 'nrnd', 100)", (listing, datetime.now(timezone.utc)))
 
         def findings():
             with self.store.connection() as conn:

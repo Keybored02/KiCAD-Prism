@@ -91,14 +91,14 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
                    bool_or(match_state = ANY(%s)) AS counted,
                    bool_or(match_state = 'gone') AS gone,
                    bool_or(match_state <> 'rejected') AS listed
-            FROM listings WHERE part_id = ANY(%s) GROUP BY part_id
+            FROM supply_listings WHERE part_id = ANY(%s) GROUP BY part_id
             """,
             (list(_COUNTED), part_ids),
         ).fetchall()
     }
     searched = {
         row["part_id"]
-        for row in conn.execute("SELECT DISTINCT part_id FROM discovery_runs WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+        for row in conn.execute("SELECT DISTINCT part_id FROM supply_discovery_runs WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
     }
     result: dict[str, str | None] = {}
     for part_id in part_ids:
@@ -112,15 +112,15 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     return result
 
 
-_USES = "FROM " + usage.ALL_USES + " u JOIN bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
+_USES = "FROM " + usage.ALL_USES + " u JOIN supply_bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
 _IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
 
 _ROW_SELECT = (
     "SELECT p.id, p.mpn, m.name AS manufacturer, m.provisional AS maker_provisional, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
     "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons, "
     "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
-    "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
-    "LEFT JOIN part_tiers pt ON pt.part_id = p.id "
+    "FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
+    "LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id "
 )
 
 
@@ -138,11 +138,11 @@ def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) ->
         SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
                o.stock, o.marketplace, o.packaging, o.reel_size, o.packaging_inferred, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
                o.order_multiple, o.lead_time_days, o.product_url, ps.tier,
-               EXISTS (SELECT 1 FROM packaging_picks fp WHERE fp.listing_id = l.id) AS followed
-        FROM listings l
-        JOIN offers o ON o.listing_id = l.id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+               EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
+        FROM supply_listings l
+        JOIN supply_offers o ON o.listing_id = l.id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
           AND (%s OR {counted})
         """.replace("{counted}", stock.counted_listing_sql()),
@@ -216,9 +216,9 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
     fresh = {
         r["part_id"]: r["data"] for r in conn.execute(
             """
-            SELECT s.part_id, s.data FROM part_summaries s
+            SELECT s.part_id, s.data FROM supply_part_summaries s
             WHERE s.part_id = ANY(%s) AND s.snap > 0
-              AND NOT EXISTS (SELECT 1 FROM summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
+              AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
             """,
             (ids,),
         ).fetchall()
@@ -229,16 +229,16 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
         found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]))
         for row in todo:
             # Keeping it is a favour to the next reader: never wait for a row another transaction holds.
-            mine = conn.execute("SELECT part_id FROM part_summaries WHERE part_id = %s FOR UPDATE SKIP LOCKED", (row["id"],)).fetchone()
+            mine = conn.execute("SELECT part_id FROM supply_part_summaries WHERE part_id = %s FOR UPDATE SKIP LOCKED", (row["id"],)).fetchone()
             data = json.dumps(found[row["id"]])
             if mine:
                 conn.execute(
-                    "UPDATE part_summaries SET data = %s::jsonb, snap = %s, computed_at = NOW() WHERE part_id = %s",
+                    "UPDATE supply_part_summaries SET data = %s::jsonb, snap = %s, computed_at = NOW() WHERE part_id = %s",
                     (data, max(snap, 1), row["id"]),
                 )
             else:
                 conn.execute(
-                    "INSERT INTO part_summaries (part_id, data, snap, computed_at) VALUES (%s, %s::jsonb, %s, NOW()) ON CONFLICT DO NOTHING",
+                    "INSERT INTO supply_part_summaries (part_id, data, snap, computed_at) VALUES (%s, %s::jsonb, %s, NOW()) ON CONFLICT DO NOTHING",
                     (row["id"], data, max(snap, 1)),
                 )
         fresh.update(found)
@@ -310,10 +310,10 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
         "all": "TRUE", "watched": "pt.part_id IS NOT NULL", "in_use": "(" + _IN_USE + ")",
         "followed": "(pt.part_id IS NOT NULL OR " + _IN_USE + ")",
         "tier1": "pt.tier = 1", "tier2": "pt.tier = 2",
-        "waiting": "EXISTS (SELECT 1 FROM admissions ad WHERE ad.part_id = p.id AND ad.state = 'waiting')",
-        "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM listings pl JOIN connectors pc ON pc.id = pl.connector_id "
+        "waiting": "EXISTS (SELECT 1 FROM supply_admissions ad WHERE ad.part_id = p.id AND ad.state = 'waiting')",
+        "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM supply_listings pl JOIN supply_connectors pc ON pc.id = pl.connector_id "
                 "WHERE pl.part_id = p.id AND pl.match_state IN ('exact', 'manual') AND pc.provider = ANY(" + limited + ") "
-                "AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = pl.part_id AND pk.connector_id = pl.connector_id) "
+                "AND NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk WHERE pk.part_id = pl.part_id AND pk.connector_id = pl.connector_id) "
                 "GROUP BY pl.connector_id HAVING COUNT(*) > 1)",
     }[scope]]
     params: list[Any] = usage.role_params(role) if scope in ("in_use", "followed") else []
@@ -323,8 +323,8 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
         params += [_like(text), _like(text)]
     where = " AND ".join(conditions)
     total = conn.execute(
-        f"SELECT COUNT(*) AS n FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        f"LEFT JOIN watches w ON w.part_id = p.id LEFT JOIN part_tiers pt ON pt.part_id = p.id WHERE {where}", params,
+        f"SELECT COUNT(*) AS n FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
+        f"LEFT JOIN supply_watches w ON w.part_id = p.id LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id WHERE {where}", params,
     ).fetchone()["n"]
     rows = conn.execute(
         _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*usage.role_params(role), *params, MAX_CANDIDATES],
@@ -345,8 +345,8 @@ def _projects_of(conn, part_ids: list[str], role: str | None) -> dict[str, set[s
     if not part_ids:
         return found
     rows = conn.execute(
-        "SELECT DISTINCT p.id AS part_id, u.project_id FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN bom_usage_projects up ON up.project_id = u.project_id "
+        "SELECT DISTINCT p.id AS part_id, u.project_id FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
+        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN supply_bom_usage_projects up ON up.project_id = u.project_id "
         "WHERE p.id = ANY(%s) AND " + usage.VISIBLE,
         [part_ids, *usage.role_params(role)],
     ).fetchall()
@@ -381,9 +381,9 @@ def part_groups(
     real = [key for key in groups if key != NO_PROJECT]
     if real:
         named = {row["project_id"]: row["project_name"] for row in conn.execute(
-            "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
+            "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
         tracked = {row["project_id"] for row in conn.execute(
-            "SELECT project_id FROM tracked_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
+            "SELECT project_id FROM supply_tracked_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
     for key, group in groups.items():
         group["project_name"] = "Not in a project" if key == NO_PROJECT else (named.get(key) or key)
         group["tracked"] = key in tracked
@@ -426,11 +426,11 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     project_id = group["project_id"]
     if project_id == NO_PROJECT:
         return stats
-    read = conn.execute("SELECT updated_at FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
+    read = conn.execute("SELECT updated_at FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
     stats["bom_read_at"] = read["updated_at"].isoformat() if read and read["updated_at"] else None
     if not group["tracked"]:
         return stats
-    tracked = conn.execute("SELECT variants, all_variants, packaging FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    tracked = conn.execute("SELECT variants, all_variants, packaging FROM supply_tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
     stats["variants"] = list(tracked["variants"]) if tracked else []
     stats["all_variants"] = bool(tracked and tracked["all_variants"])
     stats["packaging"] = tracked["packaging"] if tracked else None
@@ -444,7 +444,7 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
         stats["cost_change_percent"] = cost_history.change_percent(kept)
         stats["boards"] = (latest["rollup"] or {}).get("can_build")
     stats["alerts"] = int(conn.execute(
-        "SELECT COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])
+        "SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])
     return stats
 
 
@@ -454,7 +454,7 @@ def _at_vendor(conn, items: list[dict[str, Any]], vendor: str) -> list[dict[str,
     if not vendor or not items:
         return items
     listed = {row["part_id"] for row in conn.execute(
-        "SELECT DISTINCT part_id FROM listings WHERE connector_id = %s AND match_state = ANY(%s) AND part_id = ANY(%s)",
+        "SELECT DISTINCT part_id FROM supply_listings WHERE connector_id = %s AND match_state = ANY(%s) AND part_id = ANY(%s)",
         (vendor, list(_COUNTED), [item["id"] for item in items]),
     ).fetchall()}
     return [item for item in items if item["id"] in listed]
@@ -563,15 +563,15 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
     wanted = {project for found in projects.values() for project in found}
     if wanted:
         names = {row["project_id"]: row["project_name"] for row in conn.execute(
-            "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
+            "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
     offers = offers_by_part(conn, ids)
     shown = offers_by_part(conn, ids, every_listing=True)
     quantities = price_quantity.of_parts(conn, ids)
-    waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
+    waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM supply_admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
     stated: dict[str, dict[str, set[str]]] = {}
     for row in conn.execute(
-        "SELECT part_id, name, value FROM part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
+        "SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
     ).fetchall():
         stated.setdefault(row["part_id"], {}).setdefault(row["name"], set()).add(row["value"].strip().lower())
     extras = {}
@@ -619,9 +619,9 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
         SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
                s.listing_id, l.connector_id, c.provider, l.match_state, l.packaging,
                (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.marketplace
-        FROM samples s
-        JOIN listings l ON l.id = s.listing_id
-        JOIN connectors c ON c.id = l.connector_id
+        FROM supply_samples s
+        JOIN supply_listings l ON l.id = s.listing_id
+        JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s AND {counted}
         ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
         """.replace("{counted}", stock.counted_listing_sql()),
@@ -630,9 +630,9 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
     rolled = conn.execute(
         """
         SELECT d.listing_id, l.connector_id, c.provider, l.match_state, l.packaging, d.day, d.last_stock AS stock, d.marketplace
-        FROM samples_daily d
-        JOIN listings l ON l.id = d.listing_id
-        JOIN connectors c ON c.id = l.connector_id
+        FROM supply_samples_daily d
+        JOIN supply_listings l ON l.id = d.listing_id
+        JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s AND {counted}
         """.replace("{counted}", stock.counted_listing_sql()),
         (part_id, states, since.date()),
@@ -654,7 +654,7 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     rows = _day_rows(conn, part_id, now - timedelta(days=HISTORY_DAYS))
     if not rows:
         return []
-    watch = conn.execute("SELECT packaging FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     policy = watch["packaging"] if watch else "any"
     by_day: dict[date, list] = defaultdict(list)
     last_day: dict[str, date] = {}
@@ -697,7 +697,7 @@ def lead_time_trend(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
 
     rows = conn.execute(
         """
-        SELECT s.sampled_at, s.lead_time_days FROM samples s JOIN listings l ON l.id = s.listing_id
+        SELECT s.sampled_at, s.lead_time_days FROM supply_samples s JOIN supply_listings l ON l.id = s.listing_id
         WHERE l.part_id = %s AND s.lead_time_days IS NOT NULL AND s.sampled_at >= %s ORDER BY s.sampled_at
         """,
         (part_id, now - timedelta(days=LEAD_TREND_DAYS)),
@@ -718,7 +718,7 @@ def lead_time_trend(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
 def _first_seen(conn, part_id: str) -> str | None:
     """The day Prism first knew the part: a rough age, since parts are created when first searched for."""
 
-    row = conn.execute("SELECT created_at FROM parts WHERE id = %s", (part_id,)).fetchone()
+    row = conn.execute("SELECT created_at FROM supply_parts WHERE id = %s", (part_id,)).fetchone()
     return row["created_at"].date().isoformat() if row else None
 
 
@@ -743,7 +743,7 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
     """The attributes distributors list for the part: known ones in one vocabulary first, the rest as written."""
 
     rows = conn.execute(
-        "SELECT provider, name, raw FROM part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
+        "SELECT provider, name, raw FROM supply_part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
     ).fetchall()
     sources: dict[tuple[str, str], list[str]] = {}
     for row in rows:
@@ -771,14 +771,14 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
 def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     """The picks on a part (listing per distributor), and the distributors where it still waits for one."""
 
-    pick_rows = conn.execute("SELECT connector_id, listing_id, picked_by, note FROM packaging_picks WHERE part_id = %s", (part_id,)).fetchall()
+    pick_rows = conn.execute("SELECT connector_id, listing_id, picked_by, note FROM supply_packaging_picks WHERE part_id = %s", (part_id,)).fetchall()
     picks = {row["connector_id"]: row["listing_id"] for row in pick_rows}
     counts = conn.execute(
-        "SELECT l.connector_id, c.display_name, COUNT(*) AS n FROM listings l JOIN connectors c ON c.id = l.connector_id "
+        "SELECT l.connector_id, c.display_name, COUNT(*) AS n FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
         "WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id, c.display_name HAVING COUNT(*) > 1",
         (part_id, list(_COUNTED)),
     ).fetchall()
-    tracked = conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone() is not None
+    tracked = conn.execute("SELECT 1 FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone() is not None
     return {
         "picks": picks,
         # Who picked each (a person, or "auto" for Prism) and what Prism noted when it fell back.
@@ -823,7 +823,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     watch_row = conn.execute(
         "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
         "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons "
-        "FROM parts p LEFT JOIN watches w ON w.part_id = p.id LEFT JOIN part_tiers pt ON pt.part_id = p.id WHERE p.id = %s",
+        "FROM supply_parts p LEFT JOIN supply_watches w ON w.part_id = p.id LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id WHERE p.id = %s",
         (part_id,),
     ).fetchone()
 
@@ -834,10 +834,10 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
                l.match_reason, l.raw_mpn, l.raw_manufacturer, o.fetched_at, o.stock, o.incoming, o.moq, o.order_multiple, o.price_breaks, o.currency,
                o.lead_time_days, o.lifecycle, o.discontinued, o.rohs, o.reach_affected, o.marketplace, o.product_url,
                ps.tier, ps.next_poll_at, ps.last_polled_at, ps.error_streak, ps.last_error_code
-        FROM listings l
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN offers o ON o.listing_id = l.id
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        FROM supply_listings l
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_offers o ON o.listing_id = l.id
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = %s AND l.match_state <> 'rejected'
         ORDER BY c.display_name, l.sku
         """,
