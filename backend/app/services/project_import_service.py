@@ -14,7 +14,7 @@ from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
 from app.core.config import settings
-from app.services import derived_assets, git_remote_access, project_revision, project_service, path_config_service
+from app.services import derived_assets, event_log, git_remote_access, project_revision, project_service, path_config_service
 from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
 from app.services.checkout_line_endings import GITPYTHON_CLONE_KWARGS
 from app.services.git_failures import GitAccessError, as_access_error
@@ -1352,6 +1352,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
                 "retryable": True,
             }
 
+        synced: dict[str, str] | None = None
         if fetch_only:
             message = f"Fetched {len(fetch_info)} ref(s)"
         elif repo.head.is_detached:
@@ -1366,7 +1367,15 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             if tracking is None:
                 message = f"Fetched refs; '{branch.name}' has no upstream to fast-forward from"
             else:
+                advanced_from = repo.head.commit.hexsha
                 repo.git.merge("--ff-only", tracking.name)
+                advanced_to = repo.head.commit.hexsha
+                if advanced_to != advanced_from:
+                    synced = {
+                        "branch": branch.name,
+                        "commit": advanced_to,
+                        "previousCommit": advanced_from,
+                    }
                 message = f"Synced {len(fetch_info)} ref(s)"
 
         hydration = None
@@ -1379,6 +1388,8 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
                 refresh_project_assets(project_id)
 
         workspace.update_repository_synced(row.get('repo_id', ''))
+        if synced:
+            event_log.record_quietly("revision.synced", project_id=project_id, payload=synced)
 
         return {
             "status": "success",
