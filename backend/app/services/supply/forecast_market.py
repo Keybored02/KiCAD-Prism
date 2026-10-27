@@ -70,7 +70,7 @@ def shift(metric: str, points: Sequence[tuple[date, float]]) -> dict[str, Any] |
 def _series(conn, metric: str, today: date) -> dict[tuple[str, str], list[tuple[date, float]]]:
     found: dict[tuple[str, str], list[tuple[date, float]]] = {}
     for row in conn.execute(
-        "SELECT day, scope_kind, scope_value, value FROM market_indices WHERE metric = %s AND day >= %s AND scope_kind <> 'all' ORDER BY day",
+        "SELECT day, scope_kind, scope_value, value FROM supply_market_indices WHERE metric = %s AND day >= %s AND scope_kind <> 'all' ORDER BY day",
         (metric, today - timedelta(days=HISTORY_DAYS)),
     ).fetchall():
         found.setdefault((row["scope_kind"], row["scope_value"]), []).append((row["day"], float(row["value"])))

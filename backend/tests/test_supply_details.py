@@ -83,9 +83,9 @@ class DetailsTests(unittest.TestCase):
         self.addCleanup(override.stop)
 
         with self.store.connection() as conn:
-            for table in ("pcn_parts", "pcns", "part_facts", "part_substances", "detail_checks", "oauth_states", "connector_grants",
-                          "part_alternates", "offers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events",
-                          "svhc_substances", "svhc_list"):
+            for table in ("supply_pcn_parts", "supply_pcns", "supply_part_facts", "supply_part_substances", "supply_detail_checks", "supply_oauth_states", "supply_connector_grants",
+                          "supply_part_alternates", "supply_offers", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events",
+                          "supply_svhc_substances", "supply_svhc_list"):
                 conn.execute(f"DELETE FROM {table}")
         self.digikey = self.connectors.create(actor=ADMIN, provider="digikey", storefront="IT", currency="EUR", display_name="DigiKey",
                                               credentials={"client_id": "cid", "client_secret": "csecret"})["id"]
@@ -104,7 +104,7 @@ class DetailsTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'LM358DR', 'Texas Instruments', 'exact')", (listing_id, connector_id, sku, part_id))
         return listing_id
 
@@ -151,19 +151,19 @@ class DetailsTests(unittest.TestCase):
                "published_on": date(2025, 11, 4)}
         summary = self.run_notices({"296-1395-1-ND": [eol], "296-9999-1-ND": [eol]})
         self.assertEqual((summary.read, summary.new, summary.stopped), (2, 2, None))
-        (notice,) = self.rows("SELECT id, kind, source, state, published_on FROM pcns")
+        (notice,) = self.rows("SELECT id, kind, source, state, published_on FROM supply_pcns")
         self.assertEqual((notice["kind"], notice["source"], notice["published_on"]), ("end_of_life", "digikey", date(2025, 11, 4)))
-        self.assertEqual(len(self.rows("SELECT * FROM pcn_parts")), 2)
+        self.assertEqual(len(self.rows("SELECT * FROM supply_pcn_parts")), 2)
         with self.store.connection() as conn:
             listed = pcn.for_part(conn, self.part_a)
             pcn.close(conn, notice["id"], ADMIN)
         self.assertEqual((listed[0]["source_label"], listed[0]["published_on"]), ("DigiKey", "2025-11-04"))
-        alerts = self.rows("SELECT kind FROM alerts WHERE part_id = %s", self.part_a)
+        alerts = self.rows("SELECT kind FROM supply_alerts WHERE part_id = %s", self.part_a)
         self.assertIn({"kind": "pcn"}, alerts)
         with self.store.connection() as conn:
-            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
+            conn.execute("UPDATE supply_detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))
         self.run_notices({"296-1395-1-ND": [eol]})
-        self.assertEqual(self.rows("SELECT state FROM pcns"), [{"state": "closed"}], "listing it again does not reopen it")
+        self.assertEqual(self.rows("SELECT state FROM supply_pcns"), [{"state": "closed"}], "listing it again does not reopen it")
 
     def test_a_failed_read_is_tried_again_after_a_short_wait_not_a_week_later(self) -> None:
         from app.services.supply import details
@@ -181,7 +181,7 @@ class DetailsTests(unittest.TestCase):
             return details.run(self.connectors, self.digikey, now=NOW + timedelta(minutes=minutes), provider=Provider(), token_for=lambda *_a: "t")
 
         self.assertEqual(run(0).read, 1, "one listing read, the other failed")
-        failed = self.rows("SELECT checked_at, failures FROM detail_checks WHERE listing_id = %s", self.dk_b)
+        failed = self.rows("SELECT checked_at, failures FROM supply_detail_checks WHERE listing_id = %s", self.dk_b)
         self.assertEqual(failed, [{"checked_at": None, "failures": 1}])
         with self.store.connection() as conn:
             def waiting(minutes):
@@ -191,7 +191,7 @@ class DetailsTests(unittest.TestCase):
             self.assertEqual(waiting(6), [self.dk_b], "and is due again once they have passed, not a week later")
         bad["on"] = False
         self.assertEqual(run(24 * 60 + 1).read, 2, "the next day reads both, the failed one included")
-        self.assertEqual(self.rows("SELECT failures FROM detail_checks WHERE listing_id = %s", self.dk_b), [{"failures": 0}])
+        self.assertEqual(self.rows("SELECT failures FROM supply_detail_checks WHERE listing_id = %s", self.dk_b), [{"failures": 0}])
 
     def test_a_listing_read_this_week_is_not_read_again(self) -> None:
         self.run_notices({})
@@ -216,7 +216,7 @@ class DetailsTests(unittest.TestCase):
 
         self.run_notices({})
         with self.store.connection() as conn:
-            charged = conn.execute("SELECT COALESCE(SUM(spent), 0) AS n FROM quota_ledger").fetchone()["n"]
+            charged = conn.execute("SELECT COALESCE(SUM(spent), 0) AS n FROM supply_quota_ledger").fetchone()["n"]
             plan = notice_budget.plan(conn, self.digikey, 50, NOW)
         self.assertEqual(charged, 0, "DigiKey's notice API has its own 50 a day")
         self.assertEqual((plan.used, plan.limit), (2, 50))
@@ -237,10 +237,10 @@ class DetailsTests(unittest.TestCase):
             self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds))
             self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"spare": True})), "not at the start of the day")
             conn.execute(
-                "INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 9, 'notices', 'tier2', 49)",
+                "INSERT INTO supply_call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 9, 'notices', 'tier2', 49)",
                 (self.digikey, NOW.date()))
             self.assertTrue(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"news": True})), "the fiftieth is still allowed")
-            conn.execute("UPDATE call_counts SET calls = 50 WHERE kind = 'notices'")
+            conn.execute("UPDATE supply_call_counts SET calls = 50 WHERE kind = 'notices'")
             self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **kinds), "50 is the whole day")
             self.assertFalse(notice_budget.allowed(conn, self.digikey, now=NOW, **(kinds | {"interactive": True})))
 
@@ -251,7 +251,7 @@ class DetailsTests(unittest.TestCase):
             loose = parts.ensure_part(conn, "Texas Instruments", "LM324DR", ADMIN).id
         listing = self.listing(self.digikey, "296-1391-1-ND", loose)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 10, 'active')", (listing, NOW))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 10, 'active')", (listing, NOW))
 
         def due(at):
             with self.store.connection() as conn:
@@ -272,23 +272,23 @@ class DetailsTests(unittest.TestCase):
 
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO limit_marks (connector_id, at, kind, remaining, quota, scope) VALUES (%s, %s, 'remaining', 0, 50, 'changenotifications')",
+                "INSERT INTO supply_limit_marks (connector_id, at, kind, remaining, quota, scope) VALUES (%s, %s, 'remaining', 0, 50, 'changenotifications')",
                 (self.digikey, NOW - timedelta(hours=1)),
             )
         self.assertEqual(self.run_notices({}).stopped, details.NOTICE_QUOTA)
         with self.store.connection() as conn:
-            conn.execute("UPDATE limit_marks SET at = %s", (NOW - timedelta(days=1),))
+            conn.execute("UPDATE supply_limit_marks SET at = %s", (NOW - timedelta(days=1),))
         self.assertIsNone(self.run_notices({}).stopped)
 
     def test_obsolete_parts_are_skipped_and_parts_in_the_news_are_read_again_within_the_week(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 0, 'obsolete')", (self.dk_b, NOW))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 0, 'obsolete')", (self.dk_b, NOW))
         self.assertEqual(self.run_notices({}).read, 1, "the obsolete part is not asked about")
         with self.store.connection() as conn:
-            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=2),))
+            conn.execute("UPDATE supply_detail_checks SET checked_at = %s", (NOW - timedelta(days=2),))
         self.assertEqual(self.run_notices({}).read, 0, "read two days ago: not yet due")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO events (at, kind, part_id) VALUES (%s, 'lifecycle_changed', %s)", (NOW - timedelta(hours=3), self.part_a))
+            conn.execute("INSERT INTO supply_events (at, kind, part_id) VALUES (%s, 'lifecycle_changed', %s)", (NOW - timedelta(hours=3), self.part_a))
         self.assertEqual(self.run_notices({}).read, 1, "news about the part brings its notices forward")
 
     def test_without_a_sign_in_notices_are_skipped_and_a_refusal_marks_the_grant(self) -> None:
@@ -305,10 +305,10 @@ class DetailsTests(unittest.TestCase):
                 raise AuthError("401")
 
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO connector_grants (connector_id, envelope, granted_by) VALUES (%s, 'x', %s)", (self.digikey, ADMIN))
+            conn.execute("INSERT INTO supply_connector_grants (connector_id, envelope, granted_by) VALUES (%s, 'x', %s)", (self.digikey, ADMIN))
         result = details.run(self.connectors, self.digikey, now=NOW, provider=Refusing(), token_for=lambda *_a: "tok")
         self.assertEqual(result.stopped, "sign_in_refused")
-        self.assertEqual(self.rows("SELECT last_error FROM connector_grants"), [{"last_error": "refused"}])
+        self.assertEqual(self.rows("SELECT last_error FROM supply_connector_grants"), [{"last_error": "refused"}])
         self.assertEqual(self.connectors.get(self.digikey)["paused_reason"], "", "the connector itself is not paused")
 
     def test_a_person_can_check_one_parts_notices_now_once_an_hour(self) -> None:
@@ -364,7 +364,7 @@ class DetailsTests(unittest.TestCase):
 
         details.run(self.connectors, self.mouser, now=NOW, provider=Provider())
         self.assertEqual(seen, [("595-LM358DR", "Texas Instruments")])
-        declared = self.rows("SELECT cas, declared_by FROM part_substances ORDER BY cas")
+        declared = self.rows("SELECT cas, declared_by FROM supply_part_substances ORDER BY cas")
         self.assertEqual(declared, [{"cas": "7439-92-1", "declared_by": "distributor:mouser"}, {"cas": "84-74-2", "declared_by": ADMIN}],
                          "a person's declaration of the same substance is kept as theirs")
         with self.store.connection() as conn:
@@ -372,10 +372,10 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual((by_cas["7439-92-1"]["declared_by"], by_cas["7439-92-1"]["from_distributor"]), ("Mouser", True))
         self.assertEqual(by_cas["7439-92-1"]["listed_as"], "Lead")
         with self.store.connection() as conn:
-            conn.execute("UPDATE detail_checks SET checked_at = %s", (NOW - timedelta(days=31),))
+            conn.execute("UPDATE supply_detail_checks SET checked_at = %s", (NOW - timedelta(days=31),))
         details.run(self.connectors, self.mouser, now=NOW, provider=Provider())
-        self.assertEqual(self.rows("SELECT cas FROM part_substances"), [{"cas": "84-74-2"}], "what Mouser no longer lists goes")
-        self.assertEqual(self.rows("SELECT value FROM part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])
+        self.assertEqual(self.rows("SELECT cas FROM supply_part_substances"), [{"cas": "84-74-2"}], "what Mouser no longer lists goes")
+        self.assertEqual(self.rows("SELECT value FROM supply_part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])
 
     # --- sign-in ------------------------------------------------------------
 
@@ -385,12 +385,12 @@ class DetailsTests(unittest.TestCase):
         from app.services.supply import pcn
 
         with self.store.connection() as conn:
-            part = conn.execute("SELECT id FROM parts LIMIT 1").fetchone()["id"]
+            part = conn.execute("SELECT id FROM supply_parts LIMIT 1").fetchone()["id"]
             pcn.record_external(conn, "digikey", "k1", part, kind_text="PCN Packaging", description="Label Chg 12/Mar/2017",
                                 notice_url="https://x.example/a.pdf", published_on=date(2026, 10, 12))
             again = pcn.record_external(conn, "digikey", "k1", part, kind_text="PCN Packaging", description="Label Chg 12/Mar/2017",
                                         notice_url="https://x.example/a.pdf", published_on=date(2017, 3, 12))
-            row = conn.execute("SELECT published_on FROM pcns WHERE external_key = 'k1'").fetchone()
+            row = conn.execute("SELECT published_on FROM supply_pcns WHERE external_key = 'k1'").fetchone()
         self.assertEqual((again, row["published_on"]), (False, date(2017, 3, 12)), "the same notice, its date corrected")
 
     def test_the_sign_in_address_can_differ_from_the_public_one(self) -> None:
@@ -419,7 +419,7 @@ class DetailsTests(unittest.TestCase):
         self.assertTrue(url.startswith("https://api.digikey.com/v1/oauth2/authorize?response_type=code&client_id=cid"))
         self.assertIn("redirect_uri=https%3A%2F%2Fprism.example%2Fapi%2Fsupply%2Foauth%2Fdigikey%2Fcallback", url)
         self.assertEqual(client.forms[0]["grant_type"], "authorization_code")
-        (grant,) = self.rows("SELECT envelope FROM connector_grants")
+        (grant,) = self.rows("SELECT envelope FROM supply_connector_grants")
         self.assertNotIn("tok-access-one", grant["envelope"])
         self.assertEqual(oauth.access_token(self.connectors, self.digikey, NOW, client=client), "tok-access-one")
         later = NOW + timedelta(hours=1)
@@ -474,7 +474,7 @@ class DetailsTests(unittest.TestCase):
         # OAuth answers a dead refresh token with HTTP 400 ``invalid_grant``, which is neither 401 nor 403.
         for second in (ProviderError("400"), {"access_token": "x"}):
             with self.store.connection() as conn:
-                conn.execute("DELETE FROM connector_grants")
+                conn.execute("DELETE FROM supply_connector_grants")
             client = FakeTokens(tokens(), second)
             self.signin(client)
             with self.assertRaises(oauth.NotSignedIn):
@@ -496,9 +496,9 @@ class DetailsTests(unittest.TestCase):
     def test_a_sign_in_ends_when_the_app_it_was_made_for_changes(self) -> None:
         self.signin(FakeTokens(tokens()))
         self.connectors.set_credentials(self.digikey, actor=ADMIN, credentials={"client_id": "cid", "client_secret": "new-secret"})
-        self.assertEqual(len(self.rows("SELECT 1 FROM connector_grants")), 1, "the same app keeps its sign-in")
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_connector_grants")), 1, "the same app keeps its sign-in")
         self.connectors.set_credentials(self.digikey, actor=ADMIN, credentials={"client_id": "other", "client_secret": "s"})
-        self.assertEqual(self.rows("SELECT 1 FROM connector_grants"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_connector_grants"), [])
 
     def test_checking_notices_says_so_when_the_token_cannot_be_renewed(self) -> None:
         from app.services.supply import details
@@ -525,7 +525,7 @@ class DetailsTests(unittest.TestCase):
 
     def make_ending(self, listing_id, lifecycle="nrnd"):
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 10, %s)", (listing_id, NOW, lifecycle))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, 10, %s)", (listing_id, NOW, lifecycle))
 
     def test_a_person_can_ask_digikey_for_substitutes_once_an_hour(self) -> None:
         from app.services.supply import alternates, substitutes
@@ -574,7 +574,7 @@ class DetailsTests(unittest.TestCase):
 
         real = datetime.now(timezone.utc)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle, discontinued) VALUES (%s, %s, 0, 'active', TRUE)", (self.dk_a, NOW))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle, discontinued) VALUES (%s, %s, 0, 'active', TRUE)", (self.dk_a, NOW))
             self.assertEqual([row["part_id"] for row in substitutes.due(conn, self.digikey, real)], [self.part_a])
 
     def test_a_mouser_number_is_resolved_to_a_part_number_and_stays_resolved_when_mouser_is_read_again(self) -> None:
@@ -618,7 +618,7 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual((status.json["signed_in"], status.json["redirect_uri"]),
                          (True, "https://prism.example/api/supply/oauth/digikey/callback"))
         self.assertEqual(_request(self.app, "DELETE", f"/api/supply/connectors/{self.digikey}/signin", user=self.users["admin"]).status, 204)
-        self.assertEqual(self.rows("SELECT * FROM connector_grants"), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_connector_grants"), [])
 
 
 if __name__ == "__main__":

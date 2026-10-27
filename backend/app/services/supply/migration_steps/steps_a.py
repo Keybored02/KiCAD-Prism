@@ -18,7 +18,7 @@ def _m001_connectors_quota_audit(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS connectors (
+        CREATE TABLE IF NOT EXISTS supply_connectors (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL,
             storefront TEXT NOT NULL DEFAULT '',
@@ -42,8 +42,8 @@ def _m001_connectors_quota_audit(conn) -> None:
             UNIQUE (provider, storefront)
         );
 
-        CREATE TABLE IF NOT EXISTS quota_ledger (
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_quota_ledger (
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             day DATE NOT NULL,
             spent INTEGER NOT NULL DEFAULT 0 CHECK (spent >= 0),
             interactive_spent INTEGER NOT NULL DEFAULT 0
@@ -51,7 +51,7 @@ def _m001_connectors_quota_audit(conn) -> None:
             PRIMARY KEY (connector_id, day)
         );
 
-        CREATE TABLE IF NOT EXISTS audit_events (
+        CREATE TABLE IF NOT EXISTS supply_audit_events (
             id BIGSERIAL PRIMARY KEY,
             at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             actor TEXT NOT NULL,
@@ -61,7 +61,7 @@ def _m001_connectors_quota_audit(conn) -> None:
             detail JSONB NOT NULL DEFAULT '{}'::jsonb
         );
         CREATE INDEX IF NOT EXISTS idx_supply_audit_subject
-            ON audit_events(subject_kind, subject_id, at);
+            ON supply_audit_events(subject_kind, subject_id, at);
         """,
         prepare=False,
     )
@@ -77,16 +77,16 @@ def _m002_csv_offers(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS csv_imports (
-            connector_id TEXT PRIMARY KEY REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_csv_imports (
+            connector_id TEXT PRIMARY KEY REFERENCES supply_connectors(id) ON DELETE CASCADE,
             filename TEXT NOT NULL DEFAULT '',
             imported_by TEXT NOT NULL,
             imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             row_count INTEGER NOT NULL CHECK (row_count >= 0)
         );
 
-        CREATE TABLE IF NOT EXISTS csv_offers (
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_csv_offers (
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             sku TEXT NOT NULL,
             mpn TEXT NOT NULL,
             match_key TEXT NOT NULL,
@@ -106,7 +106,7 @@ def _m002_csv_offers(conn) -> None:
             price_breaks JSONB NOT NULL DEFAULT '[]'::jsonb,
             PRIMARY KEY (connector_id, sku)
         );
-        CREATE INDEX IF NOT EXISTS idx_csv_offers_match ON csv_offers (connector_id, match_key);
+        CREATE INDEX IF NOT EXISTS idx_supply_csv_offers_match ON supply_csv_offers (connector_id, match_key);
         """,
         prepare=False,
     )
@@ -123,17 +123,17 @@ def _m003_parts_and_listings(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS manufacturers (
+        CREATE TABLE IF NOT EXISTS supply_manufacturers (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             name_key TEXT NOT NULL UNIQUE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
-        CREATE TABLE IF NOT EXISTS manufacturer_aliases (
+        CREATE TABLE IF NOT EXISTS supply_manufacturer_aliases (
             alias_key TEXT PRIMARY KEY,
             alias_text TEXT NOT NULL,
-            manufacturer_id TEXT REFERENCES manufacturers(id) ON DELETE CASCADE,
+            manufacturer_id TEXT REFERENCES supply_manufacturers(id) ON DELETE CASCADE,
             status TEXT NOT NULL CHECK (status IN ('confirmed', 'pending')),
             seen_at_provider TEXT NOT NULL DEFAULT '',
             confirmed_by TEXT NOT NULL DEFAULT '',
@@ -141,22 +141,22 @@ def _m003_parts_and_listings(conn) -> None:
             CHECK ((status = 'confirmed') = (manufacturer_id IS NOT NULL))
         );
 
-        CREATE TABLE IF NOT EXISTS parts (
+        CREATE TABLE IF NOT EXISTS supply_parts (
             id TEXT PRIMARY KEY,
-            manufacturer_id TEXT NOT NULL REFERENCES manufacturers(id),
+            manufacturer_id TEXT NOT NULL REFERENCES supply_manufacturers(id),
             mpn TEXT NOT NULL,
             match_key TEXT NOT NULL,
             lifecycle TEXT NOT NULL DEFAULT 'unknown',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (manufacturer_id, match_key)
         );
-        CREATE INDEX IF NOT EXISTS idx_parts_match_key ON parts (match_key);
+        CREATE INDEX IF NOT EXISTS idx_supply_parts_match_key ON supply_parts (match_key);
 
-        CREATE TABLE IF NOT EXISTS listings (
+        CREATE TABLE IF NOT EXISTS supply_listings (
             id TEXT PRIMARY KEY,
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             sku TEXT NOT NULL,
-            part_id TEXT REFERENCES parts(id) ON DELETE SET NULL,
+            part_id TEXT REFERENCES supply_parts(id) ON DELETE SET NULL,
             raw_mpn TEXT NOT NULL,
             raw_manufacturer TEXT NOT NULL,
             packaging TEXT NOT NULL DEFAULT 'unknown',
@@ -169,7 +169,7 @@ def _m003_parts_and_listings(conn) -> None:
             last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (connector_id, sku)
         );
-        CREATE INDEX IF NOT EXISTS idx_listings_part ON listings (part_id, match_state);
+        CREATE INDEX IF NOT EXISTS idx_supply_listings_part ON supply_listings (part_id, match_state);
         """,
         prepare=False,
     )
@@ -186,11 +186,11 @@ def _m004_watches_offers_samples(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;
 
-        CREATE TABLE IF NOT EXISTS watches (
+        CREATE TABLE IF NOT EXISTS supply_watches (
             id TEXT PRIMARY KEY,
-            part_id TEXT NOT NULL UNIQUE REFERENCES parts(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL UNIQUE REFERENCES supply_parts(id) ON DELETE CASCADE,
             threshold INTEGER CHECK (threshold IS NULL OR threshold >= 0),
             pinned BOOLEAN NOT NULL DEFAULT FALSE,
             owner TEXT NOT NULL,
@@ -199,8 +199,8 @@ def _m004_watches_offers_samples(conn) -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
-        CREATE TABLE IF NOT EXISTS offers (
-            listing_id TEXT PRIMARY KEY REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_offers (
+            listing_id TEXT PRIMARY KEY REFERENCES supply_listings(id) ON DELETE CASCADE,
             fetched_at TIMESTAMPTZ NOT NULL,
             stock INTEGER NOT NULL CHECK (stock >= 0),
             incoming JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -217,8 +217,8 @@ def _m004_watches_offers_samples(conn) -> None:
             product_url TEXT NOT NULL DEFAULT ''
         );
 
-        CREATE TABLE IF NOT EXISTS samples (
-            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_samples (
+            listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
             sampled_at TIMESTAMPTZ NOT NULL,
             stock INTEGER NOT NULL CHECK (stock >= 0),
             incoming_qty INTEGER NOT NULL DEFAULT 0,
@@ -230,8 +230,8 @@ def _m004_watches_offers_samples(conn) -> None:
             PRIMARY KEY (listing_id, sampled_at)
         );
 
-        CREATE TABLE IF NOT EXISTS poll_state (
-            listing_id TEXT PRIMARY KEY REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_poll_state (
+            listing_id TEXT PRIMARY KEY REFERENCES supply_listings(id) ON DELETE CASCADE,
             tier TEXT NOT NULL CHECK (tier IN ('hot', 'warm', 'normal', 'cold')),
             next_poll_at TIMESTAMPTZ NOT NULL,
             last_polled_at TIMESTAMPTZ,
@@ -240,7 +240,7 @@ def _m004_watches_offers_samples(conn) -> None:
             missing_streak INTEGER NOT NULL DEFAULT 0,
             last_error_code TEXT NOT NULL DEFAULT ''
         );
-        CREATE INDEX IF NOT EXISTS idx_poll_state_due ON poll_state (next_poll_at);
+        CREATE INDEX IF NOT EXISTS idx_supply_poll_state_due ON supply_poll_state (next_poll_at);
         """,
         prepare=False,
     )
@@ -256,9 +256,9 @@ def _m005_discovery_runs(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS discovery_runs (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_discovery_runs (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             last_run_at TIMESTAMPTZ NOT NULL,
             found INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (part_id, connector_id)
@@ -279,11 +279,11 @@ def _m006_events_rollups(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE samples ADD COLUMN IF NOT EXISTS marketplace BOOLEAN NOT NULL DEFAULT FALSE;
-        CREATE INDEX IF NOT EXISTS idx_samples_sampled_at ON samples (sampled_at);
+        ALTER TABLE supply_samples ADD COLUMN IF NOT EXISTS marketplace BOOLEAN NOT NULL DEFAULT FALSE;
+        CREATE INDEX IF NOT EXISTS idx_supply_samples_sampled_at ON supply_samples (sampled_at);
 
-        CREATE TABLE IF NOT EXISTS samples_daily (
-            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_samples_daily (
+            listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
             day DATE NOT NULL,
             min_stock INTEGER NOT NULL,
             max_stock INTEGER NOT NULL,
@@ -295,15 +295,15 @@ def _m006_events_rollups(conn) -> None:
             PRIMARY KEY (listing_id, day)
         );
 
-        CREATE TABLE IF NOT EXISTS events (
+        CREATE TABLE IF NOT EXISTS supply_events (
             id BIGSERIAL PRIMARY KEY,
             at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             kind TEXT NOT NULL,
-            part_id TEXT REFERENCES parts(id) ON DELETE CASCADE,
-            listing_id TEXT REFERENCES listings(id) ON DELETE CASCADE,
+            part_id TEXT REFERENCES supply_parts(id) ON DELETE CASCADE,
+            listing_id TEXT REFERENCES supply_listings(id) ON DELETE CASCADE,
             payload JSONB NOT NULL DEFAULT '{}'::jsonb
         );
-        CREATE INDEX IF NOT EXISTS idx_supply_events_part ON events (part_id, at);
+        CREATE INDEX IF NOT EXISTS idx_supply_events_part ON supply_events (part_id, at);
         """,
         prepare=False,
     )
@@ -318,9 +318,9 @@ def _m007_alerts(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS alerts (
+        CREATE TABLE IF NOT EXISTS supply_alerts (
             id BIGSERIAL PRIMARY KEY,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             kind TEXT NOT NULL,
             severity TEXT NOT NULL CHECK (severity IN ('warning', 'error', 'fatal')),
             state TEXT NOT NULL CHECK (state IN ('pending', 'open', 'acknowledged', 'snoozed', 'resolved')),
@@ -334,9 +334,9 @@ def _m007_alerts(conn) -> None:
             resolved_at TIMESTAMPTZ,
             detail JSONB NOT NULL DEFAULT '{}'::jsonb
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_one_live
-            ON alerts (part_id, kind) WHERE state <> 'resolved';
-        CREATE INDEX IF NOT EXISTS idx_alerts_state ON alerts (state, last_event_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_alerts_one_live
+            ON supply_alerts (part_id, kind) WHERE state <> 'resolved';
+        CREATE INDEX IF NOT EXISTS idx_supply_alerts_state ON supply_alerts (state, last_event_at);
         """,
         prepare=False,
     )
@@ -352,15 +352,15 @@ def _m008_bom_usage(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS bom_usage_projects (
+        CREATE TABLE IF NOT EXISTS supply_bom_usage_projects (
             project_id TEXT PRIMARY KEY,
             project_name TEXT NOT NULL,
             revision_key TEXT NOT NULL,
             line_count INTEGER NOT NULL,
             updated_at TIMESTAMPTZ NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS bom_usage (
-            project_id TEXT NOT NULL REFERENCES bom_usage_projects(project_id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_bom_usage (
+            project_id TEXT NOT NULL REFERENCES supply_bom_usage_projects(project_id) ON DELETE CASCADE,
             line_key TEXT NOT NULL,
             manufacturer TEXT NOT NULL DEFAULT '',
             mpn TEXT NOT NULL,
@@ -370,7 +370,7 @@ def _m008_bom_usage(conn) -> None:
             refs TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (project_id, line_key)
         );
-        CREATE INDEX IF NOT EXISTS idx_bom_usage_match ON bom_usage (match_key);
+        CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_match ON supply_bom_usage (match_key);
         """,
         prepare=False,
     )
@@ -384,7 +384,7 @@ def _m009_usage_visibility(conn) -> None:
     """
 
     conn.execute(
-        "ALTER TABLE bom_usage_projects ADD COLUMN IF NOT EXISTS visible_roles TEXT[] NOT NULL DEFAULT '{admin,designer,qa}'",
+        "ALTER TABLE supply_bom_usage_projects ADD COLUMN IF NOT EXISTS visible_roles TEXT[] NOT NULL DEFAULT '{admin,designer,qa}'",
         prepare=False,
     )
 
@@ -400,10 +400,10 @@ def _m010_component_sources(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS component_sources (
+        CREATE TABLE IF NOT EXISTS supply_component_sources (
             id TEXT PRIMARY KEY,
             component_id TEXT NOT NULL,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             approval TEXT NOT NULL CHECK (approval IN ('pending', 'approved', 'rejected')),
             rank INTEGER NOT NULL CHECK (rank >= 1),
             created_by TEXT NOT NULL,
@@ -412,7 +412,7 @@ def _m010_component_sources(conn) -> None:
             decided_at TIMESTAMPTZ,
             UNIQUE (component_id, part_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_component_sources_part ON component_sources (part_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_component_sources_part ON supply_component_sources (part_id);
         """,
         prepare=False,
     )
@@ -428,9 +428,9 @@ def _m011_waivers(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS waivers (
+        CREATE TABLE IF NOT EXISTS supply_waivers (
             id TEXT PRIMARY KEY,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             check_id TEXT NOT NULL,
             scope TEXT NOT NULL,
             reason TEXT NOT NULL,
@@ -440,7 +440,7 @@ def _m011_waivers(conn) -> None:
             decided_by TEXT NOT NULL DEFAULT '',
             decided_at TIMESTAMPTZ
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_waivers_open ON waivers (part_id, check_id) WHERE state <> 'rejected';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_waivers_open ON supply_waivers (part_id, check_id) WHERE state <> 'rejected';
         """,
         prepare=False,
     )
@@ -455,7 +455,7 @@ def _m012_release_snapshots(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS release_snapshots (
+        CREATE TABLE IF NOT EXISTS supply_release_snapshots (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             build_id TEXT NOT NULL UNIQUE,
@@ -468,15 +468,15 @@ def _m012_release_snapshots(conn) -> None:
             assessment JSONB NOT NULL,
             avl JSONB NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_release_snapshots_project ON release_snapshots (project_id, created_at DESC);
-        CREATE OR REPLACE FUNCTION release_snapshots_frozen() RETURNS trigger AS $$
+        CREATE INDEX IF NOT EXISTS idx_supply_release_snapshots_project ON supply_release_snapshots (project_id, created_at DESC);
+        CREATE OR REPLACE FUNCTION supply_release_snapshots_frozen() RETURNS trigger AS $$
         BEGIN
             RAISE EXCEPTION 'A release snapshot cannot be changed or removed';
         END;
         $$ LANGUAGE plpgsql;
-        DROP TRIGGER IF EXISTS trg_release_snapshots_frozen ON release_snapshots;
-        CREATE TRIGGER trg_release_snapshots_frozen BEFORE UPDATE OR DELETE ON release_snapshots
-            FOR EACH ROW EXECUTE FUNCTION release_snapshots_frozen();
+        DROP TRIGGER IF EXISTS trg_supply_release_snapshots_frozen ON supply_release_snapshots;
+        CREATE TRIGGER trg_supply_release_snapshots_frozen BEFORE UPDATE OR DELETE ON supply_release_snapshots
+            FOR EACH ROW EXECUTE FUNCTION supply_release_snapshots_frozen();
         """,
         prepare=False,
     )
@@ -487,7 +487,7 @@ def _m013_settings(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS settings (
+        CREATE TABLE IF NOT EXISTS supply_settings (
             key TEXT PRIMARY KEY,
             value JSONB NOT NULL,
             updated_by TEXT NOT NULL,
@@ -508,9 +508,9 @@ def _m014_demands(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS demands (
+        CREATE TABLE IF NOT EXISTS supply_demands (
             id TEXT PRIMARY KEY,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             source TEXT NOT NULL CHECK (source IN ('manual', 'bom_watch', 'manufacturing_run')),
             source_ref TEXT NOT NULL DEFAULT '',
             quantity INTEGER NOT NULL CHECK (quantity <> 0),
@@ -522,7 +522,7 @@ def _m014_demands(conn) -> None:
             closed_by TEXT NOT NULL DEFAULT '',
             closed_at TIMESTAMPTZ
         );
-        CREATE INDEX IF NOT EXISTS idx_supply_demands_part ON demands (part_id, state, need_by);
+        CREATE INDEX IF NOT EXISTS idx_supply_demands_part ON supply_demands (part_id, state, need_by);
         """,
         prepare=False,
     )
@@ -537,7 +537,7 @@ def _m015_fx_rates(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS fx_rates (
+        CREATE TABLE IF NOT EXISTS supply_fx_rates (
             day DATE NOT NULL,
             currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
             per_eur NUMERIC(20, 8) NOT NULL CHECK (per_eur > 0),
@@ -561,10 +561,10 @@ def _m016_datasheets(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE parts ADD COLUMN IF NOT EXISTS datasheet_url TEXT NOT NULL DEFAULT '';
-        CREATE TABLE IF NOT EXISTS datasheets (
+        ALTER TABLE supply_parts ADD COLUMN IF NOT EXISTS datasheet_url TEXT NOT NULL DEFAULT '';
+        CREATE TABLE IF NOT EXISTS supply_datasheets (
             id TEXT PRIMARY KEY,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             version INTEGER NOT NULL CHECK (version >= 1),
             url TEXT NOT NULL,
             sha256 TEXT NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
@@ -577,8 +577,8 @@ def _m016_datasheets(conn) -> None:
             UNIQUE (part_id, version),
             UNIQUE (part_id, sha256)
         );
-        CREATE TABLE IF NOT EXISTS datasheet_checks (
-            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_datasheet_checks (
+            part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
             url TEXT NOT NULL,
             checked_at TIMESTAMPTZ NOT NULL,
             status TEXT NOT NULL,
@@ -599,23 +599,23 @@ def _m017_reach(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE offers ADD COLUMN IF NOT EXISTS reach_affected BOOLEAN;
-        CREATE TABLE IF NOT EXISTS svhc_substances (
+        ALTER TABLE supply_offers ADD COLUMN IF NOT EXISTS reach_affected BOOLEAN;
+        CREATE TABLE IF NOT EXISTS supply_svhc_substances (
             cas TEXT NOT NULL,
             name TEXT NOT NULL,
             ec TEXT NOT NULL DEFAULT '',
             added_on DATE,
             PRIMARY KEY (cas, name)
         );
-        CREATE TABLE IF NOT EXISTS svhc_list (
+        CREATE TABLE IF NOT EXISTS supply_svhc_list (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             loaded_at TIMESTAMPTZ NOT NULL,
             loaded_by TEXT NOT NULL,
             source_name TEXT NOT NULL DEFAULT '',
             substances INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS part_substances (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_substances (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             cas TEXT NOT NULL,
             note TEXT NOT NULL DEFAULT '',
             declared_by TEXT NOT NULL,
@@ -632,7 +632,7 @@ def _m018_market_indices(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS market_indices (
+        CREATE TABLE IF NOT EXISTS supply_market_indices (
             day DATE NOT NULL,
             scope_kind TEXT NOT NULL CHECK (scope_kind IN ('all', 'manufacturer')),
             scope_value TEXT NOT NULL DEFAULT '',
@@ -651,7 +651,7 @@ def _m019_pcns(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS pcns (
+        CREATE TABLE IF NOT EXISTS supply_pcns (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             kind TEXT NOT NULL CHECK (kind IN ('end_of_life', 'nrnd', 'last_time_buy', 'change')),
@@ -665,12 +665,12 @@ def _m019_pcns(conn) -> None:
             closed_by TEXT NOT NULL DEFAULT '',
             closed_at TIMESTAMPTZ
         );
-        CREATE TABLE IF NOT EXISTS pcn_parts (
-            pcn_id TEXT NOT NULL REFERENCES pcns(id) ON DELETE CASCADE,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_pcn_parts (
+            pcn_id TEXT NOT NULL REFERENCES supply_pcns(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             PRIMARY KEY (pcn_id, part_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_pcn_parts_part ON pcn_parts (part_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_pcn_parts_part ON supply_pcn_parts (part_id);
         """,
         prepare=False,
     )
@@ -685,8 +685,8 @@ def _m020_part_params(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS part_params (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_params (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             provider TEXT NOT NULL,
             name TEXT NOT NULL,
             raw TEXT NOT NULL,

@@ -84,11 +84,11 @@ def _has_spare(conn, row, now: datetime) -> bool:
         reset_time=account.reset_time, reset_tz=account.reset_tz,
     )
     day = quota.provider_day(now, account.reset_time, account.reset_tz)
-    kept = conn.execute("SELECT scheduled_at FROM quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
+    kept = conn.execute("SELECT scheduled_at FROM supply_quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
     if kept is None or kept["scheduled_at"] is None or now - kept["scheduled_at"] > timedelta(minutes=5):
         refresh_scheduled(conn, row["id"], now)
     ledger_row = conn.execute(
-        "SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger WHERE connector_id = %s AND day = %s",
+        "SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE connector_id = %s AND day = %s",
         (account.ledger_id, day),
     ).fetchone()
     return ledger.free_calls(conn, account.ledger_id, state, ledger_row, now, reset_time=account.reset_time, reset_tz=account.reset_tz) > 0
@@ -150,12 +150,12 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     """
     due = conn.execute(
         f"""
-        SELECT DISTINCT l.connector_id AS id FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        SELECT DISTINCT l.connector_id AS id FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.match_state IN ('exact', 'manual') AND {active}
           AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
@@ -165,10 +165,10 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     ).fetchall()
     unsearched = conn.execute(
         f"""
-        SELECT DISTINCT c.id, c.provider FROM connectors c
-        CROSS JOIN part_tiers pt
-        LEFT JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
-        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
+        SELECT DISTINCT c.id, c.provider FROM supply_connectors c
+        CROSS JOIN supply_part_tiers pt
+        LEFT JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
+        LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
         WHERE {active} AND ({DUE_SEARCH})
         """,
         {"now": now, **cutoffs(now)},
@@ -185,7 +185,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         if searchable and row["id"] not in ids:
             ids.append(row["id"])
     funded = conn.execute(
-        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM connectors WHERE id = ANY(%s)", (ids,)
+        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM supply_connectors WHERE id = ANY(%s)", (ids,)
     ).fetchall()
     result = {row["id"] for row in funded if _has_budget(conn, row, now)}
     # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget: a connector is queued for it only
@@ -193,7 +193,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
     spare = conn.execute(
         f"""
-        SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM connectors c
+        SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM supply_connectors c
         WHERE {active} AND c.id <> ALL(%(known)s)
         """,
         {"now": now, "known": sorted(result)},
@@ -205,7 +205,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     wanted = [cid for cid in oneoff.pending_connectors(conn) if cid not in result]
     if wanted:
         for row in conn.execute(
-            f"SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM connectors c WHERE {active} AND c.id = ANY(%(ids)s)",
+            f"SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM supply_connectors c WHERE {active} AND c.id = ANY(%(ids)s)",
             {"now": now, "ids": wanted},
         ).fetchall():
             if _has_pool_or_spare(conn, row, now):
@@ -217,7 +217,7 @@ def _all_held(conn, connector_id: str, now: datetime) -> bool:
     """Whether everything due at a connector is kept back to fill a batch, so a job would only report "nothing due". Asks the poller's
     own rule (``poller.hold_back``) over the listings it would read, for a provider that batches."""
 
-    row = conn.execute("SELECT provider, reset_time, reset_tz FROM connectors WHERE id = %s", (connector_id,)).fetchone()
+    row = conn.execute("SELECT provider, reset_time, reset_tz FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()
     if row is None:
         return False
     try:
@@ -242,7 +242,7 @@ def _connectors_with_details(conn, now: datetime, known: set[str]) -> set[str]:
 
     found: set[str] = set()
     rows = conn.execute(
-        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM connectors c "
+        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM supply_connectors c "
         "WHERE c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %s)", (now,)
     ).fetchall()
     for row in rows:

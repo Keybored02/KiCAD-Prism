@@ -45,7 +45,7 @@ async def get_datasheet(part_id: str, _user: AuthenticatedUser = Depends(require
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             part = parts.get_part(conn, part_id)
-            return {"url": conn.execute("SELECT datasheet_url FROM parts WHERE id = %s", (part.id,)).fetchone()["datasheet_url"]}
+            return {"url": conn.execute("SELECT datasheet_url FROM supply_parts WHERE id = %s", (part.id,)).fetchone()["datasheet_url"]}
 
     return await _run(read)
 
@@ -61,8 +61,8 @@ async def set_datasheet_url(
     def run() -> None:
         with _store().connection() as conn:
             part = parts.get_part(conn, part_id)
-            before = conn.execute("SELECT datasheet_url FROM parts WHERE id = %s", (part.id,)).fetchone()["datasheet_url"]
-            conn.execute("UPDATE parts SET datasheet_url = %s WHERE id = %s", (url, part.id))
+            before = conn.execute("SELECT datasheet_url FROM supply_parts WHERE id = %s", (part.id,)).fetchone()["datasheet_url"]
+            conn.execute("UPDATE supply_parts SET datasheet_url = %s WHERE id = %s", (url, part.id))
             write_audit(conn, writer.email, "datasheet.url", part.id, {"before": before, "after": url}, subject_kind="part")
 
     await _run(run)

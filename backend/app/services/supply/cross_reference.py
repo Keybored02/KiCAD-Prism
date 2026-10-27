@@ -93,7 +93,7 @@ def _signature(conn, part_id: str) -> dict[str, dict[str, Any]]:
 def _categories(conn, part_id: str) -> list[str]:
     return [
         row["value"].strip().lower() for row in conn.execute(
-            "SELECT value FROM part_facts WHERE part_id = %s AND name = 'category'", (part_id,)
+            "SELECT value FROM supply_part_facts WHERE part_id = %s AND name = 'category'", (part_id,)
         ).fetchall() if row["value"].strip()
     ]
 
@@ -110,7 +110,7 @@ def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any
     if categories and any(key in base for key in CORE):
         pool = conn.execute(
             """
-            SELECT DISTINCT p.id FROM parts p JOIN part_facts f ON f.part_id = p.id
+            SELECT DISTINCT p.id FROM supply_parts p JOIN supply_part_facts f ON f.part_id = p.id
             WHERE f.name = 'category' AND lower(trim(f.value)) = ANY(%s) AND p.id <> %s LIMIT %s
             """,
             (categories, part_id, MAX_POOL),

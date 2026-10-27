@@ -68,7 +68,7 @@ class SupplyAlertsTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("alerts", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_alerts", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.now = START
         self.cid = self.connectors.create(
@@ -88,21 +88,21 @@ class SupplyAlertsTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', %s)", (listing_id, self.cid, sku, part_id, state))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)",
                 (listing_id, self.now, stock, lifecycle))
         return listing_id
 
     def set_offer(self, listing_id: str, *, stock: int | None = None, lifecycle: str | None = None, discontinued: bool | None = None) -> None:
         with self.store.connection() as conn:
             if discontinued is not None:
-                conn.execute("UPDATE offers SET discontinued = %s WHERE listing_id = %s", (discontinued, listing_id))
+                conn.execute("UPDATE supply_offers SET discontinued = %s WHERE listing_id = %s", (discontinued, listing_id))
             if stock is not None:
-                conn.execute("UPDATE offers SET stock = %s WHERE listing_id = %s", (stock, listing_id))
+                conn.execute("UPDATE supply_offers SET stock = %s WHERE listing_id = %s", (stock, listing_id))
             if lifecycle is not None:
-                conn.execute("UPDATE offers SET lifecycle = %s WHERE listing_id = %s", (lifecycle, listing_id))
+                conn.execute("UPDATE supply_offers SET lifecycle = %s WHERE listing_id = %s", (lifecycle, listing_id))
 
     def evaluate(self, *part_ids: str, after: timedelta = timedelta(0)) -> None:
         self.now = START + after
@@ -137,7 +137,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(watch["part_id"])
         self.set_offer(listing, stock=900)
         self.evaluate(watch["part_id"], after=timedelta(hours=2))
-        self.assertEqual(self.rows("SELECT 1 FROM alerts"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_alerts"), [])
 
     def test_a_condition_that_clears_resolves_its_alert(self) -> None:
         watch = self.watch(threshold=100)
@@ -212,9 +212,9 @@ class SupplyAlertsTests(unittest.TestCase):
         watch = self.watch(threshold=10)
         self.listing(watch["part_id"], "A", stock=40)
         self.evaluate(watch["part_id"])
-        self.assertEqual(self.rows("SELECT 1 FROM alerts"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_alerts"), [])
         self.assertEqual(self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": 100}).status, 200)
-        (pending,) = self.rows("SELECT state, kind FROM alerts")
+        (pending,) = self.rows("SELECT state, kind FROM supply_alerts")
         self.assertEqual((pending["state"], pending["kind"]), ("pending", "below_threshold"), "seen once; it opens on the next look")
 
     def test_the_poller_looks_after_every_read(self) -> None:
@@ -241,7 +241,7 @@ class SupplyAlertsTests(unittest.TestCase):
         with self.store.connection() as conn:
             for index in range(days):
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)",
                     (listing, START - timedelta(days=days - index), start - step * index),
                 )
         return watch
@@ -264,7 +264,7 @@ class SupplyAlertsTests(unittest.TestCase):
             for index in range(days):
                 price = Decimal(first) + (Decimal(last) - Decimal(first)) * index / (days - 1)
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 500, %s, 'EUR')",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 500, %s, 'EUR')",
                     (listing, START - timedelta(days=days - index), price),
                 )
         return watch
@@ -313,9 +313,9 @@ class SupplyAlertsTests(unittest.TestCase):
             self.evaluate(watch["part_id"], after=later)
         self.assertEqual(len(self.listed()), 1)
         with self.store.connection() as conn:
-            listing = conn.execute("SELECT id FROM listings").fetchone()["id"]
-            conn.execute("UPDATE offers SET stock = 5000")
-            conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5000)", (listing, START))
+            listing = conn.execute("SELECT id FROM supply_listings").fetchone()["id"]
+            conn.execute("UPDATE supply_offers SET stock = 5000")
+            conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5000)", (listing, START))
         self.evaluate(watch["part_id"], after=timedelta(hours=3))
         self.assertEqual(self.listed(), [])
 
@@ -330,7 +330,7 @@ class SupplyAlertsTests(unittest.TestCase):
 
     def priced(self, listing_id: str, price: str) -> None:
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = %s::jsonb WHERE listing_id = %s", (f'[[1, "{price}"]]', listing_id))
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = %s::jsonb WHERE listing_id = %s", (f'[[1, "{price}"]]', listing_id))
 
     def open_after_two_looks(self, part_id: str) -> list[dict]:
         self.evaluate(part_id)
@@ -361,11 +361,11 @@ class SupplyAlertsTests(unittest.TestCase):
             self.assertEqual(self.call("PUT", path, body={"muted": [], "likely_out_percent": bad}).status, 422 if bad == "x" else 400, bad)
         self.assertEqual(self.call("PUT", path, body={"muted": [], "likely_out_percent": 85}).json["likely_out_percent"], 85)
         with self.store.connection() as conn:
-            conn.execute("UPDATE part_tiers SET rate = 'daily' WHERE part_id = %s", (watch["part_id"],))
-            conn.execute("INSERT INTO forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
+            conn.execute("UPDATE supply_part_tiers SET rate = 'daily' WHERE part_id = %s", (watch["part_id"],))
+            conn.execute("INSERT INTO supply_forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
             for day in (date(2026, 3, 1), date(2026, 3, 2)):
                 conn.execute(
-                    "INSERT INTO forecasts (subject_kind, subject_id, scope, target, made_on, horizon_days, probability, model) VALUES ('part', %s, '', 'out_4w', %s, 28, 0.8, 'm')",
+                    "INSERT INTO supply_forecasts (subject_kind, subject_id, scope, target, made_on, horizon_days, probability, model) VALUES ('part', %s, '', 'out_4w', %s, 28, 0.8, 'm')",
                     (watch["part_id"], day),
                 )
             self.assertEqual(alerts._likely_out(conn, [watch["part_id"]])[watch["part_id"]]["chance"], 0.8, "at the default 70%")  # noqa: SLF001
@@ -378,7 +378,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.priced(listing, "0.80")
         self.call("PUT", f"/api/supply/parts/{watch['part_id']}/alert-rules", body={"target_price": "0.50", "target_currency": "eur"})
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM alerts")  # saving the rules looked once, at the real time; the test keeps its own clock
+            conn.execute("DELETE FROM supply_alerts")  # saving the rules looked once, at the real time; the test keeps its own clock
         (alert,) = self.open_after_two_looks(watch["part_id"])
         self.assertEqual((alert["kind"], alert["detail"]["target"], alert["detail"]["price"]), ("target_price_missed", "0.5", "0.8"))
         self.priced(listing, "0.45")
@@ -390,7 +390,7 @@ class SupplyAlertsTests(unittest.TestCase):
         listing = self.listing(watch["part_id"], "A", stock=500)
         self.assertEqual(self.open_after_two_looks(watch["part_id"]), [], "the first assessment is only noted")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET fetched_at = %s WHERE listing_id = %s", (START - timedelta(days=12), listing))
+            conn.execute("UPDATE supply_offers SET fetched_at = %s WHERE listing_id = %s", (START - timedelta(days=12), listing))
         self.evaluate(watch["part_id"], after=timedelta(hours=2))
         self.evaluate(watch["part_id"], after=timedelta(hours=3))
         worse = [item for item in self.listed() if item["kind"] == "assessment_worse"]
@@ -416,7 +416,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(snoozed["state"], "snoozed")
         self.assertIsNotNone(snoozed["snoozed_until"])
         with self.store.connection() as conn:
-            conn.execute("UPDATE alerts SET snoozed_until = NOW() - INTERVAL '1 minute' WHERE id = %s", (alert["id"],))
+            conn.execute("UPDATE supply_alerts SET snoozed_until = NOW() - INTERVAL '1 minute' WHERE id = %s", (alert["id"],))
         self.assertEqual(self.listed()[0]["state"], "open", "an expired snooze reads as open without waiting for a poll")
 
     def test_actions_are_audited_and_checked(self) -> None:
@@ -426,13 +426,13 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/acknowledge", role="designer").status, 204)
         self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/acknowledge").status, 409, "already acknowledged")
         self.assertEqual(self.call("POST", "/api/supply/alerts/999999/acknowledge").status, 404)
-        (event,) = self.rows("SELECT actor, action FROM audit_events WHERE subject_kind = 'alert'")
+        (event,) = self.rows("SELECT actor, action FROM supply_audit_events WHERE subject_kind = 'alert'")
         self.assertEqual((event["actor"], event["action"]), ("designer@example.com", "alert.acknowledge"))
 
     def test_a_cleared_alert_cannot_be_acted_on(self) -> None:
         alert = self.open_alert()
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET stock = 900")
+            conn.execute("UPDATE supply_offers SET stock = 900")
         part_id = alert["part_id"]
         self.evaluate(part_id, after=timedelta(hours=5))
         self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/snooze", body={"hours": 2}).status, 409)
@@ -482,8 +482,8 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(empty["part_id"])
         self.evaluate(empty["part_id"], after=timedelta(hours=1))
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET stock = 50 WHERE listing_id = %s", (stock_id,))
-            conn.execute("INSERT INTO events (at, kind, part_id, listing_id, payload) VALUES (%s, 'listing_gone', %s, %s, '{\"sku\": \"E\"}'::jsonb)",
+            conn.execute("UPDATE supply_offers SET stock = 50 WHERE listing_id = %s", (stock_id,))
+            conn.execute("INSERT INTO supply_events (at, kind, part_id, listing_id, payload) VALUES (%s, 'listing_gone', %s, %s, '{\"sku\": \"E\"}'::jsonb)",
                          (START + timedelta(hours=3), empty["part_id"], stock_id))
         self.evaluate(empty["part_id"], after=timedelta(hours=4))
         self.evaluate(empty["part_id"], after=timedelta(hours=5))
@@ -496,7 +496,7 @@ class SupplyAlertsTests(unittest.TestCase):
 
     def test_an_empty_overview(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM connectors")
+            conn.execute("DELETE FROM supply_connectors")
         data = self.call("GET", "/api/supply/overview").json
         self.assertEqual(data["figures"], {"watched": 0, "at_risk": 0, "out_of_stock": 0, "lifecycle": 0, "no_data": 0, "lifecycle_active": 0, "lifecycle_nrnd": 0, "lifecycle_last_time_buy": 0, "lifecycle_obsolete": 0, "lifecycle_unknown": 0})
         self.assertEqual((data["connectors"], data["data_age"]), (0, {"oldest": None, "newest": None}))

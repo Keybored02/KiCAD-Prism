@@ -128,7 +128,7 @@ def _clean_credentials(spec: ProviderSpec, given: Mapping[str, Any] | None) -> d
 
 
 def _fetch(conn, connector_id: str):
-    row = conn.execute("SELECT * FROM connectors WHERE id = %s", (connector_id,)).fetchone()
+    row = conn.execute("SELECT * FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()
     if row is None:
         raise ConnectorNotFound(connector_id)
     return row
@@ -155,7 +155,7 @@ class ConnectorService:
 
     def list(self) -> list[dict[str, Any]]:
         with self._store.connection() as conn:
-            rows = conn.execute("SELECT * FROM connectors ORDER BY created_at, id").fetchall()
+            rows = conn.execute("SELECT * FROM supply_connectors ORDER BY created_at, id").fetchall()
             usage = self._usage_today(conn)
             imports = self._offers.import_infos(conn)
             guesses = limits.suggestions(conn, self._clock())
@@ -167,7 +167,7 @@ class ConnectorService:
         """The rows with ``slow_until``: when the pacing of the connector's account (or of its provider, with no credentials) goes
         back to normal, if it was slowed after a refusal."""
 
-        slowed = {row["pace_key"]: row["slow_until"] for row in conn.execute("SELECT pace_key, slow_until FROM pace_state WHERE slow_until IS NOT NULL").fetchall()}
+        slowed = {row["pace_key"]: row["slow_until"] for row in conn.execute("SELECT pace_key, slow_until FROM supply_pace_state WHERE slow_until IS NOT NULL").fetchall()}
         return [{**row, "slow_until": slowed.get(accounts.pace_key(row["account_key"], row["provider"]))} for row in rows]
 
     def get(self, connector_id: str) -> dict[str, Any]:
@@ -208,7 +208,7 @@ class ConnectorService:
             with self._store.connection() as conn:
                 conn.execute(
                     """
-                    INSERT INTO connectors (
+                    INSERT INTO supply_connectors (
                         id, provider, storefront, display_name, currency,
                         credential_envelope, credential_names, account_key,
                         daily_budget, interactive_reserve_pct, created_by
@@ -276,7 +276,7 @@ class ConnectorService:
         try:
             with self._store.connection() as conn:
                 result = conn.execute(
-                    f"UPDATE connectors SET {assignments}, updated_at = NOW() WHERE id = %s",
+                    f"UPDATE supply_connectors SET {assignments}, updated_at = NOW() WHERE id = %s",
                     (*fields.values(), connector_id),
                 )
                 if result.rowcount == 0:
@@ -305,14 +305,14 @@ class ConnectorService:
                 raise ConnectorError("invalid_credentials", f"{spec.label} takes no credentials.")
             envelope = sealed.seal(self._keyring(), connector_id, cleaned)
             conn.execute(
-                "UPDATE connectors SET credential_envelope = %s, credential_names = %s::jsonb, account_key = %s, "
+                "UPDATE supply_connectors SET credential_envelope = %s, credential_names = %s::jsonb, account_key = %s, "
                 "updated_at = NOW() WHERE id = %s",
                 (envelope, json.dumps(list(cleaned)), accounts.key_for(self._keyring(), spec.key, cleaned), connector_id),
             )
             detail: dict[str, Any] = {"names": list(cleaned)}
             if before != cleaned.get("client_id", ""):
                 # A sign-in belongs to the app (client ID) it was made for.
-                dropped = conn.execute("DELETE FROM connector_grants WHERE connector_id = %s", (connector_id,)).rowcount
+                dropped = conn.execute("DELETE FROM supply_connector_grants WHERE connector_id = %s", (connector_id,)).rowcount
                 if dropped:
                     detail["sign_in_dropped"] = True
             write_audit(conn, actor, "connector.credentials", connector_id, detail)
@@ -333,7 +333,7 @@ class ConnectorService:
         actor = actor_text(actor)
         with self._store.connection() as conn:
             row = _fetch(conn, connector_id)
-            conn.execute("DELETE FROM connectors WHERE id = %s", (connector_id,))
+            conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector_id,))
             write_audit(conn, actor, "connector.delete", connector_id,
                    {"provider": row["provider"], "storefront": row["storefront"]})
             admission.sync(conn)
@@ -344,13 +344,13 @@ class ConnectorService:
         with self._store.connection() as conn:
             if error_code is None:
                 conn.execute(
-                    "UPDATE connectors SET last_ok_at = NOW(), last_error_code = '', error_streak = 0, block_streak = 0 WHERE id = %s",
+                    "UPDATE supply_connectors SET last_ok_at = NOW(), last_error_code = '', error_streak = 0, block_streak = 0 WHERE id = %s",
                     (connector_id,),
                 )
                 limits.note_ok(conn, connector_id, datetime.now(timezone.utc))
             else:
                 conn.execute(
-                    "UPDATE connectors SET last_error_code = %s, last_error_at = NOW(), error_streak = error_streak + 1 "
+                    "UPDATE supply_connectors SET last_error_code = %s, last_error_at = NOW(), error_streak = error_streak + 1 "
                     "WHERE id = %s",
                     (error_code[:64], connector_id),
                 )
@@ -373,7 +373,7 @@ class ConnectorService:
 
         changed = 0
         with self._store.connection() as conn:
-            rows = conn.execute("SELECT id, provider, credential_envelope, account_key FROM connectors WHERE credential_envelope <> ''").fetchall()
+            rows = conn.execute("SELECT id, provider, credential_envelope, account_key FROM supply_connectors WHERE credential_envelope <> ''").fetchall()
             for row in rows:
                 try:
                     credentials = sealed.unseal(self._keyring(), row["id"], row["credential_envelope"])
@@ -381,7 +381,7 @@ class ConnectorService:
                     continue
                 key = accounts.key_for(self._keyring(), row["provider"], credentials)
                 if key != row["account_key"]:
-                    conn.execute("UPDATE connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
+                    conn.execute("UPDATE supply_connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
                     changed += 1
             if changed:
                 admission.sync(conn)
@@ -415,7 +415,7 @@ class ConnectorService:
     def _set_paused(self, connector_id: str, actor: str, reason: str, action: str) -> dict[str, Any]:
         with self._store.connection() as conn:
             result = conn.execute(
-                "UPDATE connectors SET paused_reason = %s, updated_at = NOW() WHERE id = %s",
+                "UPDATE supply_connectors SET paused_reason = %s, updated_at = NOW() WHERE id = %s",
                 (reason, connector_id),
             )
             if result.rowcount == 0:
@@ -442,13 +442,13 @@ class ConnectorService:
         ledger_rows = {
             (row["connector_id"], row["day"]): row
             for row in conn.execute(
-                "SELECT connector_id, day, spent, interactive_spent FROM quota_ledger WHERE day >= %s",
+                "SELECT connector_id, day, spent, interactive_spent FROM supply_quota_ledger WHERE day >= %s",
                 (now.astimezone(timezone.utc).date() - timedelta(days=2),),
             ).fetchall()
         }
         first_of: dict[str, str] = {}
         usage: dict[str, dict[str, Any]] = {}
-        for row in conn.execute("SELECT id, account_key, reset_time, reset_tz FROM connectors ORDER BY created_at, id").fetchall():
+        for row in conn.execute("SELECT id, account_key, reset_time, reset_tz FROM supply_connectors ORDER BY created_at, id").fetchall():
             owner = first_of.setdefault(row["account_key"], row["id"]) if row["account_key"] else row["id"]
             found = ledger_rows.get((owner, quota.provider_day(now, row["reset_time"], row["reset_tz"])))
             if found:

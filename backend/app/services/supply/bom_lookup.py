@@ -72,7 +72,7 @@ def _by_lcsc(conn, numbers: Iterable[str]) -> dict[str, str]:
     if not wanted:
         return {}
     rows = conn.execute(
-        "SELECT l.sku, l.part_id FROM listings l JOIN connectors c ON c.id = l.connector_id "
+        "SELECT l.sku, l.part_id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
         "WHERE c.provider = %s AND l.sku = ANY(%s) AND l.match_state IN ('exact', 'manual') AND l.part_id IS NOT NULL",
         (LCSC_PROVIDER, wanted),
     ).fetchall()
@@ -84,10 +84,10 @@ def _manufacturer_ids(conn, alias_keys: Iterable[str]) -> dict[str, str]:
     if not keys:
         return {}
     found: dict[str, str] = {}
-    for row in conn.execute("SELECT name_key, id FROM manufacturers WHERE name_key = ANY(%s)", (keys,)).fetchall():
+    for row in conn.execute("SELECT name_key, id FROM supply_manufacturers WHERE name_key = ANY(%s)", (keys,)).fetchall():
         found[row["name_key"]] = row["id"]
     for row in conn.execute(
-        "SELECT alias_key, manufacturer_id FROM manufacturer_aliases WHERE alias_key = ANY(%s) AND status = 'confirmed'",
+        "SELECT alias_key, manufacturer_id FROM supply_manufacturer_aliases WHERE alias_key = ANY(%s) AND status = 'confirmed'",
         (keys,),
     ).fetchall():
         found[row["alias_key"]] = row["manufacturer_id"]
@@ -102,17 +102,17 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
     wanted = sorted({number for _, number in keys.values() if number})
     by_number: dict[str, list[tuple[str, str]]] = {}
     if wanted:
-        for row in conn.execute("SELECT id, manufacturer_id, match_key FROM parts WHERE match_key = ANY(%s)", (wanted,)).fetchall():
+        for row in conn.execute("SELECT id, manufacturer_id, match_key FROM supply_parts WHERE match_key = ANY(%s)", (wanted,)).fetchall():
             by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
         # A number the part is also sold under finds it too.
         for row in conn.execute(
-            "SELECT p.id, p.manufacturer_id, n.match_key FROM part_numbers n JOIN parts p ON p.id = n.part_id WHERE n.match_key = ANY(%s)", (wanted,)
+            "SELECT p.id, p.manufacturer_id, n.match_key FROM supply_part_numbers n JOIN supply_parts p ON p.id = n.part_id WHERE n.match_key = ANY(%s)", (wanted,)
         ).fetchall():
             by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
 
     spelled: dict[str, set[str]] = {}
     for part_ids in by_number.values():
-        for row in conn.execute("SELECT part_id, alias_key FROM part_spellings WHERE part_id = ANY(%s)", ([part_id for part_id, _ in part_ids],)).fetchall():
+        for row in conn.execute("SELECT part_id, alias_key FROM supply_part_spellings WHERE part_id = ANY(%s)", ([part_id for part_id, _ in part_ids],)).fetchall():
             spelled.setdefault(row["part_id"], set()).add(row["alias_key"])
 
     resolved: dict[str, tuple[str, str | None, str | None]] = {}
@@ -569,7 +569,7 @@ def _link_lcsc(conn, connector_id: str, sku: str, part_id: str, mpn: str, manufa
     listing_id = uuid.uuid4().hex
     created = conn.execute(
         """
-        INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, matched_by)
+        INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, matched_by)
         VALUES (%s, %s, %s, %s, %s, %s, 'manual', %s, 'bom')
         ON CONFLICT (connector_id, sku) DO NOTHING RETURNING id
         """,

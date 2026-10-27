@@ -46,8 +46,8 @@ def rates(conn, today: date | None = None) -> dict[str, Any]:
     exposure: dict[str, float] = defaultdict(float)
     for row in conn.execute(
         """
-        SELECT m.name AS maker, p.created_at FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
-        JOIN part_tiers pt ON pt.part_id = p.id
+        SELECT m.name AS maker, p.created_at FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_part_tiers pt ON pt.part_id = p.id
         """
     ).fetchall():
         months = max((today - row["created_at"].date()).days, 0) / 30.0
@@ -56,8 +56,8 @@ def rates(conn, today: date | None = None) -> dict[str, Any]:
     changes: dict[str, int] = defaultdict(int)
     for row in conn.execute(
         """
-        SELECT DISTINCT ON (e.part_id) e.part_id, m.name AS maker FROM events e JOIN parts p ON p.id = e.part_id
-        JOIN manufacturers m ON m.id = p.manufacturer_id
+        SELECT DISTINCT ON (e.part_id) e.part_id, m.name AS maker FROM supply_events e JOIN supply_parts p ON p.id = e.part_id
+        JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE e.kind = 'lifecycle_changed' AND e.payload->>'to' = ANY(%s) ORDER BY e.part_id, e.at
         """,
         (list(_ENDING),),
@@ -77,13 +77,13 @@ def signs(conn, part_id: str) -> dict[str, Any]:
     distributors that list it that have dropped it."""
 
     notice = conn.execute(
-        "SELECT 1 FROM pcn_parts pp JOIN pcns n ON n.id = pp.pcn_id WHERE pp.part_id = %s AND n.state = 'open' "
+        "SELECT 1 FROM supply_pcn_parts pp JOIN supply_pcns n ON n.id = pp.pcn_id WHERE pp.part_id = %s AND n.state = 'open' "
         "AND n.kind IN ('end_of_life', 'nrnd', 'last_time_buy') LIMIT 1",
         (part_id,),
     ).fetchone()
     rows = conn.execute(
         """
-        SELECT l.connector_id, bool_and(o.discontinued) AS dropped FROM listings l JOIN offers o ON o.listing_id = l.id
+        SELECT l.connector_id, bool_and(o.discontinued) AS dropped FROM supply_listings l JOIN supply_offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND NOT o.marketplace GROUP BY l.connector_id
         """,
         (part_id,),
@@ -103,7 +103,7 @@ def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None) -
     if lifecycle in _ENDING:
         return {"available": False, "reason": "already_ending"}
     found = rates(conn, today)
-    maker = conn.execute("SELECT m.name FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)).fetchone()
+    maker = conn.execute("SELECT m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)).fetchone()
     rate = found["makers"].get(maker["name"], found["pooled"]) if maker else found["pooled"]
     shown = signs(conn, part_id)
     rate = min(rate * factor(shown), -math.log(1.0 - MAX_P12) / 12)
@@ -122,7 +122,7 @@ def last_buy_lag(conn) -> dict[str, Any]:
         SELECT pp.part_id,
                MIN(COALESCE(n.published_on, (n.created_at AT TIME ZONE 'UTC')::date)) FILTER (WHERE n.kind IN ('end_of_life', 'nrnd')) AS first_sign,
                MIN(n.last_time_buy) AS last_buy
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id GROUP BY pp.part_id
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id GROUP BY pp.part_id
         HAVING MIN(n.last_time_buy) IS NOT NULL AND MIN(COALESCE(n.published_on, (n.created_at AT TIME ZONE 'UTC')::date)) FILTER (WHERE n.kind IN ('end_of_life', 'nrnd')) IS NOT NULL
         """
     ).fetchall():

@@ -62,7 +62,7 @@ def deadlines(conn, tracked: Sequence[str], today: date) -> list[dict[str, Any]]
     for row in conn.execute(
         """
         SELECT n.title, n.last_time_buy, n.last_time_ship, n.notice_url, pp.part_id, p.mpn, m.name AS manufacturer
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id JOIN parts p ON p.id = pp.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id JOIN supply_parts p ON p.id = pp.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE n.state = 'open' AND pp.part_id = ANY(%s) AND (n.last_time_buy IS NOT NULL OR n.last_time_ship IS NOT NULL)
         """,
         (list(tracked),),
@@ -73,7 +73,7 @@ def deadlines(conn, tracked: Sequence[str], today: date) -> list[dict[str, Any]]
     for row in conn.execute(
         """
         SELECT f.part_id, f.provider, f.value, p.mpn, m.name AS manufacturer
-        FROM part_facts f JOIN parts p ON p.id = f.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_part_facts f JOIN supply_parts p ON p.id = f.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE f.name = 'last_buy_date' AND f.part_id = ANY(%s)
         """,
         (list(tracked),),
@@ -144,7 +144,7 @@ def origin_labels(conn, tracked: Sequence[str]) -> dict[str, str]:
     """The country each tracked part is said to come from: the one country distributors give, ``Several`` when they differ, else ``Unknown``."""
 
     origins: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'origin_country' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+    for row in conn.execute("SELECT part_id, value FROM supply_part_facts WHERE name = 'origin_country' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
         origins[row["part_id"]].add(row["value"].strip())
     found = {part_id: {value for value in origins.get(part_id, set()) if value} for part_id in tracked}
     return {part_id: (sorted(values)[0] if len(values) == 1 else "Several" if values else "Unknown") for part_id, values in found.items()}
@@ -201,7 +201,7 @@ def compliance_verdicts(conn, tracked: Sequence[str]) -> tuple[dict[str, str], d
     reach: dict[str, set[str]] = defaultdict(set)
     if tracked:
         for row in conn.execute(
-            "SELECT part_id, name, value FROM part_facts WHERE name IN ('rohs_status', 'reach_status') AND part_id = ANY(%s)", (list(tracked),)
+            "SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('rohs_status', 'reach_status') AND part_id = ANY(%s)", (list(tracked),)
         ).fetchall():
             (rohs if row["name"] == "rohs_status" else reach)[row["part_id"]].add(facts.rohs_class(row["value"]) if row["name"] == "rohs_status" else facts.reach_class(row["value"]))
 
@@ -265,9 +265,9 @@ def control_states(conn, tracked: Sequence[str]) -> dict[str, str]:
     """Export control state of each tracked part (controlled, disputed, none, unknown)."""
 
     eccn: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'eccn' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+    for row in conn.execute("SELECT part_id, value FROM supply_part_facts WHERE name = 'eccn' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
         eccn[row["part_id"]].add(row["value"].strip())
-    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
+    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM supply_part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
     return {part_id: _control(part_id, eccn, marks)[0] for part_id in tracked}
 
 
@@ -301,11 +301,11 @@ def trade_overview(conn, tracked: Sequence[str]) -> dict[str, Any]:
         return {"origins": [], "other_origins": 0, "control": {"controlled": 0, "none": 0, "disputed": 0, "unknown": 0}, "controlled": []}
     origins: dict[str, set[str]] = defaultdict(set)
     eccn: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, name, value FROM part_facts WHERE name IN ('origin_country', 'eccn') AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+    for row in conn.execute("SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('origin_country', 'eccn') AND part_id = ANY(%s)", (list(tracked),)).fetchall():
         (origins if row["name"] == "origin_country" else eccn)[row["part_id"]].add(row["value"].strip())
-    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
+    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM supply_part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
     names = {row["id"]: (row["mpn"], row["manufacturer"]) for row in conn.execute(
-        "SELECT p.id, p.mpn, m.name AS manufacturer FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.id = ANY(%s)", (list(tracked),)).fetchall()}
+        "SELECT p.id, p.mpn, m.name AS manufacturer FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = ANY(%s)", (list(tracked),)).fetchall()}
     country: Counter[str] = Counter()
     control: Counter[str] = Counter()
     controlled = []

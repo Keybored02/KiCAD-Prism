@@ -43,11 +43,11 @@ class CsvImportService:
         with self._store.connection() as conn:
             info = self._offers.replace_all(conn, connector_id, parsed.rows, filename=filename, actor=actor)
             conn.execute(
-                "UPDATE connectors SET last_ok_at = NOW(), last_error_code = '' WHERE id = %s", (connector_id,)
+                "UPDATE supply_connectors SET last_ok_at = NOW(), last_error_code = '' WHERE id = %s", (connector_id,)
             )
             # New data may carry parts the old file lacked, and listings marked gone while the
             # file was missing can come back, so the connector is searched afresh on the next scan.
-            conn.execute("DELETE FROM discovery_runs WHERE connector_id = %s", (connector_id,))
+            conn.execute("DELETE FROM supply_discovery_runs WHERE connector_id = %s", (connector_id,))
             write_audit(conn, actor, "connector.csv_import", connector_id,
                         {"filename": filename, "rows": info.row_count})
         return info, parsed

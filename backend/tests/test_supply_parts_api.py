@@ -100,7 +100,7 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.now = START
 
@@ -134,18 +134,18 @@ class SupplyPartsApiTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', %s)", (listing_id, connector_id, sku, part_id, state))
             if stock is not None:
                 breaks = json.dumps([[1, price]]) if price else "[]"
                 conn.execute(
-                    "INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, %s, %s, %s::jsonb)",
+                    "INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, %s, %s, %s::jsonb)",
                     (listing_id, fetched, stock, currency, breaks))
         return listing_id
 
     def insert_sample(self, listing_id: str, when: datetime, stock: int) -> None:
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)", (listing_id, when, stock))
+            conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)", (listing_id, when, stock))
 
     def part_row(self, mpn: str) -> dict:
         items = self.call("GET", "/api/supply/parts", query="scope=all").json["items"]
@@ -191,8 +191,8 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(blank.json, {"part_id": watch["part_id"], "followed": True})
         self.assertEqual(self.call("GET", "/api/supply/part-lookup", query="mpn=NOPE-1").json["part_id"], None)
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturer_aliases WHERE status = 'pending'").fetchone()["n"], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM parts").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_manufacturer_aliases WHERE status = 'pending'").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_parts").fetchone()["n"], 1)
         self.assertEqual(self.call("GET", "/api/supply/part-lookup", role="viewer", query="manufacturer=Acme&mpn=ABC-123").status, 403)
 
     # --- read now ---------------------------------------------------------
@@ -202,13 +202,13 @@ class SupplyPartsApiTests(unittest.TestCase):
         connector = self.fake_connector(daily_budget=20, interactive_reserve_pct=50)
         self.collect(connector)
         with self.store.connection() as conn:
-            before = conn.execute("SELECT COUNT(*) AS n FROM samples").fetchone()["n"]
-            spent_before = conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM quota_ledger").fetchone()["n"]
+            before = conn.execute("SELECT COUNT(*) AS n FROM supply_samples").fetchone()["n"]
+            spent_before = conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM supply_quota_ledger").fetchone()["n"]
         first = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
         self.assertEqual((first.status, first.json["read"], first.json["connectors"], first.json["problems"]), (200, 1, 1, []), first.text)
         with self.store.connection() as conn:
-            self.assertGreater(conn.execute("SELECT COUNT(*) AS n FROM samples").fetchone()["n"], before - 1)
-            self.assertEqual(conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM quota_ledger").fetchone()["n"], spent_before + 1)
+            self.assertGreater(conn.execute("SELECT COUNT(*) AS n FROM supply_samples").fetchone()["n"], before - 1)
+            self.assertEqual(conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM supply_quota_ledger").fetchone()["n"], spent_before + 1)
         again = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
         self.assertEqual((again.status, again.json["detail"]["code"]), (429, "read_too_soon"))
         self.assertIn("again in", again.json["detail"]["message"])
@@ -270,11 +270,11 @@ class SupplyPartsApiTests(unittest.TestCase):
         cut = self.insert_listing(part, cid, "PK-CT", stock=300)
         reel = self.insert_listing(part, cid, "PK-REEL", stock=5000)
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET packaging = 'cut_tape' WHERE id = %s", (cut,))
-            conn.execute("UPDATE listings SET packaging = 'tape_reel' WHERE id = %s", (reel,))
-            conn.execute("UPDATE offers SET packaging = 'cut_tape' WHERE listing_id = %s", (cut,))
-            conn.execute("UPDATE offers SET packaging = 'tape_reel' WHERE listing_id = %s", (reel,))
-            conn.execute("UPDATE connectors SET provider = 'demo_sum' WHERE id = %s", (cid,))
+            conn.execute("UPDATE supply_listings SET packaging = 'cut_tape' WHERE id = %s", (cut,))
+            conn.execute("UPDATE supply_listings SET packaging = 'tape_reel' WHERE id = %s", (reel,))
+            conn.execute("UPDATE supply_offers SET packaging = 'cut_tape' WHERE listing_id = %s", (cut,))
+            conn.execute("UPDATE supply_offers SET packaging = 'tape_reel' WHERE listing_id = %s", (reel,))
+            conn.execute("UPDATE supply_connectors SET provider = 'demo_sum' WHERE id = %s", (cid,))
         from app.services.supply.providers import registry
         from app.services.supply.providers.base import ProviderSpec
 
@@ -310,9 +310,9 @@ class SupplyPartsApiTests(unittest.TestCase):
             reel = self.insert_listing(part, cid, "PL-REEL", stock=5000, price="0.30")
             with self.store.connection() as conn:
                 for listing, packaging in ((cut, "cut_tape"), (custom, "custom_reel"), (reel, "tape_reel")):
-                    conn.execute("UPDATE offers SET packaging = %s, moq = %s WHERE listing_id = %s", (packaging, 3000 if packaging == "tape_reel" else 1, listing))
-                conn.execute("UPDATE connectors SET provider = 'demo_piles' WHERE id = %s", (cid,))
-                conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part, cid, cut))
+                    conn.execute("UPDATE supply_offers SET packaging = %s, moq = %s WHERE listing_id = %s", (packaging, 3000 if packaging == "tape_reel" else 1, listing))
+                conn.execute("UPDATE supply_connectors SET provider = 'demo_piles' WHERE id = %s", (cid,))
+                conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part, cid, cut))
             row = self.part_row("PILE-1")
             self.assertEqual(row["stock"], 6000, "cut tape and custom reel are one pile of 1,000; the full reel adds its 5,000")
             self.assertEqual(self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"], 6000)
@@ -337,10 +337,10 @@ class SupplyPartsApiTests(unittest.TestCase):
             now = datetime.now(timezone.utc)
             with self.store.connection() as conn:
                 for listing, packaging, amount, price in ((cut, "cut_tape", 11140, "0.50"), (custom, "custom_reel", 11140, "0.45"), (reel, "tape_reel", 5000, "0.30")):
-                    conn.execute("UPDATE offers SET packaging = %s, moq = 1 WHERE listing_id = %s", (packaging, listing))
-                    conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')", (listing, now, amount, price))
-                conn.execute("UPDATE connectors SET provider = 'demo_chart' WHERE id = %s", (cid,))
-                conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, cut))
+                    conn.execute("UPDATE supply_offers SET packaging = %s, moq = 1 WHERE listing_id = %s", (packaging, listing))
+                    conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')", (listing, now, amount, price))
+                conn.execute("UPDATE supply_connectors SET provider = 'demo_chart' WHERE id = %s", (cid,))
+                conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, cut))
                 data = part_history.build(conn, part, now, 7)
             line = data["connectors"][0]
             self.assertEqual(line["stock"][-1][1], 16140, "the cut tape and custom reel pile once, the full reel adds")
@@ -359,10 +359,10 @@ class SupplyPartsApiTests(unittest.TestCase):
         other = self.insert_listing(part, cid, "HI-OTHER", stock=900, price="0.40")
         now = datetime.now(timezone.utc)
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET provider = 'pick_demo' WHERE id = %s", (cid,))
-            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, picked))
+            conn.execute("UPDATE supply_connectors SET provider = 'pick_demo' WHERE id = %s", (cid,))
+            conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, picked))
             for listing, amount, when in ((picked, 100, now), (other, 900, now - timedelta(days=10))):
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, when, amount))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, when, amount))
             series = parts_view.history(conn, part, now)
         self.assertEqual({point["stock"] for point in series[-3:]}, {100}, "the listing no longer read is not carried forward")
 
@@ -373,7 +373,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         farnell, pick = self.part_row("PK-FARNELL")["id"], self.part_row("PK-PICK")["id"]
         other = self.connectors.create(actor=SEED_ACTOR, provider="pick_demo", display_name="Other", daily_budget=1000)["id"]
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET provider = 'farnell' WHERE id = %s", (cid,))
+            conn.execute("UPDATE supply_connectors SET provider = 'farnell' WHERE id = %s", (cid,))
         for part, connector, provider in ((farnell, cid, "farnell"), (pick, other, "pick_demo")):
             self.insert_listing(part, connector, f"{provider}-1", stock=10)
             self.insert_listing(part, connector, f"{provider}-2", stock=10)
@@ -493,7 +493,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.insert_listing(part_id, cid, "TW-2-ND", stock=100, price="0.4")
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part_id, cid, cut))
+                "INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part_id, cid, cut))
         row = self.part_row("TWICE1")
         self.assertEqual(row["stock"], 100, "a distributor is counted once, through the followed listing")
         self.assertEqual({line["sku"] for line in row["offers"]}, {"TW-1-ND", "TW-2-ND"}, "but the list shows both")
@@ -562,7 +562,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.insert_listing(part_id, cid, "A", stock=0, price="0.50")
         slow = self.insert_listing(part_id, cid, "B", stock=0, price="0.40")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET lead_time_days = 84 WHERE listing_id = %s", (slow,))
+            conn.execute("UPDATE supply_offers SET lead_time_days = 84 WHERE listing_id = %s", (slow,))
         item = self.part_row("OUT")
         self.assertEqual((item["unit_price"], item["price_kind"], item["price_lead_days"]), ("0.4", "backorder", 84))
         self.insert_listing(part_id, cid, "C", stock=500, price="0.45")
@@ -575,7 +575,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         listing = self.insert_listing(part_id, cid, "A", stock=0, price="0.50")
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 40, 0.42, 'EUR')",
+                "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 40, 0.42, 'EUR')",
                 (listing, self.now - timedelta(days=9)),
             )
         item = self.part_row("GONE")
@@ -600,7 +600,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         part_id = self.watch_via_api("QTY2")["part_id"]
         listing = self.insert_listing(part_id, cid, "A", stock=100000, price="0.50")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET price_breaks = %s::jsonb WHERE listing_id = %s", (json.dumps([[1, "0.50"], [100, "0.30"], [1000, "0.20"]]), listing))
+            conn.execute("UPDATE supply_offers SET price_breaks = %s::jsonb WHERE listing_id = %s", (json.dumps([[1, "0.50"], [100, "0.30"], [1000, "0.20"]]), listing))
         self.assertEqual(self.part_row("QTY2")["unit_price"], "0.3", "the workspace default is 100")
         reply = self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 1000})
         self.assertEqual((reply.status, reply.json), (200, {"quantity": 1000, "default": 100, "own": True}))
@@ -632,12 +632,12 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             for days, price in ((6, "0.30"), (3, "0.30"), (0, "0.28")):
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 50, %s, 'EUR', 1)",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 50, %s, 'EUR', 1)",
                     (listing, today - timedelta(days=days), price),
                 )
-            conn.execute("DELETE FROM price_breaks_history WHERE listing_id = %s", (listing,))
+            conn.execute("DELETE FROM supply_price_breaks_history WHERE listing_id = %s", (listing,))
             conn.execute(
-                "INSERT INTO price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) "
+                "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) "
                 "VALUES (%s, %s, %s::jsonb, 'EUR', 1, 1), (%s, %s, %s::jsonb, 'EUR', 1, 1)",
                 (listing, today - timedelta(days=4), json.dumps([[1, "0.50"], [100, "0.30"], [1000, "0.20"]]),
                  listing, today - timedelta(days=1), json.dumps([[1, "0.50"], [100, "0.28"], [1000, "0.18"]])),
@@ -660,7 +660,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.watch_via_api("NE5532P")
         self.insert_listing(part_id, cid, "296-1395-1-ND", stock=5)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO part_numbers (part_id, mpn, match_key) VALUES (%s, 'LM358-OLD', 'LM358OLD')", (part_id,))
+            conn.execute("INSERT INTO supply_part_numbers (part_id, mpn, match_key) VALUES (%s, 'LM358-OLD', 'LM358OLD')", (part_id,))
             by_number = [hit["mpn"] for hit in part_search.supply_hits(conn, "lm358", 8)]
             by_other = [hit["mpn"] for hit in part_search.supply_hits(conn, "LM358-OLD", 8)]
             by_sku = [hit["mpn"] for hit in part_search.supply_hits(conn, "296-1395", 8)]
@@ -705,10 +705,10 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertIsNone(stock_events.record(conn, listing, 5, 4, None, False, day), "stock going down is no event")
             self.assertIsNone(stock_events.record(conn, listing, 5, 0, 84, True, day), "marketplace stock is no event")
             self.assertEqual(stock_events.record(conn, listing, 5, 0, 84, False, day), "stock_out")
-            open_row = conn.execute("SELECT * FROM stock_events WHERE listing_id = %s", (listing,)).fetchone()
+            open_row = conn.execute("SELECT * FROM supply_stock_events WHERE listing_id = %s", (listing,)).fetchone()
             self.assertEqual((open_row["quoted_lead_days"], open_row["expected"], open_row["resolved_on"]), (84, (day + timedelta(days=84)).date(), None))
             self.assertEqual(stock_events.record(conn, listing, 0, 900, None, False, day + timedelta(days=30)), "restock")
-            rows = {row["kind"]: row for row in conn.execute("SELECT * FROM stock_events WHERE listing_id = %s", (listing,)).fetchall()}
+            rows = {row["kind"]: row for row in conn.execute("SELECT * FROM supply_stock_events WHERE listing_id = %s", (listing,)).fetchall()}
         self.assertEqual(rows["stock_out"]["resolved_on"], (day + timedelta(days=30)).date(), "the restock ends the open stock-out")
 
     def seed_scorecard(self, shared: int) -> tuple[str, str]:
@@ -724,9 +724,9 @@ class SupplyPartsApiTests(unittest.TestCase):
                 for listing, back, quote in ((one, 10, 10), (two, 25, 14)):
                     out = today - timedelta(days=60)
                     conn.execute(
-                        "INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected, resolved_on) "
+                        "INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected, resolved_on) "
                         "VALUES (%s, %s, 'stock_out', 5, 0, %s, %s, %s)", (listing, out, quote, out + timedelta(days=quote), out + timedelta(days=back)))
-                    conn.execute("INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'restock', 0, 5)",
+                    conn.execute("INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'restock', 0, 5)",
                                  (listing, out + timedelta(days=back)))
         return first, second
 
@@ -761,7 +761,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         part_id = self.watch_via_api("ALONE")["part_id"]
         listing = self.insert_listing(part_id, cid, "A", stock=5)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'stock_out', 5, 0)", (listing, self.now.date()))
+            conn.execute("INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'stock_out', 5, 0)", (listing, self.now.date()))
             card = scorecard.build(conn, self.now.date())
         self.assertEqual((card["shared_parts"], card["distributors"]), (0, []))
 
@@ -772,7 +772,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         today = self.now.date()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected) VALUES (%s, %s, 'stock_out', 5, 0, 30, %s)",
+                "INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after, quoted_lead_days, expected) VALUES (%s, %s, 'stock_out', 5, 0, 30, %s)",
                 (listing, today - timedelta(days=40), today - timedelta(days=10)))
         record = self.call("GET", f"/api/supply/parts/{part_id}").json["restock_record"]
         self.assertEqual(len(record), 1)
@@ -800,7 +800,7 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(ending_parts.restrictions_of(conn, ["c1", "c9"])["c1"]["level"], "retired")
             ending_parts.clear_restriction(conn, "c1", "qa@example.com")
             self.assertEqual(ending_parts.restrictions_of(conn, ["c1"]), {})
-            actions = [row["action"] for row in conn.execute("SELECT action FROM audit_events WHERE subject_id = 'c1' ORDER BY id").fetchall()]
+            actions = [row["action"] for row in conn.execute("SELECT action FROM supply_audit_events WHERE subject_id = 'c1' ORDER BY id").fetchall()]
         self.assertEqual(actions, ["component.restriction", "component.restriction", "component.restriction.clear"])
 
     def test_the_queue_lists_components_of_ending_tracked_parts_with_what_a_person_needs_to_decide(self) -> None:
@@ -811,8 +811,8 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.watch_via_api("FINE-1")
         listing = self.insert_listing(part_id, cid, "A", stock=40)
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (listing,))
-            conn.execute("INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'fake', 'last_buy_date', '2027-03-31', NOW())", (part_id,))
+            conn.execute("UPDATE supply_offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (listing,))
+            conn.execute("INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'fake', 'last_buy_date', '2027-03-31', NOW())", (part_id,))
 
         def found(query: str, limit: int):
             return [{"id": "comp-1", "name": "Old part", "mpn": "OLD-1", "manufacturer": "Acme", "workflow_stage": "released"}] if query == "OLD-1" else []
@@ -838,11 +838,11 @@ class SupplyPartsApiTests(unittest.TestCase):
         today = self.now
         since = today - timedelta(days=10)
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM price_breaks_history WHERE listing_id = %s", (listing,))
+            conn.execute("DELETE FROM supply_price_breaks_history WHERE listing_id = %s", (listing,))
             for days, price, price_1000 in ((20, "0.30", "0.20"), (0, "0.30", "0.10")):
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', 1)", (listing, today - timedelta(days=days), price))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', 1)", (listing, today - timedelta(days=days), price))
                 conn.execute(
-                    "INSERT INTO price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, 'EUR', 1, 1)",
+                    "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, 'EUR', 1, 1)",
                     (listing, today - timedelta(days=days), json.dumps([[1, "0.50"], [100, price], [1000, price_1000]])))
             at_100 = market.price_changes(conn, [part_id], since)[part_id]
         self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 1000})
@@ -952,7 +952,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.insert_sample(kept, start + timedelta(days=2), 20)
         self.insert_sample(vanished, start, 50)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, marketplace) VALUES (%s, %s, 900, TRUE)", (resold, start))
+            conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, marketplace) VALUES (%s, %s, 900, TRUE)", (resold, start))
         history = self.call("GET", f"/api/supply/parts/{part_id}").json["history"]
         self.assertEqual([(h["stock"], h["listings"]) for h in history], [(50, 2), (10, 1), (20, 1)],
                          "a gone listing counts until its last reading (pooled stock takes the larger); marketplace stock never does")
@@ -964,7 +964,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         old_day = (datetime.now(timezone.utc) - timedelta(days=80)).date()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 5, 40, 30, 6)",
+                "INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 5, 40, 30, 6)",
                 (listing, old_day))
         self.insert_sample(listing, datetime.now(timezone.utc) - timedelta(days=1), 7)
         history = self.call("GET", f"/api/supply/parts/{part_id}").json["history"]
@@ -976,7 +976,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         part_id = self.watch_via_api("NOBODY")["part_id"]
         self.assertEqual(self.part_row("NOBODY")["status"], "unknown", "not searched yet")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, START))
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, START))
         item = self.part_row("NOBODY")
         self.assertEqual((item["status"], item["problem"]), ("error", "not_found"))
         self.assertIn("No distributor", self.call("GET", f"/api/supply/parts/{part_id}").json["problem_text"])
@@ -1004,11 +1004,11 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             for sku, moq, breaks in (("TAPE", 1, [[1, "0.50"], [100, "0.30"]]), ("REEL", 3000, [[3000, "0.10"]])):
                 listing = self.insert_listing(part_id, cid, sku, stock=10)
-                conn.execute("UPDATE offers SET moq = %s, price_breaks = %s::jsonb WHERE listing_id = %s", (moq, json.dumps(breaks), listing))
+                conn.execute("UPDATE supply_offers SET moq = %s, price_breaks = %s::jsonb WHERE listing_id = %s", (moq, json.dumps(breaks), listing))
         item = self.part_row("QTY")
         self.assertEqual((item["unit_price"], item["price_quantity"]), ("0.3", 100), "the reel needs 3,000 pieces, so it is not the price at 100")
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM listings WHERE sku = 'TAPE'")
+            conn.execute("DELETE FROM supply_listings WHERE sku = 'TAPE'")
         item = self.part_row("QTY")
         self.assertEqual((item["unit_price"], item["price_quantity"]), ("0.1", 3000), "alone, the reel is quoted at what must be ordered")
 
@@ -1031,11 +1031,11 @@ class SupplyPartsApiTests(unittest.TestCase):
         part_id = self.watch_via_api("LM1")["part_id"]
         waiting = self.insert_listing(part_id, cid, "W", state="manufacturer_unresolved")
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET raw_manufacturer = 'Zeta Works' WHERE id = %s", (waiting,))
-            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, status) VALUES ('zeta works', 'Zeta Works', 'pending')")
+            conn.execute("UPDATE supply_listings SET raw_manufacturer = 'Zeta Works' WHERE id = %s", (waiting,))
+            conn.execute("INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, status) VALUES ('zeta works', 'Zeta Works', 'pending')")
         self.assertEqual(self.call("POST", "/api/supply/watches", role="admin", body={"manufacturer": "Zeta Works", "mpn": "OTHER"}).status, 201)
         with self.store.connection() as conn:
-            state = conn.execute("SELECT match_state FROM listings WHERE id = %s", (waiting,)).fetchone()["match_state"]
+            state = conn.execute("SELECT match_state FROM supply_listings WHERE id = %s", (waiting,)).fetchone()["match_state"]
         self.assertEqual(state, "near", "Zeta Works is a different manufacturer from the part's own (Acme)")
 
     def test_watching_a_watched_part_applies_what_was_asked(self) -> None:
@@ -1049,7 +1049,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": 9})
         with self.store.connection() as conn:
             detail = conn.execute(
-                "SELECT detail FROM audit_events WHERE action = 'watch.update' AND subject_id = %s", (watch["id"],)).fetchone()["detail"]
+                "SELECT detail FROM supply_audit_events WHERE action = 'watch.update' AND subject_id = %s", (watch["id"],)).fetchone()["detail"]
         self.assertEqual(detail, {"before": {"threshold": 5}, "after": {"threshold": 9}})
 
     def test_the_detail_carries_the_insight_with_its_inputs(self) -> None:

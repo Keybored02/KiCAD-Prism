@@ -53,7 +53,7 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             entries = {fact["name"]: fact["sources"] for fact in facts.for_part(conn, part_id)}
         eccn = _values(entries, "eccn")
         control = control_of(eccn)
-        mark = conn.execute("SELECT control, eccn FROM part_trade_marks WHERE part_id = %s", (part_id,)).fetchone() if part_id else None
+        mark = conn.execute("SELECT control, eccn FROM supply_part_trade_marks WHERE part_id = %s", (part_id,)).fetchone() if part_id else None
         if mark:
             # A person's word wins over what distributors state.
             eccn = [mark["eccn"]] if mark["eccn"] else []

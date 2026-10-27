@@ -36,7 +36,7 @@ def for_parts(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
     if not part_ids:
         return found
     for row in conn.execute(
-        "SELECT id, part_id, check_id, scope, reason, state, proposed_by, decided_by FROM waivers "
+        "SELECT id, part_id, check_id, scope, reason, state, proposed_by, decided_by FROM supply_waivers "
         "WHERE part_id = ANY(%s) AND state <> 'rejected'",
         (list(part_ids),),
     ).fetchall():
@@ -69,7 +69,7 @@ def apply(findings: Iterable[Finding], waivers: Iterable[Mapping[str, Any]]) -> 
 
 
 def _row(conn, waiver_id: str):
-    row = conn.execute("SELECT * FROM waivers WHERE id = %s FOR UPDATE", (waiver_id,)).fetchone()
+    row = conn.execute("SELECT * FROM supply_waivers WHERE id = %s FOR UPDATE", (waiver_id,)).fetchone()
     if row is None:
         raise WaiverNotFound(waiver_id)
     return row
@@ -87,13 +87,13 @@ def propose(conn, part_id: str, finding: Finding | None, reason: str, actor: str
     if finding is None:
         raise WaiverError("The part has no such finding to waive.")
     existing = conn.execute(
-        "SELECT id, scope, state FROM waivers WHERE part_id = %s AND check_id = %s AND state <> 'rejected' FOR UPDATE",
+        "SELECT id, scope, state FROM supply_waivers WHERE part_id = %s AND check_id = %s AND state <> 'rejected' FOR UPDATE",
         (part_id, finding.check),
     ).fetchone()
     if existing is not None:
         if existing["state"] == APPROVED and existing["scope"] != finding.scope:
             # The old approval is for a different condition; this replaces it.
-            conn.execute("DELETE FROM waivers WHERE id = %s", (existing["id"],))
+            conn.execute("DELETE FROM supply_waivers WHERE id = %s", (existing["id"],))
             write_audit(conn, actor, "waiver.replace", existing["id"], {"part_id": part_id, "check": finding.check}, subject_kind="waiver")
         else:
             raise WaiverError("This finding already has a waiver.")
@@ -101,7 +101,7 @@ def propose(conn, part_id: str, finding: Finding | None, reason: str, actor: str
     state = APPROVED if approver else PROPOSED
     conn.execute(
         """
-        INSERT INTO waivers (id, part_id, check_id, scope, reason, state, proposed_by, decided_by, decided_at)
+        INSERT INTO supply_waivers (id, part_id, check_id, scope, reason, state, proposed_by, decided_by, decided_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s THEN NOW() END)
         """,
         (waiver_id, part_id, finding.check, finding.scope, reason, state, actor, actor if approver else "", approver),
@@ -117,7 +117,7 @@ def decide(conn, waiver_id: str, actor: str, *, approve: bool) -> None:
     if row["state"] != PROPOSED:
         raise WaiverError("Only a waiver that is waiting can be decided.")
     state = APPROVED if approve else REJECTED
-    conn.execute("UPDATE waivers SET state = %s, decided_by = %s, decided_at = NOW() WHERE id = %s", (state, actor, waiver_id))
+    conn.execute("UPDATE supply_waivers SET state = %s, decided_by = %s, decided_at = NOW() WHERE id = %s", (state, actor, waiver_id))
     write_audit(conn, actor, "waiver.approve" if approve else "waiver.reject", waiver_id,
                 {"part_id": row["part_id"], "check": row["check_id"]}, subject_kind="waiver")
 
@@ -129,6 +129,6 @@ def revoke(conn, waiver_id: str, actor: str, *, approver: bool) -> None:
     row = _row(conn, waiver_id)
     if not approver and (row["state"] != PROPOSED or row["proposed_by"] != actor):
         raise WaiverError("Only an approver can revoke a waiver that is approved or was raised by someone else.")
-    conn.execute("DELETE FROM waivers WHERE id = %s", (waiver_id,))
+    conn.execute("DELETE FROM supply_waivers WHERE id = %s", (waiver_id,))
     write_audit(conn, actor, "waiver.revoke", waiver_id,
                 {"part_id": row["part_id"], "check": row["check_id"], "was": row["state"]}, subject_kind="waiver")

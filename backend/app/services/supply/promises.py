@@ -28,16 +28,16 @@ def record(conn, listing_id: str, incoming: Sequence[Incoming], previous_stock: 
     for expected, quantity in listed.items():
         conn.execute(
             """
-            INSERT INTO arrival_promises (listing_id, expected, quantity, first_seen_at, last_seen_at, state)
+            INSERT INTO supply_arrival_promises (listing_id, expected, quantity, first_seen_at, last_seen_at, state)
             VALUES (%s, %s, %s, %s, %s, 'open')
             ON CONFLICT (listing_id, expected) DO UPDATE SET quantity = EXCLUDED.quantity, last_seen_at = EXCLUDED.last_seen_at
-            WHERE arrival_promises.state = 'open'
+            WHERE supply_arrival_promises.state = 'open'
             """,
             (listing_id, expected, quantity, now, now),
         )
     gone = [
         row for row in conn.execute(
-            "SELECT expected, quantity FROM arrival_promises WHERE listing_id = %s AND state = 'open'", (listing_id,)
+            "SELECT expected, quantity FROM supply_arrival_promises WHERE listing_id = %s AND state = 'open'", (listing_id,)
         ).fetchall() if row["expected"] not in listed
     ]
     rise = stock - previous_stock if previous_stock is not None else 0
@@ -49,7 +49,7 @@ def record(conn, listing_id: str, incoming: Sequence[Incoming], previous_stock: 
         else:
             state, delay = "gone", None
         conn.execute(
-            "UPDATE arrival_promises SET state = %s, resolved_at = %s, delay_days = %s WHERE listing_id = %s AND expected = %s",
+            "UPDATE supply_arrival_promises SET state = %s, resolved_at = %s, delay_days = %s WHERE listing_id = %s AND expected = %s",
             (state, now, delay, listing_id, row["expected"]),
         )
         rise = max(0, rise - row["quantity"])
@@ -60,7 +60,7 @@ def reliability(conn, part_id: str, today: date) -> dict[str, Any] | None:
 
     rows = conn.execute(
         """
-        SELECT p.state, p.delay_days, p.expected FROM arrival_promises p JOIN listings l ON l.id = p.listing_id
+        SELECT p.state, p.delay_days, p.expected FROM supply_arrival_promises p JOIN supply_listings l ON l.id = p.listing_id
         WHERE l.part_id = %s AND p.first_seen_at >= NOW() - make_interval(days => %s)
         """,
         (part_id, KEEP_DAYS),

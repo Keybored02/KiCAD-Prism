@@ -38,7 +38,7 @@ def _tracked_part_ids(conn) -> list[str]:
     return [
         row["id"]
         for row in conn.execute(
-            "SELECT p.id FROM parts p WHERE EXISTS (SELECT 1 FROM part_tiers t WHERE t.part_id = p.id)"
+            "SELECT p.id FROM supply_parts p WHERE EXISTS (SELECT 1 FROM supply_part_tiers t WHERE t.part_id = p.id)"
         ).fetchall()
     ]
 
@@ -70,7 +70,7 @@ def _categories(conn, part_ids: Sequence[str]) -> dict[str, str]:
     if not part_ids:
         return {}
     rows = conn.execute(
-        "SELECT DISTINCT ON (part_id) part_id, value FROM part_facts WHERE name = 'category' AND part_id = ANY(%s) "
+        "SELECT DISTINCT ON (part_id) part_id, value FROM supply_part_facts WHERE name = 'category' AND part_id = ANY(%s) "
         "ORDER BY part_id, CASE provider WHEN 'digikey' THEN 0 WHEN 'mouser' THEN 1 ELSE 2 END, provider",
         (list(part_ids),),
     ).fetchall()
@@ -115,11 +115,11 @@ def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, l
     rows = conn.execute(
         """
         SELECT l.part_id, l.id AS listing_id,
-               (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.sampled_at < %s AND s.unit_price IS NOT NULL
+               (SELECT s.unit_price FROM supply_samples s WHERE s.listing_id = l.id AND s.sampled_at < %s AND s.unit_price IS NOT NULL
                 ORDER BY s.sampled_at DESC LIMIT 1) AS before,
-               (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.unit_price IS NOT NULL
+               (SELECT s.unit_price FROM supply_samples s WHERE s.listing_id = l.id AND s.unit_price IS NOT NULL
                 ORDER BY s.sampled_at DESC LIMIT 1) AS now
-        FROM listings l
+        FROM supply_listings l
         WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
         """,
         (since, list(part_ids)),
@@ -156,7 +156,7 @@ def _price_index(conn, kind: str, name: str, ids: Sequence[str], today: date) ->
     """Today's chain-linked price index of one group: the last stored value times the median price change since then."""
 
     last = conn.execute(
-        "SELECT day, value FROM market_indices WHERE scope_kind = %s AND scope_value = %s AND metric = 'price_index' AND day < %s "
+        "SELECT day, value FROM supply_market_indices WHERE scope_kind = %s AND scope_value = %s AND metric = 'price_index' AND day < %s "
         "ORDER BY day DESC LIMIT 1",
         (kind, name, today),
     ).fetchone()
@@ -173,7 +173,7 @@ def snapshot(conn, today: date | None = None) -> int:
     """Store today's indices unless they were stored already. Returns how many values were written."""
 
     today = today or datetime.now(timezone.utc).date()
-    if conn.execute("SELECT 1 FROM market_indices WHERE day = %s LIMIT 1", (today,)).fetchone():
+    if conn.execute("SELECT 1 FROM supply_market_indices WHERE day = %s LIMIT 1", (today,)).fetchone():
         return 0
     written = 0
     for scope, data in compute(conn).items():
@@ -186,7 +186,7 @@ def snapshot(conn, today: date | None = None) -> int:
         data["metrics"]["price_index"] = float(_price_index(conn, kind, name, data["ids"], today) or INDEX_BASE)
         for metric, value in data["metrics"].items():
             conn.execute(
-                "INSERT INTO market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO supply_market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
                 (today, kind, name, metric, value, data["sample"]),
             )
             written += 1
@@ -197,21 +197,21 @@ def overview(conn, today: date | None = None) -> dict[str, Any]:
     """The latest snapshot per scope, each metric with its value a month earlier when that was stored."""
 
     today = today or datetime.now(timezone.utc).date()
-    latest_day = conn.execute("SELECT MAX(day) AS day FROM market_indices").fetchone()["day"]
+    latest_day = conn.execute("SELECT MAX(day) AS day FROM supply_market_indices").fetchone()["day"]
     if latest_day is None:
         return {"day": None, "scopes": []}
     before_day = conn.execute(
-        "SELECT MAX(day) AS day FROM market_indices WHERE day <= %s", (latest_day - timedelta(days=COMPARE_DAYS),)
+        "SELECT MAX(day) AS day FROM supply_market_indices WHERE day <= %s", (latest_day - timedelta(days=COMPARE_DAYS),)
     ).fetchone()["day"]
     scopes: dict[tuple[str, str], dict[str, Any]] = {}
     for row in conn.execute(
-        "SELECT scope_kind, scope_value, metric, value, sample_size FROM market_indices WHERE day = %s", (latest_day,)
+        "SELECT scope_kind, scope_value, metric, value, sample_size FROM supply_market_indices WHERE day = %s", (latest_day,)
     ).fetchall():
         scope = scopes.setdefault((row["scope_kind"], row["scope_value"]), {"scope": row["scope_value"] or "All followed parts", "kind": row["scope_kind"], "sample": row["sample_size"], "metrics": {}})
         scope["metrics"][row["metric"]] = {"value": float(row["value"]), "before": None}
     if before_day is not None:
         for row in conn.execute(
-            "SELECT scope_kind, scope_value, metric, value FROM market_indices WHERE day = %s", (before_day,)
+            "SELECT scope_kind, scope_value, metric, value FROM supply_market_indices WHERE day = %s", (before_day,)
         ).fetchall():
             target = scopes.get((row["scope_kind"], row["scope_value"]))
             if target and row["metric"] in target["metrics"]:
@@ -262,7 +262,7 @@ def history(conn, metric: str, today: date | None = None) -> dict[str, Any]:
         raise ValueError("unknown metric")
     today = today or datetime.now(timezone.utc).date()
     rows = conn.execute(
-        "SELECT day, scope_kind, scope_value, value, sample_size FROM market_indices "
+        "SELECT day, scope_kind, scope_value, value, sample_size FROM supply_market_indices "
         "WHERE metric = %s AND day >= %s ORDER BY day",
         (metric, today - timedelta(days=HISTORY_DAYS)),
     ).fetchall()

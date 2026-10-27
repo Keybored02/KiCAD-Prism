@@ -36,10 +36,10 @@ def _listings(conn, part_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.id, l.connector_id, c.display_name, c.provider, o.fetched_at, o.moq, o.packaging,
-               EXISTS (SELECT 1 FROM packaging_picks fp WHERE fp.listing_id = l.id) AS followed
-        FROM listings l
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN offers o ON o.listing_id = l.id
+               EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
+        FROM supply_listings l
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND {counted}
         """.replace("{counted}", stock.counted_listing_sql()),
         (part_id, list(_COUNTED)),
@@ -54,7 +54,7 @@ def _day_figures(conn, listing_ids: list[str], since: datetime) -> dict[str, dic
     for row in conn.execute(
         """
         SELECT d.listing_id, d.day, d.last_stock AS stock, d.last_unit_price AS price, d.currency, d.marketplace
-        FROM samples_daily d WHERE d.listing_id = ANY(%s) AND d.day >= %s
+        FROM supply_samples_daily d WHERE d.listing_id = ANY(%s) AND d.day >= %s
         """,
         (listing_ids, since.date()),
     ).fetchall():
@@ -63,7 +63,7 @@ def _day_figures(conn, listing_ids: list[str], since: datetime) -> dict[str, dic
         """
         SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
                s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.unit_price AS price, s.currency, s.marketplace, s.moq
-        FROM samples s WHERE s.listing_id = ANY(%s) AND s.sampled_at >= %s
+        FROM supply_samples s WHERE s.listing_id = ANY(%s) AND s.sampled_at >= %s
         ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
         """,
         (listing_ids, since),
@@ -83,7 +83,7 @@ def _events(conn, part_id: str, total: list[list[Any]], first: date) -> list[dic
     for row in conn.execute(
         """
         SELECT COALESCE(n.published_on, (n.created_at AT TIME ZONE 'UTC')::date) AS day, n.title, n.kind
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id WHERE pp.part_id = %s
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id WHERE pp.part_id = %s
         """,
         (part_id,),
     ).fetchall():
@@ -105,7 +105,7 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
         return empty
     base = settings_store.load(conn).base_currency
     rates = fx.latest(conn)
-    tier = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+    tier = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     allowed_gap = GAP_DAYS.get(tier["rate"] if tier else "daily", GAP_DAYS["daily"])
 
     first = min(min(per_day) for per_day in figures.values())

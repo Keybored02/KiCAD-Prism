@@ -112,8 +112,8 @@ def due_listings(
             """
             SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                    COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
-                   COALESCE((SELECT pt.tier FROM part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
-            FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id LEFT JOIN offers o ON o.listing_id = l.id
+                   COALESCE((SELECT pt.tier FROM supply_part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
+            FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id LEFT JOIN supply_offers o ON o.listing_id = l.id
             WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
               AND (%s::timestamptz IS NULL OR o.fetched_at IS NULL OR o.fetched_at < %s)
             ORDER BY l.part_id, l.sku LIMIT %s
@@ -129,12 +129,12 @@ def due_listings(
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier,
                COALESCE(ps.last_error_code, '') AS last_error_code, ps.next_poll_at AS due_at, COALESCE(ps.urgency, 2) AS urgency
-        FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        LEFT JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%s)
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        LEFT JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%s)
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
           AND (NOT %s OR a.state = 'admitted')
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
@@ -180,12 +180,12 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at, pt.tier,
                COALESCE(ps.last_error_code, '') AS last_error_code, ps.next_poll_at AS due_at, COALESCE(ps.urgency, 2) AS urgency
-        FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id) AND {where}
         ORDER BY {order}
@@ -277,8 +277,8 @@ def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[Du
         """
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
-               COALESCE((SELECT pt.tier FROM part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
-        FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
+               COALESCE((SELECT pt.tier FROM supply_part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
+        FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual') AND NOT (l.id = ANY(%s))
         ORDER BY l.sku
         """,
@@ -420,7 +420,7 @@ class Poller:
                 """
                 SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak, COALESCE(ps.missing_streak, 0) AS missing_streak,
                        ps.last_change_at, COALESCE(pt.tier, 2) AS tier
-                FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id LEFT JOIN part_tiers pt ON pt.part_id = l.part_id
+                FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id LEFT JOIN supply_part_tiers pt ON pt.part_id = l.part_id
                 WHERE l.id = ANY(%s)
                 """,
                 (listing_ids,),
@@ -439,7 +439,7 @@ class Poller:
                 streak = row.error_streak + 1
                 conn.execute(
                     """
-                    INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak, last_error_code)
+                    INSERT INTO supply_poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak, last_error_code)
                     VALUES (%s, 'daily', %s, %s, %s, %s)
                     ON CONFLICT (listing_id) DO UPDATE SET
                         next_poll_at = EXCLUDED.next_poll_at, last_polled_at = EXCLUDED.last_polled_at,
@@ -468,7 +468,7 @@ class Poller:
         and its figures are not kept. True when the link was demoted."""
 
         link = conn.execute(
-            "SELECT l.match_state, l.matched_by, p.match_key FROM listings l JOIN parts p ON p.id = l.part_id WHERE l.id = %s",
+            "SELECT l.match_state, l.matched_by, p.match_key FROM supply_listings l JOIN supply_parts p ON p.id = l.part_id WHERE l.id = %s",
             (row.id,),
         ).fetchone()
         if link is None or link["match_state"] != "manual" or link["matched_by"] != "bom" or not offer.mpn.strip():
@@ -477,7 +477,7 @@ class Poller:
         if not found or wanted == found or found.startswith(wanted) or wanted.startswith(found):
             return False
         conn.execute(
-            "UPDATE listings SET match_state = 'near', match_reason = %s WHERE id = %s",
+            "UPDATE supply_listings SET match_state = 'near', match_reason = %s WHERE id = %s",
             (f"The BOM gave this number, but the distributor lists it as {offer.mpn.strip()[:80]}.", row.id),
         )
         return True
@@ -495,7 +495,7 @@ class Poller:
             moq=offer.moq, order_multiple=offer.order_multiple,
         )
         previous = conn.execute(
-            "SELECT sampled_at, stock, unit_price, lifecycle, discontinued, moq, order_multiple FROM samples WHERE listing_id = %s "
+            "SELECT sampled_at, stock, unit_price, lifecycle, discontinued, moq, order_multiple FROM supply_samples WHERE listing_id = %s "
             "ORDER BY sampled_at DESC LIMIT 1", (row.id,)
         ).fetchone()
         changed = previous is None or (
@@ -509,7 +509,7 @@ class Poller:
 
         conn.execute(
             """
-            INSERT INTO offers (listing_id, fetched_at, stock, incoming, moq, order_multiple, packaging, price_breaks,
+            INSERT INTO supply_offers (listing_id, fetched_at, stock, incoming, moq, order_multiple, packaging, price_breaks,
                                 currency, lead_time_days, lifecycle, discontinued, rohs, marketplace, product_url, reach_affected,
                                 reel_size, packaging_inferred)
             VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -540,7 +540,7 @@ class Poller:
         if changed or previous["sampled_at"] <= offer.fetched_at - SAMPLE_EVERY:
             conn.execute(
                 """
-                INSERT INTO samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
+                INSERT INTO supply_samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
                                      lifecycle, discontinued, marketplace, moq, order_multiple)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
                 """,
@@ -550,10 +550,10 @@ class Poller:
             )
         promises.record(conn, row.id, offer.incoming, previous["stock"] if previous is not None else None, offer.stock, now)
         stock_events.record(conn, row.id, previous["stock"] if previous is not None else None, offer.stock, offer.lead_time_days, offer.marketplace, now)
-        conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
+        conn.execute("UPDATE supply_listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
         # Compliance and trade facts come with the answer; keeping them costs no call.
         stocked_before = conn.execute(
-            "SELECT value FROM part_facts WHERE part_id = %s AND provider = %s AND name = 'normally_stocking'", (row.part_id, offer.provider)
+            "SELECT value FROM supply_part_facts WHERE part_id = %s AND provider = %s AND name = 'normally_stocking'", (row.part_id, offer.provider)
         ).fetchone()
         facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
         if offer.alternates is not None:
@@ -568,7 +568,7 @@ class Poller:
 
     @staticmethod
     def _packaging_of(conn, listing_id: str) -> str:
-        found = conn.execute("SELECT packaging FROM listings WHERE id = %s", (listing_id,)).fetchone()
+        found = conn.execute("SELECT packaging FROM supply_listings WHERE id = %s", (listing_id,)).fetchone()
         return found["packaging"] if found else "unknown"
 
     @staticmethod
@@ -578,7 +578,7 @@ class Poller:
 
         def event(kind: str, payload: dict) -> None:
             conn.execute(
-                "INSERT INTO events (kind, part_id, listing_id, payload) VALUES (%s, %s, %s, %s::jsonb)",
+                "INSERT INTO supply_events (kind, part_id, listing_id, payload) VALUES (%s, %s, %s, %s::jsonb)",
                 (kind, row.part_id, row.id, json.dumps({"sku": row.sku, **payload})),
             )
 
@@ -594,27 +594,27 @@ class Poller:
         misses = row.missing_streak + 1
         if misses >= MISSES_BEFORE_GONE:
             conn.execute(
-                "UPDATE listings SET match_state = 'gone', match_reason = 'not returned by the provider' WHERE id = %s",
+                "UPDATE supply_listings SET match_state = 'gone', match_reason = 'not returned by the provider' WHERE id = %s",
                 (row.id,),
             )
-            conn.execute("DELETE FROM poll_state WHERE listing_id = %s", (row.id,))
+            conn.execute("DELETE FROM supply_poll_state WHERE listing_id = %s", (row.id,))
             # A part with nothing counted left at this distributor is "not found" there: it is searched again on the shorter cadence.
             conn.execute(
                 """
-                UPDATE discovery_runs d SET found = 0 FROM listings l
+                UPDATE supply_discovery_runs d SET found = 0 FROM supply_listings l
                 WHERE l.id = %s AND d.part_id = l.part_id AND d.connector_id = l.connector_id
-                  AND NOT EXISTS (SELECT 1 FROM listings o WHERE o.part_id = l.part_id AND o.connector_id = l.connector_id
+                  AND NOT EXISTS (SELECT 1 FROM supply_listings o WHERE o.part_id = l.part_id AND o.connector_id = l.connector_id
                                   AND o.id <> l.id AND o.match_state IN ('exact', 'manual'))
                 """,
                 (row.id,),
             )
             conn.execute(
-                "INSERT INTO events (kind, part_id, listing_id, payload) VALUES ('listing_gone', %s, %s, %s::jsonb)",
+                "INSERT INTO supply_events (kind, part_id, listing_id, payload) VALUES ('listing_gone', %s, %s, %s::jsonb)",
                 (row.part_id, row.id, json.dumps({"sku": row.sku, "packaging": self._packaging_of(conn, row.id)})),
             )
             return 1
         # Asking again soon does not change how urgent the listing is or how often it is read.
-        current = conn.execute("SELECT tier, urgency FROM poll_state WHERE listing_id = %s", (row.id,)).fetchone()
+        current = conn.execute("SELECT tier, urgency FROM supply_poll_state WHERE listing_id = %s", (row.id,)).fetchone()
         schedule = current["tier"] if current else self._schedule_of(conn, row.part_id)
         urgency = tiers.Urgency(current["urgency"]) if current else tiers.Urgency.NORMAL
         self._write_state(conn, row.id, schedule, urgency, now, row.last_change_at, part_key=row.part_id, account_key=self._account, missing=misses, reset=self._reset)
@@ -624,11 +624,11 @@ class Poller:
     def _schedule_of(conn, part_id: str) -> str:
         """How often the part is read: its tracking rate. A part nobody tracks (read once on request) is not on a schedule."""
 
-        row = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+        row = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
         return row["rate"] if row else "monthly"
 
     def _urgency_for(self, conn, row: DueListing, lifecycle: Lifecycle, last_change: datetime | None, now: datetime) -> tiers.Urgency:
-        watch = conn.execute("SELECT threshold, pinned FROM watches WHERE part_id = %s", (row.part_id,)).fetchone()
+        watch = conn.execute("SELECT threshold, pinned FROM supply_watches WHERE part_id = %s", (row.part_id,)).fetchone()
         rupture = None
         if watch is not None:
             if row.part_id not in self._rupture:
@@ -655,7 +655,7 @@ class Poller:
         )
         conn.execute(
             """
-            INSERT INTO poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at, last_change_at,
+            INSERT INTO supply_poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at, last_change_at,
                                     error_streak, missing_streak, last_error_code)
             VALUES (%s, %s, %s, %s, %s, %s, 0, %s, '')
             ON CONFLICT (listing_id) DO UPDATE SET

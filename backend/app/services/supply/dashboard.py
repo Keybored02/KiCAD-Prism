@@ -22,7 +22,7 @@ STATUS_ORDER = (Status.OK.value, Status.WARNING.value, Status.ERROR.value, Statu
 
 def _figures_now(conn, now: datetime) -> dict[str, int]:
     base = overview.build_overview(conn, now)
-    waiting = conn.execute("SELECT COUNT(DISTINCT part_id) AS n FROM admissions WHERE state = 'waiting'").fetchone()["n"]
+    waiting = conn.execute("SELECT COUNT(DISTINCT part_id) AS n FROM supply_admissions WHERE state = 'waiting'").fetchone()["n"]
     return {**{name: int(base["figures"][name]) for name in ("watched", "at_risk", "out_of_stock", "lifecycle")},
             "open_alerts": int(base["open_alerts"]), "waiting": int(waiting)}
 
@@ -32,11 +32,11 @@ def snapshot_figures(conn, now: datetime | None = None) -> int:
 
     now = now or datetime.now(timezone.utc)
     today = now.date()
-    if conn.execute("SELECT 1 FROM figure_history WHERE day = %s LIMIT 1", (today,)).fetchone():
+    if conn.execute("SELECT 1 FROM supply_figure_history WHERE day = %s LIMIT 1", (today,)).fetchone():
         return 0
     figures = _figures_now(conn, now)
     for metric, value in figures.items():
-        conn.execute("INSERT INTO figure_history (day, metric, value) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (today, metric, value))
+        conn.execute("INSERT INTO supply_figure_history (day, metric, value) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (today, metric, value))
     return len(figures)
 
 
@@ -45,7 +45,7 @@ def _figure_series(conn, today: date) -> dict[str, list[int]]:
 
     series: dict[str, list[int]] = {name: [] for name in FIGURES}
     for row in conn.execute(
-        "SELECT day, metric, value FROM figure_history WHERE day >= %s ORDER BY day", (today - timedelta(days=FIGURE_DAYS),)
+        "SELECT day, metric, value FROM supply_figure_history WHERE day >= %s ORDER BY day", (today - timedelta(days=FIGURE_DAYS),)
     ).fetchall():
         if row["metric"] in series:
             series[row["metric"]].append(int(row["value"]))
@@ -57,7 +57,7 @@ def _alerts_by_day(conn, today: date) -> list[dict[str, Any]]:
 
     rows = conn.execute(
         """
-        SELECT (opened_at AT TIME ZONE 'UTC')::date AS day, kind, COUNT(*) AS n FROM alerts
+        SELECT (opened_at AT TIME ZONE 'UTC')::date AS day, kind, COUNT(*) AS n FROM supply_alerts
         WHERE opened_at IS NOT NULL AND opened_at >= %s GROUP BY 1, 2 ORDER BY 1
         """,
         (datetime.combine(today - timedelta(days=ALERT_DAYS - 1), datetime.min.time(), tzinfo=timezone.utc),),
@@ -75,8 +75,8 @@ def _project_costs(conn, today: date) -> list[dict[str, Any]]:
     from app.services.supply import cost_history
 
     projects = conn.execute(
-        "SELECT DISTINCT h.project_id, COALESCE(u.project_name, h.project_id) AS project_name FROM bom_cost_history h "
-        "LEFT JOIN bom_usage_projects u ON u.project_id = h.project_id WHERE h.variant = '' AND h.day >= %s ORDER BY 1",
+        "SELECT DISTINCT h.project_id, COALESCE(u.project_name, h.project_id) AS project_name FROM supply_bom_cost_history h "
+        "LEFT JOIN supply_bom_usage_projects u ON u.project_id = h.project_id WHERE h.variant = '' AND h.day >= %s ORDER BY 1",
         (today - timedelta(days=COST_DAYS),),
     ).fetchall()
     found: list[dict[str, Any]] = []

@@ -67,7 +67,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     from app.services.supply import parts_view  # parts_view lists with these facts, so it is imported here
 
     days = parts_view.history(conn, part_id, now)
-    watch = conn.execute("SELECT threshold FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    watch = conn.execute("SELECT threshold FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     insight = parts_view.insight_from(days, watch["threshold"] if watch else None, now)
     offers = parts_view.offers_by_part(conn, [part_id]).get(part_id, [])
     leads = [offer["lead_time_days"] for offer in offers if offer.get("lead_time_days")]
@@ -152,7 +152,7 @@ def refresh(conn, part_id: str, now: datetime) -> None:
 
     data = compute(conn, part_id, now)
     conn.execute(
-        "INSERT INTO part_insights (part_id, computed_at, data) VALUES (%s, %s, %s::jsonb) "
+        "INSERT INTO supply_part_insights (part_id, computed_at, data) VALUES (%s, %s, %s::jsonb) "
         "ON CONFLICT (part_id) DO UPDATE SET computed_at = EXCLUDED.computed_at, data = EXCLUDED.data",
         (part_id, now, json.dumps(data)),
     )
@@ -164,7 +164,7 @@ def renew(conn, now: datetime | None = None, limit: int = RENEW_PER_RUN) -> int:
     now = now or datetime.now(timezone.utc)
     rows = conn.execute(
         """
-        SELECT pt.part_id FROM part_tiers pt LEFT JOIN part_insights i ON i.part_id = pt.part_id
+        SELECT pt.part_id FROM supply_part_tiers pt LEFT JOIN supply_part_insights i ON i.part_id = pt.part_id
         WHERE i.part_id IS NULL OR i.computed_at < %s ORDER BY COALESCE(i.computed_at, '-infinity'::timestamptz), pt.part_id LIMIT %s
         """,
         (now - RENEW_AFTER, limit),
@@ -180,8 +180,8 @@ def read_all(conn) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT i.part_id, i.computed_at, i.data, p.mpn, m.name AS manufacturer, pt.tier
-        FROM part_insights i JOIN part_tiers pt ON pt.part_id = i.part_id JOIN parts p ON p.id = i.part_id
-        JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_part_insights i JOIN supply_part_tiers pt ON pt.part_id = i.part_id JOIN supply_parts p ON p.id = i.part_id
+        JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         """
     ).fetchall()
     return [
@@ -200,5 +200,5 @@ def matching(conn, kind: str) -> set[str]:
 def of_parts(conn, part_ids: list[str]) -> dict[str, dict[str, Any]]:
     """The facts kept for these parts, by part id (parts without any are left out)."""
 
-    rows = conn.execute("SELECT part_id, data FROM part_insights WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+    rows = conn.execute("SELECT part_id, data FROM supply_part_insights WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
     return {row["part_id"]: row["data"] for row in rows}

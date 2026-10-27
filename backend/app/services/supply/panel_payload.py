@@ -26,7 +26,7 @@ _SEVERITY_ORDER = {"fatal": 0, "error": 1, "warning": 2, "ok": 3}
 def data_version(conn) -> str:
     """Changes when supply data does, to a granularity the panel's caches can live with."""
 
-    row = conn.execute("SELECT COALESCE(MAX(fetched_at), 'epoch'::timestamptz) AS newest FROM offers").fetchone()
+    row = conn.execute("SELECT COALESCE(MAX(fetched_at), 'epoch'::timestamptz) AS newest FROM supply_offers").fetchone()
     return str(int(row["newest"].timestamp() // 600))
 
 

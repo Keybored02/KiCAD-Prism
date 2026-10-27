@@ -77,9 +77,9 @@ def pending_waiting(conn, connector_id: str, now: datetime, limit: int) -> list[
 
     rows = conn.execute(
         """
-        SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first FROM part_tiers pt
-        JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = %(connector)s AND a.state = 'waiting'
-        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = a.connector_id
+        SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first FROM supply_part_tiers pt
+        JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = %(connector)s AND a.state = 'waiting'
+        LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = a.connector_id
         WHERE d.part_id IS NULL OR d.last_run_at <= CASE
             WHEN d.found = 0 AND pt.tier = 1 THEN %(missing1)s::timestamptz
             WHEN d.found = 0 THEN %(missing2)s::timestamptz
@@ -97,10 +97,10 @@ def pending_parts(conn, connector_id: str, now: datetime, limit: int) -> list[Pe
     rows = conn.execute(
         f"""
         SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first
-        FROM part_tiers pt
-        JOIN connectors c ON c.id = %(connector)s
-        LEFT JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
-        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
+        FROM supply_part_tiers pt
+        JOIN supply_connectors c ON c.id = %(connector)s
+        LEFT JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
+        LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
         WHERE {DUE_SEARCH}
         ORDER BY (d.part_id IS NULL) DESC, pt.tier, COALESCE(d.last_run_at, '-infinity'::timestamptz), pt.part_id
         LIMIT %(limit)s
@@ -198,7 +198,7 @@ class Discoverer:
                     listings += result.total
                     with self._store.connection() as conn:
                         conn.execute(
-                            "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
+                            "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
                             "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
                             (part_id, connector_id, now, result.total),
                         )
@@ -227,7 +227,7 @@ class Discoverer:
             return 0, STOPPED_COOLING_DOWN
         with self._store.connection() as conn:
             done = {r["part_id"] for r in conn.execute(
-                "SELECT part_id FROM discovery_runs WHERE connector_id = %s AND part_id = ANY(%s)", (connector_id, part_ids)).fetchall()}
+                "SELECT part_id FROM supply_discovery_runs WHERE connector_id = %s AND part_id = ANY(%s)", (connector_id, part_ids)).fetchall()}
         todo = [part_id for part_id in part_ids if part_id not in done]
         provider = self._provider_for(connector_id)
         service = self._service(provider, connector_id, spec)
@@ -255,7 +255,7 @@ class Discoverer:
                 searched += 1
                 with self._store.connection() as conn:
                     conn.execute(
-                        "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
+                        "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
                         "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
                         (part_id, connector_id, now, result.total),
                     )
@@ -347,9 +347,9 @@ class Discoverer:
         with self._store.connection() as conn:
             due = [row["part_id"] for row in conn.execute(
                 """
-                SELECT d.part_id FROM discovery_runs d
+                SELECT d.part_id FROM supply_discovery_runs d
                 WHERE d.connector_id = %s AND d.part_id = ANY(%s) AND NOT d.family_done
-                  AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = d.part_id AND l.match_state IN ('exact', 'manual'))
+                  AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = d.part_id AND l.match_state IN ('exact', 'manual'))
                 """,
                 (connector_id, part_ids),
             ).fetchall()]
@@ -361,7 +361,7 @@ class Discoverer:
             except ProviderError:
                 return
             with self._store.connection() as conn:
-                conn.execute("UPDATE discovery_runs SET family_done = TRUE WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
+                conn.execute("UPDATE supply_discovery_runs SET family_done = TRUE WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
 
     def _spend_extra(self, connector_id: str) -> bool:
         """One more search call for a part's other number, from spare budget only: the cost model does not count it, so it never

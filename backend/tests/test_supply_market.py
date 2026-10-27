@@ -84,18 +84,18 @@ class MarketDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("market_indices", "samples", "offers", "listings", "watches", "parts", "manufacturers", "connectors"):
+            for table in ("supply_market_indices", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
-            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
+            conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
 
     def follow(self, maker: str, mpn: str, stock: int, lifecycle: str = "active") -> None:
         with self.store.connection() as conn:
             record, _ = self.watches.add_watch(conn, maker, mpn, "seed@example.com")
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')",
                 (f"l-{mpn}", mpn, record.part_id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)", (f"l-{mpn}", NOW, stock, lifecycle))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)", (f"l-{mpn}", NOW, stock, lifecycle))
 
     def test_a_group_needs_enough_parts_and_the_whole_set_is_always_given_its_size(self) -> None:
         for index in range(3):
@@ -113,7 +113,7 @@ class MarketDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertGreater(market.snapshot(conn, date(2026, 2, 1)), 0)
             self.assertEqual(market.snapshot(conn, date(2026, 2, 1)), 0, "already stored today")
-            conn.execute("UPDATE offers SET stock = 0 WHERE listing_id = 'l-A-0'")
+            conn.execute("UPDATE supply_offers SET stock = 0 WHERE listing_id = 'l-A-0'")
             market.snapshot(conn, date(2026, 3, 3))
             result = market.overview(conn)
         self.assertEqual((result["day"], result["compared_with"]), ("2026-03-03", "2026-02-01"))
@@ -128,7 +128,7 @@ class MarketDatabaseTests(unittest.TestCase):
             self.follow("Acme" if index < 2 else "Globex", f"X-{index}", 100)
         with self.store.connection() as conn:
             for mpn, provider, category in (("X-0", "digikey", "Op Amps"), ("X-1", "mouser", "Op Amps"), ("X-2", "digikey", "Op Amps"), ("X-2", "mouser", "Other")):
-                part = conn.execute("SELECT id FROM parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
+                part = conn.execute("SELECT id FROM supply_parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
                 facts.set_one(conn, part, provider, "category", category, NOW)
             scopes = market.compute(conn)
             market.snapshot(conn, date(2026, 3, 1))
@@ -151,7 +151,7 @@ class MarketDatabaseTests(unittest.TestCase):
         def price(mpn: str, day: date, unit: str) -> None:
             with self.store.connection() as conn:
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 100, %s, 'EUR')",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 100, %s, 'EUR')",
                     (f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), unit))
 
         for mpn in ("A-0", "A-1", "A-2"):

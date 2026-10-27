@@ -93,13 +93,13 @@ class DatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("events", "listings", "parts", "manufacturer_aliases", "manufacturers", "connectors"):
+            for table in ("supply_events", "supply_listings", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
             self.part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com")
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'S', %s, 'x', 'x', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'S', %s, 'x', 'x', 'exact')",
                 (self.part.id,))
 
     def test_an_announced_arrival_is_kept_and_found_to_have_come_late(self) -> None:
@@ -109,9 +109,9 @@ class DatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             promises.record(conn, "l1", [Incoming(1000, date(2026, 3, 10))], 0, 0, t0)
             promises.record(conn, "l1", [Incoming(1000, date(2026, 3, 10))], 0, 0, t0 + timedelta(days=5))
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM arrival_promises").fetchone()["n"], 1, "one promise, seen twice")
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_arrival_promises").fetchone()["n"], 1, "one promise, seen twice")
             promises.record(conn, "l1", [], 0, 900, t0 + timedelta(days=15))
-            row = conn.execute("SELECT state, delay_days FROM arrival_promises").fetchone()
+            row = conn.execute("SELECT state, delay_days FROM supply_arrival_promises").fetchone()
         self.assertEqual((row["state"], row["delay_days"]), ("arrived", 6))
 
     def test_a_new_later_date_means_it_slipped_and_silence_means_nothing_is_known(self) -> None:
@@ -122,7 +122,7 @@ class DatabaseTests(unittest.TestCase):
             promises.record(conn, "l1", [Incoming(500, date(2026, 3, 10))], 0, 0, t0)
             promises.record(conn, "l1", [Incoming(500, date(2026, 4, 10))], 0, 0, t0 + timedelta(days=12))
             promises.record(conn, "l1", [], 0, 0, t0 + timedelta(days=60))
-            states = {row["expected"].isoformat(): row["state"] for row in conn.execute("SELECT expected, state FROM arrival_promises").fetchall()}
+            states = {row["expected"].isoformat(): row["state"] for row in conn.execute("SELECT expected, state FROM supply_arrival_promises").fetchall()}
         self.assertEqual(states, {"2026-03-10": "slipped", "2026-04-10": "gone"})
 
     def test_a_sibling_found_by_a_later_search_is_news_and_the_first_search_is_not(self) -> None:
@@ -134,20 +134,20 @@ class DatabaseTests(unittest.TestCase):
         service = self.discovery.DiscoveryService(lambda cid: None, self.store)
         service.apply(self.part, [match("S1", "ABC-1X")], "c1")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM events WHERE kind = 'family_member_new'").fetchone()["n"], 0)
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, 'c1', NOW(), 1)", (self.part.id,))
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_events WHERE kind = 'family_member_new'").fetchone()["n"], 0)
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, 'c1', NOW(), 1)", (self.part.id,))
         service.apply(self.part, [match("S1", "ABC-1X"), match("S2", "ABC-1Y")], "c1")
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT payload FROM events WHERE kind = 'family_member_new'").fetchall()
+            rows = conn.execute("SELECT payload FROM supply_events WHERE kind = 'family_member_new'").fetchall()
         self.assertEqual([row["payload"]["mpn"] for row in rows], ["ABC-1Y"])
 
     def test_an_attribute_that_changes_without_a_notice_is_an_event(self) -> None:
         with self.store.connection() as conn:
             self.discovery.remember_parameters(conn, self.part.id, "digikey", [("Package / Case", "0603")])
             self.discovery.remember_parameters(conn, self.part.id, "digikey", [("Package / Case", "0603")])
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_events").fetchone()["n"], 0)
             self.discovery.remember_parameters(conn, self.part.id, "digikey", [("Package / Case", "0805")])
-            event = conn.execute("SELECT payload FROM events WHERE kind = 'param_changed'").fetchone()
+            event = conn.execute("SELECT payload FROM supply_events WHERE kind = 'param_changed'").fetchone()
         self.assertEqual((event["payload"]["from"], event["payload"]["to"]), ("0603", "0805"))
 
 

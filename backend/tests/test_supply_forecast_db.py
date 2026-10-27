@@ -60,8 +60,8 @@ class ForecastDbTests(unittest.TestCase):
         forecast_load.forget()
         forecast_price.forget()
         with self.store.connection() as conn:
-            for table in ("forecast_checks", "forecasts", "forecast_models", "events", "stock_events", "samples", "offers", "listings", "watches", "part_tiers",
-                          "part_insights", "part_summaries", "parts", "manufacturer_aliases", "manufacturers", "connectors", "bom_usage", "bom_usage_projects"):
+            for table in ("supply_forecast_checks", "supply_forecasts", "supply_forecast_models", "supply_events", "supply_stock_events", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers",
+                          "supply_part_insights", "supply_part_summaries", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_bom_usage", "supply_bom_usage_projects"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=ADMIN, provider="mouser", currency="EUR", display_name="Mouser", credentials={"api_key": "k"})["id"]
         self.other = self.connectors.create(actor=ADMIN, provider="digikey", storefront="IT", currency="EUR", display_name="DigiKey",
@@ -76,7 +76,7 @@ class ForecastDbTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, connector_id, sku, part_id or self.part_id),
             )
         return listing_id
@@ -85,11 +85,11 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             for index, stock in enumerate(values):
                 conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, %s, %s, 'EUR', 1) ON CONFLICT DO NOTHING",
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, %s, %s, 'EUR', 1) ON CONFLICT DO NOTHING",
                     (listing_id, first_day + timedelta(days=index), stock, price),
                 )
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, %s, 'EUR', '[[1, \"0.50\"]]'::jsonb) "
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, %s, 'EUR', '[[1, \"0.50\"]]'::jsonb) "
                 "ON CONFLICT (listing_id) DO UPDATE SET fetched_at = EXCLUDED.fetched_at, stock = EXCLUDED.stock",
                 (listing_id, fetched_at, values[-1]),
             )
@@ -129,10 +129,10 @@ class ForecastDbTests(unittest.TestCase):
         self.readings(cut, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.50")
         self.readings(reel, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.30")
         with self.store.connection() as conn:
-            conn.execute("UPDATE samples SET moq = 3000 WHERE listing_id = %s", (reel,))
-            conn.execute("UPDATE samples SET unit_price = 0.40 WHERE listing_id = %s AND sampled_at > %s", (reel, START - timedelta(days=9)))
+            conn.execute("UPDATE supply_samples SET moq = 3000 WHERE listing_id = %s", (reel,))
+            conn.execute("UPDATE supply_samples SET unit_price = 0.40 WHERE listing_id = %s AND sampled_at > %s", (reel, START - timedelta(days=9)))
             self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 0, "the reel changed its price, the cut tape did not")
-            conn.execute("DELETE FROM samples WHERE listing_id = %s", (cut,))
+            conn.execute("DELETE FROM supply_samples WHERE listing_id = %s", (cut,))
             self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 1, "with nothing else pricing the part the reel counts")
 
     def test_the_pooled_moves_read_every_part_at_once_and_add_up_to_each_parts_own(self) -> None:
@@ -167,7 +167,7 @@ class ForecastDbTests(unittest.TestCase):
         self.assertTrue(summary["available"])
         self.assertEqual(summary["runout"]["median_date"], (START + timedelta(days=10)).date().isoformat())
         self.assertEqual(summary["p_out_4w"], 1.0)
-        kept = {row["target"]: row for row in self.rows("SELECT * FROM forecasts WHERE subject_id = %s", self.part_id)}
+        kept = {row["target"]: row for row in self.rows("SELECT * FROM supply_forecasts WHERE subject_id = %s", self.part_id)}
         self.assertTrue({"runout", "can_buy_4w", "can_buy_8w", "out_4w", "price_30", "price_90"} <= set(kept))
         self.assertEqual(kept["runout"]["horizon_days"], 10)
         self.assertEqual(kept["can_buy_4w"]["horizon_days"], 28)
@@ -179,7 +179,7 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             forecast_run.run_part(conn, self.part_id, START)
             forecast_run.run_part(conn, self.part_id, START)
-        self.assertEqual(len(self.rows("SELECT id FROM forecasts WHERE target = 'runout'")), 1)
+        self.assertEqual(len(self.rows("SELECT id FROM supply_forecasts WHERE target = 'runout'")), 1)
 
     def test_a_part_with_a_week_of_readings_or_less_has_none(self) -> None:
         from app.services.supply import forecast_run
@@ -188,7 +188,7 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             summary = forecast_run.run_part(conn, self.part_id, START)
         self.assertFalse(summary["available"])
-        self.assertEqual(self.rows("SELECT id FROM forecasts WHERE target = 'runout'"), [])
+        self.assertEqual(self.rows("SELECT id FROM supply_forecasts WHERE target = 'runout'"), [])
 
     # --- checking ----------------------------------------------------------
 
@@ -207,7 +207,7 @@ class ForecastDbTests(unittest.TestCase):
             checked = forecast_run.check_due(conn, later)
             states = forecasting.update_models(conn, later)
         self.assertEqual(checked, 1, "only the runout is due; the four-week ones are not")
-        check = self.rows("SELECT c.observed, c.inside, c.void FROM forecast_checks c JOIN forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
+        check = self.rows("SELECT c.observed, c.inside, c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
         self.assertEqual((check["observed"], check["inside"], check["void"]), (10.0, True, False))
         self.assertEqual(states["runout"], "learning", "one check is not enough to be shown")
         model = forecasting.model_states(self.store.connection().__enter__())["runout"]
@@ -221,7 +221,7 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             forecast_run.run_part(conn, self.part_id, START)
             forecast_run.check_due(conn, START + timedelta(days=40))
-        voided = self.rows("SELECT c.void FROM forecast_checks c JOIN forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")
+        voided = self.rows("SELECT c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")
         self.assertEqual([row["void"] for row in voided], [True])
 
     def test_a_restock_before_the_runout_voids_that_check(self) -> None:
@@ -234,7 +234,7 @@ class ForecastDbTests(unittest.TestCase):
         self.readings(listing, [1000 - 100 * i for i in range(1, 5)] + [5000] * 14, START + timedelta(days=1), fetched_at=START + timedelta(days=16))
         with self.store.connection() as conn:
             forecast_run.check_due(conn, START + timedelta(days=16))
-        row = self.rows("SELECT c.void FROM forecast_checks c JOIN forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
+        row = self.rows("SELECT c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
         self.assertTrue(row["void"])
 
     # --- states ------------------------------------------------------------
@@ -290,10 +290,10 @@ class ForecastDbTests(unittest.TestCase):
         self.readings(listing, values, START - timedelta(days=59), fetched_at=START)
         with self.store.connection() as conn:
             result = forecast_backtest.run(conn, (START - timedelta(days=50)).date(), START + timedelta(days=1))
-        checks = self.rows("SELECT COUNT(*) AS n FROM forecast_checks c JOIN forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout' AND NOT c.void")
+        checks = self.rows("SELECT COUNT(*) AS n FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout' AND NOT c.void")
         self.assertGreater(result["kept"], 20)
         self.assertGreater(checks[0]["n"], 3, "the runouts made in the first falling run were judged")
-        first = self.rows("SELECT made_on FROM forecasts WHERE target = 'can_buy_4w' ORDER BY made_on LIMIT 1")[0]["made_on"]
+        first = self.rows("SELECT made_on FROM supply_forecasts WHERE target = 'can_buy_4w' ORDER BY made_on LIMIT 1")[0]["made_on"]
         self.assertEqual(first, (START - timedelta(days=50)).date())
 
     # --- the API ------------------------------------------------------------
@@ -323,12 +323,12 @@ class ForecastDbTests(unittest.TestCase):
         listing = self.listing(self.cid, "EOL-SKU")
         self.readings(listing, [100] * 10, START - timedelta(days=9), fetched_at=START)
         with self.store.connection() as conn:
-            conn.execute("UPDATE parts SET created_at = %s", (START - timedelta(days=1080),))  # three years watched: a small pooled rate
+            conn.execute("UPDATE supply_parts SET created_at = %s", (START - timedelta(days=1080),))  # three years watched: a small pooled rate
             plain = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
-            conn.execute("INSERT INTO pcns (id, title, kind, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', 'open', 'a')")
-            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
+            conn.execute("INSERT INTO supply_pcns (id, title, kind, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', 'open', 'a')")
+            conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
             noticed = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
-            conn.execute("UPDATE offers SET discontinued = TRUE WHERE listing_id = %s", (listing,))
+            conn.execute("UPDATE supply_offers SET discontinued = TRUE WHERE listing_id = %s", (listing,))
             dropped = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
             self.assertEqual(plain["signs"], {"notice": False, "dropped_share": 0.0})
             self.assertEqual(dropped["signs"], {"notice": True, "dropped_share": 1.0})
@@ -336,13 +336,13 @@ class ForecastDbTests(unittest.TestCase):
             self.assertAlmostEqual(dropped["rate"] / plain["rate"], 6.0, places=6, msg="the notice x3 and every distributor dropping it x2")
             self.assertLess(dropped["p12"], 0.95)
             self.assertGreater(dropped["p12"], noticed["p12"])
-            conn.execute("UPDATE pcns SET state = 'closed'")
+            conn.execute("UPDATE supply_pcns SET state = 'closed'")
             self.assertFalse(forecast_lifecycle.signs(conn, self.part_id)["notice"], "a closed notice is no sign")
 
     def test_a_part_with_few_readings_since_its_restock_borrows_the_drain_of_five_similar_parts(self) -> None:
         from app.services.supply import forecast_load, forecast_stock, parts, watches
 
-        category = "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
+        category = "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
         with self.store.connection() as conn:
             conn.execute(category, (self.part_id, START))
             twins = []
@@ -369,7 +369,7 @@ class ForecastDbTests(unittest.TestCase):
     def test_four_similar_parts_are_too_few_to_borrow_from(self) -> None:
         from app.services.supply import forecast_load, parts, watches
 
-        category = "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
+        category = "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
         with self.store.connection() as conn:
             conn.execute(category, (self.part_id, START))
             twins = []
@@ -400,11 +400,11 @@ class ForecastDbTests(unittest.TestCase):
         from app.services.supply import alerts, forecasting
 
         with self.store.connection() as conn:
-            conn.execute("UPDATE part_tiers SET rate = 'daily' WHERE part_id = %s", (self.part_id,))
+            conn.execute("UPDATE supply_part_tiers SET rate = 'daily' WHERE part_id = %s", (self.part_id,))
             for offset, probability in ((1, 0.8), (0, 0.9)):
                 forecasting.store(conn, "part", self.part_id, "out_4w", (START - timedelta(days=offset)).date(), 28, model="t", probability=probability)
             self.assertEqual(alerts._likely_out(conn, [self.part_id]), {}, "the model is still learning")
-            conn.execute("INSERT INTO forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
+            conn.execute("INSERT INTO supply_forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
             self.assertEqual(alerts._likely_out(conn, [self.part_id])[self.part_id]["chance"], 0.8)
             forecasting.store(conn, "part", self.part_id, "out_4w", (START + timedelta(days=1)).date(), 28, model="t", probability=0.2)
             self.assertIsNone(alerts._likely_out(conn, [self.part_id])[self.part_id]["chance"], "one calm run clears it")

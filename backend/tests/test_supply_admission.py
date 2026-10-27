@@ -121,8 +121,8 @@ class AdmissionTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("bom_usage_projects", "tracked_projects", "listings", "watches", "parts", "manufacturer_aliases",
-                          "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_bom_usage_projects", "supply_tracked_projects", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases",
+                          "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
 
     # A capacity of 2 calls a day holds fifteen tier-1 parts at 0.1333 each, and no more.
@@ -139,7 +139,7 @@ class AdmissionTests(unittest.TestCase):
 
     def counts(self, connector_id: str) -> dict[str, int]:
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT state, COUNT(*) AS n FROM admissions WHERE connector_id = %s GROUP BY state", (connector_id,)).fetchall()
+            rows = conn.execute("SELECT state, COUNT(*) AS n FROM supply_admissions WHERE connector_id = %s GROUP BY state", (connector_id,)).fetchall()
         got = {row["state"]: int(row["n"]) for row in rows}
         return {"admitted": got.get("admitted", 0), "waiting": got.get("waiting", 0)}
 
@@ -170,13 +170,13 @@ class AdmissionTests(unittest.TestCase):
         for n in range(17):
             self.watch(n)
         with self.store.connection() as conn:
-            waiting = [r["part_id"] for r in conn.execute("SELECT part_id FROM admissions WHERE state = 'waiting' ORDER BY since, part_id").fetchall()]
-            admitted = conn.execute("SELECT part_id FROM admissions WHERE state = 'admitted' ORDER BY part_id LIMIT 1").fetchone()["part_id"]
-            watch_id = conn.execute("SELECT id FROM watches WHERE part_id = %s", (admitted,)).fetchone()["id"]
+            waiting = [r["part_id"] for r in conn.execute("SELECT part_id FROM supply_admissions WHERE state = 'waiting' ORDER BY since, part_id").fetchall()]
+            admitted = conn.execute("SELECT part_id FROM supply_admissions WHERE state = 'admitted' ORDER BY part_id LIMIT 1").fetchone()["part_id"]
+            watch_id = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (admitted,)).fetchone()["id"]
             self.watches.remove_watch(conn, watch_id, ACTOR)
         self.assertEqual(self.counts(cid), {"admitted": 15, "waiting": 1}, "one waiting part took the freed room")
         with self.store.connection() as conn:
-            states = {r["part_id"]: r["state"] for r in conn.execute("SELECT part_id, state FROM admissions").fetchall()}
+            states = {r["part_id"]: r["state"] for r in conn.execute("SELECT part_id, state FROM supply_admissions").fetchall()}
         self.assertEqual(sorted(states.values()).count("waiting"), 1)
         self.assertEqual(len([p for p in waiting if states.get(p) == "admitted"]), 1)
 
@@ -250,14 +250,14 @@ class AdmissionTests(unittest.TestCase):
         for n in range(15):
             self.watch(n)
         with self.store.connection() as conn:
-            part_id = conn.execute("SELECT part_id FROM admissions ORDER BY part_id LIMIT 1").fetchone()["part_id"]
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, NOW))
+            part_id = conn.execute("SELECT part_id FROM supply_admissions ORDER BY part_id LIMIT 1").fetchone()["part_id"]
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, NOW))
             self.admission.sync(conn)
         self.assertEqual(self.counts(cid), {"admitted": 15, "waiting": 0}, "a part the provider does not carry costs less")
         for index in range(3):
             with self.store.connection() as conn:
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (f"l{index}", cid, f"S{index}", part_id))
         with self.store.connection() as conn:
             self.admission.sync(conn)
@@ -296,7 +296,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse(report["fits_nowhere"])
         self.assertEqual(self.counts(cid), {"admitted": 0, "waiting": 0})
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM parts").fetchone()["n"], 0, "no parts were made")
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_parts").fetchone()["n"], 0, "no parts were made")
             self.assertIsNone(self.tracking.tracked_project(conn, "p1"))
 
     def test_tracking_is_refused_when_nothing_fits_anywhere_and_leaves_no_trace(self) -> None:
@@ -311,7 +311,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertIn("0 calls a day", str(raised.exception).replace("(0 of 0 calls a day committed)", "0 calls a day"))
         with self.store.connection() as conn:
             self.assertIsNone(self.tracking.tracked_project(conn, "p1"))
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_tiers").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_tiers").fetchone()["n"], 0)
         self.assertEqual(self.counts(cid), {"admitted": 0, "waiting": 0})
 
     def test_applying_tracks_where_there_is_room_and_the_rest_waits(self) -> None:

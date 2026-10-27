@@ -15,7 +15,7 @@ def _m040_read_requests(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS read_requests (
+        CREATE TABLE IF NOT EXISTS supply_read_requests (
             id TEXT PRIMARY KEY,
             kind TEXT NOT NULL CHECK (kind IN ('bom', 'component')),
             project_id TEXT NOT NULL DEFAULT '',
@@ -23,16 +23,16 @@ def _m040_read_requests(conn) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             finished_at TIMESTAMPTZ
         );
-        CREATE INDEX IF NOT EXISTS idx_read_requests_open ON read_requests (created_at) WHERE finished_at IS NULL;
-        CREATE TABLE IF NOT EXISTS read_request_work (
-            request_id TEXT NOT NULL REFERENCES read_requests(id) ON DELETE CASCADE,
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE INDEX IF NOT EXISTS idx_supply_read_requests_open ON supply_read_requests (created_at) WHERE finished_at IS NULL;
+        CREATE TABLE IF NOT EXISTS supply_read_request_work (
+            request_id TEXT NOT NULL REFERENCES supply_read_requests(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'failed')),
             attempts INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (request_id, part_id, connector_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_read_request_work_connector ON read_request_work (connector_id, state);
+        CREATE INDEX IF NOT EXISTS idx_supply_read_request_work_connector ON supply_read_request_work (connector_id, state);
         """,
         prepare=False,
     )
@@ -48,20 +48,20 @@ def _m039_summary_dirty_log(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS summary_dirty (
+        CREATE TABLE IF NOT EXISTS supply_summary_dirty (
             id BIGSERIAL PRIMARY KEY,
             part_id TEXT NOT NULL,
             xid BIGINT NOT NULL DEFAULT (pg_current_xact_id()::text::bigint)
         );
-        CREATE INDEX IF NOT EXISTS idx_summary_dirty_part ON summary_dirty (part_id, xid);
-        ALTER TABLE part_summaries DROP COLUMN IF EXISTS stale;
-        ALTER TABLE part_summaries DROP COLUMN IF EXISTS version;
-        ALTER TABLE part_summaries ADD COLUMN IF NOT EXISTS snap BIGINT NOT NULL DEFAULT 0;
-        DELETE FROM part_summaries;
+        CREATE INDEX IF NOT EXISTS idx_supply_summary_dirty_part ON supply_summary_dirty (part_id, xid);
+        ALTER TABLE supply_part_summaries DROP COLUMN IF EXISTS stale;
+        ALTER TABLE supply_part_summaries DROP COLUMN IF EXISTS version;
+        ALTER TABLE supply_part_summaries ADD COLUMN IF NOT EXISTS snap BIGINT NOT NULL DEFAULT 0;
+        DELETE FROM supply_part_summaries;
 
         CREATE OR REPLACE FUNCTION supply_summary_stale(pid TEXT) RETURNS VOID AS $$
         BEGIN
-            IF pid IS NOT NULL THEN INSERT INTO summary_dirty (part_id) VALUES (pid); END IF;
+            IF pid IS NOT NULL THEN INSERT INTO supply_summary_dirty (part_id) VALUES (pid); END IF;
         END;
         $$ LANGUAGE plpgsql;
         """,
@@ -78,8 +78,8 @@ def _m038_part_summaries(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS part_summaries (
-            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_summaries (
+            part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
             data JSONB NOT NULL DEFAULT '{}'::jsonb,
             stale BOOLEAN NOT NULL DEFAULT TRUE,
             version BIGINT NOT NULL DEFAULT 0,
@@ -89,8 +89,8 @@ def _m038_part_summaries(conn) -> None:
         CREATE OR REPLACE FUNCTION supply_summary_stale(pid TEXT) RETURNS VOID AS $$
         BEGIN
             IF pid IS NULL THEN RETURN; END IF;
-            INSERT INTO part_summaries (part_id) SELECT p.id FROM parts p WHERE p.id = pid
-            ON CONFLICT (part_id) DO UPDATE SET stale = TRUE, version = part_summaries.version + 1;
+            INSERT INTO supply_part_summaries (part_id) SELECT p.id FROM supply_parts p WHERE p.id = pid
+            ON CONFLICT (part_id) DO UPDATE SET stale = TRUE, version = supply_part_summaries.version + 1;
         END;
         $$ LANGUAGE plpgsql;
 
@@ -104,28 +104,28 @@ def _m038_part_summaries(conn) -> None:
 
         CREATE OR REPLACE FUNCTION supply_summary_by_listing() RETURNS trigger AS $$
         BEGIN
-            PERFORM supply_summary_stale((SELECT part_id FROM listings WHERE id = COALESCE(NEW.listing_id, OLD.listing_id)));
+            PERFORM supply_summary_stale((SELECT part_id FROM supply_listings WHERE id = COALESCE(NEW.listing_id, OLD.listing_id)));
             RETURN NULL;
         END;
         $$ LANGUAGE plpgsql;
 
-        DROP TRIGGER IF EXISTS trg_summary_listings ON listings;
-        CREATE TRIGGER trg_summary_listings AFTER INSERT OR UPDATE OR DELETE ON listings
+        DROP TRIGGER IF EXISTS trg_supply_summary_listings ON supply_listings;
+        CREATE TRIGGER trg_supply_summary_listings AFTER INSERT OR UPDATE OR DELETE ON supply_listings
             FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
-        DROP TRIGGER IF EXISTS trg_summary_watches ON watches;
-        CREATE TRIGGER trg_summary_watches AFTER INSERT OR UPDATE OR DELETE ON watches
+        DROP TRIGGER IF EXISTS trg_supply_summary_watches ON supply_watches;
+        CREATE TRIGGER trg_supply_summary_watches AFTER INSERT OR UPDATE OR DELETE ON supply_watches
             FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
-        DROP TRIGGER IF EXISTS trg_summary_picks ON packaging_picks;
-        CREATE TRIGGER trg_summary_picks AFTER INSERT OR UPDATE OR DELETE ON packaging_picks
+        DROP TRIGGER IF EXISTS trg_supply_summary_picks ON supply_packaging_picks;
+        CREATE TRIGGER trg_supply_summary_picks AFTER INSERT OR UPDATE OR DELETE ON supply_packaging_picks
             FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
-        DROP TRIGGER IF EXISTS trg_summary_discovery ON discovery_runs;
-        CREATE TRIGGER trg_summary_discovery AFTER INSERT OR UPDATE OR DELETE ON discovery_runs
+        DROP TRIGGER IF EXISTS trg_supply_summary_discovery ON supply_discovery_runs;
+        CREATE TRIGGER trg_supply_summary_discovery AFTER INSERT OR UPDATE OR DELETE ON supply_discovery_runs
             FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
-        DROP TRIGGER IF EXISTS trg_summary_offers ON offers;
-        CREATE TRIGGER trg_summary_offers AFTER INSERT OR UPDATE OR DELETE ON offers
+        DROP TRIGGER IF EXISTS trg_supply_summary_offers ON supply_offers;
+        CREATE TRIGGER trg_supply_summary_offers AFTER INSERT OR UPDATE OR DELETE ON supply_offers
             FOR EACH ROW EXECUTE FUNCTION supply_summary_by_listing();
-        DROP TRIGGER IF EXISTS trg_summary_poll_state ON poll_state;
-        CREATE TRIGGER trg_summary_poll_state AFTER INSERT OR UPDATE OF tier OR DELETE ON poll_state
+        DROP TRIGGER IF EXISTS trg_supply_summary_poll_state ON supply_poll_state;
+        CREATE TRIGGER trg_supply_summary_poll_state AFTER INSERT OR UPDATE OF tier OR DELETE ON supply_poll_state
             FOR EACH ROW EXECUTE FUNCTION supply_summary_by_listing();
         """,
         prepare=False,
@@ -140,7 +140,7 @@ def _m037_release_snapshot_jobs(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS release_snapshot_jobs (
+        CREATE TABLE IF NOT EXISTS supply_release_snapshot_jobs (
             build_id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             state TEXT NOT NULL CHECK (state IN ('queued', 'done', 'failed')),
@@ -148,7 +148,7 @@ def _m037_release_snapshot_jobs(conn) -> None:
             attempts INTEGER NOT NULL DEFAULT 0,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE INDEX IF NOT EXISTS idx_release_snapshot_jobs_project ON release_snapshot_jobs (project_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_release_snapshot_jobs_project ON supply_release_snapshot_jobs (project_id);
         """,
         prepare=False,
     )
@@ -157,13 +157,13 @@ def _m037_release_snapshot_jobs(conn) -> None:
 def _m036_poll_schedules(conn) -> None:
     """A listing's schedule is daily, weekly or monthly (its part's tracking rate), not a risk tier; ``urgency`` orders the day's queue."""
 
-    conn.execute("ALTER TABLE poll_state DROP CONSTRAINT IF EXISTS poll_state_tier_check", prepare=False)
-    conn.execute("UPDATE poll_state SET tier = 'daily' WHERE tier IN ('hot', 'warm', 'normal', 'cold')", prepare=False)
+    conn.execute("ALTER TABLE supply_poll_state DROP CONSTRAINT IF EXISTS supply_poll_state_tier_check", prepare=False)
+    conn.execute("UPDATE supply_poll_state SET tier = 'daily' WHERE tier IN ('hot', 'warm', 'normal', 'cold')", prepare=False)
     conn.execute(
-        "ALTER TABLE poll_state ADD CONSTRAINT poll_state_tier_check CHECK (tier IN ('daily', 'weekly', 'monthly'))", prepare=False
+        "ALTER TABLE supply_poll_state ADD CONSTRAINT supply_poll_state_tier_check CHECK (tier IN ('daily', 'weekly', 'monthly'))", prepare=False
     )
-    conn.execute("ALTER TABLE poll_state ADD COLUMN IF NOT EXISTS urgency SMALLINT NOT NULL DEFAULT 2", prepare=False)
-    conn.execute("ALTER TABLE quota_ledger ADD COLUMN IF NOT EXISTS spare_spent INTEGER NOT NULL DEFAULT 0", prepare=False)
+    conn.execute("ALTER TABLE supply_poll_state ADD COLUMN IF NOT EXISTS urgency SMALLINT NOT NULL DEFAULT 2", prepare=False)
+    conn.execute("ALTER TABLE supply_quota_ledger ADD COLUMN IF NOT EXISTS spare_spent INTEGER NOT NULL DEFAULT 0", prepare=False)
 
 
 def _m035_tracking(conn) -> None:
@@ -177,14 +177,14 @@ def _m035_tracking(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE watches ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2));
-        ALTER TABLE watches ADD COLUMN IF NOT EXISTS rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly'));
-        ALTER TABLE watches ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'legacy' CHECK (origin IN ('person', 'component', 'legacy'));
-        ALTER TABLE watches ALTER COLUMN origin SET DEFAULT 'person';
-        ALTER TABLE component_watches ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2));
-        ALTER TABLE component_watches ADD COLUMN IF NOT EXISTS rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly'));
+        ALTER TABLE supply_watches ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2));
+        ALTER TABLE supply_watches ADD COLUMN IF NOT EXISTS rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly'));
+        ALTER TABLE supply_watches ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'legacy' CHECK (origin IN ('person', 'component', 'legacy'));
+        ALTER TABLE supply_watches ALTER COLUMN origin SET DEFAULT 'person';
+        ALTER TABLE supply_component_watches ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2));
+        ALTER TABLE supply_component_watches ADD COLUMN IF NOT EXISTS rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly'));
 
-        CREATE TABLE IF NOT EXISTS tracked_projects (
+        CREATE TABLE IF NOT EXISTS supply_tracked_projects (
             project_id TEXT PRIMARY KEY,
             variants TEXT[] NOT NULL DEFAULT '{""}',
             connector_ids TEXT[],
@@ -192,35 +192,35 @@ def _m035_tracking(conn) -> None:
             tracked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
-        CREATE TABLE IF NOT EXISTS part_tiers (
-            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_tiers (
+            part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
             tier SMALLINT NOT NULL CHECK (tier IN (1, 2)),
             rate TEXT NOT NULL CHECK (rate IN ('daily', 'weekly', 'monthly')),
             reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE INDEX IF NOT EXISTS idx_part_tiers_tier ON part_tiers (tier, part_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_part_tiers_tier ON supply_part_tiers (tier, part_id);
 
-        CREATE TABLE IF NOT EXISTS admissions (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_admissions (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             state TEXT NOT NULL CHECK (state IN ('admitted', 'waiting')),
             since TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (part_id, connector_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_admissions_connector ON admissions (connector_id, state, since);
+        CREATE INDEX IF NOT EXISTS idx_supply_admissions_connector ON supply_admissions (connector_id, state, since);
 
-        CREATE TABLE IF NOT EXISTS packaging_picks (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
-            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_packaging_picks (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
+            listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
             picked_by TEXT NOT NULL,
             picked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (part_id, connector_id)
         );
 
-        CREATE TABLE IF NOT EXISTS call_counts (
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_call_counts (
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             day DATE NOT NULL,
             hour SMALLINT NOT NULL CHECK (hour BETWEEN 0 AND 23),
             kind TEXT NOT NULL,
@@ -229,19 +229,19 @@ def _m035_tracking(conn) -> None:
             PRIMARY KEY (connector_id, day, hour, kind, purpose)
         );
 
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS account_key TEXT NOT NULL DEFAULT '';
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_time TEXT NOT NULL DEFAULT '00:00';
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_tz TEXT NOT NULL DEFAULT 'UTC';
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS error_streak INTEGER NOT NULL DEFAULT 0;
-        CREATE INDEX IF NOT EXISTS idx_connectors_account ON connectors (account_key) WHERE account_key <> '';
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS account_key TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS reset_time TEXT NOT NULL DEFAULT '00:00';
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS reset_tz TEXT NOT NULL DEFAULT 'UTC';
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS error_streak INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS idx_supply_connectors_account ON supply_connectors (account_key) WHERE account_key <> '';
         """,
         prepare=False,
     )
     # Every part watched before tiers is tier 2, weekly; its reason says so.
     conn.execute(
         """
-        INSERT INTO part_tiers (part_id, tier, rate, reasons)
-        SELECT part_id, tier, rate, jsonb_build_array(jsonb_build_object('kind', origin, 'ref', id)) FROM watches
+        INSERT INTO supply_part_tiers (part_id, tier, rate, reasons)
+        SELECT part_id, tier, rate, jsonb_build_array(jsonb_build_object('kind', origin, 'ref', id)) FROM supply_watches
         ON CONFLICT (part_id) DO NOTHING
         """,
         prepare=False,
@@ -249,9 +249,9 @@ def _m035_tracking(conn) -> None:
     # A watch's packaging policy becomes a pick where a listing of that packaging exists (the first by SKU).
     conn.execute(
         """
-        INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by)
+        INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by)
         SELECT DISTINCT ON (l.part_id, l.connector_id) l.part_id, l.connector_id, l.id, 'migration'
-        FROM watches w JOIN listings l ON l.part_id = w.part_id
+        FROM supply_watches w JOIN supply_listings l ON l.part_id = w.part_id
         WHERE w.packaging <> 'any' AND l.packaging = w.packaging AND l.match_state IN ('exact', 'manual')
         ORDER BY l.part_id, l.connector_id, l.sku
         ON CONFLICT (part_id, connector_id) DO NOTHING
@@ -263,15 +263,15 @@ def _m035_tracking(conn) -> None:
 def _m034_variant_usage_keys(conn) -> None:
     """The match keys of variant lines, so a part only a design variant fits is found as in use like any other."""
 
-    conn.execute("ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS alias_key TEXT NOT NULL DEFAULT ''", prepare=False)
-    conn.execute("ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS match_key TEXT NOT NULL DEFAULT ''", prepare=False)
-    conn.execute("CREATE INDEX IF NOT EXISTS bom_usage_variants_match_key ON bom_usage_variants (match_key)", prepare=False)
+    conn.execute("ALTER TABLE supply_bom_usage_variants ADD COLUMN IF NOT EXISTS alias_key TEXT NOT NULL DEFAULT ''", prepare=False)
+    conn.execute("ALTER TABLE supply_bom_usage_variants ADD COLUMN IF NOT EXISTS match_key TEXT NOT NULL DEFAULT ''", prepare=False)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_variants_match_key ON supply_bom_usage_variants (match_key)", prepare=False)
 
 
 def _m033_connector_keep_days(conn) -> None:
     """Days any history of a connector's listings may be kept, for a provider whose terms limit storage. Empty means for good."""
 
-    conn.execute("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS keep_days INTEGER CHECK (keep_days BETWEEN 1 AND 3650)", prepare=False)
+    conn.execute("ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS keep_days INTEGER CHECK (keep_days BETWEEN 1 AND 3650)", prepare=False)
 
 
 def _m032_bom_usage_variants(conn) -> None:
@@ -279,8 +279,8 @@ def _m032_bom_usage_variants(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS bom_usage_variants (
-            project_id TEXT NOT NULL REFERENCES bom_usage_projects(project_id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_bom_usage_variants (
+            project_id TEXT NOT NULL REFERENCES supply_bom_usage_projects(project_id) ON DELETE CASCADE,
             variant TEXT NOT NULL,
             line_key TEXT NOT NULL,
             manufacturer TEXT NOT NULL DEFAULT '',
@@ -300,7 +300,7 @@ def _m031_bom_comments(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS bom_comments (
+        CREATE TABLE IF NOT EXISTS supply_bom_comments (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             line_key TEXT NOT NULL,
@@ -309,7 +309,7 @@ def _m031_bom_comments(conn) -> None:
             author_name TEXT NOT NULL DEFAULT '',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE INDEX IF NOT EXISTS idx_bom_comments_project ON bom_comments (project_id, line_key, created_at);
+        CREATE INDEX IF NOT EXISTS idx_supply_bom_comments_project ON supply_bom_comments (project_id, line_key, created_at);
         """,
         prepare=False,
     )
@@ -321,7 +321,7 @@ def _m030_release_compliance(conn) -> None:
     Snapshots are never updated, so the column is filled at insert. Snapshots taken before this have none.
     """
 
-    conn.execute("ALTER TABLE release_snapshots ADD COLUMN IF NOT EXISTS compliance JSONB", prepare=False)
+    conn.execute("ALTER TABLE supply_release_snapshots ADD COLUMN IF NOT EXISTS compliance JSONB", prepare=False)
 
 
 def _m029_notice_files(conn) -> None:
@@ -329,10 +329,10 @@ def _m029_notice_files(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_sha256 TEXT NOT NULL DEFAULT '';
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_checked_at TIMESTAMPTZ;
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_status TEXT NOT NULL DEFAULT '';
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_failures INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS file_sha256 TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS file_checked_at TIMESTAMPTZ;
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS file_status TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS file_failures INTEGER NOT NULL DEFAULT 0;
         """,
         prepare=False,
     )
@@ -343,7 +343,7 @@ def _m028_datasheet_denied_hosts(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS datasheet_denied_hosts (
+        CREATE TABLE IF NOT EXISTS supply_datasheet_denied_hosts (
             host TEXT PRIMARY KEY,
             reason TEXT NOT NULL DEFAULT '',
             added_by TEXT NOT NULL,
@@ -359,7 +359,7 @@ def _m027_component_watches(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS component_watches (
+        CREATE TABLE IF NOT EXISTS supply_component_watches (
             component_id TEXT PRIMARY KEY,
             include_alternates BOOLEAN NOT NULL DEFAULT FALSE,
             packaging TEXT NOT NULL DEFAULT 'any' CHECK (packaging IN ('any', 'cut_tape', 'tape_reel', 'tray', 'tube', 'bulk')),
@@ -376,7 +376,7 @@ def _m026_watch_packaging(conn) -> None:
     """Which packaging a watch counts: any, or one of cut tape, tape and reel, tray, tube, bulk."""
 
     conn.execute(
-        "ALTER TABLE watches ADD COLUMN IF NOT EXISTS packaging TEXT NOT NULL DEFAULT 'any' "
+        "ALTER TABLE supply_watches ADD COLUMN IF NOT EXISTS packaging TEXT NOT NULL DEFAULT 'any' "
         "CHECK (packaging IN ('any', 'cut_tape', 'tape_reel', 'tray', 'tube', 'bulk'))",
         prepare=False,
     )
@@ -387,7 +387,7 @@ def _m025_worker_seen(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS worker_seen (
+        CREATE TABLE IF NOT EXISTS supply_worker_seen (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             providers TEXT[] NOT NULL DEFAULT '{}',
             code_stamp DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -401,9 +401,9 @@ def _m025_worker_seen(conn) -> None:
 def _m024_market_categories(conn) -> None:
     """Market figures by the category a distributor files a part under, as well as by manufacturer."""
 
-    conn.execute("ALTER TABLE market_indices DROP CONSTRAINT IF EXISTS market_indices_scope_kind_check", prepare=False)
+    conn.execute("ALTER TABLE supply_market_indices DROP CONSTRAINT IF EXISTS supply_market_indices_scope_kind_check", prepare=False)
     conn.execute(
-        "ALTER TABLE market_indices ADD CONSTRAINT market_indices_scope_kind_check CHECK (scope_kind IN ('all', 'manufacturer', 'category'))",
+        "ALTER TABLE supply_market_indices ADD CONSTRAINT supply_market_indices_scope_kind_check CHECK (scope_kind IN ('all', 'manufacturer', 'category'))",
         prepare=False,
     )
 
@@ -411,13 +411,13 @@ def _m024_market_categories(conn) -> None:
 def _m023_connector_retention(conn) -> None:
     """Days raw samples are kept per connector, for a provider whose terms limit how long its data may be stored."""
 
-    conn.execute("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS retention_days INTEGER CHECK (retention_days BETWEEN 1 AND 365)", prepare=False)
+    conn.execute("ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS retention_days INTEGER CHECK (retention_days BETWEEN 1 AND 365)", prepare=False)
 
 
 def _m022_usage_lcsc(conn) -> None:
     """The LCSC number a BOM line's symbol carries, kept with the stored line so lines read later resolve through it."""
 
-    conn.execute("ALTER TABLE bom_usage ADD COLUMN IF NOT EXISTS lcsc TEXT NOT NULL DEFAULT ''", prepare=False)
+    conn.execute("ALTER TABLE supply_bom_usage ADD COLUMN IF NOT EXISTS lcsc TEXT NOT NULL DEFAULT ''", prepare=False)
 
 
 def _m021_distributor_details(conn) -> None:
@@ -431,16 +431,16 @@ def _m021_distributor_details(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS part_facts (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_facts (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             provider TEXT NOT NULL,
             name TEXT NOT NULL,
             value TEXT NOT NULL,
             observed_at TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (part_id, provider, name)
         );
-        CREATE TABLE IF NOT EXISTS connector_grants (
-            connector_id TEXT PRIMARY KEY REFERENCES connectors(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_connector_grants (
+            connector_id TEXT PRIMARY KEY REFERENCES supply_connectors(id) ON DELETE CASCADE,
             envelope TEXT NOT NULL,
             access_expires_at TIMESTAMPTZ,
             refresh_expires_at TIMESTAMPTZ,
@@ -448,24 +448,24 @@ def _m021_distributor_details(conn) -> None:
             granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             last_error TEXT NOT NULL DEFAULT ''
         );
-        CREATE TABLE IF NOT EXISTS oauth_states (
+        CREATE TABLE IF NOT EXISTS supply_oauth_states (
             state TEXT PRIMARY KEY,
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             actor TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE TABLE IF NOT EXISTS detail_checks (
-            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_detail_checks (
+            listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
             kind TEXT NOT NULL CHECK (kind IN ('notices', 'substances')),
             checked_at TIMESTAMPTZ NOT NULL,
             status TEXT NOT NULL,
             failures INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (listing_id, kind)
         );
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS external_key TEXT NOT NULL DEFAULT '';
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS published_on DATE;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_pcns_external ON pcns (source, external_key) WHERE external_key <> '';
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS external_key TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS published_on DATE;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_pcns_external ON supply_pcns (source, external_key) WHERE external_key <> '';
         """,
         prepare=False,
     )
@@ -484,8 +484,8 @@ def _m042_sample_order_terms(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE samples ADD COLUMN IF NOT EXISTS moq INTEGER NOT NULL DEFAULT 1;
-        ALTER TABLE samples ADD COLUMN IF NOT EXISTS order_multiple INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE supply_samples ADD COLUMN IF NOT EXISTS moq INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE supply_samples ADD COLUMN IF NOT EXISTS order_multiple INTEGER NOT NULL DEFAULT 1;
         """,
         prepare=False,
     )
@@ -496,7 +496,7 @@ def _m043_bom_cost_history(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS bom_cost_history (
+        CREATE TABLE IF NOT EXISTS supply_bom_cost_history (
             project_id TEXT NOT NULL,
             variant TEXT NOT NULL DEFAULT '',
             day DATE NOT NULL,
@@ -516,8 +516,8 @@ def _m044_alert_rules(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS alert_rules (
-            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_alert_rules (
+            part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
             muted TEXT[] NOT NULL DEFAULT '{}',
             price_rise_percent INTEGER,
             target_price NUMERIC(14, 6),
@@ -525,8 +525,8 @@ def _m044_alert_rules(conn) -> None:
             updated_by TEXT NOT NULL DEFAULT '',
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
-        CREATE TABLE IF NOT EXISTS assessment_marks (
-            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_assessment_marks (
+            part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
             status TEXT NOT NULL,
             marked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -540,10 +540,10 @@ def _m045_notice_parse(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parsed JSONB;
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parse_state TEXT NOT NULL DEFAULT '';
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parse_failures INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS parsed_at TIMESTAMPTZ;
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS parsed JSONB;
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS parse_state TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS parse_failures INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE supply_pcns ADD COLUMN IF NOT EXISTS parsed_at TIMESTAMPTZ;
         """,
         prepare=False,
     )
@@ -554,8 +554,8 @@ def _m046_rohs_exemptions(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS rohs_exemptions (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_rohs_exemptions (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             code TEXT NOT NULL,
             note TEXT NOT NULL DEFAULT '',
             declared_by TEXT NOT NULL,
@@ -572,8 +572,8 @@ def _m047_arrival_promises(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS arrival_promises (
-            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_arrival_promises (
+            listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
             expected DATE NOT NULL,
             quantity INTEGER NOT NULL,
             first_seen_at TIMESTAMPTZ NOT NULL,
@@ -593,8 +593,8 @@ def _m048_rate_limits(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS rate_limits JSONB NOT NULL DEFAULT '{}'::jsonb;
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS rate_limits_at TIMESTAMPTZ;
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS rate_limits JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS rate_limits_at TIMESTAMPTZ;
         """,
         prepare=False,
     )
@@ -605,16 +605,16 @@ def _m049_limit_marks(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS headers_seen JSONB NOT NULL DEFAULT '[]'::jsonb;
-        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_from_provider BOOLEAN NOT NULL DEFAULT FALSE;
-        CREATE TABLE IF NOT EXISTS limit_marks (
-            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS headers_seen JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE supply_connectors ADD COLUMN IF NOT EXISTS reset_from_provider BOOLEAN NOT NULL DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS supply_limit_marks (
+            connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
             at TIMESTAMPTZ NOT NULL,
             kind TEXT NOT NULL CHECK (kind IN ('remaining', 'refused', 'ok')),
             remaining INTEGER,
             quota INTEGER
         );
-        CREATE INDEX IF NOT EXISTS idx_limit_marks_connector ON limit_marks (connector_id, at);
+        CREATE INDEX IF NOT EXISTS idx_supply_limit_marks_connector ON supply_limit_marks (connector_id, at);
         """,
         prepare=False,
     )
@@ -623,7 +623,7 @@ def _m049_limit_marks(conn) -> None:
 def _m050_drop_headers_seen(conn) -> None:
     """The header names a provider sent were only for finding out which providers report limits."""
 
-    conn.execute("ALTER TABLE connectors DROP COLUMN IF EXISTS headers_seen;", prepare=False)
+    conn.execute("ALTER TABLE supply_connectors DROP COLUMN IF EXISTS headers_seen;", prepare=False)
 
 
 def _m051_project_opt_outs(conn) -> None:
@@ -637,32 +637,32 @@ def _m051_project_opt_outs(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS excluded_ids TEXT[] NOT NULL DEFAULT '{}';
-        ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS assembly_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE supply_tracked_projects ADD COLUMN IF NOT EXISTS excluded_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE supply_tracked_projects ADD COLUMN IF NOT EXISTS assembly_ids TEXT[] NOT NULL DEFAULT '{}';
         """,
         prepare=False,
     )
     has_old = conn.execute(
-        "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'tracked_projects' "
+        "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'supply_tracked_projects' "
         "AND column_name = 'connector_ids'"
     ).fetchone()
     if not has_old:
         return
     assembly = set()
     regular = set()
-    for row in conn.execute("SELECT id, provider FROM connectors").fetchall():
+    for row in conn.execute("SELECT id, provider FROM supply_connectors").fetchall():
         try:
             only = registry.get_spec(row["provider"]).assembly_only
         except registry.UnknownProvider:
             only = False
         (assembly if only else regular).add(row["id"])
-    for row in conn.execute("SELECT project_id, connector_ids FROM tracked_projects WHERE connector_ids IS NOT NULL").fetchall():
+    for row in conn.execute("SELECT project_id, connector_ids FROM supply_tracked_projects WHERE connector_ids IS NOT NULL").fetchall():
         chosen = set(row["connector_ids"])
         conn.execute(
-            "UPDATE tracked_projects SET excluded_ids = %s, assembly_ids = %s WHERE project_id = %s",
+            "UPDATE supply_tracked_projects SET excluded_ids = %s, assembly_ids = %s WHERE project_id = %s",
             (sorted(regular - chosen), sorted(chosen & assembly), row["project_id"]),
         )
-    conn.execute("ALTER TABLE tracked_projects DROP COLUMN connector_ids", prepare=False)
+    conn.execute("ALTER TABLE supply_tracked_projects DROP COLUMN connector_ids", prepare=False)
 
 
 def _m052_usage_symbol_facts(conn) -> None:
@@ -672,10 +672,10 @@ def _m052_usage_symbol_facts(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE bom_usage ADD COLUMN IF NOT EXISTS datasheet TEXT NOT NULL DEFAULT '';
-        ALTER TABLE bom_usage ADD COLUMN IF NOT EXISTS prism_id TEXT NOT NULL DEFAULT '';
-        ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS datasheet TEXT NOT NULL DEFAULT '';
-        ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS prism_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_bom_usage ADD COLUMN IF NOT EXISTS datasheet TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_bom_usage ADD COLUMN IF NOT EXISTS prism_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_bom_usage_variants ADD COLUMN IF NOT EXISTS datasheet TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supply_bom_usage_variants ADD COLUMN IF NOT EXISTS prism_id TEXT NOT NULL DEFAULT '';
         """,
         prepare=False,
     )
@@ -688,19 +688,19 @@ def _m053_no_stored_files(conn) -> None:
 
     conn.execute(
         """
-        DELETE FROM alerts WHERE kind = 'datasheet_changed';
-        UPDATE alert_rules SET muted = array_remove(muted, 'datasheet_changed');
+        DELETE FROM supply_alerts WHERE kind = 'datasheet_changed';
+        UPDATE supply_alert_rules SET muted = array_remove(muted, 'datasheet_changed');
         DROP TABLE IF EXISTS datasheets;
         DROP TABLE IF EXISTS datasheet_checks;
         DROP TABLE IF EXISTS datasheet_denied_hosts;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS file_sha256;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS file_checked_at;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS file_status;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS file_failures;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS parsed;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS parse_state;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS parse_failures;
-        ALTER TABLE pcns DROP COLUMN IF EXISTS parsed_at;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_sha256;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_checked_at;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_status;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS file_failures;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS parsed;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS parse_state;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS parse_failures;
+        ALTER TABLE supply_pcns DROP COLUMN IF EXISTS parsed_at;
         """,
         prepare=False,
     )
@@ -711,9 +711,9 @@ def _m054_limit_scopes(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE limit_marks ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '';
-        DELETE FROM limit_marks;
-        UPDATE connectors SET rate_limits = '{}'::jsonb, rate_limits_at = NULL;
+        ALTER TABLE supply_limit_marks ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '';
+        DELETE FROM supply_limit_marks;
+        UPDATE supply_connectors SET rate_limits = '{}'::jsonb, rate_limits_at = NULL;
         """,
         prepare=False,
     )
@@ -722,7 +722,7 @@ def _m054_limit_scopes(conn) -> None:
 def _m055_follow_all_variants(conn) -> None:
     """A tracked project can follow every design variant it has, including ones added to it later."""
 
-    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS all_variants BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
+    conn.execute("ALTER TABLE supply_tracked_projects ADD COLUMN IF NOT EXISTS all_variants BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
 
 
 def _m056_makers_without_friction(conn) -> None:
@@ -730,22 +730,22 @@ def _m056_makers_without_friction(conn) -> None:
 
     conn.execute(
         """
-        ALTER TABLE manufacturers ADD COLUMN IF NOT EXISTS provisional BOOLEAN NOT NULL DEFAULT FALSE;
-        ALTER TABLE manufacturer_aliases ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'person';
+        ALTER TABLE supply_manufacturers ADD COLUMN IF NOT EXISTS provisional BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE supply_manufacturer_aliases ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'person';
 
-        CREATE TABLE IF NOT EXISTS part_spellings (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_spellings (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             alias_key TEXT NOT NULL,
             alias_text TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'learned',
             at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (part_id, alias_key)
         );
-        CREATE INDEX IF NOT EXISTS idx_part_spellings_key ON part_spellings (alias_key);
+        CREATE INDEX IF NOT EXISTS idx_supply_part_spellings_key ON supply_part_spellings (alias_key);
 
-        CREATE TABLE IF NOT EXISTS alias_rejections (
+        CREATE TABLE IF NOT EXISTS supply_alias_rejections (
             alias_key TEXT NOT NULL,
-            manufacturer_id TEXT NOT NULL REFERENCES manufacturers(id) ON DELETE CASCADE,
+            manufacturer_id TEXT NOT NULL REFERENCES supply_manufacturers(id) ON DELETE CASCADE,
             rejected_by TEXT NOT NULL DEFAULT '',
             at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (alias_key, manufacturer_id)
@@ -764,8 +764,8 @@ def _m057_part_numbers(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS part_numbers (
-            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS supply_part_numbers (
+            part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
             mpn TEXT NOT NULL,
             match_key TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'person',
@@ -773,7 +773,7 @@ def _m057_part_numbers(conn) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             PRIMARY KEY (part_id, match_key)
         );
-        CREATE INDEX IF NOT EXISTS idx_part_numbers_key ON part_numbers (match_key);
+        CREATE INDEX IF NOT EXISTS idx_supply_part_numbers_key ON supply_part_numbers (match_key);
         """,
         prepare=False,
     )
@@ -782,13 +782,13 @@ def _m057_part_numbers(conn) -> None:
 def _m058_buying_for(conn) -> None:
     """What a tracked project buys for: prototypes (cut tape, small orders) or production (reels)."""
 
-    conn.execute("ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS buying_for TEXT NOT NULL DEFAULT 'prototypes'", prepare=False)
+    conn.execute("ALTER TABLE supply_tracked_projects ADD COLUMN IF NOT EXISTS buying_for TEXT NOT NULL DEFAULT 'prototypes'", prepare=False)
 
 
 def _m059_ask_maker(conn) -> None:
     """A part whose maker a person took back from Prism: it is asked about again instead of settling by itself."""
 
-    conn.execute("ALTER TABLE parts ADD COLUMN IF NOT EXISTS ask_maker BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
+    conn.execute("ALTER TABLE supply_parts ADD COLUMN IF NOT EXISTS ask_maker BOOLEAN NOT NULL DEFAULT FALSE", prepare=False)
 
 
 def _m060_maker_seeds(conn) -> None:
@@ -796,13 +796,13 @@ def _m060_maker_seeds(conn) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS maker_seeds (
+        CREATE TABLE IF NOT EXISTS supply_maker_seeds (
             alias_key TEXT PRIMARY KEY,
             group_key TEXT NOT NULL,
             alias_text TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'seeded'
         );
-        CREATE INDEX IF NOT EXISTS idx_maker_seeds_group ON maker_seeds (group_key);
+        CREATE INDEX IF NOT EXISTS idx_supply_maker_seeds_group ON supply_maker_seeds (group_key);
         """,
         prepare=False,
     )
@@ -813,6 +813,6 @@ def _m060_maker_seeds(conn) -> None:
         head = alias_key(group[0])
         for spelling in group:
             conn.execute(
-                "INSERT INTO maker_seeds (alias_key, group_key, alias_text) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                "INSERT INTO supply_maker_seeds (alias_key, group_key, alias_text) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (alias_key(spelling), head, spelling.title() if spelling.islower() and len(spelling) > 3 else spelling.upper() if len(spelling) <= 3 else spelling),
             )

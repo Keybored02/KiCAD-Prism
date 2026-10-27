@@ -48,7 +48,7 @@ def _accounts(conn) -> tuple[list[_Account], dict[str, tuple[Any, ProviderSpec]]
     groups: dict[str, list[Any]] = defaultdict(list)
     first_of: dict[str, Any] = {}
     for row in conn.execute(
-        "SELECT id, provider, display_name, account_key, daily_budget, interactive_reserve_pct FROM connectors "
+        "SELECT id, provider, display_name, account_key, daily_budget, interactive_reserve_pct FROM supply_connectors "
         "WHERE enabled ORDER BY created_at, id"
     ).fetchall():
         try:
@@ -91,21 +91,21 @@ def _eligible(spec: ProviderSpec, connector_id: str, reasons: list[dict], restri
 def _inputs(conn) -> dict[str, Any]:
     tiers = {
         row["part_id"]: (int(row["tier"]), row["rate"], row["reasons"])
-        for row in conn.execute("SELECT part_id, tier, rate, reasons FROM part_tiers").fetchall()
+        for row in conn.execute("SELECT part_id, tier, rate, reasons FROM supply_part_tiers").fetchall()
     }
     restrictions = {
         row["project_id"]: (set(row["excluded_ids"] or []), set(row["assembly_ids"] or []))
-        for row in conn.execute("SELECT project_id, excluded_ids, assembly_ids FROM tracked_projects").fetchall()
+        for row in conn.execute("SELECT project_id, excluded_ids, assembly_ids FROM supply_tracked_projects").fetchall()
     }
     listed: dict[tuple[str, str], int] = {
         (row["part_id"], row["connector_id"]): int(row["n"])
         for row in conn.execute(
-            "SELECT part_id, connector_id, COUNT(*) AS n FROM listings WHERE match_state IN ('exact', 'manual') "
+            "SELECT part_id, connector_id, COUNT(*) AS n FROM supply_listings WHERE match_state IN ('exact', 'manual') "
             "GROUP BY part_id, connector_id"
         ).fetchall()
     }
-    picked = {(row["part_id"], row["connector_id"]) for row in conn.execute("SELECT part_id, connector_id FROM packaging_picks").fetchall()}
-    searched = {(row["part_id"], row["connector_id"]) for row in conn.execute("SELECT part_id, connector_id FROM discovery_runs").fetchall()}
+    picked = {(row["part_id"], row["connector_id"]) for row in conn.execute("SELECT part_id, connector_id FROM supply_packaging_picks").fetchall()}
+    searched = {(row["part_id"], row["connector_id"]) for row in conn.execute("SELECT part_id, connector_id FROM supply_discovery_runs").fetchall()}
     carried: dict[str, list[int]] = defaultdict(list)
     for (part_id, connector_id), count in listed.items():
         carried[connector_id].append(count)
@@ -137,13 +137,13 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
     conn.execute("SELECT pg_advisory_xact_lock(hashtext('supply-admission'))")
     # A pick on a listing that is no longer counted (gone, rejected) is dropped: the part is read at all its listings again.
     conn.execute(
-        "DELETE FROM packaging_picks pk USING listings l WHERE l.id = pk.listing_id AND l.match_state NOT IN ('exact', 'manual')"
+        "DELETE FROM supply_packaging_picks pk USING supply_listings l WHERE l.id = pk.listing_id AND l.match_state NOT IN ('exact', 'manual')"
     )
     accounts, connectors = _accounts(conn)
     data = _inputs(conn)
     existing: dict[tuple[str, str], Any] = {
         (row["part_id"], row["connector_id"]): row
-        for row in conn.execute("SELECT part_id, connector_id, state, since FROM admissions").fetchall()
+        for row in conn.execute("SELECT part_id, connector_id, state, since FROM supply_admissions").fetchall()
     }
     desired: dict[tuple[str, str], float] = {}
     for part_id, (_tier, _rate, reasons) in data["tiers"].items():
@@ -154,7 +154,7 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
     stale = [key for key in existing if key not in desired]
     removed = len(stale)
     for part_id, connector_id in stale:
-        conn.execute("DELETE FROM admissions WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
+        conn.execute("DELETE FROM supply_admissions WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
         existing.pop((part_id, connector_id))
 
     counts = {"admitted": 0, "waiting": 0, "promoted": 0, "demoted": 0, "removed": removed}
@@ -168,7 +168,7 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
             for key, row in sorted(((k, r) for k, r in mine.items() if r["state"] == ADMITTED), key=lambda item: item[1]["since"], reverse=True):
                 if budget.total([used]) <= account.capacity:
                     break
-                conn.execute("UPDATE admissions SET state = 'waiting', since = %s WHERE part_id = %s AND connector_id = %s", (now, *key))
+                conn.execute("UPDATE supply_admissions SET state = 'waiting', since = %s WHERE part_id = %s AND connector_id = %s", (now, *key))
                 used -= desired[key]
                 mine[key] = {**row, "state": WAITING, "since": now}
                 counts["demoted"] += 1
@@ -180,7 +180,7 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
             fits = budget.total([used + desired[key]]) <= account.capacity
             state = ADMITTED if fits else WAITING
             conn.execute(
-                "INSERT INTO admissions (part_id, connector_id, state, since) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", (*key, state, now)
+                "INSERT INTO supply_admissions (part_id, connector_id, state, since) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", (*key, state, now)
             )
             mine[key] = {"state": state, "since": now}
             used += desired[key] if fits else 0
@@ -189,7 +189,7 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
         # Room that has freed goes to the oldest waiting pair that fits.
         for key, row in sorted(((k, r) for k, r in mine.items() if r["state"] == WAITING), key=lambda item: (item[1]["since"], item[0])):
             if budget.total([used + desired[key]]) <= account.capacity:
-                conn.execute("UPDATE admissions SET state = 'admitted', since = %s WHERE part_id = %s AND connector_id = %s", (now, *key))
+                conn.execute("UPDATE supply_admissions SET state = 'admitted', since = %s WHERE part_id = %s AND connector_id = %s", (now, *key))
                 used += desired[key]
                 counts["promoted"] += 1
     return counts
@@ -200,7 +200,7 @@ def status(conn) -> list[dict[str, Any]]:
 
     accounts, connectors = _accounts(conn)
     data = _inputs(conn)
-    rows = conn.execute("SELECT part_id, connector_id, state FROM admissions").fetchall()
+    rows = conn.execute("SELECT part_id, connector_id, state FROM supply_admissions").fetchall()
     result = []
     for account in accounts:
         members = set(account.connector_ids)

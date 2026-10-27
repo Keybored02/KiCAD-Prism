@@ -19,8 +19,8 @@ _WAITING_STATES = (discovery.UNRESOLVED,)
 
 def manufacturers(conn, *, limit: int = 1000) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT m.id, m.name, COUNT(p.id) AS part_count FROM manufacturers m "
-        "LEFT JOIN parts p ON p.manufacturer_id = m.id GROUP BY m.id, m.name ORDER BY lower(m.name) LIMIT %s",
+        "SELECT m.id, m.name, COUNT(p.id) AS part_count FROM supply_manufacturers m "
+        "LEFT JOIN supply_parts p ON p.manufacturer_id = m.id GROUP BY m.id, m.name ORDER BY lower(m.name) LIMIT %s",
         (limit,),
     ).fetchall()
     return [{"id": row["id"], "name": row["name"], "part_count": int(row["part_count"])} for row in rows]
@@ -36,14 +36,14 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.raw_mpn, c.display_name AS connector, p.id AS part_id, p.mpn, p.match_key, m.name AS manufacturer
-        FROM listings l JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        JOIN connectors c ON c.id = l.connector_id
+        FROM supply_listings l JOIN supply_parts p ON p.id = l.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.match_state = 'manual' ORDER BY lower(p.mpn), c.display_name, l.sku LIMIT %s
         """,
         (limit,),
     ).fetchall()
     others: dict[str, set[str]] = {}
-    for item in conn.execute("SELECT part_id, match_key FROM part_numbers").fetchall():
+    for item in conn.execute("SELECT part_id, match_key FROM supply_part_numbers").fetchall():
         others.setdefault(item["part_id"], set()).add(item["match_key"])
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -61,7 +61,7 @@ def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
     waivers = conn.execute(
         """
         SELECT w.id, w.part_id, p.mpn, m.name AS manufacturer, w.check_id, w.scope, w.reason, w.proposed_by, w.proposed_at
-        FROM waivers w JOIN parts p ON p.id = w.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_waivers w JOIN supply_parts p ON p.id = w.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE w.state = 'proposed' ORDER BY w.proposed_at LIMIT %s
         """,
         (limit,),
@@ -75,8 +75,8 @@ def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
     learned = conn.execute(
         """
         SELECT a.alias_key, a.alias_text, m.name AS manufacturer, a.first_seen_at,
-               (SELECT COUNT(*) FROM part_spellings s WHERE s.alias_key = a.alias_key) AS parts
-        FROM manufacturer_aliases a JOIN manufacturers m ON m.id = a.manufacturer_id
+               (SELECT COUNT(*) FROM supply_part_spellings s WHERE s.alias_key = a.alias_key) AS parts
+        FROM supply_manufacturer_aliases a JOIN supply_manufacturers m ON m.id = a.manufacturer_id
         WHERE a.source = 'learned' ORDER BY a.first_seen_at DESC LIMIT %s
         """,
         (limit,),
@@ -84,7 +84,7 @@ def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
     settled = conn.execute(
         """
         SELECT e.subject_id AS part_id, p.mpn, m.name AS manufacturer, e.at
-        FROM audit_events e JOIN parts p ON p.id = e.subject_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_audit_events e JOIN supply_parts p ON p.id = e.subject_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE e.action = 'part.settle' AND e.actor = %s ORDER BY e.at DESC LIMIT %s
         """,
         (settle.SYSTEM, limit),
@@ -104,11 +104,11 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
                l.match_state, l.match_reason, l.first_seen_at, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
                o.reel_size, o.packaging_inferred,
                p.id AS part_id, p.mpn AS part_mpn, m.name AS part_manufacturer
-        FROM listings l
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN offers o ON o.listing_id = l.id
-        LEFT JOIN parts p ON p.id = l.part_id
-        LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_listings l
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_offers o ON o.listing_id = l.id
+        LEFT JOIN supply_parts p ON p.id = l.part_id
+        LEFT JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE l.match_state = ANY(%s)
         ORDER BY l.first_seen_at DESC, l.sku
         LIMIT %s
@@ -118,13 +118,13 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
     counts = {
         row["match_state"]: int(row["n"])
         for row in conn.execute(
-            "SELECT match_state, COUNT(*) AS n FROM listings WHERE match_state = ANY(%s) GROUP BY match_state",
+            "SELECT match_state, COUNT(*) AS n FROM supply_listings WHERE match_state = ANY(%s) GROUP BY match_state",
             (list(_WAITING_STATES),),
         ).fetchall()
     }
     waiting_by_alias: dict[str, int] = {}
     for row in conn.execute(
-        "SELECT raw_manufacturer FROM listings WHERE match_state = %s", (discovery.UNRESOLVED,)
+        "SELECT raw_manufacturer FROM supply_listings WHERE match_state = %s", (discovery.UNRESOLVED,)
     ).fetchall():
         key = alias_key(row["raw_manufacturer"])
         waiting_by_alias[key] = waiting_by_alias.get(key, 0) + 1

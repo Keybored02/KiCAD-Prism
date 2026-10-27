@@ -69,9 +69,9 @@ class CandidateTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("part_params", "part_facts", "parts", "manufacturers"):
+            for table in ("supply_part_params", "supply_part_facts", "supply_parts", "supply_manufacturers"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
 
     def part(self, maker: str, mpn: str, attributes, category: str = "Chip Resistor - Surface Mount") -> str:
         from datetime import datetime, timezone

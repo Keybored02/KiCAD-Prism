@@ -47,7 +47,7 @@ class WatchRecord:
 _SELECT = """
     SELECT w.id, w.part_id, m.name AS manufacturer_name, p.mpn, w.threshold, w.pinned, w.owner, w.created_at, w.packaging,
            w.tier, w.rate, w.origin
-    FROM watches w JOIN parts p ON p.id = w.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+    FROM supply_watches w JOIN supply_parts p ON p.id = w.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
 """
 
 
@@ -75,7 +75,7 @@ def _check_packaging(packaging: Any) -> str:
 
 def _check_pin_room(conn, *, excluding: str | None = None) -> None:
     pinned = conn.execute(
-        "SELECT COUNT(*) AS n FROM watches WHERE pinned AND id IS DISTINCT FROM %s", (excluding,)
+        "SELECT COUNT(*) AS n FROM supply_watches WHERE pinned AND id IS DISTINCT FROM %s", (excluding,)
     ).fetchone()["n"]
     if pinned >= MAX_PINNED:
         raise WatchError(f"At most {MAX_PINNED} parts can be pinned to the fastest polling.")
@@ -123,7 +123,7 @@ def add_watch(
     packaging = _check_packaging(packaging)
     asked_tier = tracking.check_tier(tier, rate or "weekly") if tier is not None else None
     part = parts.ensure_part(conn, manufacturer_name, mpn, actor, may_create=may_create_manufacturer)
-    existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part.id,)).fetchone()
+    existing = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part.id,)).fetchone()
     if existing:
         asked: dict[str, Any] = {}
         if threshold is not None:
@@ -141,11 +141,11 @@ def add_watch(
     watch_id = uuid.uuid4().hex
     new_tier, new_rate = asked_tier or (tracking.TIER_2, "weekly")
     created = conn.execute(
-        "INSERT INTO watches (id, part_id, threshold, pinned, packaging, tier, rate, origin, owner, created_by) "
+        "INSERT INTO supply_watches (id, part_id, threshold, pinned, packaging, tier, rate, origin, owner, created_by) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (part_id) DO NOTHING RETURNING id",
         (watch_id, part.id, threshold, pinned, packaging, new_tier, new_rate, origin, actor, actor),
     ).fetchone()
-    row = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part.id,)).fetchone()
+    row = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part.id,)).fetchone()
     if created:
         write_audit(conn, actor, "watch.add", row["id"],
                     {"part_id": part.id, "threshold": threshold, "pinned": pinned, "packaging": packaging,
@@ -184,7 +184,7 @@ def update_watch(
         return current
     # Column names come from the fixed set above, never from the caller.
     assignments = ", ".join(f"{column} = %s" for column in changes)
-    conn.execute(f"UPDATE watches SET {assignments}, updated_at = NOW() WHERE id = %s", (*changes.values(), watch_id))
+    conn.execute(f"UPDATE supply_watches SET {assignments}, updated_at = NOW() WHERE id = %s", (*changes.values(), watch_id))
     before = {field: getattr(current, field) for field in changes}
     write_audit(conn, actor, "watch.update", watch_id, {"before": before, "after": changes}, subject_kind="watch")
     tracking.recompute(conn, [current.part_id])
@@ -197,7 +197,7 @@ def set_tier(conn, part_id: str, tier: int, rate: str, actor: str) -> WatchRecor
 
     tier, rate = tracking.check_tier(tier, rate)
     part = parts.get_part(conn, part_id)
-    existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    existing = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     if existing:
         return update_watch(conn, existing["id"], actor, tier=tier, rate=rate)
     record, _created = add_watch(conn, part.manufacturer_name, part.mpn, actor, tier=tier, rate=rate)
@@ -207,7 +207,7 @@ def set_tier(conn, part_id: str, tier: int, rate: str, actor: str) -> WatchRecor
 def stop_tracking(conn, part_id: str, actor: str) -> bool:
     """Take a part out of a person's tracking. It stays followed for any other reason (a project, a component)."""
 
-    existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    existing = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     if existing is None:
         return False
     remove_watch(conn, existing["id"], actor)
@@ -217,7 +217,7 @@ def stop_tracking(conn, part_id: str, actor: str) -> bool:
 def remove_watch(conn, watch_id: str, actor: str) -> None:
     actor = actor_text(actor)
     current = get_watch(conn, watch_id)
-    conn.execute("DELETE FROM watches WHERE id = %s", (watch_id,))
+    conn.execute("DELETE FROM supply_watches WHERE id = %s", (watch_id,))
     if current.origin == "component":
         # A watch a component asked for comes back with the next sync unless the component watch goes too.
         from app.services.supply import component_watches

@@ -34,7 +34,7 @@ def counted_listing_sql(listing: str = "l", connector: str = "c") -> str:
 
     limited = ", ".join(f"'{key}'" for key in budget.providers_limited_by_picks() if key.replace("_", "").isalnum())
     return (
-        f"({connector}.provider <> ALL(ARRAY[{limited}]::text[]) OR NOT EXISTS (SELECT 1 FROM packaging_picks pk "
+        f"({connector}.provider <> ALL(ARRAY[{limited}]::text[]) OR NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk "
         f"WHERE pk.part_id = {listing}.part_id AND pk.connector_id = {listing}.connector_id AND pk.listing_id <> {listing}.id))"
     )
 
@@ -95,12 +95,12 @@ def part_stock(conn, part_id: str) -> PartStock:
     rows = conn.execute(
         """
         SELECT l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at, o.packaging
-        FROM listings l
-        JOIN offers o ON o.listing_id = l.id
-        JOIN connectors c ON c.id = l.connector_id
+        FROM supply_listings l
+        JOIN supply_offers o ON o.listing_id = l.id
+        JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND {counted}
         """.replace("{counted}", counted_listing_sql()),
         (part_id,),
     ).fetchall()
-    watch = conn.execute("SELECT packaging FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     return aggregate(rows, watch["packaging"] if watch else "any")

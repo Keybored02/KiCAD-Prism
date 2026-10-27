@@ -24,7 +24,7 @@ class ComponentWatchError(ValueError):
 
 def get(conn, component_id: str) -> dict[str, Any] | None:
     row = conn.execute(
-        "SELECT component_id, packaging, tier, rate, owner FROM component_watches WHERE component_id = %s", (component_id,)
+        "SELECT component_id, packaging, tier, rate, owner FROM supply_component_watches WHERE component_id = %s", (component_id,)
     ).fetchone()
     return dict(row) if row else None
 
@@ -45,7 +45,7 @@ def set_watch(
         raise ComponentWatchError("The component needs a manufacturer and a part number before it can be watched.")
     conn.execute(
         """
-        INSERT INTO component_watches (component_id, packaging, tier, rate, owner, created_by)
+        INSERT INTO supply_component_watches (component_id, packaging, tier, rate, owner, created_by)
         VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (component_id) DO UPDATE SET packaging = EXCLUDED.packaging, tier = EXCLUDED.tier, rate = EXCLUDED.rate
         """,
@@ -60,7 +60,7 @@ def set_watch(
 
 def remove_watch(conn, component_id: str, actor: str) -> None:
     actor = actor_text(actor)
-    conn.execute("DELETE FROM component_watches WHERE component_id = %s", (component_id,))
+    conn.execute("DELETE FROM supply_component_watches WHERE component_id = %s", (component_id,))
     write_audit(conn, actor, "component_watch.remove", component_id, {}, subject_kind="component")
 
 
@@ -69,7 +69,7 @@ def forget_part(conn, part_id: str) -> int:
 
     from app.services.supply import catalog_read, parts
 
-    ids = [row["component_id"] for row in conn.execute("SELECT component_id FROM component_watches").fetchall()]
+    ids = [row["component_id"] for row in conn.execute("SELECT component_id FROM supply_component_watches").fetchall()]
     if not ids:
         return 0
     try:
@@ -82,7 +82,7 @@ def forget_part(conn, part_id: str) -> int:
         if part is not None and part.id == part_id:
             gone.append(component_id)
     if gone:
-        conn.execute("DELETE FROM component_watches WHERE component_id = ANY(%s)", (gone,))
+        conn.execute("DELETE FROM supply_component_watches WHERE component_id = ANY(%s)", (gone,))
     return len(gone)
 
 
@@ -112,6 +112,6 @@ def sync_component(conn, component_id: str, identities: Identities, actor: str =
 
 def sync_all(conn, identities: Identities) -> int:
     added = 0
-    for row in conn.execute("SELECT component_id FROM component_watches ORDER BY component_id").fetchall():
+    for row in conn.execute("SELECT component_id FROM supply_component_watches ORDER BY component_id").fetchall():
         added += sync_component(conn, row["component_id"], identities)
     return added

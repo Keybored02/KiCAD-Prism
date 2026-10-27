@@ -117,7 +117,7 @@ def _event(conn, project: Any, roles: Sequence[str], before: Mapping[str, tuple[
         "removed": [{"manufacturer": maker, "mpn": mpn} for maker, mpn in removed[:MAX_NAMED]],
         "visible_roles": list(roles),
     }
-    conn.execute("INSERT INTO events (at, kind, payload) VALUES (%s, %s, %s::jsonb)", (now, EVENT_KIND, json.dumps(payload)))
+    conn.execute("INSERT INTO supply_events (at, kind, payload) VALUES (%s, %s, %s::jsonb)", (now, EVENT_KIND, json.dumps(payload)))
 
 
 def refresh_tracked(

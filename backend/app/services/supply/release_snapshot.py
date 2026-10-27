@@ -32,9 +32,9 @@ def artifact_key(build_id: str) -> str:
 def _state(conn, project_id: str, build_id: str, state: str, reason: str = "", *, attempt: bool = False) -> None:
     conn.execute(
         """
-        INSERT INTO release_snapshot_jobs (build_id, project_id, state, reason, attempts) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_release_snapshot_jobs (build_id, project_id, state, reason, attempts) VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (build_id) DO UPDATE SET state = EXCLUDED.state, reason = EXCLUDED.reason, updated_at = NOW(),
-            attempts = release_snapshot_jobs.attempts + %s
+            attempts = supply_release_snapshot_jobs.attempts + %s
         """,
         (build_id, project_id, state, reason[:300], 1 if attempt else 0, 1 if attempt else 0),
     )
@@ -43,9 +43,9 @@ def _state(conn, project_id: str, build_id: str, state: str, reason: str = "", *
 def status_of(conn, project_id: str, build_id: str) -> dict[str, Any]:
     """Whether a release has its snapshot: ``taken``, ``queued``, or ``failed`` with the reason. ``none`` when nothing was asked."""
 
-    if conn.execute("SELECT 1 FROM release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)).fetchone():
+    if conn.execute("SELECT 1 FROM supply_release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)).fetchone():
         return {"state": "taken", "reason": ""}
-    row = conn.execute("SELECT state, reason FROM release_snapshot_jobs WHERE build_id = %s AND project_id = %s", (build_id, project_id)).fetchone()
+    row = conn.execute("SELECT state, reason FROM supply_release_snapshot_jobs WHERE build_id = %s AND project_id = %s", (build_id, project_id)).fetchone()
     if row is None:
         return {"state": "none", "reason": ""}
     return {"state": "taken" if row["state"] == "done" else row["state"], "reason": row["reason"]}

@@ -18,7 +18,7 @@ class PreferenceError(ValueError):
 
 
 def get(conn, part_id: str) -> str | None:
-    row = conn.execute("SELECT connector_id FROM part_preferences WHERE part_id = %s", (part_id,)).fetchone()
+    row = conn.execute("SELECT connector_id FROM supply_part_preferences WHERE part_id = %s", (part_id,)).fetchone()
     return row["connector_id"] if row else None
 
 
@@ -27,7 +27,7 @@ def of_parts(conn, part_ids: list[str]) -> dict[str, str]:
         return {}
     return {
         row["part_id"]: row["connector_id"]
-        for row in conn.execute("SELECT part_id, connector_id FROM part_preferences WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+        for row in conn.execute("SELECT part_id, connector_id FROM supply_part_preferences WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
     }
 
 
@@ -35,14 +35,14 @@ def set_preferred(conn, part_id: str, connector_id: str, actor: str) -> None:
     actor = actor_text(actor)
     parts.get_part(conn, part_id)
     listed = conn.execute(
-        "SELECT 1 FROM listings WHERE part_id = %s AND connector_id = %s AND match_state = ANY(%s) LIMIT 1", (part_id, connector_id, list(COUNTED))
+        "SELECT 1 FROM supply_listings WHERE part_id = %s AND connector_id = %s AND match_state = ANY(%s) LIMIT 1", (part_id, connector_id, list(COUNTED))
     ).fetchone()
     if listed is None:
         raise PreferenceError("This distributor does not list the part.")
     before = get(conn, part_id)
     conn.execute(
         """
-        INSERT INTO part_preferences (part_id, connector_id, set_by) VALUES (%s, %s, %s)
+        INSERT INTO supply_part_preferences (part_id, connector_id, set_by) VALUES (%s, %s, %s)
         ON CONFLICT (part_id) DO UPDATE SET connector_id = EXCLUDED.connector_id, set_by = EXCLUDED.set_by, set_at = NOW()
         """,
         (part_id, connector_id, actor),
@@ -53,7 +53,7 @@ def set_preferred(conn, part_id: str, connector_id: str, actor: str) -> None:
 def clear(conn, part_id: str, actor: str) -> bool:
     actor = actor_text(actor)
     before = get(conn, part_id)
-    removed = conn.execute("DELETE FROM part_preferences WHERE part_id = %s", (part_id,)).rowcount
+    removed = conn.execute("DELETE FROM supply_part_preferences WHERE part_id = %s", (part_id,)).rowcount
     if removed:
         write_audit(conn, actor, "part.prefer", part_id, {"before": before, "after": None}, subject_kind="part")
     return bool(removed)

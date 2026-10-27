@@ -108,7 +108,7 @@ class DatabaseTests(unittest.TestCase):
     def setUp(self) -> None:
         limits._last.clear()
         with self.store.connection() as conn:
-            for table in ("limit_marks", "quota_ledger", "call_counts", "connectors"):
+            for table in ("supply_limit_marks", "supply_quota_ledger", "supply_call_counts", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor="ana@example.com", provider="demo_limits", currency="EUR", daily_budget=1000)["id"]
 
@@ -124,7 +124,7 @@ class DatabaseTests(unittest.TestCase):
         limits.note(self.store, self.cid, reading, at(1, 10, 5))
         limits.note(self.store, self.cid, {**reading, "x-ratelimit-remaining": "464"}, at(1, 10, 6))
         with self.store.connection() as conn:
-            count = conn.execute("SELECT COUNT(*) AS n FROM limit_marks").fetchone()["n"]
+            count = conn.execute("SELECT COUNT(*) AS n FROM supply_limit_marks").fetchone()["n"]
         self.assertEqual(count, 2)
         self.assertEqual(self.connectors.get(self.cid)["rate_limits"]["api"]["x-ratelimit-remaining"], "464")
 
@@ -161,7 +161,7 @@ class DatabaseTests(unittest.TestCase):
             for day, before, after in ((1, (21, 50), (23, 10)), (2, (22, 20), (22, 55))):
                 for moment, left in ((at(day, *before), 40), (at(day, *after), 1000)):
                     conn.execute(
-                        "INSERT INTO limit_marks (connector_id, at, kind, remaining, quota) VALUES (%s, %s, 'remaining', %s, 1000)",
+                        "INSERT INTO supply_limit_marks (connector_id, at, kind, remaining, quota) VALUES (%s, %s, 'remaining', %s, 1000)",
                         (self.cid, moment, left),
                     )
         self.connectors._clock = lambda: at(3, 12)
@@ -173,15 +173,15 @@ class DatabaseTests(unittest.TestCase):
         now = at(1, 12)
         limits.note_refused(self.store, self.cid, now)
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM limit_marks").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_limit_marks").fetchone()["n"], 0)
         ledger.record_calls(self.store, self.cid, 900, now=now)
         limits.note_refused(self.store, self.cid, now)
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT kind FROM limit_marks").fetchone()["kind"], "refused")
+            self.assertEqual(conn.execute("SELECT kind FROM supply_limit_marks").fetchone()["kind"], "refused")
             limits.note_ok(conn, self.cid, now + timedelta(hours=2))
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM limit_marks WHERE kind = 'ok'").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_limit_marks WHERE kind = 'ok'").fetchone()["n"], 1)
             limits.note_ok(conn, self.cid, now + timedelta(hours=3))
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM limit_marks WHERE kind = 'ok'").fetchone()["n"], 1, "only after a refusal")
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_limit_marks WHERE kind = 'ok'").fetchone()["n"], 1, "only after a refusal")
 
 
 if __name__ == "__main__":

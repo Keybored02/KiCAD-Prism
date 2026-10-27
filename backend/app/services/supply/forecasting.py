@@ -78,7 +78,7 @@ def store(
         raise ValueError(f"Unknown forecast target: {target}")
     row = conn.execute(
         """
-        INSERT INTO forecasts (subject_kind, subject_id, scope, target, made_on, horizon_days, quantity, median, low, high, probability, model, model_version, inputs)
+        INSERT INTO supply_forecasts (subject_kind, subject_id, scope, target, made_on, horizon_days, quantity, median, low, high, probability, model, model_version, inputs)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
         ON CONFLICT (subject_kind, subject_id, scope, target, made_on) DO UPDATE SET
             horizon_days = EXCLUDED.horizon_days, quantity = EXCLUDED.quantity, median = EXCLUDED.median, low = EXCLUDED.low,
@@ -88,14 +88,14 @@ def store(
         """,
         (subject_kind, subject_id, scope, target, made_on, horizon_days, quantity, median, low, high, probability, model, version, json.dumps(dict(inputs or {}))),
     ).fetchone()
-    conn.execute("DELETE FROM forecast_checks WHERE forecast_id = %s", (row["id"],))
+    conn.execute("DELETE FROM supply_forecast_checks WHERE forecast_id = %s", (row["id"],))
     return int(row["id"])
 
 
 def forget_old(conn, today: date) -> int:
     """Drop forecasts older than a year."""
 
-    return conn.execute("DELETE FROM forecasts WHERE made_on < %s", (today - timedelta(days=KEEP_DAYS),)).rowcount
+    return conn.execute("DELETE FROM supply_forecasts WHERE made_on < %s", (today - timedelta(days=KEEP_DAYS),)).rowcount
 
 
 # --- checking --------------------------------------------------------------
@@ -106,7 +106,7 @@ def due(conn, today: date, limit: int = 2000) -> list[dict[str, Any]]:
 
     return [dict(row) for row in conn.execute(
         """
-        SELECT f.* FROM forecasts f LEFT JOIN forecast_checks c ON c.forecast_id = f.id
+        SELECT f.* FROM supply_forecasts f LEFT JOIN supply_forecast_checks c ON c.forecast_id = f.id
         WHERE c.forecast_id IS NULL AND f.made_on + f.horizon_days <= %s ORDER BY f.made_on LIMIT %s
         """,
         (today, limit),
@@ -115,7 +115,7 @@ def due(conn, today: date, limit: int = 2000) -> list[dict[str, Any]]:
 
 def record_check(conn, forecast_id: int, today: date, *, observed: float | None, inside: bool | None, void: bool = False) -> None:
     conn.execute(
-        "INSERT INTO forecast_checks (forecast_id, checked_on, observed, inside, void) VALUES (%s, %s, %s, %s, %s) "
+        "INSERT INTO supply_forecast_checks (forecast_id, checked_on, observed, inside, void) VALUES (%s, %s, %s, %s, %s) "
         "ON CONFLICT (forecast_id) DO UPDATE SET checked_on = EXCLUDED.checked_on, observed = EXCLUDED.observed, inside = EXCLUDED.inside, void = EXCLUDED.void",
         (forecast_id, today, observed, inside, void),
     )
@@ -147,7 +147,7 @@ def verdict(kind: str, rows: Sequence[Mapping[str, Any]]) -> tuple[bool, float |
 def _checks(conn, target: str) -> list[dict[str, Any]]:
     return [dict(row) for row in conn.execute(
         """
-        SELECT f.probability, c.observed, c.inside FROM forecast_checks c JOIN forecasts f ON f.id = c.forecast_id
+        SELECT f.probability, c.observed, c.inside FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id
         WHERE f.target = %s AND NOT c.void ORDER BY f.made_on DESC, f.id DESC LIMIT %s
         """,
         (target, RECENT_CHECKS),
@@ -161,7 +161,7 @@ def update_models(conn, now: datetime | None = None) -> dict[str, str]:
     states: dict[str, str] = {}
     for name, target in TARGETS.items():
         rows = _checks(conn, name)
-        before = conn.execute("SELECT state, since FROM forecast_models WHERE target = %s", (name,)).fetchone()
+        before = conn.execute("SELECT state, since FROM supply_forecast_models WHERE target = %s", (name,)).fetchone()
         was = before["state"] if before else LEARNING
         holds, score = verdict(target.kind, rows)
         if len(rows) < target.min_checks:
@@ -179,7 +179,7 @@ def update_models(conn, now: datetime | None = None) -> dict[str, str]:
         since = before["since"] if before and before["state"] == state and before["since"] else (now if state == SHOWN else None)
         conn.execute(
             """
-            INSERT INTO forecast_models (target, state, checks, coverage, since, reason, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO supply_forecast_models (target, state, checks, coverage, since, reason, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (target) DO UPDATE SET state = EXCLUDED.state, checks = EXCLUDED.checks, coverage = EXCLUDED.coverage,
                 since = EXCLUDED.since, reason = EXCLUDED.reason, updated_at = EXCLUDED.updated_at
             """,
@@ -200,7 +200,7 @@ def _miss_text(kind: str, score: float | None) -> str:
 def model_states(conn) -> dict[str, dict[str, Any]]:
     """Every target with its state, checks needed and score. A target never worked out is learning with zero checks."""
 
-    found = {row["target"]: dict(row) for row in conn.execute("SELECT * FROM forecast_models").fetchall()}
+    found = {row["target"]: dict(row) for row in conn.execute("SELECT * FROM supply_forecast_models").fetchall()}
     result = {}
     for name, target in TARGETS.items():
         row = found.get(name) or {}
