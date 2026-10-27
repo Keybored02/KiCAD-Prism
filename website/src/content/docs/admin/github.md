@@ -27,7 +27,9 @@ GITHUB_TOKEN=<token>
 ```
 
 The token is used only for `https://github.com/` remotes, and is handed to Git
-one command at a time rather than stored on disk.
+one command at a time rather than stored on disk. For a GitHub Enterprise Server
+or another Git server, see
+[Git credentials](/KiCAD-Prism/admin/configuration/#git-credentials).
 
 ## Publish releases
 
