@@ -8,6 +8,8 @@ highest any source gives it, and ``part_tiers`` keeps the sources as its reasons
 * ``component``: a watch made for a catalog component or its approved alternate
 * ``legacy``: a watch from before tiers existed (tier 2)
 
+Only library parts get a tier (decision D12): a project line with no library component is reported, never followed.
+
 Functions on a connection; none commit. ``recompute`` is the one place ``part_tiers`` is written.
 """
 
@@ -17,7 +19,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
-from app.services.supply import admission, packaging_auto, parts, usage
+from app.services.supply import admission, component_parts, packaging_auto, parts, usage
 from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
@@ -165,8 +167,10 @@ def track_project(
         try:
             with conn.transaction():
                 before = parts.find_part(conn, line["manufacturer"], line["mpn"])
-                parts.ensure_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
+                component_parts.library_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
                 created += 0 if before else 1
+        except component_parts.NotInLibrary:
+            skipped.append({"mpn": line["mpn"], "reason": "not_in_library", "manufacturer": line["manufacturer"].strip()})
         except parts.UnknownManufacturer:
             # Several makers have this number and the line does not say which: a person picks (section 11 of the plan).
             skipped.append({
@@ -289,8 +293,10 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
         for line in rows:
             try:
                 with conn.transaction():
-                    parts.ensure_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
+                    component_parts.library_part(conn, line["manufacturer"], line["mpn"], actor, may_create=may_create_manufacturer)
                     created += 1
+            except component_parts.NotInLibrary:
+                continue  # not in the Component Database: shown on the project, never followed
             except parts.UnknownManufacturer:
                 continue  # several makers have this number and the line does not say which: it waits for a choice
     recompute(conn)
@@ -368,7 +374,8 @@ def _sources(conn, part_ids: Sequence[str] | None) -> dict[str, list[dict[str, A
         found.setdefault(row["part_id"], []).append(
             {"kind": "project", "ref": row["project_id"], "variant": row["variant"], "tier": TIER_1, "rate": "daily"}
         )
-    return found
+    library = component_parts.in_library(conn, found)
+    return {part_id: reasons for part_id, reasons in found.items() if part_id in library}
 
 
 def _decide(reasons: list[dict[str, Any]]) -> tuple[int, str]:

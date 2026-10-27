@@ -32,7 +32,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import attrition, ending_parts, fx, parts, parts_view, preferences, pricing, usage, watches
+from app.services.supply import attrition, component_parts, ending_parts, fx, parts, parts_view, preferences, pricing, usage, watches
 from app.services.supply.assessment import line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
@@ -610,6 +610,9 @@ def watch_lines(
                 record, created = watches.add_watch(conn, maker, mpn, actor, tier=tier, rate=rate, may_create_manufacturer=may_create_manufacturer)
                 if lcsc_connector and line.lcsc:
                     linked += _link_lcsc(conn, lcsc_connector, line.lcsc, record.part_id, mpn, maker, actor)
+        except component_parts.NotInLibrary:
+            skipped.append({"key": line.key, "reason": "not_in_library"})
+            continue
         except parts.UnknownManufacturer:
             skipped.append({"key": line.key, "reason": "needs_choice"})
             continue

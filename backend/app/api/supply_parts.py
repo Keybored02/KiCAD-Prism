@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import catalog_read, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review, watches
+from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -49,6 +49,8 @@ def _store():
 def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, (watches.WatchNotFound, parts.PartNotFound)):
         return HTTPException(status_code=404, detail="Not found")
+    if isinstance(exc, component_parts.NotInLibrary):
+        return HTTPException(status_code=400, detail={"code": "not_in_library", "message": str(exc)})
     if isinstance(exc, parts.UnknownManufacturer):
         return HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)})
     if isinstance(exc, watches.WatchError):
