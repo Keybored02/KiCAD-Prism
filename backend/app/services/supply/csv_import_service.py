@@ -5,7 +5,8 @@ from __future__ import annotations
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorError, ConnectorService
 from app.services.supply.csv_format import ParsedCsv, parse_offers_csv
-from app.services.supply.csv_offers import PROVIDER_KEY, CsvImportInfo, CsvOfferStore
+from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
+from app.services.supply.providers import registry
 from app.services.supply.store import SupplyStore, supply_store
 
 
@@ -60,6 +61,10 @@ class CsvImportService:
 
     def _require_csv_connector(self, connector_id: str) -> dict:
         connector = self._connectors.get(connector_id)
-        if connector["provider"] != PROVIDER_KEY:
-            raise ConnectorError("not_csv", "Only a CSV connector takes an offers file.")
+        try:
+            csv_fed = registry.get_spec(connector["provider"]).csv_fed
+        except registry.UnknownProvider:
+            csv_fed = False  # a plugin was removed; its connector cannot be fed a file
+        if not csv_fed:
+            raise ConnectorError("not_csv", "Only a CSV-fed connector takes an offers file.")
         return connector

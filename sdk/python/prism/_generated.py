@@ -3794,6 +3794,14 @@ class SheetPdf(TypedDict, total=True):
     released_digest: str
 
 
+class SheetRequest(TypedDict, total=True):
+    xlsx_base64: str
+
+
+class SheetRows(TypedDict, total=True):
+    rows: list[list[str]]
+
+
 class SimilarIn(TypedDict, total=True):
     connector_id: str
     packaging: str
@@ -7491,6 +7499,14 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
             path_params={"project_id": project_id, "setup_id": setup_id},
+        )
+
+    def read_sheet(self, *, body: dict[str, Any] | None = None) -> SheetRows:
+        """Read Sheet"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/sheet",
+            body=body,
         )
 
     def ready(self) -> dict[str, Any]:

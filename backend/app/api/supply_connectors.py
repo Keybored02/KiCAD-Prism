@@ -118,6 +118,7 @@ def _provider_dto(spec) -> dict[str, Any]:
         "storefronts": list(spec.storefronts),
         "default_daily_budget": spec.default_daily_budget,
         "metered": spec.metered,
+        "csv_fed": spec.csv_fed,
     }
 
 

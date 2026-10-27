@@ -60,7 +60,8 @@ class SupplyPartsApiTests(unittest.TestCase):
         from app.services.postgres_database import database
         from app.services.supply import discoverer, parts, poller, watches
         from app.services.supply.connectors import ConnectorService
-        from app.services.supply.providers.base import ProviderConfig
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderConfig, ProviderSpec
         from app.services.supply.providers.fake import FakeProvider
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
@@ -69,6 +70,12 @@ class SupplyPartsApiTests(unittest.TestCase):
         cls.discoverer, cls.poller = discoverer, poller
         cls.FakeProvider, cls.ProviderConfig = FakeProvider, ProviderConfig
         cls.AuthenticatedUser = AuthenticatedUser
+        cls.registry = registry
+        # A provider that pays a call for each listing, so a packaging pick has something to save.
+        registry.register(ProviderSpec(
+            key="pick_demo", label="Pick demo", capabilities=frozenset({"search", "offers"}), max_batch=1,
+            stock_pooling="separate", credential_fields=(), factory=lambda config: FakeProvider(config), default_daily_budget=1000,
+        ), replace=True)
         cls.users = {
             role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             for role in ("viewer", "qa", "designer", "admin")
@@ -86,6 +93,7 @@ class SupplyPartsApiTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.patcher.stop()
+        cls.registry.unregister("pick_demo")
         from support.postgres import APPLICATION_URL, drop_schema
 
         drop_schema(cls.store.schema, url=APPLICATION_URL)
@@ -341,7 +349,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         finally:
             registry.unregister("demo_chart")
 
-    def test_stock_history_leaves_out_a_listing_a_pick_stopped_reading_at_lcsc(self) -> None:
+    def test_stock_history_leaves_out_a_listing_a_pick_stopped_reading_at_a_pick_limited_provider(self) -> None:
         from app.services.supply import parts_view
 
         cid = self.fake_connector()
@@ -351,7 +359,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         other = self.insert_listing(part, cid, "HI-OTHER", stock=900, price="0.40")
         now = datetime.now(timezone.utc)
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET provider = 'lcsc' WHERE id = %s", (cid,))
+            conn.execute("UPDATE connectors SET provider = 'pick_demo' WHERE id = %s", (cid,))
             conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, picked))
             for listing, amount, when in ((picked, 100, now), (other, 900, now - timedelta(days=10))):
                 conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, when, amount))
@@ -360,17 +368,17 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     def test_the_pick_a_packaging_list_holds_only_where_a_pick_saves_calls(self) -> None:
         cid = self.fake_connector()
-        for mpn in ("PK-FARNELL", "PK-LCSC"):
+        for mpn in ("PK-FARNELL", "PK-PICK"):
             self.watch_via_api(mpn)
-        farnell, lcsc = self.part_row("PK-FARNELL")["id"], self.part_row("PK-LCSC")["id"]
-        other = self.connectors.create(actor=SEED_ACTOR, provider="lcsc", display_name="Other", daily_budget=1000)["id"]
+        farnell, pick = self.part_row("PK-FARNELL")["id"], self.part_row("PK-PICK")["id"]
+        other = self.connectors.create(actor=SEED_ACTOR, provider="pick_demo", display_name="Other", daily_budget=1000)["id"]
         with self.store.connection() as conn:
             conn.execute("UPDATE connectors SET provider = 'farnell' WHERE id = %s", (cid,))
-        for part, connector, provider in ((farnell, cid, "farnell"), (lcsc, other, "lcsc")):
+        for part, connector, provider in ((farnell, cid, "farnell"), (pick, other, "pick_demo")):
             self.insert_listing(part, connector, f"{provider}-1", stock=10)
             self.insert_listing(part, connector, f"{provider}-2", stock=10)
         listed = [item["mpn"] for item in self.call("GET", "/api/supply/parts", query="scope=pick").json["items"]]
-        self.assertEqual(listed, ["PK-LCSC"], "Farnell reads every listing anyway, so a pick saves it nothing")
+        self.assertEqual(listed, ["PK-PICK"], "Farnell reads every listing anyway, so a pick saves it nothing")
 
     def test_watching_twice_is_one_watch(self) -> None:
         first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)

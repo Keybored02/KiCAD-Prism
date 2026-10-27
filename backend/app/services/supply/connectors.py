@@ -484,6 +484,7 @@ class ConnectorService:
             "reset_time": row["reset_time"],
             "reset_tz": row["reset_tz"],
             "metered": spec.metered if spec else True,
+            "csv_fed": bool(spec and spec.csv_fed),
             "assembly_only": bool(spec and spec.assembly_only),
             "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
             "csv_import": csv_import.to_dto() if csv_import else None,

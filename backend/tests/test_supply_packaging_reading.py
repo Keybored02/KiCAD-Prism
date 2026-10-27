@@ -1,11 +1,9 @@
-"""What each distributor says about packaging, read from recorded answers, and the guesses made when it says nothing."""
+"""What each distributor says about packaging, and the guesses made when it says nothing."""
 
 from __future__ import annotations
 
-import json
 import sys
 import unittest
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,23 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from app.services.supply.providers import packaging_hints  # noqa: E402
 from app.services.supply.vocabulary import Packaging  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "supply"
-NOW = datetime(2026, 10, 17, tzinfo=timezone.utc)
-
-
-def recorded(name: str) -> dict:
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
-
 
 class PackagingReadingTests(unittest.TestCase):
-    def test_lcsc_calls_it_cut_tape_when_it_sells_from_one_piece_though_the_standard_packaging_is_a_reel(self) -> None:
-        from app.services.supply.providers import lcsc
-
-        detail = next(call["answer"] for call in recorded("lcsc_live_74ahc1g09gv.json")["calls"] if call["path"] == "/ftps/wm/product/detail")
-        offer = lcsc._offer(detail["result"] if "result" in detail else detail, NOW)  # noqa: SLF001
-        # "Tape & Reel" is how the maker packs it; the price breaks start at one piece, so what is sold is cut tape.
-        self.assertEqual((offer.packaging, offer.reel_size, offer.packaging_inferred), (Packaging.CUT_TAPE, None, True))
-
     def test_a_reel_is_only_a_reel_where_the_first_price_break_reaches_it(self) -> None:
         self.assertEqual(packaging_hints.sold_as(Packaging.TAPE_REEL, 3000, 1), (Packaging.CUT_TAPE, None, True))
         self.assertEqual(packaging_hints.sold_as(Packaging.TAPE_REEL, 3000, 3000), (Packaging.TAPE_REEL, 3000, False))

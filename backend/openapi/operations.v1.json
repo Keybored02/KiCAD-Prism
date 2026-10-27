@@ -1839,6 +1839,11 @@
     "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
     "typed": true
   },
+  "read_sheet": {
+    "method": "POST",
+    "path": "/api/v1/supply/bom/sheet",
+    "typed": true
+  },
   "ready": {
     "method": "GET",
     "path": "/api/v1/health/ready",

@@ -40,10 +40,20 @@ class PileTests(unittest.TestCase):
         self.assertEqual(stock.aggregate(rows, "custom_reel").total, 100)
 
     def test_the_sql_for_what_counts_names_the_providers_a_pick_limits(self) -> None:
-        sql = stock.counted_listing_sql()
-        self.assertIn("'lcsc'", sql)
-        self.assertIn("'jlcpcb'", sql)
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        registry.register(ProviderSpec(
+            key="pick_demo", label="Pick demo", capabilities=frozenset({"search", "offers"}), max_batch=1,
+            stock_pooling="separate", credential_fields=(), factory=lambda config: None, default_daily_budget=100,
+        ), replace=True)
+        try:
+            sql = stock.counted_listing_sql()
+        finally:
+            registry.unregister("pick_demo")
+        self.assertIn("'pick_demo'", sql)
         self.assertNotIn("'farnell'", sql)
+        self.assertNotIn("'lcsc'", sql, "a CSV-fed connector is not pick-limited: a pick saves it no calls")
 
 
 if __name__ == "__main__":

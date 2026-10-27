@@ -9,6 +9,7 @@ reported, not created.
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 
@@ -18,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import admission, bom_lookup, catalog_read, project_bom, usage
+from app.services.supply import admission, bom_lookup, catalog_read, project_bom, spreadsheet, usage
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -208,5 +209,34 @@ async def watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_su
         with _store().connection() as conn:
             report = admission.apply(conn, _watching(body, user.email, user.role))
         return {**report["result"], "connectors": report["connectors"], "fits_nowhere": report["fits_nowhere"]}
+
+    return await _run(run)
+
+
+# An uploaded BOM is at most 2 MB, the limit the upload form states.
+SHEET_MAX_BYTES = 2 * 1024 * 1024
+SHEET_MAX_UNPACKED = 40 * 1024 * 1024
+
+
+class SheetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    xlsx_base64: str = Field(min_length=1, max_length=SHEET_MAX_BYTES * 4 // 3 + 16)
+
+
+class SheetRows(BaseModel):
+    rows: list[list[str]]
+
+
+@router.post("/sheet")
+async def read_sheet(body: SheetRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> SheetRows:
+    """The first sheet of an uploaded Excel BOM as rows of text. Nothing is stored."""
+
+    def run() -> SheetRows:
+        try:
+            data = base64.b64decode(body.xlsx_base64, validate=True)
+        except ValueError:
+            raise ValueError("The Excel file did not arrive intact.") from None
+        return SheetRows(rows=spreadsheet.first_sheet_rows(data, max_bytes=SHEET_MAX_BYTES, max_unpacked=SHEET_MAX_UNPACKED))
 
     return await _run(run)

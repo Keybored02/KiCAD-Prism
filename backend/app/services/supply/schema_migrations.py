@@ -112,6 +112,7 @@ from app.services.supply.migration_steps.steps_c import (  # noqa: F401
     _m091_remove_approved_parts,
     _m092_usual_build,
     _m093_usual_spares,
+    _m094_csv_jlc_class,
     _m078_forget_cached_prices,
     _m079_forecasts,
 )
@@ -210,6 +211,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (91, "remove_approved_parts", _m091_remove_approved_parts),
     (92, "usual_build", _m092_usual_build),
     (93, "usual_spares", _m093_usual_spares),
+    (94, "csv_jlc_class", _m094_csv_jlc_class),
 ]
 
 

@@ -20309,6 +20309,41 @@
         "title": "SheetPdf",
         "type": "object"
       },
+      "SheetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "xlsx_base64": {
+            "maxLength": 2796218,
+            "minLength": 1,
+            "title": "Xlsx Base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "xlsx_base64"
+        ],
+        "title": "SheetRequest",
+        "type": "object"
+      },
+      "SheetRows": {
+        "properties": {
+          "rows": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "SheetRows",
+        "type": "object"
+      },
       "SimilarIn": {
         "additionalProperties": false,
         "properties": {
@@ -42079,6 +42114,48 @@
           }
         },
         "summary": "Lookup",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/bom/sheet": {
+      "post": {
+        "description": "The first sheet of an uploaded Excel BOM as rows of text. Nothing is stored.",
+        "operationId": "read_sheet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetRows"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Sheet",
         "tags": [
           "supply"
         ]

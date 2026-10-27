@@ -1,6 +1,6 @@
 """Parts distributors suggest in place of a part, as they said them.
 
-Some come free with an offer read (LCSC lists alternate parts, Mouser names a suggested replacement); DigiKey's are asked for and
+Some come free with an offer read (Mouser names a suggested replacement); DigiKey's are asked for and
 kept as ``asked``. Each provider's set for a part is replaced whole on each read, so a suggestion it stops making goes away.
 A suggestion Prism has not compared with the part: it is shown as "suggested by", never as graded.
 

@@ -15,7 +15,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import parts
+from app.services.supply import parts, spreadsheet
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_LIST_BYTES = 5 * 1024 * 1024
@@ -68,28 +68,12 @@ def _from_header(text: str) -> str:
 def csv_from_xlsx(data: bytes) -> str:
     """The first sheet of an Excel file as CSV text, for ``parse_list`` (which finds the header row itself)."""
 
-    import zipfile
-
-    from openpyxl import load_workbook
-
-    if len(data) > MAX_LIST_BYTES:
-        raise ComplianceError("The file is larger than 5 MB.")
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            if sum(item.file_size for item in archive.infolist()) > MAX_XLSX_UNPACKED:
-                raise ComplianceError("The spreadsheet is too large once unpacked.")
-        book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        try:
-            out = io.StringIO()
-            writer = csv.writer(out)
-            for row in book.worksheets[0].iter_rows(values_only=True):
-                writer.writerow(["" if cell is None else (cell.date().isoformat() if isinstance(cell, datetime) else str(cell)) for cell in row])
-        finally:
-            book.close()
-    except ComplianceError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - a damaged or foreign file is the person's to fix, whatever the library raised
-        raise ComplianceError("The file is not a readable Excel spreadsheet. Export it as CSV, or save it again as .xlsx.") from exc
+        rows = spreadsheet.first_sheet_rows(data, max_bytes=MAX_LIST_BYTES, max_unpacked=MAX_XLSX_UNPACKED)
+    except spreadsheet.SpreadsheetError as exc:
+        raise ComplianceError(str(exc)) from exc
+    out = io.StringIO()
+    csv.writer(out).writerows(rows)
     return out.getvalue()
 
 

@@ -593,6 +593,12 @@ export function loadSvhcListXlsx(xlsxBase64: string, sourceName: string): Promis
   return post(`${BASE}/compliance/svhc`, { xlsx_base64: xlsxBase64, source_name: sourceName }, "Could not load the Candidate List");
 }
 
+/** The first sheet of an Excel BOM as rows of text, read by the server. */
+export async function readBomSheet(xlsxBase64: string): Promise<string[][]> {
+  const sheet = await post<{ rows: string[][] }>(`${BASE}/bom/sheet`, { xlsx_base64: xlsxBase64 }, "Could not read the spreadsheet");
+  return sheet.rows;
+}
+
 export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
   return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
 }
