@@ -26,11 +26,11 @@ const mocked = vi.mocked(api);
 const admin: User = { name: "Ana", email: "ana@example.com", role: "admin" };
 
 const csvProvider = providerFixture({
-  key: "csv", label: "CSV import", credential_fields: [], metered: false, default_daily_budget: 0,
+  key: "csv", label: "CSV import", credential_fields: [], metered: false, default_daily_budget: 0, csv_fed: true,
 });
 const csvConnector = (overrides = {}) => connectorFixture({
   id: "f1", provider: "csv", provider_label: "CSV import", display_name: "Price list",
-  credentials: {}, metered: false, daily_budget: 0, ...overrides,
+  credentials: {}, metered: false, csv_fed: true, daily_budget: 0, ...overrides,
 });
 const uploaded = {
   filename: "stock.csv", imported_by: "ana@example.com", imported_at: "2026-03-02T09:00:00Z", row_count: 1240,

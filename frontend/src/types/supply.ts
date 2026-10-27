@@ -17,10 +17,9 @@ export interface SupplyProvider {
   default_daily_budget: number;
   /** False when calls cost nothing (local data), so no call budget applies. */
   metered: boolean;
+  /** The provider's offers come from an uploaded file, not from calls to the distributor. */
+  csv_fed: boolean;
 }
-
-/** The provider whose data comes from an uploaded file. */
-export const CSV_PROVIDER = "csv";
 
 export interface SupplyCsvImport {
   filename: string;
@@ -56,6 +55,8 @@ export interface SupplyConnector {
   /** Days any history is kept, daily rows included; null keeps it for good. */
   keep_days: number | null;
   metered: boolean;
+  /** The connector's offers come from an uploaded file. */
+  csv_fed: boolean;
   /** Read only for a project that names it (JLCPCB: stock that feeds its own assembly). */
   assembly_only?: boolean;
   /** When the provider's day begins, and in which time zone. */
