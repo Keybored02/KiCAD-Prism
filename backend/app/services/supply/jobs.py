@@ -409,9 +409,11 @@ def _sync_component_watches(conn, force: bool = False) -> None:
         return
     _component_sync_at = time.monotonic()
     try:
-        from app.services.supply import catalog_read, component_watches
+        from app.services.supply import catalog_read, component_parts, component_watches
 
         with conn.transaction():
+            # Each component's main part follows its current revision before its watch is synced.
+            component_parts.sync_main(conn)
             component_watches.sync_all(conn, catalog_read.identities)
     except Exception:  # noqa: BLE001 - the catalog may be unavailable; the next job tries again
         logging.getLogger(__name__).info("Component watches not synced", exc_info=True)

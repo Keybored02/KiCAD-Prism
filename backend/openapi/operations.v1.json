@@ -404,6 +404,11 @@
     "path": "/api/v1/supply/dashboard",
     "typed": true
   },
+  "decide_alternate": {
+    "method": "POST",
+    "path": "/api/v1/supply/components/{component_id}/alternates/{part_id}/decision",
+    "typed": true
+  },
   "declare_substance": {
     "method": "POST",
     "path": "/api/v1/supply/parts/{part_id}/substances",
@@ -752,6 +757,11 @@
   "get_component": {
     "method": "GET",
     "path": "/api/v1/remote-provider/components/{component_id}",
+    "typed": true
+  },
+  "get_component_parts": {
+    "method": "GET",
+    "path": "/api/v1/supply/components/{component_id}/parts",
     "typed": true
   },
   "get_component_revision": {
@@ -1744,6 +1754,11 @@
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/promote",
     "typed": true
   },
+  "propose_alternate": {
+    "method": "POST",
+    "path": "/api/v1/supply/components/{component_id}/alternates",
+    "typed": true
+  },
   "propose_waiver": {
     "method": "POST",
     "path": "/api/v1/supply/parts/{part_id}/waivers",
@@ -1932,6 +1947,11 @@
   "release_snapshot_status": {
     "method": "GET",
     "path": "/api/v1/supply/projects/{project_id}/releases/{build_id}/supply-status",
+    "typed": true
+  },
+  "remove_alternate": {
+    "method": "DELETE",
+    "path": "/api/v1/supply/components/{component_id}/alternates/{part_id}",
     "typed": true
   },
   "remove_comment": {

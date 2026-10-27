@@ -54,6 +54,11 @@ class AlignmentRequest(TypedDict, total=False):
     scale: float
 
 
+class AlternateRequest(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+
+
 class AnalyzeRequest(TypedDict, total=False):
     ref: str | None
     url: str
@@ -1116,6 +1121,23 @@ class ComponentPage(TypedDict, total=True):
     total: int | None
 
 
+class ComponentPart(TypedDict, total=True):
+    approval: str
+    created_at: str
+    created_by: str
+    decided_at: str | None
+    decided_by: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    role: str
+
+
+class ComponentParts(TypedDict, total=True):
+    component_id: str
+    parts: list[ComponentPart]
+
+
 class ComponentPayload(TypedDict, total=True):
     """One released component as ``_component_payload`` shapes it for KiCad."""
     assets: list[dict[str, Any]]
@@ -1428,6 +1450,10 @@ class DebugLoggingWindow(TypedDict, total=True):
     """The DEBUG window currently in force."""
     loggers: list[str]
     until: str
+
+
+class DecisionRequest(TypedDict, total=True):
+    approve: bool
 
 
 class Declaration(TypedDict, total=False):
@@ -5183,6 +5209,15 @@ class GeneratedClient:
             "/api/v1/supply/dashboard",
         )
 
+    def decide_alternate(self, component_id: str, part_id: str, *, body: dict[str, Any] | None = None) -> ComponentParts:
+        """Decide Alternate"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/components/{component_id}/alternates/{part_id}/decision",
+            path_params={"component_id": component_id, "part_id": part_id},
+            body=body,
+        )
+
     def declare_substance(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
         """Declare Substance"""
         return self._request(
@@ -5753,6 +5788,14 @@ class GeneratedClient:
             "/api/v1/remote-provider/components/{component_id}",
             path_params={"component_id": component_id},
             query={"representation": representation, "revision": revision},
+        )
+
+    def get_component_parts(self, component_id: str) -> ComponentParts:
+        """Get Component Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/components/{component_id}/parts",
+            path_params={"component_id": component_id},
         )
 
     def get_component_revision(self, component_id: str, revision_id: str) -> CatalogComponent:
@@ -7347,6 +7390,15 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
+    def propose_alternate(self, component_id: str, *, body: dict[str, Any] | None = None) -> ComponentParts:
+        """Propose Alternate"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/components/{component_id}/alternates",
+            path_params={"component_id": component_id},
+            body=body,
+        )
+
     def propose_waiver(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
         """Propose Waiver"""
         return self._request(
@@ -7651,6 +7703,14 @@ class GeneratedClient:
             "GET",
             "/api/v1/supply/projects/{project_id}/releases/{build_id}/supply-status",
             path_params={"project_id": project_id, "build_id": build_id},
+        )
+
+    def remove_alternate(self, component_id: str, part_id: str) -> None:
+        """Remove Alternate"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/components/{component_id}/alternates/{part_id}",
+            path_params={"component_id": component_id, "part_id": part_id},
         )
 
     def remove_comment(self, project_id: str, comment_id: str) -> None:
