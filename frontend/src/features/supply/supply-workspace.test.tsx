@@ -7,7 +7,6 @@ import type { User, UserRole } from "@/types/auth";
 vi.mock("./dashboard-view", () => ({ DashboardView: () => <div>Dashboard content</div> }));
 vi.mock("./insights-view", () => ({ InsightsView: () => <div>Insights content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
-vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
 vi.mock("./projects-view", () => ({ ProjectsView: () => <div>Projects content</div> }));
 
@@ -37,9 +36,9 @@ describe("the Supply section", () => {
     expect(screen.getByRole("tab", { name: "Dashboard" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("has six tabs", async () => {
+  it("has five tabs", async () => {
     renderAt("qa");
-    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Projects", "Review", "Insights", "Connectors"]);
+    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Projects", "Review", "Insights"]);
   });
 
   it("keeps old addresses working", async () => {
@@ -56,11 +55,9 @@ describe("the Supply section", () => {
     expect(await screen.findByText("Parts content")).toBeTruthy();
   });
 
-  it("has the Connectors tab, where a DigiKey sign-in returns and says how it went", async () => {
+  it("sends an old Connectors address to Library Manager, with a sign-in result", async () => {
     renderAt("admin", "/?section=supply&supplyView=connectors&signin=ok");
-    expect(await screen.findByText("Connectors content")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Connectors" }).getAttribute("aria-selected")).toBe("true");
-    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&supplyView=connectors"));
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=library-manager&signin=ok&libraryView=connectors"));
   });
 
   it("shows Review when asked for it", async () => {
@@ -69,10 +66,9 @@ describe("the Supply section", () => {
     expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("titles each tab and keeps the settings off the other tabs", async () => {
-    renderAt("admin", "/?section=supply&supplyView=connectors");
-    expect(await screen.findByRole("heading", { name: "Distributor Connectors" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
+  it("titles each tab", async () => {
+    renderAt("admin", "/?section=supply&supplyView=parts");
+    expect(await screen.findByRole("heading", { name: "Tracked Parts" })).toBeTruthy();
   });
 
   it("is closed to viewers and signed-out users, and says why", () => {

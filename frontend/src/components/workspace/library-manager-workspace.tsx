@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Database, DownloadCloud, Hourglass, PackageCheck, Table2, type LucideIcon } from "lucide-react";
+import { Database, DownloadCloud, Hourglass, PackageCheck, Plug, Table2, type LucideIcon } from "lucide-react";
 
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs } from "@/components/ui/tabs";
@@ -13,9 +13,10 @@ const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspac
 const LibraryComponentWorkspace = lazy(() => import("./library-component-workspace").then((module) => ({ default: module.LibraryComponentWorkspace })));
 const LibraryImportCenter = lazy(() => import("./library-import-center").then((module) => ({ default: module.LibraryImportCenter })));
 const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
+const LibraryConnectorsView = lazy(() => import("@/features/supply/library-connectors-view").then((module) => ({ default: module.LibraryConnectorsView })));
 const EndingPartsView = lazy(() => import("@/features/supply/ending-parts-view").then((module) => ({ default: module.EndingPartsView })));
 
-type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "ending";
+type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "ending" | "connectors";
 
 const VIEW_LABELS: Record<LibraryView, string> = {
   catalog: "Catalog",
@@ -23,6 +24,7 @@ const VIEW_LABELS: Record<LibraryView, string> = {
   imports: "Import Center",
   releases: "Release Queue",
   ending: "Ending Parts",
+  connectors: "Connectors",
 };
 
 const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
@@ -31,13 +33,14 @@ const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
   imports: DownloadCloud,
   releases: PackageCheck,
   ending: Hourglass,
+  connectors: Plug,
 };
 
 export function LibraryManagerWorkspace({ user, projects }: { user: User | null; projects: Project[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const componentId = searchParams.get("component") || "";
   const requestedView = searchParams.get("libraryView") as LibraryView | null;
-  const views: LibraryView[] = canOpenSupply(user?.role) ? ["catalog", "bulk-edit", "imports", "releases", "ending"] : ["catalog", "bulk-edit", "imports", "releases"];
+  const views: LibraryView[] = canOpenSupply(user?.role) ? ["catalog", "bulk-edit", "imports", "releases", "ending", "connectors"] : ["catalog", "bulk-edit", "imports", "releases"];
   const view: LibraryView = requestedView && views.includes(requestedView) ? requestedView : "catalog";
 
   const setView = (next: LibraryView) => {
@@ -113,6 +116,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
+        {view === "connectors" && <LibraryConnectorsView user={user} />}
         {view === "ending" && <EndingPartsView role={user?.role} onOpenComponent={(id) => openComponent(id, "overview", "ending")} />}
       </div>
       </Suspense>

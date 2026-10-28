@@ -104,6 +104,7 @@ class InventorySyncTests(unittest.TestCase):
         from fastapi import FastAPI
 
         from app.api import supply_connectors, supply_inventory
+        from app.core.errors import install_error_handlers
         from app.core.security import AuthenticatedUser
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService
         from app.services.supply.store import SupplyStore
@@ -117,6 +118,7 @@ class InventorySyncTests(unittest.TestCase):
         cls.ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.users = {role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role) for role in ("viewer", "designer", "admin")}
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_inventory.router)
         service = type("S", (), {"store": cls.store, "keyring": lambda self: cls.ring})()
         cls.service_patch = unittest.mock.patch.object(supply_connectors, "service", service)
@@ -264,6 +266,26 @@ class InventorySyncTests(unittest.TestCase):
         self.assertFalse(cleared.json["has_token"])
         bad = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body={**body, "base_url": f"http://{HOST}"})
         self.assertEqual((bad.status, bad.json["detail"]["code"]), (400, "invalid_source"))
+
+    def test_a_server_that_cannot_be_reached_says_why(self) -> None:
+        from app.api import supply_inventory
+        from app.services.supply.providers.base import Unavailable
+
+        source_id = self._source()
+
+        class Down:
+            def __init__(self, url, token):
+                pass
+
+            def server(self):
+                raise Unavailable("connection refused")
+
+            def close(self):
+                pass
+
+        with unittest.mock.patch.object(supply_inventory, "InvenTreeClient", Down):
+            answer = _request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/check", user=self.users["admin"])
+        self.assertEqual((answer.status, answer.json["code"], answer.json["detail"]), (502, "upstream_failure", "unavailable: connection refused"))
 
 
 if __name__ == "__main__":

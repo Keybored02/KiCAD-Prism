@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.core.errors import UpstreamFailure
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply.inventory import sources, sync
 from app.services.supply.inventory.inventree import InvenTreeClient
@@ -44,7 +45,7 @@ async def _run(call: Callable[[], T]) -> T:
     except sources.SourceError as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_source", "message": str(exc)}) from exc
     except ProviderError as exc:
-        raise HTTPException(status_code=502, detail={"code": exc.code, "message": str(exc)}) from exc
+        raise UpstreamFailure(f"{exc.code}: {exc}") from exc
 
 
 class InventorySource(BaseModel):
