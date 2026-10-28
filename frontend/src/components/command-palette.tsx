@@ -358,27 +358,36 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
                     {heading}
                   </p>
                 ) : null}
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isActive}
-                  data-active={isActive ? "true" : undefined}
+                {/* The second action is its own button beside the row, so clicking it runs it rather than the row. */}
+                <div
+                  className={cn("flex items-center", isActive ? "bg-muted text-foreground" : "text-muted-foreground")}
                   onMouseMove={() => setActiveIndex(index)}
-                  onClick={() => command.run()}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm",
-                    isActive ? "bg-muted text-foreground" : "text-muted-foreground",
-                  )}
                 >
-                  {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
-                  <span className="min-w-0 flex-1 truncate text-foreground">{command.label}</span>
-                  {command.detail ? (
-                    <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">{command.detail}</span>
-                  ) : null}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isActive}
+                    data-active={isActive ? "true" : undefined}
+                    onClick={() => command.run()}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+                  >
+                    {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
+                    <span className="min-w-0 flex-1 truncate text-foreground">{command.label}</span>
+                    {command.detail ? (
+                      <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">{command.detail}</span>
+                    ) : null}
+                  </button>
                   {isActive && command.alt ? (
-                    <span className="shrink-0 text-xs text-muted-foreground">{shortcutKeys("mod+enter").join(" ")} {command.alt.label}</span>
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => command.alt?.run()}
+                      className="shrink-0 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {shortcutKeys("mod+enter").join(" ")} {command.alt.label}
+                    </button>
                   ) : null}
-                </button>
+                </div>
               </div>
             );
           })}

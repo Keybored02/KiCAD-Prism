@@ -37,6 +37,7 @@ follow it, add it to the library first.
 | A project's **Supply** tab | Whether a project can be built, what it costs and what stops it. |
 | The Visualizer's **BOM** tab | Supply columns for each line of the BOM. |
 | **Release Studio** | Whether what ships can be sourced, recorded with the release. |
+| The header search and `⌘K` | A part by its number. A part row opens the library component; **Open supply sheet** beside it opens the part's supply sheet. |
 
 ## A component's parts and alternates
 
