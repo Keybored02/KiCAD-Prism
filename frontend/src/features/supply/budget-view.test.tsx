@@ -34,7 +34,7 @@ describe("the call budget", () => {
     expect(within(card).getByLabelText("What the days' calls were for").textContent).toContain("Tier 1");
     expect(within(card).getByLabelText("Calls a day for the last two weeks")).toBeTruthy();
     expect(within(card).getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
-    expect(within(card).getByRole("link", { name: "LM358DR" }).getAttribute("href")).toBe("/?section=supply&supplyView=parts&part=p1");
+    expect(within(card).getByRole("link", { name: "LM358DR" }).getAttribute("href")).toBe("/?section=supply&supplyView=part&part=p1");
   });
 
   it("opens under the connector card's calls bar from the chevron", () => {

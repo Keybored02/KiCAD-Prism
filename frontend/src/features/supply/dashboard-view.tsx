@@ -41,7 +41,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
   const navigate = useNavigate();
   const [alertKind, setAlertKind] = useState("");
   const data = dashboard.data;
-  const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
+  const parts = (only: PartsFilter, scope?: string) => () => go("tracking", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
   const history = (name: string) => data?.figure_history[name];
   const likely = likelyOutTile(data?.forecast);
   const tiles: Tile[] = [

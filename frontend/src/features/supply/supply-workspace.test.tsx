@@ -7,6 +7,8 @@ import type { User, UserRole } from "@/types/auth";
 vi.mock("./dashboard-view", () => ({ DashboardView: () => <div>Dashboard content</div> }));
 vi.mock("./insights-view", () => ({ InsightsView: () => <div>Insights content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
+const getLibraryComponentOf = vi.fn();
+vi.mock("./supply-api", () => ({ getLibraryComponentOf: (id: string) => getLibraryComponentOf(id) }));
 vi.mock("./projects-view", () => ({ ProjectsView: () => <div>Projects content</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
@@ -37,7 +39,7 @@ describe("the Supply section", () => {
 
   it("has four tabs", async () => {
     renderAt("qa");
-    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Projects", "Insights"]);
+    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Tracking", "Projects", "Insights"]);
   });
 
   it("keeps old addresses working", async () => {
@@ -64,9 +66,19 @@ describe("the Supply section", () => {
     await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=library-manager&libraryView=review"));
   });
 
+  it("opens a linked part's component on its Supply tab, or the part on Tracking when the library has none", async () => {
+    getLibraryComponentOf.mockResolvedValueOnce({ component_id: "c1" });
+    renderAt("qa", "/?section=supply&supplyView=part&part=p1");
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=library-manager&libraryView=catalog&component=c1&componentTab=sourcing"));
+    cleanup();
+    getLibraryComponentOf.mockResolvedValueOnce({ component_id: null });
+    renderAt("qa", "/?section=supply&supplyView=part&part=p2");
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&supplyView=tracking&part=p2"));
+  });
+
   it("titles each tab", async () => {
     renderAt("admin", "/?section=supply&supplyView=parts");
-    expect(await screen.findByRole("heading", { name: "Tracked Parts" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Tracking" })).toBeTruthy();
   });
 
   it("is closed to viewers and signed-out users, and says why", () => {

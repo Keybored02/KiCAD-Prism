@@ -147,10 +147,10 @@ describe("the parts list", () => {
   it("switches scope through the URL and asks for the other list", async () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
-    fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 50, "", ""));
-    expect(search()).toContain("partsScope=all");
-    expect(screen.getByRole("button", { name: "All known" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Tier 1" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("tier1", "", expect.anything(), "", 0, 50, "", ""));
+    expect(search()).toContain("partsScope=tier1");
+    expect(screen.getByRole("button", { name: "Tier 1" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Tracked and in projects" }));
     await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.anything(), "", 0, 50, "", ""));
     expect(search()).not.toContain("partsScope");
@@ -165,9 +165,9 @@ describe("the parts list", () => {
     expect(search()).toContain("partsQ=lm358");
     cleanup();
 
-    renderView("designer", "/?section=supply&partsScope=all&partsQ=tps");
+    renderView("designer", "/?section=supply&partsScope=tier1&partsQ=tps");
     await screen.findByRole("button", { name: "LM358D" });
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything(), "", 0, 50, "", "");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("tier1", "tps", expect.anything(), "", 0, 50, "", "");
     expect((screen.getByLabelText("Search parts") as HTMLInputElement).value).toBe("tps");
   });
 
@@ -185,8 +185,9 @@ describe("the parts list", () => {
     renderView("designer", "/?partsQ=zzz");
     expect(await screen.findByText("No parts match")).toBeTruthy();
     cleanup();
+    // All known left for the catalog: its old address shows the tracked parts.
     renderView("designer", "/?partsScope=all");
-    expect(await screen.findByText("No parts yet")).toBeTruthy();
+    expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
   });
 
   it("reports a load failure and retries", async () => {
@@ -552,8 +553,8 @@ describe("the watch settings", () => {
   it("does not read usage for the other scopes", async () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
-    fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything(), "", 0, 50, "", ""));
+    fireEvent.click(screen.getByRole("button", { name: "Tier 1" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("tier1", "", expect.anything(), "", 0, 50, "", ""));
     expect(mocked.refreshSupplyUsage).not.toHaveBeenCalled();
   });
 
