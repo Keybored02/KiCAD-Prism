@@ -1700,6 +1700,11 @@ export interface InventoryUnmatchedPart {
   records: number;
   reason: "no_component" | "sap_code_shared" | "mpn_shared";
   seen_at: string;
+  /** Set once a person linked it; the row stays until a read lands its stock on the component. */
+  linked_component_id?: string | null;
+  linked_mpn?: string;
+  linked_name?: string;
+  linked_at?: string | null;
 }
 
 /** A manufacturer part a catalog component may be built with: its main part, or an alternate a designer proposed and QA decided. */
