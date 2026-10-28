@@ -113,6 +113,8 @@ export interface TrackerConnector {
 export interface CodeHostCapabilities {
     /** Promote threads to issues (GitHub only for now). */
     issues: boolean;
+    /** Repositories can be listed for Discover (once a read token is stored). */
+    discovery?: boolean;
     /** An OAuth app is registered, so people can link accounts. */
     accountLinking: boolean;
 }

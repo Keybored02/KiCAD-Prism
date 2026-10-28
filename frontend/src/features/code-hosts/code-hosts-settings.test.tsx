@@ -77,6 +77,25 @@ it("walks an admin through registering a Gitea or Forgejo server", async () => {
     }));
 });
 
+it("sends the optional read token for repository discovery with the new Gitea host", async () => {
+    mocks.createConnector.mockResolvedValue({
+        ...base, id: "cn_new", provider: "gitea", instanceKind: "self-hosted", displayName: "git.corp.io",
+        host: "git.corp.io", status: "linking-only", oauthClientConfigured: true, credentialConfigured: true,
+        capabilities: { issues: false, discovery: true, accountLinking: true },
+    });
+    render(<CodeHostsSettings />);
+    fireEvent.click(await screen.findByRole("button", { name: /Add code host/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Gitea \/ Forgejo/ }));
+    fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "https://git.corp.io" } });
+    fireEvent.change(screen.getByLabelText("Client ID"), { target: { value: "app-id" } });
+    fireEvent.change(screen.getByLabelText("Client Secret"), { target: { value: "app-secret" } });
+    fireEvent.change(screen.getByLabelText("Access token"), { target: { value: "read-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Gitea / Forgejo" }));
+    await waitFor(() => expect(mocks.createConnector).toHaveBeenCalledWith(expect.objectContaining({
+        credentials: { oauthClientId: "app-id", oauthClientSecret: "app-secret", accessToken: "read-token" },
+    })));
+});
+
 it("opens GitLab in the same editor as GitHub", async () => {
     render(<CodeHostsSettings />);
     fireEvent.click(await screen.findByRole("button", { name: /Add code host/ }));

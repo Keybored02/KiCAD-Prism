@@ -38,6 +38,7 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
     const [displayName, setDisplayName] = useState(existing?.displayName ?? "");
     const [clientId, setClientId] = useState("");
     const [clientSecret, setClientSecret] = useState("");
+    const [accessToken, setAccessToken] = useState("");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [confirmRemove, setConfirmRemove] = useState(false);
@@ -49,7 +50,7 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
     const credentialsRequired = !existing?.oauthClientConfigured;
     const canSave = Boolean(host)
         && (credentialsRequired ? Boolean(clientId.trim() && clientSecret.trim()) : true)
-        && (!existing || Boolean(clientId.trim() || clientSecret.trim() || displayName !== existing.displayName));
+        && (!existing || Boolean(clientId.trim() || clientSecret.trim() || accessToken.trim() || displayName !== existing.displayName));
 
     const save = async () => {
         setSaving(true);
@@ -57,6 +58,7 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
         const credentials: Record<string, string> = {};
         if (clientId.trim()) credentials.oauthClientId = clientId.trim();
         if (clientSecret.trim()) credentials.oauthClientSecret = clientSecret.trim();
+        if (accessToken.trim()) credentials.accessToken = accessToken.trim();
         try {
             const saved = existing
                 ? await updateConnector(existing.id, {
@@ -72,6 +74,7 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                 });
             setClientId("");
             setClientSecret("");
+            setAccessToken("");
             toast.success(existing ? "Code host updated." : `${saved.displayName} is ready for account linking.`);
             onSaved(saved);
         } catch (caught) {
@@ -105,7 +108,7 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                 <CodeHostMark provider={provider} />
                 <div>
                     <h4 className="font-medium">{existing ? existing.displayName : `Add ${name}`}</h4>
-                    <p className="text-sm text-muted-foreground">Account linking</p>
+                    <p className="text-sm text-muted-foreground">Account linking and repository discovery</p>
                 </div>
             </div>
 
@@ -173,6 +176,21 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                             placeholder={existing?.oauthClientConfigured ? "Stored · type to replace" : ""}
                             onChange={(event) => setClientSecret(event.target.value)} />
                     </div>
+                </div>
+            </section>
+
+            <section className="space-y-3 rounded-lg border bg-muted/20 p-4 text-sm" aria-labelledby="discovery-token">
+                <h5 id="discovery-token" className="font-medium">Repository discovery (optional)</h5>
+                <p className="text-xs text-muted-foreground">
+                    A read-only access token (scope read:repository) for a user who can see the repositories.
+                    It lets Prism list this host&apos;s repositories under Discover. Prism still reads each one
+                    with its own SSH key.
+                </p>
+                <div className="space-y-1.5">
+                    <Label htmlFor="code-host-access-token">Access token</Label>
+                    <Input id="code-host-access-token" type="password" autoComplete="new-password" value={accessToken}
+                        placeholder={existing?.credentialConfigured ? "Stored · type to replace" : ""}
+                        onChange={(event) => setAccessToken(event.target.value)} />
                 </div>
             </section>
 
