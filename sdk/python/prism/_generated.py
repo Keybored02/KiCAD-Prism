@@ -1387,6 +1387,14 @@ class CreateServiceClientRequest(TypedDict, total=False):
     scopes: list[str]
 
 
+class CreateSourceRequest(TypedDict, total=False):
+    base_url: str
+    category_id: int | None
+    display_name: str
+    interval_hours: int
+    token: str
+
+
 class CreatedPersonalToken(TypedDict, total=False):
     """The one response that carries the secret, shown once."""
     created_at: str
@@ -2222,6 +2230,24 @@ class InventoryImportResult(TypedDict, total=True):
     errors: list[str]
     not_found: int
     updated: int
+
+
+class InventorySource(TypedDict, total=True):
+    api_version: int | None
+    base_url: str
+    category_id: int | None
+    display_name: str
+    enabled: bool
+    has_token: bool
+    id: str
+    interval_hours: int
+    kind: str
+    last_error: str
+    last_status: str
+    last_sync_at: str | None
+    matched: int
+    server: str
+    unmatched: int
 
 
 class IpcOption(TypedDict, total=True):
@@ -3753,6 +3779,20 @@ class SemanticIndexStatus(TypedDict, total=True):
     sourceRevisionKey: str
 
 
+class ServerCategory(TypedDict, total=True):
+    name: str
+    parent: int | None
+    pathstring: str
+    pk: int
+
+
+class ServerCheck(TypedDict, total=True):
+    api_version: int
+    categories: list[ServerCategory]
+    instance: str
+    server: str
+
+
 class ServerFolderImportRequest(TypedDict, total=False):
     display_name: str
     root_name: str
@@ -3969,6 +4009,14 @@ class SyncQueued(TypedDict, total=True):
     status: str
 
 
+class SyncResult(TypedDict, total=False):
+    error: str
+    matched: int
+    records: int
+    status: str
+    unmatched: int
+
+
 class ThreadPoolMetrics(TypedDict, total=True):
     borrowedTokens: int
     queueDepth: int
@@ -4075,6 +4123,18 @@ class TradeMarkIn(TypedDict, total=False):
     eccn: str
 
 
+class UnmatchedPart(TypedDict, total=True):
+    ipn: str
+    manufacturer: str
+    mpn: str
+    name: str
+    quantity: float
+    reason: str
+    records: int
+    remote_part: str
+    seen_at: str
+
+
 class UnpinnedModel(TypedDict, total=True):
     key: str
     location: str
@@ -4139,6 +4199,15 @@ class UpdateRepresentationRequest(TypedDict, total=False):
     is_default: bool | None
     label: str | None
     symbol_asset_id: str | None
+
+
+class UpdateSourceRequest(TypedDict, total=False):
+    base_url: str | None
+    category_id: int | None
+    display_name: str | None
+    enabled: bool | None
+    interval_hours: int | None
+    token: str | None
 
 
 class UpdateWatchRequest(TypedDict, total=False):
@@ -4874,6 +4943,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def check_inventory_source(self, source_id: str) -> ServerCheck:
+        """Check Inventory Source"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/check",
+            path_params={"source_id": source_id},
+        )
+
     def check_notices(self, part_id: str) -> dict[str, Any]:
         """Check Notices"""
         return self._request(
@@ -5116,6 +5193,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_inventory_source(self, *, body: dict[str, Any] | None = None) -> InventorySource:
+        """Create Inventory Source"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources",
+            body=body,
+        )
+
     def create_metadata_batch(self, *, body: dict[str, Any] | None = None) -> MetadataBatch:
         """Stage a metadata batch"""
         return self._request(
@@ -5282,6 +5367,14 @@ class GeneratedClient:
             "/api/v1/folders/{folder_id}",
             path_params={"folder_id": folder_id},
             query={"cascade": cascade},
+        )
+
+    def delete_inventory_source(self, source_id: str) -> None:
+        """Delete Inventory Source"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/inventory-sources/{source_id}",
+            path_params={"source_id": source_id},
         )
 
     def delete_project_endpoint(self, project_id: str) -> ProjectDeleted:
@@ -6775,6 +6868,13 @@ class GeneratedClient:
             "/api/v1/trackers/identities",
         )
 
+    def list_inventory_sources(self) -> list[InventorySource]:
+        """List Inventory Sources"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources",
+        )
+
     def list_linkable_connectors(self) -> list[dict[str, Any]]:
         """List Linkable Connectors"""
         return self._request(
@@ -6939,6 +7039,14 @@ class GeneratedClient:
             "GET",
             "/api/v1/agent/tokens",
             query={"all_users": all_users},
+        )
+
+    def list_unmatched_parts(self, source_id: str) -> list[UnmatchedPart]:
+        """List Unmatched Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched",
+            path_params={"source_id": source_id},
         )
 
     def list_vendor_profiles(self, project_id: str) -> VendorProfileList:
@@ -8233,6 +8341,14 @@ class GeneratedClient:
             "/api/v1/supply/compliance/svhc",
         )
 
+    def sync_inventory_source(self, source_id: str) -> SyncResult:
+        """Sync Inventory Source"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/sync",
+            path_params={"source_id": source_id},
+        )
+
     def sync_project_endpoint(self, project_id: str) -> SyncQueued:
         """Queue a sync with the project's remote"""
         return self._request(
@@ -8443,6 +8559,15 @@ class GeneratedClient:
             "PATCH",
             "/api/v1/folders/{folder_id}",
             path_params={"folder_id": folder_id},
+            body=body,
+        )
+
+    def update_inventory_source(self, source_id: str, *, body: dict[str, Any] | None = None) -> InventorySource:
+        """Update Inventory Source"""
+        return self._request(
+            "PATCH",
+            "/api/v1/supply/inventory-sources/{source_id}",
+            path_params={"source_id": source_id},
             body=body,
         )
 

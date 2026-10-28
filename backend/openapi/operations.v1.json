@@ -199,6 +199,11 @@
     "path": "/api/v1/settings/git-access/check",
     "typed": true
   },
+  "check_inventory_source": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/check",
+    "typed": true
+  },
   "check_notices": {
     "method": "POST",
     "path": "/api/v1/supply/parts/{part_id}/check-notices",
@@ -344,6 +349,11 @@
     "path": "/api/v1/catalog/import-snapshots/folders",
     "typed": true
   },
+  "create_inventory_source": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources",
+    "typed": true
+  },
   "create_metadata_batch": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/batches",
@@ -447,6 +457,11 @@
   "delete_folder": {
     "method": "DELETE",
     "path": "/api/v1/folders/{folder_id}",
+    "typed": true
+  },
+  "delete_inventory_source": {
+    "method": "DELETE",
+    "path": "/api/v1/supply/inventory-sources/{source_id}",
     "typed": true
   },
   "delete_project_endpoint": {
@@ -1364,6 +1379,11 @@
     "path": "/api/v1/trackers/identities",
     "typed": true
   },
+  "list_inventory_sources": {
+    "method": "GET",
+    "path": "/api/v1/supply/inventory-sources",
+    "typed": true
+  },
   "list_linkable_connectors": {
     "method": "GET",
     "path": "/api/v1/trackers/linkable-connectors",
@@ -1472,6 +1492,11 @@
   "list_tokens": {
     "method": "GET",
     "path": "/api/v1/agent/tokens",
+    "typed": true
+  },
+  "list_unmatched_parts": {
+    "method": "GET",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/unmatched",
     "typed": true
   },
   "list_vendor_profiles": {
@@ -2269,6 +2294,11 @@
     "path": "/api/v1/supply/compliance/svhc",
     "typed": true
   },
+  "sync_inventory_source": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/sync",
+    "typed": true
+  },
   "sync_project_endpoint": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/sync",
@@ -2397,6 +2427,11 @@
   "update_folder": {
     "method": "PATCH",
     "path": "/api/v1/folders/{folder_id}",
+    "typed": true
+  },
+  "update_inventory_source": {
+    "method": "PATCH",
+    "path": "/api/v1/supply/inventory-sources/{source_id}",
     "typed": true
   },
   "update_metadata_field": {

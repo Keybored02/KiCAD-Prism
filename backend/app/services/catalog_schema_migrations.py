@@ -529,6 +529,75 @@ def _component_parts(conn: Any) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_component_parts_part ON component_parts (part_id)")
 
 
+def _inventory_sources(conn: Any) -> None:
+    """Local inventory servers (InvenTree, or any server serving its read API) whose stock fills ``inventory_levels``.
+
+    A sync replaces its source's ``inventory_levels`` rows. Parts it could not match to a component wait in
+    ``inventory_unmatched`` until a person links them (``inventory_links``)."""
+    for column in (
+        "source_id TEXT NOT NULL DEFAULT ''",
+        "allocated DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "location_path TEXT NOT NULL DEFAULT ''",
+        "external BOOLEAN NOT NULL DEFAULT FALSE",
+        "batch TEXT NOT NULL DEFAULT ''",
+        "source_updated_at TEXT NOT NULL DEFAULT ''",
+    ):
+        conn.execute(f"ALTER TABLE inventory_levels ADD COLUMN IF NOT EXISTS {column}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inventory_levels_source ON inventory_levels (source_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_sources (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('inventree')),
+            display_name TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            category_id INTEGER,
+            credential_envelope TEXT NOT NULL DEFAULT '',
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            interval_hours INTEGER NOT NULL DEFAULT 24 CHECK (interval_hours BETWEEN 1 AND 168),
+            server TEXT NOT NULL DEFAULT '',
+            api_version INTEGER,
+            last_sync_at TIMESTAMPTZ,
+            last_status TEXT NOT NULL DEFAULT '',
+            last_error TEXT NOT NULL DEFAULT '',
+            matched INTEGER NOT NULL DEFAULT 0,
+            unmatched INTEGER NOT NULL DEFAULT 0,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_links (
+            source_id TEXT NOT NULL REFERENCES inventory_sources(id) ON DELETE CASCADE,
+            remote_part TEXT NOT NULL,
+            component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            linked_by TEXT NOT NULL,
+            linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (source_id, remote_part)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_unmatched (
+            source_id TEXT NOT NULL REFERENCES inventory_sources(id) ON DELETE CASCADE,
+            remote_part TEXT NOT NULL,
+            ipn TEXT NOT NULL DEFAULT '',
+            mpn TEXT NOT NULL DEFAULT '',
+            manufacturer TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+            records INTEGER NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL,
+            seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (source_id, remote_part)
+        )
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
@@ -549,6 +618,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (16, "retire_system_entries", _retire_system_entries),
     (17, "supply_tables", _supply_tables),
     (18, "component_parts", _component_parts),
+    (19, "inventory_sources", _inventory_sources),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
