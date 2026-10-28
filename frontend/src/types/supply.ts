@@ -341,6 +341,8 @@ export interface SupplyBomLineResult {
   part_id: string | null;
   /** How the manufacturer matched: "missing" and "unmatched" mean the part number alone found it; "lcsc" the symbol's LCSC number. */
   manufacturer_match: "exact" | "missing" | "unmatched" | "lcsc" | null;
+  /** Whether a catalog component has the line; null for a line without a part number. Only library parts are tracked. */
+  in_library?: boolean | null;
   need: number;
   watched?: boolean;
   status?: SupplyStatus;

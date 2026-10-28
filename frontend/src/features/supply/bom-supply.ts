@@ -150,7 +150,7 @@ export function untrackedLabel(result: SupplyBomLineResult): string {
     case "ambiguous":
       return "Several parts match";
     case "unknown":
-      return "Not watched yet";
+      return result.in_library === false ? "Not in library" : "Not watched yet";
     default:
       return "";
   }

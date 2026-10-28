@@ -140,6 +140,27 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual(sorted(checked["blank"]["assessment"]["checks"]), ["manufacturer_missing", "not_in_library"])
         self.assertEqual(checked["named"]["assessment"]["checks"], [], "the library has Acme R-2")
 
+    def test_every_line_says_whether_the_library_has_it(self) -> None:
+        from app.services.supply import bom_lookup
+
+        lines = [
+            bom_lookup.BomLine("placed", "Wrong Co", "stale", 1, prism_id="c1"),
+            bom_lookup.BomLine("named", "Acme", "R-2", 1),
+            bom_lookup.BomLine("loose", "Nobody", "LOOSE-1", 1),
+            bom_lookup.BomLine("blank", "", "", 1),
+        ]
+        with self.store.connection() as conn:
+            plain = bom_lookup.lookup(conn, lines, 1)["lines"]
+            checked = bom_lookup.lookup(
+                conn, lines, 1, identities=lambda ids: {"c1": ("Texas Instruments", "LM358DR")},
+                in_library=lambda pairs: {("acme", "r-2")},
+            )["lines"]
+        self.assertEqual({key: line["in_library"] for key, line in plain.items()}, dict.fromkeys(plain), "unknown when the library was not asked")
+        self.assertEqual(
+            {key: line["in_library"] for key, line in checked.items()},
+            {"placed": True, "named": True, "loose": False, "blank": None},
+        )
+
     def test_a_value_or_footprint_that_disagrees_with_the_distributor_is_a_finding(self) -> None:
         from app.services.supply import bom_lookup, discovery
 
