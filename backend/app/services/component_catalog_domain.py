@@ -401,11 +401,7 @@ class ComponentCatalogDomainService:
         self.initialize()
         now = _utc_now_iso()
         with self._connect() as conn:
-            result = self._project_import_matching.index_project_component_usage(
-                conn,
-                proposals,
-                observed_at=now,
-            )
+            result = self._project_import_matching.index_project_component_usage(conn, proposals, observed_at=now)
             conn.commit()
         return result
 
