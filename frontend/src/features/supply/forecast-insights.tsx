@@ -40,7 +40,7 @@ function LeadTimes({ page }: { page: ForecastInsights }) {
   );
 }
 
-const METRIC = { out_of_stock: "out of stock", median_lead_time_days: "median lead time", dropped: "dropped by every distributor", lifecycle_risk: "with a lifecycle risk" } as const;
+const METRIC = { out_of_stock: "out of stock", median_lead_time_days: "median lead time", dropped: "dropped by every distributor", lifecycle_risk: "reported as ending" } as const;
 
 function percent(metric: string, value: number): string {
   return metric === "median_lead_time_days" ? `${Math.round(value)} days` : `${Math.round(value * 100)}%`;

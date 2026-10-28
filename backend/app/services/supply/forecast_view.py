@@ -82,7 +82,9 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
     items = _lifecycle_of(conn, part_id)
     if items is not None:
         found = forecast_lifecycle.part_chance(conn, part_id, items, today)
-        if found["available"]:
+        # Until enough lifecycle changes are seen the chance is the prior's, which says "almost certain" of every new part next to an
+        # outlook of no signs (UX-02, Q6). It is still stored to learn from; it is shown once it rests on data.
+        if found["available"] and found["changes"] >= found["needs"]:
             out["end_of_life"] = {"p12": _chance(found["p12"]), "p24": _chance(found["p24"]), "changes": found["changes"], "needs": found["needs"], "state": state("eol_12")}
     return out
 
