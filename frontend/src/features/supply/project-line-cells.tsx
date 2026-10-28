@@ -3,6 +3,7 @@ import { LibraryBig } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ProjectSupplyPart } from "@/types/supply";
 import { AlternatesNote } from "./alternates-note";
+import { StoresCell } from "./stores-cell";
 import { formatPrice, formatStock } from "./supply-format";
 
 /** What a project's parts list adds to a part: its lines of the BOM and the currency the cost is in. */
@@ -18,7 +19,12 @@ export function LineNotes({ line }: { line: ProjectSupplyPart | undefined }) {
   if (!line) return null;
   return (
     <>
-      {line.references ? <div className="text-xs text-muted-foreground">{line.references}</div> : null}
+      {line.references || line.stores ? (
+        <div className="flex gap-3 text-xs text-muted-foreground">
+          {line.references ? <span className="truncate">{line.references}</span> : null}
+          {line.stores ? <span className="shrink-0">Stores <StoresCell stores={line.stores} /></span> : null}
+        </div>
+      ) : null}
       {line.alternates?.length ? (
         <span className="text-xs text-muted-foreground" title="Stock of the part and its approved alternates">
           {line.stock === null ? "" : `${formatStock(line.stock)} with alternates`}

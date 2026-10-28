@@ -89,6 +89,7 @@ def _parts(
             "alerts": alerts.get(part_id, 0),
             "prism_id": row.get("prism_id") or "", "in_library": entry.get("in_library"),
             "alternates": entry.get("alternates") or [], "status_from": entry.get("status_from"),
+            "stores": entry.get("stores"),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
     return parts, result["rollup"], curve

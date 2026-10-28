@@ -198,6 +198,15 @@ export interface SupplyParameter {
   sources: string[];
 }
 
+/** What the stores hold of a component: the same four states on every screen (UX-03). */
+export interface StoresState {
+  state: "stock" | "none" | "not_connected" | "down";
+  /** Usable now (OK, at our locations, less allocated); null when none is held or units are mixed. */
+  available: number | null;
+  /** The last good read of a feed that is down. */
+  since: string | null;
+}
+
 /** Where a catalog component stands, for the catalog table. */
 export interface SupplyComponentStanding {
   status: SupplyStatus;
@@ -209,6 +218,7 @@ export interface SupplyComponentStanding {
   currency?: string;
   /** Usable local stock (OK, at our locations, less allocated); absent when the local inventory holds none, null when units are mixed. */
   local_available?: number | null;
+  stores?: StoresState;
   /** What the library decided about the component: marked for no new designs, or retired. */
   restriction?: RestrictionLevel | null;
 }
@@ -358,6 +368,10 @@ export interface SupplyBomLineResult {
   /** "tracked" has data; the rest say why a line has none. */
   state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
   part_id: string | null;
+  /** The stores state of the line's catalog component; absent when the line has none. */
+  stores?: StoresState | null;
+  /** Distributor stock plus available stores stock: what the build can draw on. */
+  usable?: number | null;
   /** How the manufacturer matched: "missing" and "unmatched" mean the part number alone found it; "lcsc" the symbol's LCSC number. */
   manufacturer_match: "exact" | "missing" | "unmatched" | "lcsc" | null;
   /** Whether a catalog component has the line; null for a line without a part number. Only library parts are tracked. */
@@ -1427,6 +1441,7 @@ export interface ProjectSupplyPart {
   alerts?: number;
   /** The catalog component the symbol places; empty when none. */
   prism_id?: string;
+  stores?: StoresState | null;
   /** Whether a catalog component has the line; null for a line without a part number. */
   in_library?: boolean | null;
   /** The component's approved alternates; `stock` and `short` count them. */
@@ -1728,6 +1743,7 @@ export interface LocalStockRow {
 /** A component's local stock: usable now (less what is allocated), held, and at a vendor. Totals are null when units are mixed. */
 export interface LocalStock {
   component_id: string;
+  stores?: StoresState | null;
   uom: string;
   mixed_units: boolean;
   available: number | null;

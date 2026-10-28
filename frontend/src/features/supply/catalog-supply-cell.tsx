@@ -1,5 +1,6 @@
 import type { SupplyComponentStanding } from "@/types/supply";
 import { StatusDot } from "./status-dot";
+import { storesText } from "./stores-cell";
 import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
 
 /** The catalog row's Supply column: the distributors' status and price, then their stock and the usable local stock. */
@@ -7,7 +8,7 @@ export function CatalogSupplyCell({ standing }: { standing: SupplyComponentStand
   if (!standing) return <p className="text-xs text-muted-foreground">-</p>;
   const tracked = standing.watched || standing.stock !== null;
   const price = formatPrice(standing.unit_price ?? null, standing.currency ?? "");
-  const local = standing.local_available === undefined ? "" : `Local ${standing.local_available === null ? "mixed units" : standing.local_available.toLocaleString()}`;
+  const stores = standing.stores ? storesText(standing.stores) : null;
   const distributors = tracked ? `Dist ${formatStock(standing.stock)}` : "";
   return (
     <div className="min-w-0">
@@ -15,7 +16,11 @@ export function CatalogSupplyCell({ standing }: { standing: SupplyComponentStand
         {tracked ? <><StatusDot status={standing.status} /><span className="truncate">{STATUS_LABEL[standing.status]}</span></> : <span className="text-muted-foreground">Not tracked</span>}
         {price ? <span className="ml-auto shrink-0 tabular-nums" title="Unit price at the distributors">{price}</span> : null}
       </p>
-      <p className="truncate text-xs text-muted-foreground tabular-nums" title="Distributor stock · usable local stock">{[distributors, local].filter(Boolean).join(" · ") || "No stock reading"}</p>
+      <p className="truncate text-xs text-muted-foreground tabular-nums">
+        {distributors || (stores ? "" : "No stock reading")}
+        {distributors && stores ? " · " : ""}
+        {stores ? <span className={stores.tone === "bad" ? "text-destructive" : undefined}>Stores {stores.text}</span> : null}
+      </p>
     </div>
   );
 }

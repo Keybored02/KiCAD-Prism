@@ -2549,13 +2549,14 @@ class LocalInventory(TypedDict, total=True):
     uom: str
 
 
-class LocalStock(TypedDict, total=True):
+class LocalStock(TypedDict, total=False):
     at_vendor: float | None
     available: float | None
     component_id: str
     held: float | None
     mixed_units: bool
     rows: list[LocalStockRow]
+    stores: StoresState | None
     uom: str
 
 
@@ -3987,6 +3988,12 @@ class StatusReadiness(TypedDict, total=True):
 
 class StatusRequest(TypedDict, total=True):
     components: list[app__api__supply_bom__LineIn]
+
+
+class StoresState(TypedDict, total=True):
+    available: float | None
+    since: str | None
+    state: str
 
 
 class SubmitSetupRequest(TypedDict, total=True):

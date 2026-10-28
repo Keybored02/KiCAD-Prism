@@ -8,6 +8,7 @@ import { untrackedLabel, type RowSupply } from "./bom-supply";
 import { JlcIcon, MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
+import { StoresCell } from "./stores-cell";
 
 const MUTED = <span className="text-muted-foreground">{"-"}</span>;
 
@@ -32,6 +33,7 @@ function alternateBought(result: SupplyBomLineResult): string {
 }
 
 function LineCell({ column, result }: { column: string; result: SupplyBomLineResult }) {
+  if (column === "Stores") return result.stores ? <StoresCell stores={result.stores} /> : MUTED;
   if (result.state !== "tracked") {
     return column === "Supply" ? <span className="text-muted-foreground">{untrackedLabel(result)}</span> : MUTED;
   }

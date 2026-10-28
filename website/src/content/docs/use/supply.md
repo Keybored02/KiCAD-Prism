@@ -60,8 +60,10 @@ An approved alternate that the metadata now names becomes the main part.
 The **Supply** tab shows, top to bottom:
 
 - **Parts**: the main part and its alternates, with their approval.
-- **Local stock**: what your own inventory holds, when an administrator has
+- **Stores**: what your own inventory holds, when an administrator has
   connected an [inventory source](/KiCAD-Prism/admin/supply/#connect-your-inventory).
+  With nothing held it shows one of **None**, **Not connected** or
+  **Feed down** with the time of the last good read.
   **Available** is usable stock at your locations, less what is allocated.
   **Held** is stock at your locations on hold, quarantined or otherwise not
   usable. **At vendor** is stock at an external location, shown but never
@@ -79,7 +81,7 @@ instead.
 ## Find components by supply in the catalog
 
 The catalog's **Supply** column shows each component's status, distributor
-stock and unit price, and the stock your inventory holds. Use the filters
+stock and unit price, and its **Stores** figure. Use the filters
 **Tracked**, **At risk** and **In local stock** to narrow the list. To track
 many components at once, choose **Track these**, or ctrl-click rows (cmd-click
 on a Mac) and choose **Track N picked**. The dialog shows what tracking would
@@ -122,6 +124,10 @@ notes and the parts. Use the chips **Unchecked**, **Out of stock**, **Short for 
 **Limiting the build**, **Not priced**, **End of life** and **Open alerts** to
 narrow the parts.
 
+Available stores stock counts toward the build; held and at-vendor stock does
+not. Each line shows its **Stores** figure under its references, and the BOM
+tab has a **Stores** column.
+
 A line counts its component's approved alternates: their stock adds up, and
 the cheapest offer that covers the build may be an alternate's. Such a line
 shows **+N alt**; hover it to see each alternate's stock. A line that no
@@ -139,7 +145,7 @@ checked-out commit.
 
 ## Supply columns in the BOM
 
-The Visualizer's **BOM** tab adds **Supply**, **Stock**, **Unit price**,
+The Visualizer's **BOM** tab adds **Supply**, **Stock**, **Stores**, **Unit price**,
 **Extended** and **Lead time** columns, at the latest revision only. A line
 whose symbol has a **Prism ID** takes its component's part; other lines are
 matched by manufacturer and part number. Choose **Show part details** on a row

@@ -11,6 +11,7 @@ import { untrackedLabel, type BomLineDetail } from "./bom-supply";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
 import { VendorName } from "./vendor-name";
+import { StoresCell } from "./stores-cell";
 
 interface BomRowDrawerProps {
   /** The parts on the row that was opened; null keeps the drawer closed. */
@@ -121,11 +122,11 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
         {result.lifecycle && result.lifecycle !== "unknown" ? <Badge variant="outline">{LIFECYCLE_LABEL[result.lifecycle]}</Badge> : null}
         {result.watched ? null : <Badge variant="outline">Not watched</Badge>}
       </div>
-      <p className={result.short ? "text-destructive" : undefined}>
-        {result.stock === null || result.stock === undefined
-          ? "No stock reading yet."
-          : `${formatStock(result.stock)} in stock, ${need} needed${result.short ? ". Not enough." : "."}`}
-      </p>
+      <dl className="flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums">
+        <div className="flex gap-1.5"><dt className="text-muted-foreground">Distributors</dt><dd>{result.stock === null || result.stock === undefined ? "Not read" : formatStock(result.stock)}</dd></div>
+        <div className="flex gap-1.5"><dt className="text-muted-foreground">Stores</dt><dd><StoresCell stores={result.stores} /></dd></div>
+        <div className="flex gap-1.5"><dt className="text-muted-foreground">Need</dt><dd className={result.short ? "text-destructive" : undefined}>{need}</dd></div>
+      </dl>
       {result.alternates?.length ? (
         <p className="text-xs text-muted-foreground">
           Alternates counted: {result.alternates.map((alternate) => `${alternate.mpn} (${alternate.stock === null ? "not read" : formatStock(alternate.stock)})`).join(", ")}
