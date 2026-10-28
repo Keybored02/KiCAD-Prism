@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+import unittest.mock
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -101,6 +102,28 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(result["holders"]["one"], 1)
         self.assertEqual(result["holders"]["two"], 1)
         self.assertEqual(sum(item["count"] for item in result["statuses"]), 3)
+
+    def test_the_dashboard_counts_every_tracked_part_not_only_the_first_page_of_a_list(self) -> None:
+        self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
+        self.follow("STEADY-1", [500] * 9, holders=("c1", "c2"))
+        self.follow("GONE-1", [0, 0, 0])
+        with unittest.mock.patch.object(self.parts_view, "MAX_CANDIDATES", 1), self.store.connection() as conn:
+            self.part_insights.renew(conn, NOW)
+            result = self.dashboard.build(conn, NOW)
+        self.assertEqual(result["figures"]["watched"], 3)
+        self.assertEqual(result["figures"]["out_of_stock"], 1)
+        self.assertEqual(sum(item["count"] for item in result["statuses"]), 3)
+        self.assertEqual(sum(result["runway"].values()), 3)
+
+    def test_a_kept_status_follows_the_threshold_set_on_the_watch(self) -> None:
+        part_id = self.follow("THR-1", [500] * 3)
+        with self.store.connection() as conn:
+            (state,) = [item for item in self.parts_view.tracked_states(conn) if item["id"] == part_id]
+            self.assertEqual(state["status"], "ok")
+            conn.execute("UPDATE supply_watches SET threshold = 600 WHERE part_id = %s", (part_id,))
+        with self.store.connection() as conn:
+            (state,) = [item for item in self.parts_view.tracked_states(conn) if item["id"] == part_id]
+        self.assertEqual(state["status"], "warning", "at or below the threshold")
 
     def test_the_insights_page_counts_findings_and_draws_only_parts_with_a_rate_and_a_lead_time(self) -> None:
         falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])

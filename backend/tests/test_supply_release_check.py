@@ -7,6 +7,7 @@ import sys
 import unittest
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -740,10 +741,14 @@ class KeptRollupTests(unittest.TestCase):
         project = self.track("prj_k3", [component("R1", "Acme", "GOOD-1")])
         fresh = self.rollup(project, fresh=True)
         self.assertEqual(self.rollup(project, fresh=False), fresh)
+        from app.services.supply import dashboard
+
         with self.store.connection() as conn:
-            (row,) = [group for group in parts_view.part_groups(conn, scope="watched")["groups"] if group["project_id"] == "prj_k3"] or [None]
-        if row is not None:
-            self.assertEqual((row["stats"]["boards"], row["stats"]["cost_per_board"]), (fresh["can_build"], fresh["cost_per_board"]))
+            conn.execute("INSERT INTO supply_part_tiers (part_id, tier, rate) SELECT id, 1, 'daily' FROM supply_parts ON CONFLICT DO NOTHING")
+            (row,) = [group for group in parts_view.part_groups(conn, scope="watched")["groups"] if group["project_id"] == "prj_k3"]
+            (dash,) = [item for item in dashboard.build(conn, NOW)["projects"] if item["project_id"] == "prj_k3"]
+        self.assertEqual((row["stats"]["boards"], row["stats"]["cost_per_board"]), (fresh["can_build"], format(Decimal(fresh["cost_per_board"]), "f")))
+        self.assertEqual((dash["count"], dash["statuses"], dash["stats"]), (row["count"], row["statuses"], row["stats"]), "the Dashboard row is the Projects row")
 
     def test_trimming_keeps_the_marks_a_kept_rollup_still_depends_on(self) -> None:
         from app.services.supply import retention
