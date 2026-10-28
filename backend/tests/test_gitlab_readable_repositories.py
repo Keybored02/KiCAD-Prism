@@ -128,11 +128,11 @@ class TheIssuePickerIsUnchanged(unittest.TestCase):
         self.assertEqual(picked[0]["fullName"], "hw/psu")
 
 
-class OnlyGitLabCanBeDiscovered(unittest.TestCase):
+class WhichHostsCanBeDiscovered(unittest.TestCase):
     def test_providers(self) -> None:
         self.assertTrue(providers.can_list_readable_repositories("gitlab"))
+        self.assertTrue(providers.can_list_readable_repositories("gitea"))
         self.assertFalse(providers.can_list_readable_repositories("github"))
-        self.assertFalse(providers.can_list_readable_repositories("gitea"))
         self.assertFalse(providers.can_list_readable_repositories("nope"))
         self.assertFalse(providers.can_list_readable_repositories(None))
 

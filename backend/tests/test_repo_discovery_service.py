@@ -178,6 +178,11 @@ class StoredCandidates(unittest.TestCase):
         self.assertEqual(len(discovery.candidate_rows("cn_other")), 1)
 
     def test_a_url_the_policy_refuses_is_blocked_until_it_is_allowed(self) -> None:
+        # Plain http is refused by the default policy, whatever this machine's .env allows.
+        strict = discovery.git_remote_access.RemoteUrlPolicy.build(allowed_hosts="", allow_insecure_http=False)
+        patcher = mock.patch.object(discovery.git_remote_access, "remote_url_policy", return_value=strict)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         discovery.sync_listing(self.CONNECTOR, [listed("1", "hw/psu", cloneUrl="http://git.example.com/hw/psu.git")])
         row = self.rows()["hw/psu"]
         self.assertEqual(row["state"], "blocked")

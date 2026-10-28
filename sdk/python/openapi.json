@@ -6751,6 +6751,11 @@
       "ConnectorCredentials": {
         "additionalProperties": false,
         "properties": {
+          "accessToken": {
+            "default": "",
+            "title": "Accesstoken",
+            "type": "string"
+          },
           "appId": {
             "default": "",
             "title": "Appid",

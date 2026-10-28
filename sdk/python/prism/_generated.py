@@ -1206,6 +1206,7 @@ class ComponentValidation(TypedDict, total=True):
 
 
 class ConnectorCredentials(TypedDict, total=False):
+    accessToken: str
     appId: str
     installationId: str
     oauthClientId: str

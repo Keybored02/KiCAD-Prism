@@ -158,8 +158,8 @@ class CodeHostPostgresTests(unittest.TestCase):
         gitea = self.connectors.create(actor_user_id="u_admin", provider="gitea", instance_kind="self-hosted",
                                        display_name="Codeberg", base_url=CODEBERG)
         self.assertEqual(gitlab["host"], "gitlab.acme.io")
-        self.assertEqual(gitlab["capabilities"], {"issues": True, "accountLinking": True})
-        self.assertEqual(gitea["capabilities"], {"issues": False, "accountLinking": False})
+        self.assertEqual(gitlab["capabilities"], {"issues": True, "discovery": True, "accountLinking": True})
+        self.assertEqual(gitea["capabilities"], {"issues": False, "discovery": True, "accountLinking": False})
         # Without a bot token there is nothing to test yet.
         with self.assertRaises(ProviderError) as raised:
             self.connectors.test_connection(gitlab["id"], actor_user_id="u_admin")

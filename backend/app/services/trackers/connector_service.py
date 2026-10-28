@@ -30,11 +30,13 @@ from app.services.trackers.connector_runtime import (
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.providers import (
     can_list_readable_repositories,
+    credential_kit,
     host_kit,
     host_kits,
     is_issue_provider,
     issue_adapter_for,
     kit_for,
+    readable_lister,
 )
 from app.services.trackers.secrets import encrypt_secret
 from app.services.trackers.store import TrackerStore
@@ -185,7 +187,8 @@ class ConnectorService:
         self._validate_identity(provider, instance_kind, base_url)
         cid = (connector_id or f"cn_{uuid4().hex[:12]}").strip()
         envelope = None
-        if credentials and is_issue_provider(provider) and kit_for(provider).has_credentials(credentials):
+        kit = credential_kit(provider)
+        if credentials and kit is not None and kit.has_credentials(credentials):
             envelope = self._encrypt(provider, cid, credentials)
         with self.connection() as conn:
             store = TrackerStore(conn)
@@ -238,7 +241,7 @@ class ConnectorService:
             url = base_url if base_url is not None else str(current.get("base_url") or "")
             self._validate_identity(str(current["provider"]), kind, url)
             envelope = None
-            if credentials and is_issue_provider(str(current["provider"])):
+            if credentials and credential_kit(str(current["provider"])) is not None:
                 envelope = self._merge_envelope(
                     str(current["provider"]), connector_id, credentials, envelope_row["credential_envelope"]
                 )
@@ -252,8 +255,10 @@ class ConnectorService:
                 base_url=url,
                 credential_envelope=envelope,
             )
+            # A rotated discovery token has nothing to test: only an issue
+            # provider's credential gates publishing on a passing test.
             installation_changed = (
-                envelope is not None
+                (envelope is not None and is_issue_provider(str(current["provider"])))
                 or kind != str(current["instance_kind"])
                 or url != str(current.get("base_url") or "")
             )
@@ -567,7 +572,7 @@ class ConnectorService:
                 )
             if material is None:
                 raise ProviderError("auth_lost", "Connector has no installation credentials.")
-        lister = kit_for(str(row["provider"])).list_readable_repositories
+        lister = readable_lister(str(row["provider"]))
         assert lister is not None
         return lister(row, material)
 
@@ -590,7 +595,8 @@ class ConnectorService:
         return row, blob, decrypt_material(connector_id, blob, settings=self.settings)
 
     def _encrypt(self, provider: str, connector_id: str, credentials: Mapping[str, str]) -> str:
-        kit = kit_for(provider)
+        kit = credential_kit(provider)
+        assert kit is not None
         payload = kit.credential_payload(credentials)
         kit.require_complete(payload)
         if self._uses_env_bootstrap(payload):
@@ -606,7 +612,8 @@ class ConnectorService:
     ) -> str | None:
         """Rotate only the envelope fields the admin filled in; keep the rest."""
 
-        kit = kit_for(provider)
+        kit = credential_kit(provider)
+        assert kit is not None
         if not kit.has_credentials(credentials):
             return None
         payload = kit.credential_payload(credentials)
@@ -726,6 +733,7 @@ class ConnectorService:
             "host": connector_host(row),
             "capabilities": {
                 "issues": is_issue_provider(str(row["provider"])),
+                "discovery": can_list_readable_repositories(str(row["provider"])),
                 "accountLinking": oauth_client_configured(conn, str(row["id"])),
             },
         }
