@@ -24,23 +24,44 @@ ignores the environment's proxy variables for these calls.
 
 ## Add a distributor
 
-1. Open **Library Manager → Connectors** and choose **Add connector**.
-2. Choose the provider and enter what it needs (below). Credentials are
-   encrypted and never shown again.
-3. Open the connector's menu and choose **Test connection**. It makes one real
-   call.
+You need an account with the distributor's API programme first: each one
+issues its own keys, usually after you register an application in its
+developer portal.
 
-| Provider | Needs | Notes |
+1. Open **Library Manager → Connectors** and choose **Add connector**.
+2. Choose the **Provider**, and the **Storefront** if it has a choice (below).
+   You can add one connector per provider and storefront.
+3. Give it a **Name**, the **Currency** you want its prices in (three
+   letters, such as `EUR`), its **Daily call budget**, and the share **Held for
+   lookups (%)** (10 unless changed, at most 50).
+4. Fill in the credentials (below) and choose **Add connector**. Credentials
+   are encrypted and never shown again; **Replace credentials** in the
+   connector's menu sets new ones.
+5. Open the connector's menu and choose **Test connection**. It makes one real
+   call and shows the answer and how long it took.
+
+| Provider | Credentials | Storefronts and notes |
 | --- | --- | --- |
-| TME | API token and secret | Prices follow the account's country. |
-| Mouser | API key | About 1,000 calls a day. |
-| DigiKey | Client ID and secret | One part per call, so it is slow for large lists. 1,000 calls a day; change notices have their own 50 a day and need an administrator's sign-in (below). |
-| Farnell, Newark, element14 | API key, store, currency | Choose the store carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. For a store outside the UK, the euro zone, the US, Canada and India, set the currency, or offers show no price. |
-| Avnet | Client ID, client secret, scope, subscription key | From the Avnet API portal once Avnet approves your subscription. Avnet answers by part number only. |
-| Arrow | Login, API key | Pricing & Availability API. Choose the regions to keep. Prices stay in each region's currency and Prism converts them. |
-| LCSC | A file you upload | **Upload CSV** on the connector. Prism makes no calls. |
-| JLCPCB (assembly) | A file you upload | Read only for projects built at JLCPCB. Its stock is for its own assembly and never counts in a total. |
-| CSV | A file you upload | For air-gapped installs and distributors without an API. Each upload replaces the previous file. |
+| **TME** | **Token**, **Application secret** | A storefront per country; prices follow it. |
+| **Mouser** | **Search API key** | No storefront. About 1,000 calls a day. |
+| **DigiKey** | **Client ID**, **Client secret** | A storefront per country site. One part per call, so it is slow for large lists. 1,000 calls a day; change notices have their own 50 a day and need an administrator's sign-in (below). |
+| **Farnell / Newark / element14** | **API key** | The storefront is the regional site. Choose it carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. For a store outside the UK, the euro zone, the US, Canada and India, set the currency, or offers show no price. |
+| **Avnet** | **Client ID**, **Client secret**, **Scope**, **Subscription key** | From the Avnet API portal once Avnet approves your subscription. Avnet answers by part number only. |
+| **Arrow** | **Login**, **API key**, **Address of this server** | The Pricing & Availability API. The address is the public IP address Arrow sees Prism's calls come from. The storefront picks the regions to keep (**ALL** keeps every region). Prices stay in each region's currency and Prism converts them. Reads 100 parts a call. |
+| **LCSC** | none | Offers come from a file you upload (below). Prism makes no calls. |
+| **JLCPCB (assembly)** | none | From an uploaded file, read only for projects built at JLCPCB. Its stock is for its own assembly and never counts in a total. |
+| **CSV import** | none | From an uploaded file, for air-gapped installs and distributors without an API. |
+
+### Upload offers from a file
+
+For LCSC, JLCPCB and CSV connectors, choose **Upload CSV** in the connector's
+menu. The file needs `sku`, `mpn`, `manufacturer` and `stock` columns, with
+prices in columns named for their quantity (`price_1`, `price_10`,
+`price_100`); **Download a template** in the dialog gives a starting file. The
+limit is 5 MB. Each upload replaces the previous one, and if any row is wrong
+nothing is imported: the dialog lists each problem by line and column.
+**Remove uploaded data** deletes the offers; stock history already collected
+stays.
 
 Connectors on the same credentials share one daily call limit.
 
@@ -92,16 +113,30 @@ prices from their India sites are read as rupees.
 Prism reads stock from any server that speaks InvenTree's REST API, including
 InvenTree itself. It only reads; it never changes your inventory.
 
-1. On the server, create an API token for a user who can read parts, stock and
-   locations.
-2. In **Library Manager → Connectors**, under **Local inventory**, choose
+### Prepare the server
+
+1. Create a user for Prism that can read parts, stock, stock locations and
+   manufacturer parts. It needs no write access.
+2. Create an API token for that user (in InvenTree, under the user's account
+   settings). Prism sends it as `Authorization: Token …`.
+3. Keep the electronic parts Prism should follow under one part category.
+   Subcategories are included.
+4. Give each part the numbers Prism matches on: its **IPN** set to the library
+   component's SAP code, or its manufacturer parts (maker and MPN) filled in.
+5. Mark locations that hold stock outside your premises, such as at a
+   contract manufacturer, as **external**.
+
+### Add the source
+
+1. In **Library Manager → Connectors**, under **Local inventory**, choose
    **Add source**.
-3. Enter a **Name**, the **Server** address (`https://…`, without `/api`), the
+2. Enter a **Name**, the **Server** address (`https://…`, without `/api`), the
    **API token**, and how often to read it in **Read every (hours)** (1 to
-   168). Choose **Add**.
-4. In **Category to follow**, choose the part category whose stock Prism
-   reads, and choose **Follow**.
-5. Choose **Read now** on the source's card for the first read.
+   168, 24 unless changed). Choose **Add**.
+3. In **Category to follow**, which opens next, check that Prism shows your
+   server's name and API version, choose the category, and choose **Follow**.
+4. Choose **Read now** on the source's card for the first read. It reports how
+   many stock records it read and how many parts matched.
 
 :::note
 The server must be reachable over HTTPS. Prism refuses private and local
@@ -110,6 +145,8 @@ addresses unless the server's host name is listed in
 the [Configuration reference](/KiCAD-Prism/admin/configuration/#supply).
 :::
 
+### How stock is matched and counted
+
 Each part on the server is matched to one library component, first match
 wins:
 
@@ -117,6 +154,7 @@ wins:
 2. the part's IPN equals a component's SAP code;
 3. one of its manufacturer part numbers is a component's part number.
 
+A SAP code or part number that several components share matches none of them.
 Parts with stock that match nothing appear under **Unmatched local stock** in
 **Library Manager → Review**, where a QA reviewer or administrator links them
 or adds the component.
@@ -124,7 +162,22 @@ or adds the component.
 Only stock with the status OK at your own locations counts as available, less
 what is allocated. Other statuses count as held, and stock at an external
 location counts as at vendor. A read that fails keeps the last stock, marked
-stale on each component.
+stale on each component. See
+[How supply figures are worked out](/KiCAD-Prism/use/supply-figures/#your-own-stores).
+
+## Troubleshooting
+
+| What you see | What to check |
+| --- | --- |
+| A connector shows **Needs credentials** or **Last call failed** | **Test connection** shows the distributor's answer. Rejected credentials pause the connector: replace them, then **Resume**. |
+| **Credentials locked** or **Credential key changed** | `TRACKER_CREDENTIAL_ROOT_KEY` is missing or differs from the key the credentials were saved with. Restore the key, or replace the credentials. |
+| **Resting until** a time | The distributor rate-limited Prism. It resumes by itself. |
+| **Paused** with a reason | Prism got a web page or a challenge where it expected data, or someone paused it. Check the proxy (`SUPPLY_HTTPS_PROXY`) and the distributor's status, then **Resume**. |
+| Farnell or element14 offers have no price | Set the connector's **Currency** to the store's. |
+| Calls run out before the day ends | Raise the **Daily call budget** to what the distributor allows, check **Provider's day begins at** and **Time zone** match its reset, or pick one packaging per distributor so fewer listings are read. |
+| An inventory source shows **No token** or **No category** | Edit it and set the token, or choose **Category** in its menu. |
+| An inventory source shows **Read failed** | The card shows the error. Check the server address (no `/api`), that the token's user can read the category, and that the server is reachable over HTTPS from Prism. |
+| Stock is on the server but not on the component | The part is unmatched (see **Review**), its stock is not OK status, it is allocated, or it is at an external location. |
 
 ## Look after it
 
