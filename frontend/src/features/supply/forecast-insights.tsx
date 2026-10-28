@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 
-import { Skeleton } from "@/components/ui/skeleton";
 import type { ForecastInsights, TrackRecordModel } from "@/types/supply";
 import { ChartCard } from "./chart-card";
 import { ComingUpCard } from "./dashboard-forecast";
@@ -23,7 +22,6 @@ function LeadTimes({ page }: { page: ForecastInsights }) {
   const rows = page.lead_times;
   return (
     <ChartCard title="Lead times ahead" info="The median quoted lead time of each maker and category, three months ahead, from its recent trend." answer={<ModelChip model={model} />}>
-      {rows.length === 0 ? <p className="text-sm text-muted-foreground">Needs about three weeks of stored market figures.</p> : (
         <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
           {rows.map((row) => (
             <li key={`${row.kind}:${row.scope}`} className={`flex items-baseline justify-between gap-3 ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
@@ -35,7 +33,6 @@ function LeadTimes({ page }: { page: ForecastInsights }) {
             </li>
           ))}
         </ul>
-      )}
     </ChartCard>
   );
 }
@@ -49,7 +46,6 @@ function percent(metric: string, value: number): string {
 function Warnings({ page }: { page: ForecastInsights }) {
   return (
     <ChartCard title="Early warnings" info="A family whose figure moved and stayed moved for two weeks, beyond its usual swings.">
-      {page.warnings.length === 0 ? <p className="text-sm text-muted-foreground">No family has shifted.</p> : (
         <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
           {page.warnings.map((warning) => (
             <li key={`${warning.kind}:${warning.scope}:${warning.metric}`}>
@@ -57,7 +53,6 @@ function Warnings({ page }: { page: ForecastInsights }) {
             </li>
           ))}
         </ul>
-      )}
     </ChartCard>
   );
 }
@@ -71,7 +66,6 @@ function Prices({ page, currency, onOpenPart }: { page: ForecastInsights; curren
       title="Prices ahead" info="The cheapest price in 90 days, as a range, for each tracked part. Most stay flat."
       answer={prices.parts === 0 ? undefined : <>{prices.flat} of {prices.parts} {prices.parts === 1 ? "part is" : "parts are"} likely to stay flat <ModelChip model={model} /></>}
     >
-      {rising.length === 0 ? <p className="text-sm text-muted-foreground">No price is likely to rise.</p> : (
         <ul className={`max-h-64 space-y-1 overflow-y-auto text-sm ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
           {rising.map((item) => (
             <li key={item.part_id}>
@@ -82,7 +76,6 @@ function Prices({ page, currency, onOpenPart }: { page: ForecastInsights; curren
             </li>
           ))}
         </ul>
-      )}
     </ChartCard>
   );
 }
@@ -129,23 +122,23 @@ function TrackRecord({ page }: { page: ForecastInsights }) {
   );
 }
 
-/** What Prism expects across the tracked parts, and how well its forecasts have done so far. */
-export function ForecastInsightsSection({ onOpenPart }: { onOpenPart: (partId: string) => void }) {
-  const fetcher = useCallback((signal: AbortSignal) => getForecastInsights(signal), []);
-  const loaded = useLoaded<ForecastInsights>("forecast-insights", fetcher, "Could not load the forecasts");
-  if (loaded.status === "loading") return <Skeleton className="h-40 w-full" aria-label="Loading the forecasts" />;
-  if (loaded.status === "error" || !loaded.data) return <p role="alert" className="text-sm text-destructive">{loaded.error}</p>;
-  const page = loaded.data;
-  const comingUpState = stateOf(page.track_record.models, "out_4w");
+/** What Prism expects across the tracked parts, and how well its forecasts have done so far. Only cards with something to show. */
+export function ForecastInsightsSection({ page, onOpenPart }: { page: ForecastInsights; onOpenPart: (partId: string) => void }) {
+  const shown = (target: string) => stateOf(page.track_record.models, target)?.state === "shown";
+  const rising = page.prices.likeliest_up.some((item) => item.change > 0.005);
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      {comingUpState?.state === "shown"
-        ? <ComingUpCard events={page.coming_up} today={new Date().toISOString().slice(0, 10)} onOpenPart={onOpenPart} />
-        : <ChartCard title="Coming up" answer={<ModelChip model={comingUpState} />}><p className="text-sm text-muted-foreground">Expected runouts and price moves are listed here once their forecasts have a good record.</p></ChartCard>}
-      <LeadTimes page={page} />
-      <Warnings page={page} />
-      <Prices page={page} currency={page.currency} onOpenPart={onOpenPart} />
+      {shown("out_4w") && page.coming_up.length > 0 ? <ComingUpCard events={page.coming_up} today={new Date().toISOString().slice(0, 10)} onOpenPart={onOpenPart} /> : null}
+      {shown("lead_90") && page.lead_times.length > 0 ? <LeadTimes page={page} /> : null}
+      {page.warnings.length > 0 ? <Warnings page={page} /> : null}
+      {shown("price_90") && rising ? <Prices page={page} currency={page.currency} onOpenPart={onOpenPart} /> : null}
       <TrackRecord page={page} />
     </div>
   );
+}
+
+/** The forecast figures behind the Insights page, loaded beside it. */
+export function useForecastInsights() {
+  const fetcher = useCallback((signal: AbortSignal) => getForecastInsights(signal), []);
+  return useLoaded<ForecastInsights>("forecast-insights", fetcher, "Could not load the forecasts");
 }
