@@ -6735,6 +6735,13 @@ class GeneratedClient:
             "/api/v1/supply/insights",
         )
 
+    def insights_risk_csv(self) -> Any:
+        """Insights Risk Csv"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/insights/risk.csv",
+        )
+
     def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Keep Usual Build"""
         return self._request(

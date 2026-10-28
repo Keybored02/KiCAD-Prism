@@ -1264,6 +1264,11 @@
     "path": "/api/v1/supply/insights",
     "typed": true
   },
+  "insights_risk_csv": {
+    "method": "GET",
+    "path": "/api/v1/supply/insights/risk.csv",
+    "typed": true
+  },
   "keep_usual_build": {
     "method": "PUT",
     "path": "/api/v1/supply/tracking/projects/{project_id}/build",
