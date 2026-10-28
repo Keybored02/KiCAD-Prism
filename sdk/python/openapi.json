@@ -46467,7 +46467,7 @@
     },
     "/api/v1/supply/parts/{part_id}/library-component": {
       "get": {
-        "description": "The catalog component that has this part, so the part sheet can open it. None when the library has none.",
+        "description": "The catalog component the part counts for (its main part first, then one it is an approved alternate of), so a part link\ncan open it. None when the library has none.",
         "operationId": "library_component_of",
         "parameters": [
           {
