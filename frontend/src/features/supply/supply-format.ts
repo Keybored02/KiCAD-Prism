@@ -103,13 +103,17 @@ export function currencyLabel(currency: string): string {
   }
 }
 
-/** `0.52` and `EUR` as a price, to at most `digits` decimals (a unit price needs four, a total two). Falls back to plain text for a currency the browser does not know. */
+/**
+ * `0.52` and `EUR` as a price, to at most `digits` decimals (a unit price needs four, a total two). From 100 up two decimals
+ * are enough: ₹393.28, not ₹393.2835. Falls back to plain text for a currency the browser does not know.
+ */
 export function formatPrice(price: string | null, currency: string, digits = 4): string {
   if (price === null || price === "") return "";
   const amount = Number(price);
   if (!currency || Number.isNaN(amount)) return price;
+  const places = Math.abs(amount) >= 100 ? 2 : Math.max(2, digits);
   try {
-    return amount.toLocaleString(localeOf(currency), { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, digits) });
+    return amount.toLocaleString(localeOf(currency), { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: places });
   } catch {
     return `${currency} ${price}`;
   }

@@ -20,7 +20,7 @@ from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
 from app.services.supply.tiers import SCHEDULES
-from app.services.supply.offer_lines import offer_lines
+from app.services.supply.offer_lines import in_base, offer_lines
 from app.services.supply.vocabulary import Lifecycle
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
@@ -573,6 +573,8 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
     offers = offers_by_part(conn, ids)
     shown = offers_by_part(conn, ids, every_listing=True)
     quantities = price_quantity.of_parts(conn, ids)
+    base = settings_store.load(conn).base_currency
+    rates = fx.latest(conn)
     waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM supply_admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
     stated: dict[str, dict[str, set[str]]] = {}
@@ -606,7 +608,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         extras[item["id"]] = {
             "project_names": projects_here[:2],
             "distributors": sorted(by_connector.values(), key=lambda entry: entry["name"].lower()),
-            "offers": offer_lines([offer for offer in shown.get(item["id"], []) if not offer["marketplace"]]),
+            "offers": in_base(offer_lines([offer for offer in shown.get(item["id"], []) if not offer["marketplace"]]), base, rates),
             "preferred_connector_id": preferred.get(item["id"]),
             "price_change_percent": facts_here.get("price_change_percent"),
             "forecast": (facts_here.get("forecast") or None) if (facts_here.get("forecast") or {}).get("available") else None,

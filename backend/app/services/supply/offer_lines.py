@@ -18,6 +18,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from app.services.supply.fx import Rates
 from app.services.supply.providers import packaging_hints
 from app.services.supply.vocabulary import Packaging
 
@@ -77,3 +78,21 @@ def offer_lines(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     lines = [part for line in _lines(offers) for part in _split_reel(line)]
     # By distributor; in each, the followed listing first, then the smallest order, then the lowest price at it.
     return sorted(lines, key=lambda line: (line["name"].lower(), not line["followed"], line["moq"], _first_price(line), line["sku"]))
+
+
+PLACES = Decimal("0.0001")
+
+
+def in_base(lines: list[dict[str, Any]], base: str, rates: Rates) -> list[dict[str, Any]]:
+    """The lines with their prices in the workspace currency too (``base_price_breaks``), so the detailed list reads in one
+    currency like the summary row. A line whose currency has no rate keeps ``None`` and shows its own prices."""
+
+    out = []
+    for line in lines:
+        converted = [rates.convert(Decimal(price), line["currency"], base) for _quantity, price in line["price_breaks"]] if line["currency"] else []
+        known = bool(converted) and all(value is not None for value in converted)
+        out.append({
+            **line, "base_currency": base,
+            "base_price_breaks": [[quantity, str(value.quantize(PLACES))] for (quantity, _price), value in zip(line["price_breaks"], converted)] if known else None,
+        })
+    return out

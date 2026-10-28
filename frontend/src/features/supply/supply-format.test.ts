@@ -15,6 +15,9 @@ describe("formatting", () => {
     expect(formatPrice("0.52", "EUR")).toMatch(/0\.52/);
     expect(formatPrice("0.52", "")).toBe("0.52");
     expect(formatPrice("abc", "EUR")).toBe("abc");
+    expect(formatPrice("2.7810", "EUR")).toMatch(/2\.781$/);
+    expect(formatPrice("393.2835", "INR")).toBe("₹393.28");
+    expect(formatPrice("13604.2348", "INR")).toBe("₹13,604.23");
     expect(formatPrice("0.5", "ZZZZ")).toBe("ZZZZ 0.5");
   });
 

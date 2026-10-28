@@ -35,8 +35,16 @@ function OfferRow({ part, offer }: { part: SupplyPartRow; offer: SupplyRowOffer 
         {packagingName(offer.packaging) ? null : <span className="text-muted-foreground">–</span>}
       </td>
       {PRICE_QUANTITIES.map((quantity) => {
-        const price = priceAt(offer.price_breaks, quantity);
-        return <td key={quantity} className="px-2 py-1 text-right tabular-nums">{price === null ? <span className="text-muted-foreground">–</span> : formatPrice(price, offer.currency)}</td>;
+        // In the workspace currency like the row above it; the distributor's own price stays on hover.
+        const base = offer.base_price_breaks && offer.base_currency && offer.base_currency !== offer.currency ? { breaks: offer.base_price_breaks, currency: offer.base_currency } : null;
+        const converted = base !== null;
+        const native = priceAt(offer.price_breaks, quantity);
+        const price = base ? priceAt(base.breaks, quantity) : native;
+        return (
+          <td key={quantity} className="px-2 py-1 text-right tabular-nums" title={converted && native !== null ? `Converted from ${formatPrice(native, offer.currency)}` : undefined}>
+            {price === null ? <span className="text-muted-foreground">–</span> : formatPrice(price, base?.currency ?? offer.currency)}
+          </td>
+        );
       })}
     </tr>
   );
