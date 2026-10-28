@@ -519,7 +519,6 @@
             "type": "integer"
           },
           "base_currency": {
-            "default": "EUR",
             "title": "Base Currency",
             "type": "string"
           },

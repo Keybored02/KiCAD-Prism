@@ -4,7 +4,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { ProjectCostPoint } from "@/types/supply";
 import { formatDay } from "./chart-format";
-import { formatPrice } from "./supply-format";
+import { formatAxisPrice, formatPrice } from "./supply-format";
 
 const CONFIG: ChartConfig = { cost: { label: "Cost of a board", color: "hsl(var(--primary))" } };
 const SIZES = [1, 10, 100, 1_000, 10_000];
@@ -18,7 +18,7 @@ export default function CostCurveChart({ curve, chosen, currency }: { curve: rea
         <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="boards" type="number" scale="log" domain={[1, 10_000]} ticks={SIZES} tickLine={false} axisLine={false} tickFormatter={(value: number) => value.toLocaleString()} />
-          <YAxis width={56} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(value: number) => formatPrice(String(value), currency)} />
+          <YAxis width={56} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(value: number) => formatAxisPrice(value, currency)} />
           <Tooltip
             cursor={false}
             content={({ active, payload }) => {
@@ -50,7 +50,7 @@ export function CostHistoryChart({ points, currency }: { points: ReadonlyArray<{
         <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickFormatter={formatDay} />
-          <YAxis width={56} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(value: number) => formatPrice(String(value), currency)} />
+          <YAxis width={56} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(value: number) => formatAxisPrice(value, currency)} />
           <Tooltip cursor={false} formatter={(value) => formatPrice(String(value), currency, 2)} labelFormatter={(label) => formatDay(String(label))} />
           <Line dataKey="cost" type="monotone" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={false} />
         </LineChart>

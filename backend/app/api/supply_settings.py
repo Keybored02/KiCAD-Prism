@@ -9,11 +9,11 @@ import asyncio
 from typing import Any, Callable, Dict, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
-from app.services.supply import maker_seeds, number_suffixes
+from app.services.supply import fx, maker_seeds, number_suffixes
 from app.services.supply.assessment import settings as rules
 from app.services.supply.assessment import settings_store
 
@@ -34,7 +34,7 @@ class AssessmentSettingsBody(BaseModel):
     spares_others: float = 0.0
     alert_price_rise_percent: int = 20
     alert_likely_out_percent: int = 70
-    base_currency: str = "EUR"
+    base_currency: str = Field(default_factory=lambda: rules.DEFAULTS.base_currency)
     price_quantity: int = 100
     prefer_distributors: bool = False
     distributor_order: list[str] = []
@@ -46,7 +46,13 @@ def _store():
     return supply_connectors.service.store
 
 
-def _view(current: rules.AssessmentSettings) -> dict[str, Any]:
+def _currencies(conn, current: str) -> list[str]:
+    """The currencies a workspace can cost in: the euro and every one Prism has a rate for, with the one chosen even without a rate."""
+
+    return sorted({"EUR", current, *fx.latest(conn).per_eur})
+
+
+def _view(conn, current: rules.AssessmentSettings) -> dict[str, Any]:
     return {
         "settings": rules.to_dto(current),
         "defaults": rules.to_dto(rules.DEFAULTS),
@@ -55,6 +61,7 @@ def _view(current: rules.AssessmentSettings) -> dict[str, Any]:
                    "spares": list(rules.SPARES_RANGE), "alert_price_rise_percent": list(rules.ALERT_PRICE_RISE_RANGE),
                    "alert_likely_out_percent": list(rules.ALERT_LIKELY_OUT_RANGE),
                    "price_quantity": list(rules.PRICE_QUANTITY_RANGE)},
+        "currencies": _currencies(conn, current.base_currency),
     }
 
 
@@ -140,7 +147,7 @@ async def remove_number_ending(key: str, admin: AuthenticatedUser = Depends(requ
 async def get_assessment_settings(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return _view(settings_store.load(conn))
+            return _view(conn, settings_store.load(conn))
 
     return await _run(read)
 
@@ -151,6 +158,6 @@ async def put_assessment_settings(
 ) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return _view(settings_store.save(conn, body.model_dump(), admin.email))
+            return _view(conn, settings_store.save(conn, body.model_dump(), admin.email))
 
     return await _run(run)

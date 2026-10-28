@@ -5,11 +5,21 @@ added here without growing `config.py`.
 """
 from __future__ import annotations
 
-from pydantic import Field
+import re
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
 class SupplySettings(BaseSettings):
+    SUPPLY_BASE_CURRENCY: str = Field(
+        default="EUR",
+        description=(
+            "The currency a new workspace costs in, as a three-letter code such as EUR, USD or INR. "
+            "Administrators can change it later in Supply settings; a workspace that saved its settings keeps its own."
+        ),
+    )
+
     SUPPLY_ENABLE_SIMULATED_PROVIDER: bool = Field(
         default=False,
         description="Allow connectors for the simulated distributor. For development, tests and demos only.",
@@ -41,6 +51,14 @@ class SupplySettings(BaseSettings):
             "Must be HTTPS. Empty uses PUBLIC_BASE_URL."
         ),
     )
+
+    @field_validator("SUPPLY_BASE_CURRENCY", mode="before")
+    @classmethod
+    def _currency_code(cls, value: object) -> str:
+        code = str(value or "EUR").strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", code):
+            raise ValueError("SUPPLY_BASE_CURRENCY must be a three-letter currency code, such as EUR or INR.")
+        return code
 
     @property
     def SUPPLY_INVENTORY_PRIVATE_HOSTS(self) -> list[str]:

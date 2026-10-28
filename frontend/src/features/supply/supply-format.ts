@@ -77,13 +77,39 @@ export const PROBLEM_LABEL: Record<SupplyProblem, string> = {
   gone: "Every listing for this part has disappeared",
 };
 
+/** Rupees are written the Indian way, ₹12,82,650.00, wherever the reader is; every other currency in the reader's own locale. */
+function localeOf(currency: string): string | undefined {
+  return currency.toUpperCase() === "INR" ? "en-IN" : undefined;
+}
+
+/** An axis tick: a price to two decimals below a thousand, else short (€15K, ₹1.5L, ₹1.2Cr), so it fits beside a chart. */
+export function formatAxisPrice(value: number, currency: string): string {
+  if (Math.abs(value) < 1000) return formatPrice(String(value), currency, 2);
+  try {
+    return new Intl.NumberFormat(localeOf(currency), { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value);
+  } catch {
+    return formatPrice(String(value), currency, 0);
+  }
+}
+
+/** "INR · ₹": a currency's code with its symbol, for choosing one. */
+export function currencyLabel(currency: string): string {
+  try {
+    const symbol = new Intl.NumberFormat(localeOf(currency) ?? "en", { style: "currency", currency, currencyDisplay: "narrowSymbol" })
+      .formatToParts(0).find((part) => part.type === "currency")?.value;
+    return symbol && symbol !== currency ? `${currency} · ${symbol}` : currency;
+  } catch {
+    return currency;
+  }
+}
+
 /** `0.52` and `EUR` as a price, to at most `digits` decimals (a unit price needs four, a total two). Falls back to plain text for a currency the browser does not know. */
 export function formatPrice(price: string | null, currency: string, digits = 4): string {
   if (price === null || price === "") return "";
   const amount = Number(price);
   if (!currency || Number.isNaN(amount)) return price;
   try {
-    return amount.toLocaleString(undefined, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, digits) });
+    return amount.toLocaleString(localeOf(currency), { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, digits) });
   } catch {
     return `${currency} ${price}`;
   }

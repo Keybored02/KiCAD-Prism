@@ -162,6 +162,22 @@ class FxDatabaseTests(unittest.TestCase):
         self.assertEqual((result["rollup"]["currency"], result["rollup"]["converted"], result["rollup"]["cost_build"]), ("USD", False, "10.00"))
         self.assertEqual(result["rollup"]["original_costs"], {})
 
+    def test_a_rupee_workspace_totals_euro_offers_in_rupees(self) -> None:
+        from app.services.supply.assessment import settings as rules
+        from app.services.supply.assessment import settings_store
+
+        with self.store.connection() as conn:
+            one = self.parts.ensure_part(conn, "Acme", "P-1", "seed@example.com").id
+            settings_store.save(conn, rules.to_dto(rules.DEFAULTS) | {"base_currency": "INR"}, "admin@example.com")
+        self.offer(one, "c1", "A", "0.50", "EUR")
+        lines = [{"key": "a", "manufacturer": "Acme", "mpn": "P-1", "quantity": 2}]
+        self.assertEqual(self.lookup(lines)["rollup"]["currency"], "EUR", "no rupee rate yet: the euros stay euros")
+        with self.store.connection() as conn:
+            fx.store(conn, date(2026, 3, 2), {"INR": Decimal("106")}, "ecb")
+        rollup = self.lookup(lines)["rollup"]
+        self.assertEqual((rollup["currency"], rollup["converted"], rollup["cost_build"]), ("INR", True, "1060.00"))
+        self.assertEqual(rollup["original_costs"], {"EUR": "10.00"})
+
 
 if __name__ == "__main__":
     unittest.main()

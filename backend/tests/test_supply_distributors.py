@@ -92,6 +92,8 @@ class TextValueTests(unittest.TestCase):
             "1.234,50 \u20ac": Decimal("1234.50"), "0.113": Decimal("0.113"), "12,5": Decimal("12.5"),
             "1 234": Decimal("1234"), "1\u00a0234,5": Decimal("1234.5"), "1.000.000": Decimal("1000000"),
             "\u00a30.07": Decimal("0.07"), 0.647: Decimal("0.647"), 3: Decimal("3"),
+            # Rupees, grouped in lakhs and crores
+            "\u20b91,23,456.50": Decimal("123456.50"), "\u20b912,34,56,789": Decimal("123456789"), "Rs. 1,00,000": Decimal("100000"), "\u20b912.75": Decimal("12.75"),
         }
         for text, expected in cases.items():
             self.assertEqual(parse_decimal(text), expected, text)

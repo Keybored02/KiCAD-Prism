@@ -1,7 +1,9 @@
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { AssessmentSettingsView } from "@/types/supply";
 import { PreferredDistributors } from "./preferred-distributors";
+import { currencyLabel } from "./supply-format";
 import { DefaultNote, SettingsGroup, WholeInput } from "./settings-group";
 
 const FIELDS = [
@@ -34,8 +36,12 @@ export function SettingsCosting({ view, readOnly, onSaved }: { view: AssessmentS
           <div className="space-y-1.5">
             <Label htmlFor="setting-currency">Currency</Label>
             <span className="flex items-center">
-              <Input id="setting-currency" className="w-28" maxLength={3} value={draft.base_currency}
-                onChange={(event) => set({ ...draft, base_currency: event.target.value.toUpperCase() })} />
+              <Select value={draft.base_currency} onValueChange={(next) => set({ ...draft, base_currency: next })}>
+                <SelectTrigger id="setting-currency" className="w-32"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(view.currencies ?? [draft.base_currency]).map((code) => <SelectItem key={code} value={code}>{currencyLabel(code)}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <DefaultNote changed={draft.base_currency !== defaults.base_currency} text={defaults.base_currency} />
             </span>
           </div>

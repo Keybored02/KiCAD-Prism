@@ -85,6 +85,7 @@ STORE_CURRENCY: Mapping[str, str] = {
     "uk.farnell.com": "GBP",
     "www.newark.com": "USD",
     "canada.newark.com": "CAD",
+    "in.element14.com": "INR",
     **{f"{code}.farnell.com": "EUR" for code in _EURO_STORES},
 }
 
