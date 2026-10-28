@@ -140,6 +140,22 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(page["trade"]["control"]["unknown"], 3)
         self.assertTrue(gone)
 
+    def test_every_cell_of_the_risk_grid_opens_exactly_the_parts_it_counts(self) -> None:
+        falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
+        self.follow("BOTH-1", [500] * 9, holders=("c1", "c2"))
+        self.follow("GONE-1", [0, 0, 0])
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET lifecycle = 'nrnd' WHERE listing_id = %s", (f"l-FALL-1-c1",))
+            self.part_insights.renew(conn, NOW)
+            grid = self.dashboard.build(conn, NOW)["risk_grid"]
+            for row in grid:
+                for column in ("two_plus", "one", "out", "not_read"):
+                    found = self.parts_view.list_parts(conn, scope="watched", only=f"risk:{row['lifecycle']}.{column}")["items"]
+                    self.assertEqual(len(found), row[column], f"{row['lifecycle']} {column}")
+            self.assertEqual([item["id"] for item in self.parts_view.list_parts(conn, scope="watched", only="risk:nrnd.one")["items"]], [falling])
+            with self.assertRaises(ValueError):
+                self.parts_view.list_parts(conn, scope="watched", only="risk:nrnd.many")
+
     def test_a_bar_of_the_compliance_trade_lead_time_and_outlook_charts_opens_the_parts_it_counts(self) -> None:
         bad = self.follow("BAD-1", [500] * 3)
         good = self.follow("GOOD-1", [500] * 3)

@@ -32,12 +32,14 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
   onOpenPart: (id: string) => void;
 }) {
   const { status, data, error, retry, showCleared, setShowCleared, busy, actionError, act, canAct } = useAlertList(user);
+  // The Open alerts tile counts the open ones, so that is the list; Show cleared adds the acknowledged, snoozed and resolved.
+  const listed = useMemo(() => (data ?? []).filter((alert) => showCleared || alert.state === "open"), [data, showCleared]);
   const kinds = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const alert of data ?? []) counts.set(alert.kind, (counts.get(alert.kind) ?? 0) + 1);
+    for (const alert of listed) counts.set(alert.kind, (counts.get(alert.kind) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [data]);
-  const shown = (data ?? []).filter((alert) => !kind || alert.kind === kind);
+  }, [listed]);
+  const shown = listed.filter((alert) => !kind || alert.kind === kind);
   return (
     <details id="dashboard-alerts" open>
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alerts</summary>
@@ -46,7 +48,7 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
         <div role="group" aria-label="Kind of alert" className="flex flex-wrap items-center gap-1">
           {kinds.length > 1 ? (
             <>
-              <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => onKind("")}>All {data?.length}</Button>
+              <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => onKind("")}>All {listed.length}</Button>
               {kinds.map(([name, count]) => (
                 <Button key={name} size="sm" variant={kind === name ? "secondary" : "ghost"} aria-pressed={kind === name} onClick={() => onKind(name)}>
                   {ALERT_KIND_LABEL[name as keyof typeof ALERT_KIND_LABEL] ?? name} {count}

@@ -186,7 +186,14 @@ in price over 30 days, changes lifecycle, gets a new datasheet, has a change
 notice announcing its end, or is dropped by every distributor. A condition
 must hold on two reads at least 30 minutes apart. Acknowledge or snooze an
 alert; it clears by itself once the condition ends. Prism sends no email or
-chat messages.
+chat messages. The Dashboard lists the open alerts, the ones the **Open alerts**
+tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
+
+Every Dashboard count opens a list with exactly that many parts: a cell of the
+risk grid opens the parts with that lifecycle and that many distributors. A
+tracked project's row shows the boards and the cost per board its own page
+shows, for its usual build, and reads **Unconfirmed** while a BOM line is
+unchecked.
 
 ## Review what Prism could not settle
 
