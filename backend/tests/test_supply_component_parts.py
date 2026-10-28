@@ -67,6 +67,25 @@ class ComponentPartsTests(unittest.TestCase):
     def _call(self, role: str, method: str, path: str, body=None):
         return _request(self.app, method, path, user=self.users[role], body=body)
 
+    def test_a_number_written_with_other_spaces_dashes_or_case_finds_the_component_without_reading_the_catalog(self) -> None:
+        from app.services import component_catalog_service
+        from app.services.supply import catalog_read
+
+        component = self._component()
+        number = component["mpn"]  # CP-<token>
+        found = self.catalog.components_by_compact_number([number.replace("-", "").upper()])
+        self.assertEqual([item["id"] for item in found], [str(component["id"])])
+
+        with unittest.mock.patch.object(component_catalog_service, "catalog_service", self.catalog), \
+                unittest.mock.patch.object(self.catalog, "list_components", side_effect=AssertionError("read the whole catalog")):
+            maker = component["manufacturer"]
+            have = catalog_read.in_library([(f"{maker} Inc.", number.replace("-", " ").lower())])
+            self.assertEqual(len(have), 1, "another spelling of the maker, the number written differently")
+            self.assertEqual(catalog_read.component_for(maker, number.replace("-", "")), str(component["id"]))
+
+        self.catalog.deactivate_component(str(component["id"]), actor=AUTHOR, reason="component parts test")
+        self.assertEqual(self.catalog.components_by_compact_number([number.replace("-", "").upper()]), [], "a retired component")
+
     def test_the_main_part_follows_the_current_revision(self) -> None:
         component = self._component()
         (main,) = self._parts(str(component["id"]))

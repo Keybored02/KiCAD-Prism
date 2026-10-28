@@ -62,7 +62,7 @@ def in_library(pairs: Iterable[tuple[str, str]]) -> set[tuple[str, str]]:
     have = {(maker.strip().casefold(), mpn.strip().casefold()) for (maker, mpn), holder in zip(asked, found) if holder is not None and holder.get("is_active")}
     missing = [(maker, mpn) for maker, mpn in asked if (maker.strip().casefold(), mpn.strip().casefold()) not in have]
     if missing:
-        components = component_ids_by_part()
+        components = components_with_numbers(mpn for _maker, mpn in missing)
         for maker, mpn in missing:
             if components.has(maker, mpn):
                 have.add((maker.strip().casefold(), mpn.strip().casefold()))
@@ -74,11 +74,10 @@ def component_for(maker: str, mpn: str) -> str | None:
 
     from app.services.component_catalog_service import catalog_service
 
-    found = catalog_service.match_component_identities([{"manufacturer": maker, "mpn": mpn}])
-    exact = found.get(chr(0).join((maker.strip().casefold(), mpn.strip().casefold())))
-    if exact:
+    (exact,) = catalog_service.match_component_identities([{"manufacturer": maker, "mpn": mpn}])
+    if exact and exact.get("is_active"):
         return str(exact["component_id"])
-    return component_ids_by_part().get((alias_key(maker), match_key(mpn)))
+    return components_with_numbers([mpn]).get((alias_key(maker), match_key(mpn)))
 
 
 class ComponentsByPart(dict):
@@ -108,6 +107,15 @@ class ComponentsByPart(dict):
 
     def has(self, maker: str, mpn: str) -> bool:
         return self.get((alias_key(maker), match_key(mpn))) is not None
+
+
+def components_with_numbers(mpns: Iterable[str]) -> ComponentsByPart:
+    """``component_ids_by_part`` for only the components with these part numbers: one query, whatever the size of the catalog."""
+
+    from app.services.component_catalog_service import catalog_service
+
+    keys = sorted({match_key(str(mpn)) for mpn in mpns} - {""})
+    return component_ids_by_part(iter(catalog_service.components_by_compact_number(keys)) if keys else iter(()))
 
 
 def component_ids_by_part(components: Iterator[dict[str, Any]] | None = None) -> ComponentsByPart:

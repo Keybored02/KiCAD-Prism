@@ -115,8 +115,9 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
             by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
 
     spelled: dict[str, set[str]] = {}
-    for part_ids in by_number.values():
-        for row in conn.execute("SELECT part_id, alias_key FROM supply_part_spellings WHERE part_id = ANY(%s)", ([part_id for part_id, _ in part_ids],)).fetchall():
+    candidate_ids = sorted({part_id for part_ids in by_number.values() for part_id, _ in part_ids})
+    if candidate_ids:
+        for row in conn.execute("SELECT part_id, alias_key FROM supply_part_spellings WHERE part_id = ANY(%s)", (candidate_ids,)).fetchall():
             spelled.setdefault(row["part_id"], set()).add(row["alias_key"])
 
     resolved: dict[str, tuple[str, str | None, str | None]] = {}
