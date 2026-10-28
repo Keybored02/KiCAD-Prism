@@ -670,3 +670,89 @@ class ReleaseCheckTests(unittest.TestCase):
 
     def conn(self):
         return self.store.connection().__enter__()
+
+
+@unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply tests")
+class KeptRollupTests(unittest.TestCase):
+    """A tracked project's usual-build rollup is kept, and worked out again only after something it is made from changed."""
+
+    setUpClass = ReleaseCheckTests.__dict__["setUpClass"]
+    tearDownClass = ReleaseCheckTests.__dict__["tearDownClass"]
+    setUp = ReleaseCheckTests.setUp
+    part = ReleaseCheckTests.part
+
+    def track(self, project_id: str, bom) -> dict:
+        from app.services.supply import tracking, usage
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("supply_tracked_projects", "supply_bom_usage_projects", "supply_project_rollups"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            usage.store_project(conn, project_id, project_id, "rev1", lines(bom), NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES (%s, '{\"\"}', 'a@example.com', 10)", (project_id,))
+            return tracking.tracked_project(conn, project_id)
+
+    def rollup(self, project: dict, *, fresh: bool):
+        """The rollup, asserting whether it was worked out (``fresh``) or read as kept."""
+
+        from app.services.supply import bom_lookup, project_supply
+
+        with mock.patch.object(bom_lookup, "load", wraps=bom_lookup.load) as load, self.store.connection() as conn:
+            found = project_supply.usual_rollup(conn, project, "")
+        self.assertEqual(load.called, fresh, "worked out" if fresh else "read as kept")
+        return found
+
+    def test_a_kept_rollup_is_read_until_one_of_its_parts_changes(self) -> None:
+        part_id = self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k1", [component("R1", "Acme", "GOOD-1"), component("J1")])
+        first = self.rollup(project, fresh=True)
+        self.assertEqual(self.rollup(project, fresh=False), first, "nothing changed")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET stock = 3 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (part_id,))
+        changed = self.rollup(project, fresh=True)
+        self.assertEqual((first["can_build"], changed["can_build"]), (5000, 3))
+        self.assertEqual(changed["not_tracked"], 1, "the line with no number")
+
+    def test_a_new_usual_build_or_a_workspace_setting_makes_it_stale(self) -> None:
+        from app.services.supply import tracking
+
+        self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k2", [component("R1", "Acme", "GOOD-1")])
+        self.rollup(project, fresh=True)
+        with self.store.connection() as conn:
+            tracking.set_usual_build(conn, "prj_k2", 20, "a@example.com")
+            project = tracking.tracked_project(conn, "prj_k2")
+        self.rollup(project, fresh=True)
+        self.rollup(project, fresh=False)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO supply_rollup_dirty (scope) VALUES ('*')")
+        self.rollup(project, fresh=True)
+
+    def test_a_kept_rollup_reads_as_a_fresh_one_and_the_dashboard_row_matches_it(self) -> None:
+        from app.services.supply import parts_view
+
+        self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k3", [component("R1", "Acme", "GOOD-1")])
+        fresh = self.rollup(project, fresh=True)
+        self.assertEqual(self.rollup(project, fresh=False), fresh)
+        with self.store.connection() as conn:
+            (row,) = [group for group in parts_view.part_groups(conn, scope="watched")["groups"] if group["project_id"] == "prj_k3"] or [None]
+        if row is not None:
+            self.assertEqual((row["stats"]["boards"], row["stats"]["cost_per_board"]), (fresh["can_build"], fresh["cost_per_board"]))
+
+    def test_trimming_keeps_the_marks_a_kept_rollup_still_depends_on(self) -> None:
+        from app.services.supply import retention
+
+        part_id = self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k4", [component("R1", "Acme", "GOOD-1")])
+        self.rollup(project, fresh=True)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET stock = 7 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (part_id,))
+        with self.store.connection() as conn:
+            retention.trim_summaries(conn)
+        self.assertEqual(self.rollup(project, fresh=True)["can_build"], 7)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -191,14 +191,81 @@ def usual_attrition(conn, tracked: dict[str, Any] | None) -> float | None:
     return settings_store.load(conn).default_attrition() if chosen == DEFAULT else chosen
 
 
-def usual_rollup(conn, project: dict[str, Any], variant: str) -> dict[str, Any] | None:
-    """A tracked project's rollup at its usual build and spares, as its page shows it when nothing else is asked for. None without a BOM."""
+# A kept rollup older than this is worked out again even with no mark: "read is late" and other findings move with the clock.
+ROLLUP_MAX_AGE = timedelta(hours=1)
 
-    rows = usage.project_rows(conn, project["project_id"], variant)
-    if not rows:
-        return None
-    lines = [bom_line(row) for row in rows]
-    return bom_lookup.lookup(conn, lines, int(project["build_quantity"]), usual_attrition(conn, project), **bom_lookup.library_readers(conn))["rollup"]
+
+def _kept_rollup(conn, project_id: str, variant: str) -> tuple[bool, dict[str, Any] | None]:
+    """(found, rollup) for a kept rollup no mark has made stale since it was worked out."""
+
+    row = conn.execute(
+        """
+        SELECT r.data FROM supply_project_rollups r
+        WHERE r.project_id = %s AND r.variant = %s AND r.computed_at > NOW() - %s
+          AND NOT EXISTS (SELECT 1 FROM supply_rollup_dirty d WHERE d.scope IN (r.project_id, '*') AND d.xid >= r.snap
+                          AND (d.xid = r.own OR NOT pg_visible_in_snapshot(d.xid::text::xid8, r.seen::pg_snapshot)))
+          AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = ANY(r.part_ids) AND d.xid >= r.snap
+                          AND (d.xid = r.own OR NOT pg_visible_in_snapshot(d.xid::text::xid8, r.seen::pg_snapshot)))
+        """,
+        (project_id, variant, ROLLUP_MAX_AGE),
+    ).fetchone()
+    if row is None:
+        return False, None
+    return True, row["data"].get("rollup")
+
+
+def _keep_rollup(conn, project_id: str, variant: str, seen: str, rollup: dict[str, Any] | None, part_ids: list[str]) -> None:
+    # Keeping it is a favour to the next reader: never wait for a row another transaction holds.
+    if conn.execute(
+        "SELECT 1 FROM supply_project_rollups WHERE project_id = %s AND variant = %s FOR UPDATE SKIP LOCKED", (project_id, variant)
+    ).fetchone() is None and conn.execute(
+        "SELECT 1 FROM supply_project_rollups WHERE project_id = %s AND variant = %s", (project_id, variant)
+    ).fetchone():
+        return
+    conn.execute(
+        """
+        INSERT INTO supply_project_rollups (project_id, variant, data, part_ids, seen, snap, own, computed_at)
+        VALUES (%s, %s, %s::jsonb, %s, %s, pg_snapshot_xmin(%s::pg_snapshot)::text::bigint,
+                COALESCE(pg_current_xact_id_if_assigned()::text::bigint, 0), NOW())
+        ON CONFLICT (project_id, variant) DO UPDATE SET data = EXCLUDED.data, part_ids = EXCLUDED.part_ids, seen = EXCLUDED.seen,
+            snap = EXCLUDED.snap, own = EXCLUDED.own, computed_at = EXCLUDED.computed_at
+        """,
+        (project_id, variant, json.dumps({"rollup": rollup}), sorted(set(part_ids)), seen, seen),
+    )
+
+
+def usual_rollup(conn, project: dict[str, Any], variant: str) -> dict[str, Any] | None:
+    """A tracked project's rollup at its usual build and spares, as its page shows it when nothing else is asked for. None without a BOM.
+
+    Kept per project and design: worked out again only after something it is made from changed (see ``_m096_project_rollups``).
+    """
+
+    project_id = project["project_id"]
+    found, rollup = _kept_rollup(conn, project_id, variant)
+    if found:
+        return rollup
+    seen = str(conn.execute("SELECT pg_current_snapshot()::text AS s").fetchone()["s"])
+    rows = usage.project_rows(conn, project_id, variant)
+    part_ids: list[str] = []
+    if rows:
+        loaded = bom_lookup.load(conn, [bom_line(row) for row in rows], **bom_lookup.library_readers(conn))
+        # As it comes back from being kept (numbers as JSON gives them), so a kept and a fresh rollup read the same.
+        rollup = json.loads(json.dumps(bom_lookup.price(conn, loaded, int(project["build_quantity"]), usual_attrition(conn, project))["rollup"], default=str))
+        part_ids = [*loaded.per_board, *(other for others in loaded.alternates.values() for other in others)]
+    _keep_rollup(conn, project_id, variant, seen, rollup, part_ids)
+    return rollup
+
+
+def refresh_rollups(conn) -> int:
+    """Work out every tracked project's stale rollup now, so the next reader finds it kept. Returns how many were worked out."""
+
+    worked = 0
+    for project in tracking.list_tracked_projects(conn):
+        variant = (project["variants"] or [""])[0]
+        if not _kept_rollup(conn, project["project_id"], variant)[0]:
+            usual_rollup(conn, project, variant)
+            worked += 1
+    return worked
 
 
 def build_answers(conn) -> dict[str, dict[str, Any]]:

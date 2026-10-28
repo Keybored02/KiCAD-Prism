@@ -536,6 +536,14 @@ def _supply_ending_dismissals(conn: Any) -> None:
     _m095_ending_dismissals(getattr(conn, "_connection", conn))
 
 
+def _supply_project_rollups(conn: Any) -> None:
+    """Supply step 96 again, after the catalog's own tables exist (step 17 runs before them), so a rollup follows component parts,
+    inventory levels and components too."""
+    from app.services.supply.migration_steps.steps_c import _m096_project_rollups
+
+    _m096_project_rollups(getattr(conn, "_connection", conn))
+
+
 def _inventory_sources(conn: Any) -> None:
     """Local inventory servers (InvenTree, or any server serving its read API) whose stock fills ``inventory_levels``.
 
@@ -627,6 +635,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (18, "component_parts", _component_parts),
     (19, "inventory_sources", _inventory_sources),
     (20, "supply_ending_dismissals", _supply_ending_dismissals),
+    (21, "supply_project_rollups", _supply_project_rollups),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
