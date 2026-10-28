@@ -52,7 +52,11 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
   return (
     <div className={cn("border", !stickyHead && "overflow-x-auto overflow-y-hidden")}>
       <table className="w-full text-sm">
-        <thead className={cn("border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground", stickyHead && "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_var(--border)]")}>
+        {/* The cells stick, not the thead: WebKit lets rows show above a sticky thead in a table of many tbodies. */}
+        <thead className={cn(
+          "border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground",
+          stickyHead && "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted [&_th]:shadow-[inset_0_-1px_0_var(--border)]",
+        )}>
           <tr>
             <th className="w-8 px-3 py-2"><span className="sr-only">Status</span></th>
             {header("part", "Part", false)}
