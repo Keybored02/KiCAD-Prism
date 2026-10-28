@@ -151,7 +151,7 @@ def origin_labels(conn, tracked: Sequence[str]) -> dict[str, str]:
 
 
 # Filters that carry a value (``kind:value``), from the Insights charts that have one bar per country or distributor.
-VALUED = ("origin", "listed", "stocked", "cheapest", "repricing", "leader", "restock_first")
+VALUED = ("origin", "listed", "stocked", "cheapest", "repricing", "leader", "restock_first", "risk")
 
 
 def valued_members(conn, only: str, items: Sequence[Mapping[str, Any]]) -> set[str] | None:
@@ -160,6 +160,16 @@ def valued_members(conn, only: str, items: Sequence[Mapping[str, Any]]) -> set[s
     kind, _, value = only.partition(":")
     if kind not in VALUED or not value:
         return None
+    if kind == "risk":
+        # One cell of the risk grid, "nrnd.one": exactly the parts ``risk_grid`` counts there.
+        lifecycle, _, column = value.partition(".")
+        if lifecycle not in LIFECYCLES or column not in AVAILABILITY:
+            return None
+        kept = {row["part_id"]: row for row in part_insights.read_all(conn)}
+        return {
+            item["id"] for item in items
+            if (item["lifecycle"] if item["lifecycle"] in LIFECYCLES else "unknown") == lifecycle and availability_of(item, kept.get(item["id"])) == column
+        }
     ids = [item["id"] for item in items]
     if kind == "origin":
         return {part_id for part_id, label in origin_labels(conn, ids).items() if label == value}

@@ -430,19 +430,23 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     stats["bom_read_at"] = read["updated_at"].isoformat() if read and read["updated_at"] else None
     if not group["tracked"]:
         return stats
-    tracked = conn.execute("SELECT variants, all_variants, packaging FROM supply_tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    from app.services.supply import cost_history, project_supply, tracking  # they read this module, so they are imported here
+
+    tracked = tracking.tracked_project(conn, project_id)
     stats["variants"] = list(tracked["variants"]) if tracked else []
     stats["all_variants"] = bool(tracked and tracked["all_variants"])
     stats["packaging"] = tracked["packaging"] if tracked else None
-    from app.services.supply import cost_history
-
-    kept, _left_out = cost_history.series(conn, project_id, (tracked["variants"] or [""])[0] if tracked else "", 120)
-    if kept:
-        latest = kept[-1]
-        stats["cost_per_board"] = format(latest["cost_per_board"], "f")
-        stats["currency"] = latest["currency"]
-        stats["cost_change_percent"] = cost_history.change_percent(kept)
-        stats["boards"] = (latest["rollup"] or {}).get("can_build")
+    variant = (tracked["variants"] or [""])[0] if tracked else ""
+    # The same rollup the project page shows, worked out now: the day's stored row only gives the change over time.
+    rollup = project_supply.usual_rollup(conn, tracked, variant) if tracked else None
+    if rollup and rollup["cost_per_board"] is not None and rollup["currency"]:
+        stats["cost_per_board"] = format(Decimal(str(rollup["cost_per_board"])), "f")
+        stats["currency"] = rollup["currency"]
+        stats["boards"] = rollup["can_build"]
+        stats["build_quantity"] = int(tracked["build_quantity"])
+        stats["unchecked"] = int(rollup["not_tracked"])
+        kept, _left_out = cost_history.series(conn, project_id, variant, 120)
+        stats["cost_change_percent"] = cost_history.change_percent(kept) if kept else None
     stats["alerts"] = int(conn.execute(
         "SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])
     return stats

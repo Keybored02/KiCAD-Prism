@@ -3,19 +3,13 @@ import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { ChartCard } from "./chart-card";
+import { RISK_AVAILABILITY, RISK_LIFECYCLE } from "./parts-filters";
 import { counts } from "./project-row-text";
 import { formatPrice } from "./supply-format";
 
 type Lifecycle = SupplyDashboard["risk_grid"][number]["lifecycle"];
 type Column = "two_plus" | "one" | "out" | "not_read";
 
-const ROWS: Array<{ key: Lifecycle; label: string }> = [
-  { key: "active", label: "Active" },
-  { key: "nrnd", label: "Not recommended for new designs" },
-  { key: "last_time_buy", label: "Last time buy" },
-  { key: "obsolete", label: "Obsolete" },
-  { key: "unknown", label: "Lifecycle unknown" },
-];
 const COLUMNS: Array<{ key: Column; label: string }> = [
   { key: "two_plus", label: "2+ distributors" },
   { key: "one", label: "One" },
@@ -30,12 +24,6 @@ function toneOf(lifecycle: Lifecycle, column: Column, count: number): string {
   if (column === "out") return ending ? "bg-destructive/70 text-white" : "bg-destructive/40";
   if (column === "one") return ending ? "bg-destructive/40" : "bg-warning/40";
   return ending ? "bg-warning/40" : "bg-success/30";
-}
-
-/** The parts a cell opens: an ending lifecycle opens those, otherwise the column's availability. */
-function filterOf(lifecycle: Lifecycle, column: Column): PartsFilter {
-  if (lifecycle !== "active" && lifecycle !== "unknown") return "lifecycle";
-  return column === "out" ? "out_of_stock" : column === "one" ? "one_distributor" : column === "not_read" ? "few_readings" : "";
 }
 
 /** Risk distribution: lifecycle against availability. A cell opens the parts behind it. */
@@ -58,14 +46,14 @@ export function RiskGridCard({ grid, onOpen }: { grid: SupplyDashboard["risk_gri
         <tbody>
           {grid.map((row) => (
             <tr key={row.lifecycle}>
-              <th scope="row" className="pr-2 text-left font-normal">{ROWS.find((item) => item.key === row.lifecycle)?.label ?? row.lifecycle}</th>
+              <th scope="row" className="pr-2 text-left font-normal">{RISK_LIFECYCLE[row.lifecycle] ?? row.lifecycle}</th>
               {COLUMNS.map((column) => {
                 const count = row[column.key];
                 return (
                   <td key={column.key} className="p-0">
                     <button
-                      type="button" disabled={count === 0} onClick={() => onOpen(filterOf(row.lifecycle, column.key))}
-                      aria-label={`${ROWS.find((item) => item.key === row.lifecycle)?.label}, ${column.label}: ${count}`}
+                      type="button" disabled={count === 0} onClick={() => onOpen(`risk:${row.lifecycle}.${column.key}`)}
+                      aria-label={`${RISK_LIFECYCLE[row.lifecycle]}, ${RISK_AVAILABILITY[column.key]}: ${count}`}
                       className={cn("h-8 w-full tabular-nums hover:opacity-80", toneOf(row.lifecycle, column.key, count))}
                     >
                       {count.toLocaleString()}
@@ -148,9 +136,17 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
                       <div className="text-xs text-muted-foreground">{counts({ ...project, tracked: true })}</div>
                     </td>
                     <td className={cn("py-1.5 text-right tabular-nums", stats.at_risk > 0 && "font-medium text-destructive")}>{stats.at_risk}</td>
-                    <td className="py-1.5 text-right tabular-nums">{stats.boards ?? "–"}</td>
+                    <td className="py-1.5 text-right tabular-nums">
+                      {stats.unchecked ? (
+                        <>
+                          <div className="font-medium text-destructive">Unconfirmed</div>
+                          <div className="text-xs text-muted-foreground">{stats.boards == null ? "" : `${stats.boards.toLocaleString()} · `}{stats.unchecked} unchecked</div>
+                        </>
+                      ) : stats.boards ?? "–"}
+                    </td>
                     <td className="py-1.5 text-right tabular-nums">
                       {stats.cost_per_board && stats.currency ? formatPrice(stats.cost_per_board, stats.currency) : "–"}
+                      {stats.cost_per_board && stats.build_quantity ? <span className="ml-1 text-xs text-muted-foreground">@ {stats.build_quantity}</span> : null}
                       {stats.cost_change_percent ? <span className={cn("ml-1 text-xs", stats.cost_change_percent > 0 ? "text-warning" : "text-success")}>{stats.cost_change_percent > 0 ? "▲" : "▼"} {Math.abs(stats.cost_change_percent)}%</span> : null}
                     </td>
                   </tr>

@@ -140,12 +140,8 @@ def snapshot_costs(conn, now: datetime) -> int:
             if kept:
                 # The usual build changed since today's row was written: the row is for another size, so it is worked out again.
                 conn.execute("DELETE FROM supply_bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today))
-            rows = usage.project_rows(conn, project["project_id"], variant)
-            if not rows:
-                continue
-            lines = [bom_line(row) for row in rows]
-            rollup = bom_lookup.lookup(conn, lines, boards, usual_attrition(conn, project), **bom_lookup.library_readers(conn))["rollup"]
-            if rollup["cost_per_board"] is None or not rollup["currency"]:
+            rollup = usual_rollup(conn, project, variant)
+            if rollup is None or rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
                 "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
@@ -193,6 +189,16 @@ def usual_attrition(conn, tracked: dict[str, Any] | None) -> float | None:
 
     chosen = attrition_of((tracked or {}).get("spares") or "")
     return settings_store.load(conn).default_attrition() if chosen == DEFAULT else chosen
+
+
+def usual_rollup(conn, project: dict[str, Any], variant: str) -> dict[str, Any] | None:
+    """A tracked project's rollup at its usual build and spares, as its page shows it when nothing else is asked for. None without a BOM."""
+
+    rows = usage.project_rows(conn, project["project_id"], variant)
+    if not rows:
+        return None
+    lines = [bom_line(row) for row in rows]
+    return bom_lookup.lookup(conn, lines, int(project["build_quantity"]), usual_attrition(conn, project), **bom_lookup.library_readers(conn))["rollup"]
 
 
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:

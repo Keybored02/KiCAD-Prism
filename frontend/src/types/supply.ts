@@ -554,7 +554,7 @@ export type PartsFilter =
   | "rohs_compliant" | "rohs_not_compliant" | "rohs_not_applicable" | "rohs_unknown"
   | "reach_compliant" | "reach_affected" | "reach_not_applicable" | "reach_unknown"
   | "control_controlled" | "control_disputed" | "control_none" | "control_unknown"
-  | `${"origin" | "listed" | "stocked" | "cheapest" | "repricing" | "leader" | "restock_first"}:${string}`;
+  | `${"origin" | "listed" | "stocked" | "cheapest" | "repricing" | "leader" | "restock_first" | "risk"}:${string}`;
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 
@@ -708,6 +708,10 @@ export interface SupplyGroupStats {
   currency?: string;
   cost_change_percent?: number | null;
   boards?: number | null;
+  /** The usual build the cost and boards are worked out for. */
+  build_quantity?: number;
+  /** BOM lines no stock figure checks: the boards count is unconfirmed while any is. */
+  unchecked?: number;
   alerts?: number;
 }
 

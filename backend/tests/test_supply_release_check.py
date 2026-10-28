@@ -413,6 +413,34 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((page["build_quantity"], page["usual_build"]), (1, 1), "without a size the page opens at the usual build")
         self.assertEqual([point["cost_per_board"] for point in page["cost_history"]], ["0.5000", "0.5000"], "the 100-board days are another series")
 
+    def test_a_tracked_project_row_shows_the_figures_its_page_shows_now(self) -> None:
+        from app.services.supply import parts_view, project_supply, tracking, usage
+
+        self.part("GOOD-1", stock=5000)
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("supply_tracked_projects", "supply_bom_cost_history", "supply_bom_usage_projects"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            lines = usage.lines_from_components([component("R1", "Acme", "GOOD-1"), component("J1", "", "")])
+            usage.store_project(conn, "prj_46", "Forty six", "rev1", lines, NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_46', '{\"\"}', 'a@example.com', 1)")
+
+            def row() -> dict:
+                groups = parts_view.part_groups(conn, scope="all")["groups"]
+                return next(group["stats"] for group in groups if group["project_id"] == "prj_46")
+
+            page = project_supply.overview(conn, "prj_46")["rollup"]
+            stats = row()
+            self.assertEqual((stats["cost_per_board"], stats["boards"], stats["unchecked"]), (page["cost_per_board"], page["can_build"], 1), "no day was stored")
+            tracking.set_usual_build(conn, "prj_46", 100, "a@example.com")
+            self.assertEqual((row()["cost_per_board"], row()["build_quantity"]), ("0.2500", 100), "a new usual build shows at once")
+
     def test_a_changed_usual_build_works_today_out_again_and_a_project_keeps_its_own_spares(self) -> None:
         from app.services.supply import project_supply, tracking, usage
 

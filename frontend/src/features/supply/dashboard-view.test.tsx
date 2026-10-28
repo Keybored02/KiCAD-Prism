@@ -79,11 +79,11 @@ describe("the dashboard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Under 2 weeks: 1" }));
     expect(search()).toContain("partsOnly=runs_out_2w");
     fireEvent.click(screen.getByRole("button", { name: "Not recommended for new designs, 2+ distributors: 0" }));
-    expect(search()).not.toContain("partsOnly=lifecycle");
+    expect(search()).not.toContain("partsOnly=risk");
     fireEvent.click(screen.getByRole("button", { name: "Not recommended for new designs, Out: 1" }));
-    expect(search()).toContain("partsOnly=lifecycle");
-    fireEvent.click(screen.getByRole("button", { name: "Active, One: 1" }));
-    expect(search()).toContain("partsOnly=one_distributor");
+    expect(search()).toContain("partsOnly=risk%3Anrnd.out");
+    fireEvent.click(screen.getByRole("button", { name: "Active, One distributor: 1" }));
+    expect(search()).toContain("partsOnly=risk%3Aactive.one");
   });
 
   it("has no Ending in library tile: ending parts are notifications on the Dashboard itself", async () => {
@@ -130,6 +130,32 @@ describe("the dashboard", () => {
     const projects = screen.getByRole("region", { name: "Tracked projects" });
     expect(within(projects).getByRole("link", { name: "Power board" }).getAttribute("href")).toBe("/project/prj_1?section=supply");
     expect(within(projects).getByText("120")).toBeTruthy();
+  });
+
+  it("lists the open alerts the tile counts, and the acknowledged ones only with the cleared", async () => {
+    mocked.listSupplyAlerts.mockResolvedValue({ items: [
+      alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } }),
+      alertFixture({ id: 2, kind: "out_of_stock", severity: "error", mpn: "SEEN-1", state: "acknowledged", detail: { stock: 0 } }),
+    ] });
+    renderView();
+    expect(await screen.findByText("OOS-1")).toBeTruthy();
+    expect(screen.queryByText("SEEN-1")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Show cleared"));
+    expect(await screen.findByText("SEEN-1")).toBeTruthy();
+  });
+
+  it("shows a tracked project's boards as unconfirmed while a line is unchecked, and the build its cost is for", async () => {
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({
+      projects: [{
+        project_id: "prj_2", project_name: "Trigger board", count: 17, statuses: { ok: 17 },
+        stats: { at_risk: 0, out: 0, end_of_life: 0, one_distributor: 17, runs_out_soon: 0, boards: 247, cost_per_board: "128.265", currency: "EUR", build_quantity: 10, unchecked: 1 },
+      }],
+    }));
+    renderView();
+    const projects = await screen.findByRole("region", { name: "Tracked projects" });
+    expect(within(projects).getByText("Unconfirmed")).toBeTruthy();
+    expect(within(projects).getByText("247 · 1 unchecked")).toBeTruthy();
+    expect(within(projects).getByText("@ 10")).toBeTruthy();
   });
 
   it("opens a part from an alert", async () => {
