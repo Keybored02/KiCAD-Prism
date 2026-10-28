@@ -1264,6 +1264,11 @@
     "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}/link",
     "typed": true
   },
+  "link_unmatched_part": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/unmatched/{remote_part}/link",
+    "typed": true
+  },
   "list_access_users": {
     "method": "GET",
     "path": "/api/v1/settings/access/users",

@@ -1,24 +1,21 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, FolderKanban, LayoutDashboard, LineChart, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import { useReviewCount } from "./review-count";
-import { CONNECTORS_PLACE, resolvePlace, type SupplyTab } from "./supply-views";
+import { MOVED_TO_LIBRARY, resolvePlace, type SupplyTab } from "./supply-views";
 
 const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ default: module.DashboardView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const InsightsView = lazy(() => import("./insights-view").then((module) => ({ default: module.InsightsView })));
 const ProjectsView = lazy(() => import("./projects-view").then((module) => ({ default: module.ProjectsView })));
-const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", title: "Supply Dashboard", icon: LayoutDashboard },
   { id: "parts", label: "Parts", title: "Tracked Parts", icon: Boxes },
   { id: "projects", label: "Projects", title: "Projects", icon: FolderKanban },
-  { id: "review", label: "Review", title: "Supply Review", icon: ListChecks },
   { id: "insights", label: "Insights", title: "Supply Insights", icon: LineChart },
 ];
 
@@ -35,19 +32,17 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const current = VIEWS.find((item) => item.id === view) ?? VIEWS[0];
   // The Parts tab puts its buttons here, on the right of the page title.
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
-  // Connectors moved to Library Manager: an old address (or a sign-in started before the move) goes there, keeping its result.
-  const movedToLibrary = searchParams.get("supplyView") === "connectors";
+  // Connectors and Review moved to Library Manager: an old address (or a sign-in started before the move) goes there, keeping its result.
+  const movedTo = MOVED_TO_LIBRARY[searchParams.get("supplyView") ?? ""];
   useEffect(() => {
-    if (!movedToLibrary) return;
+    if (!movedTo) return;
     setSearchParams((current) => {
       const updated = new URLSearchParams(current);
       updated.delete("supplyView");
-      for (const [key, value] of new URLSearchParams(CONNECTORS_PLACE.slice(2))) updated.set(key, value);
+      for (const [key, value] of new URLSearchParams(movedTo.slice(2))) updated.set(key, value);
       return updated;
     }, { replace: true });
-  }, [movedToLibrary, setSearchParams]);
-  // The Review tab shows how many items wait; it is counted again whenever the tab changes.
-  const reviewCount = useReviewCount(canOpenSupply(user?.role), view);
+  }, [movedTo, setSearchParams]);
   // A tab stays mounted once opened, so switching back shows it as it was instead of loading it again.
   const [opened, setOpened] = useState<SupplyTab[]>([view]);
   useEffect(() => { setOpened((current) => (current.includes(view) ? current : [...current, view])); }, [view]);
@@ -88,7 +83,6 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
             <TabsTrigger key={id} value={id} className="gap-2 px-2 text-sm">
               <Icon className="h-4 w-4" />
               {label}
-              {id === "review" && reviewCount ? <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground" aria-label={`${reviewCount} waiting`}>{reviewCount}</span> : null}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -108,7 +102,6 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
               {id === "dashboard" && <DashboardView user={user} active={view === "dashboard"} />}
               {id === "parts" && <PartsView user={user} active={view === "parts"} headerSlot={view === "parts" ? headerSlot : null} />}
               {id === "projects" && <ProjectsView user={user} active={view === "projects"} />}
-              {id === "review" && <ReviewView user={user} />}
               {id === "insights" && <InsightsView user={user} active={view === "insights"} />}
             </div>
           ))}

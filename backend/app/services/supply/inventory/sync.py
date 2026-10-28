@@ -197,11 +197,18 @@ def link(conn, source_id: str, remote_part: str, component_id: str, actor: str) 
 
     actor = actor_text(actor)
     sources.get(conn, source_id)
+    active = conn.execute("SELECT is_active FROM components WHERE id = %s", (component_id,)).fetchone()
+    if not active or not active["is_active"]:
+        raise sources.SourceError("There is no such component in the library.")
     conn.execute(
         "INSERT INTO inventory_links (source_id, remote_part, component_id, linked_by) VALUES (%s, %s, %s, %s) "
         "ON CONFLICT (source_id, remote_part) DO UPDATE SET component_id = EXCLUDED.component_id, linked_by = EXCLUDED.linked_by, linked_at = NOW()",
         (source_id, remote_part, component_id, actor),
     )
+    # Answered: it leaves the review list now, even if the next read fails.
+    gone = conn.execute("DELETE FROM inventory_unmatched WHERE source_id = %s AND remote_part = %s", (source_id, remote_part)).rowcount
+    if gone:
+        conn.execute("UPDATE inventory_sources SET unmatched = GREATEST(unmatched - 1, 0) WHERE id = %s", (source_id,))
     write_audit(conn, actor, "inventory_source.link", source_id, {"remote_part": remote_part, "component_id": component_id}, subject_kind="inventory_source")
 
 

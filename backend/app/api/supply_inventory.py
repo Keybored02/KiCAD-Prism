@@ -1,7 +1,7 @@
 """Local inventory sources API: InvenTree-compatible servers whose stock fills the catalog (decision D15).
 
 Administrators add, change, check, read and remove sources. Everyone who reads supply data sees which parts a source
-could not match; linking them is Review's (S5).
+could not match; QA and administrators link them to a component in Library Manager > Review.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.errors import UpstreamFailure
-from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
+from app.core.security import AuthenticatedUser, require_admin, require_supply_approver, require_supply_reader
 from app.services.supply.inventory import sources, sync
 from app.services.supply.inventory.inventree import InvenTreeClient
 from app.services.supply.providers.base import ProviderError
@@ -198,3 +198,23 @@ async def list_unmatched_parts(source_id: str, _user: AuthenticatedUser = Depend
             return [UnmatchedPart(**row) for row in sync.unmatched(conn, source_id)]
 
     return await _run(read)
+
+
+class LinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    component_id: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/{source_id}/unmatched/{remote_part}/link")
+async def link_unmatched_part(
+    source_id: str, remote_part: str, body: LinkRequest, approver: AuthenticatedUser = Depends(require_supply_approver),
+) -> SyncResult:
+    """Say which component a server part is, then read the source again so its stock lands there now."""
+
+    def run() -> SyncResult:
+        with _store().connection() as conn:
+            sync.link(conn, source_id, remote_part, body.component_id, approver.email)
+        return SyncResult(**sync.sync(_store(), _keyring(), source_id))
+
+    return await _run(run)

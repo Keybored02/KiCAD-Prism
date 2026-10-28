@@ -1643,3 +1643,16 @@ export interface InventorySyncResult {
   unmatched: number;
   records: number;
 }
+
+/** A server part with stock that no catalog component matched. It waits in Library Manager > Review for a person to link it. */
+export interface InventoryUnmatchedPart {
+  remote_part: string;
+  ipn: string;
+  mpn: string;
+  manufacturer: string;
+  name: string;
+  quantity: number;
+  records: number;
+  reason: "no_component" | "sap_code_shared" | "mpn_shared";
+  seen_at: string;
+}
