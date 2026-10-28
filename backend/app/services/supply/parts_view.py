@@ -113,13 +113,12 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     return result
 
 
-_USES = "FROM " + usage.ALL_USES + " u JOIN supply_bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
-_IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
+# A part some visible project's BOM uses: one set over every part, not a scan of the BOM lines for each (role twice as parameters).
+_IN_USE = "p.id IN (SELECT pp.part_id FROM (" + usage.part_projects_sql(False) + ") pp)"
 
 _ROW_SELECT = (
     "SELECT p.id, p.mpn, m.name AS manufacturer, m.provisional AS maker_provisional, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
-    "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons, "
-    "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
+    "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons "
     "FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
     "LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id "
 )
@@ -246,8 +245,8 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
     return fresh
 
 
-def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[dict[str, Any]]:
-    """The list-row summary of each part row: status, stock, price, lifecycle, tier.
+def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None, *, role: str | None = None) -> list[dict[str, Any]]:
+    """The list-row summary of each part row: status, stock, price, lifecycle, tier, and how many projects ``role`` may see use it.
 
     With ``offers`` given they are used as they are. Without, the offer summaries are read from ``part_summaries``.
     """
@@ -255,6 +254,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
     ids = [r["id"] for r in rows]
     sums = _computed(conn, rows, offers) if offers is not None else _cached(conn, rows)
     jlc = facts.jlc_classes(conn, ids)
+    used = usage.projects_of_parts(conn, ids, role)
 
     items = []
     for row in rows:
@@ -270,7 +270,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "tracking": _tracking_dto(row),
             "status": part_status(mine["stock"], row["threshold"], lifecycle, mine["problem"]).value,
             **mine,
-            "used_in": int(row["used_in"]),
+            "used_in": len(used.get(row["id"], ())),
             "jlc": jlc.get(row["id"]),
         })
     return items
@@ -281,7 +281,7 @@ def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
 
     if not part_ids:
         return []
-    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(None), list(part_ids)]).fetchall()
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [list(part_ids)]).fetchall()
     return _summaries(conn, rows)
 
 
@@ -294,13 +294,13 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
 
     if not part_ids:
         return [], {}
-    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(role), list(part_ids)]).fetchall()
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [list(part_ids)]).fetchall()
     offers = offers_by_part(conn, [row["id"] for row in rows])
     counted = {
         row["id"]: [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
         for row in rows
     }
-    return _summaries(conn, rows, counted), counted
+    return _summaries(conn, rows, counted, role=role), counted
 
 
 def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
@@ -328,9 +328,9 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
         f"LEFT JOIN supply_watches w ON w.part_id = p.id LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id WHERE {where}", params,
     ).fetchone()["n"]
     rows = conn.execute(
-        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*usage.role_params(role), *params, MAX_CANDIDATES],
+        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, MAX_CANDIDATES],
     ).fetchall()
-    items = _summaries(conn, rows)
+    items = _summaries(conn, rows, role=role)
     # The sort is stable, so parts of equal status keep their name order.
     items.sort(key=lambda item: _STATUS_RANK[item["status"]])
     return items, int(total)
@@ -342,18 +342,7 @@ NO_PROJECT = "none"
 def _projects_of(conn, part_ids: list[str], role: str | None) -> dict[str, set[str]]:
     """The projects (that ``role`` may see) whose BOM carries each part."""
 
-    found: dict[str, set[str]] = {}
-    if not part_ids:
-        return found
-    rows = conn.execute(
-        "SELECT DISTINCT p.id AS part_id, u.project_id FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
-        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN supply_bom_usage_projects up ON up.project_id = u.project_id "
-        "WHERE p.id = ANY(%s) AND " + usage.VISIBLE,
-        [part_ids, *usage.role_params(role)],
-    ).fetchall()
-    for row in rows:
-        found.setdefault(row["part_id"], set()).add(row["project_id"])
-    return found
+    return usage.projects_of_parts(conn, part_ids, role)
 
 
 def part_groups(

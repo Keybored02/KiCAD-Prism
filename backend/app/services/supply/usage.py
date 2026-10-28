@@ -28,15 +28,17 @@ ALL_USES = (
 
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the
 # manufacturer is blank, is the part's own name, or is a spelling of it (confirmed, or one the part has been seen under).
-MATCHES_PART = """
-    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM supply_part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND (
+# The manufacturer half of the match: blank, the part's own name, or a spelling of it (confirmed, or one the part was seen under).
+MATCHES_MAKER = """(
         u.alias_key = '' OR u.alias_key = m.name_key OR EXISTS (
             SELECT 1 FROM supply_manufacturer_aliases a
             WHERE a.alias_key = u.alias_key AND a.manufacturer_id = p.manufacturer_id AND a.status = 'confirmed'
         ) OR EXISTS (
             SELECT 1 FROM supply_part_spellings ps WHERE ps.part_id = p.id AND ps.alias_key = u.alias_key
         )
-    )
+    )"""
+MATCHES_PART = """
+    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM supply_part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND """ + MATCHES_MAKER + """
 """
 
 
@@ -47,6 +49,34 @@ ALL_ROLES: tuple[str, ...] = ("admin", "designer", "qa")
 
 def role_params(role: str | None) -> list[str | None]:
     return [role, role]
+
+
+def part_projects_sql(only_parts: bool) -> str:
+    """The (part_id, project_id) pairs of BOM uses a project the role may see has, as one set: the part's own number and the other
+    numbers it is sold under are joined to the BOM lines by equality, so the number indexes serve it whatever the size. With
+    ``only_parts`` the first two parameters are the part ids (twice); the role parameters follow."""
+
+    limit = "WHERE p.id = ANY(%s)" if only_parts else ""
+    limit_numbers = "WHERE pn.part_id = ANY(%s)" if only_parts else ""
+    return f"""
+        SELECT DISTINCT p.id AS part_id, u.project_id
+        FROM (SELECT p.id AS part_id, p.match_key FROM supply_parts p {limit}
+              UNION SELECT pn.part_id, pn.match_key FROM supply_part_numbers pn {limit_numbers}) k
+        JOIN {ALL_USES} u ON u.match_key = k.match_key
+        JOIN supply_parts p ON p.id = k.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_bom_usage_projects up ON up.project_id = u.project_id
+        WHERE {MATCHES_MAKER} AND {VISIBLE}
+    """
+
+
+def projects_of_parts(conn, part_ids: list[str], role: str | None) -> dict[str, set[str]]:
+    """The projects (that ``role`` may see) whose BOM uses each part."""
+
+    found: dict[str, set[str]] = {}
+    if part_ids:
+        for row in conn.execute(part_projects_sql(True), [part_ids, part_ids, *role_params(role)]).fetchall():
+            found.setdefault(row["part_id"], set()).add(row["project_id"])
+    return found
 
 
 @dataclass(frozen=True, slots=True)
