@@ -1656,3 +1656,52 @@ export interface InventoryUnmatchedPart {
   reason: "no_component" | "sap_code_shared" | "mpn_shared";
   seen_at: string;
 }
+
+/** A manufacturer part a catalog component may be built with: its main part, or an alternate a designer proposed and QA decided. */
+export interface ComponentPart {
+  part_id: string;
+  role: "main" | "alternate";
+  approval: "pending" | "approved" | "rejected";
+  manufacturer: string;
+  mpn: string;
+  created_by: string;
+  created_at: string;
+  decided_by: string;
+  decided_at: string | null;
+}
+
+export interface ComponentParts {
+  component_id: string;
+  parts: ComponentPart[];
+}
+
+/** One stock record at a local inventory location. */
+export interface LocalStockRow {
+  /** Unique per row. */
+  key: string;
+  source: string;
+  source_id: string;
+  location: string;
+  quantity: number;
+  allocated: number;
+  status: string;
+  /** At a vendor: shown, never counted as on hand. */
+  external: boolean;
+  batch: string;
+  uom: string;
+  /** The last read of its source failed; this is what the read before it found. */
+  stale: boolean;
+  fetched_at: string;
+  updated_at: string;
+}
+
+/** A component's local stock: usable now (less what is allocated), held, and at a vendor. Totals are null when units are mixed. */
+export interface LocalStock {
+  component_id: string;
+  uom: string;
+  mixed_units: boolean;
+  available: number | null;
+  held: number | null;
+  at_vendor: number | null;
+  rows: LocalStockRow[];
+}

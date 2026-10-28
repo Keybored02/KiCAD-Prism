@@ -13956,6 +13956,146 @@
         "title": "LocalInventory",
         "type": "object"
       },
+      "LocalStock": {
+        "properties": {
+          "at_vendor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Vendor"
+          },
+          "available": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "component_id": {
+            "title": "Component Id",
+            "type": "string"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held"
+          },
+          "mixed_units": {
+            "title": "Mixed Units",
+            "type": "boolean"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/LocalStockRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "uom": {
+            "title": "Uom",
+            "type": "string"
+          }
+        },
+        "required": [
+          "component_id",
+          "uom",
+          "mixed_units",
+          "available",
+          "held",
+          "at_vendor",
+          "rows"
+        ],
+        "title": "LocalStock",
+        "type": "object"
+      },
+      "LocalStockRow": {
+        "properties": {
+          "allocated": {
+            "title": "Allocated",
+            "type": "number"
+          },
+          "batch": {
+            "title": "Batch",
+            "type": "string"
+          },
+          "external": {
+            "title": "External",
+            "type": "boolean"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "uom": {
+            "title": "Uom",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "source",
+          "source_id",
+          "location",
+          "quantity",
+          "allocated",
+          "status",
+          "external",
+          "batch",
+          "uom",
+          "stale",
+          "fetched_at",
+          "updated_at"
+        ],
+        "title": "LocalStockRow",
+        "type": "object"
+      },
       "LoginRequest": {
         "description": "Request body for OIDC auth code exchange.",
         "properties": {
@@ -43195,6 +43335,49 @@
           }
         },
         "summary": "Decide Alternate",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/components/{component_id}/local-stock": {
+      "get": {
+        "description": "What the local inventory holds for the component: available, held and at a vendor, per location.",
+        "operationId": "get_local_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalStock"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Local Stock",
         "tags": [
           "supply"
         ]

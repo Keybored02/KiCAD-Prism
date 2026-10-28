@@ -889,6 +889,11 @@
     "path": "/api/v1/ops/jobs/{job_id}/timeline",
     "typed": true
   },
+  "get_local_stock": {
+    "method": "GET",
+    "path": "/api/v1/supply/components/{component_id}/local-stock",
+    "typed": true
+  },
   "get_makers": {
     "method": "GET",
     "path": "/api/v1/supply/settings/makers",

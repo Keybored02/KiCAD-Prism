@@ -2545,6 +2545,32 @@ class LocalInventory(TypedDict, total=True):
     uom: str
 
 
+class LocalStock(TypedDict, total=True):
+    at_vendor: float | None
+    available: float | None
+    component_id: str
+    held: float | None
+    mixed_units: bool
+    rows: list[LocalStockRow]
+    uom: str
+
+
+class LocalStockRow(TypedDict, total=True):
+    allocated: float
+    batch: str
+    external: bool
+    fetched_at: str
+    key: str
+    location: str
+    quantity: float
+    source: str
+    source_id: str
+    stale: bool
+    status: str
+    uom: str
+    updated_at: str
+
+
 class LoginRequest(TypedDict, total=True):
     """Request body for OIDC auth code exchange."""
     code: str
@@ -6074,6 +6100,14 @@ class GeneratedClient:
             "/api/v1/ops/jobs/{job_id}/timeline",
             path_params={"job_id": job_id},
             query={"log_lines": log_lines},
+        )
+
+    def get_local_stock(self, component_id: str) -> LocalStock:
+        """Get Local Stock"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/components/{component_id}/local-stock",
+            path_params={"component_id": component_id},
         )
 
     def get_makers(self) -> dict[str, Any]:
