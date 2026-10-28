@@ -1,4 +1,4 @@
-import { ExternalLink, Eye, Star } from "lucide-react";
+import { ExternalLink, Eye, LibraryBig, Star } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,13 +22,15 @@ interface BomRowDrawerProps {
   onClose: () => void;
   onWatch: (line: BomLineDetail) => void;
   onOpenPart: (partId: string) => void;
+  /** Starts a catalog component for a line no component has; omitted when the user cannot write the catalog. */
+  onAddToLibrary?: (line: BomLineDetail) => void;
   /** With a project and a user, each part has its comments. */
   projectId?: string;
   user?: User | null;
 }
 
 /** Every part on one BOM row, with what is known about it and what can be done next. */
-export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart, projectId = "", user = null }: BomRowDrawerProps) {
+export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart, onAddToLibrary, projectId = "", user = null }: BomRowDrawerProps) {
   return (
     <Sheet open={lines !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
@@ -46,6 +48,7 @@ export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWat
               busy={busyKey === line.key}
               onWatch={onWatch}
               onOpenPart={onOpenPart}
+              onAddToLibrary={onAddToLibrary}
               projectId={projectId}
               user={user}
             />
@@ -56,7 +59,7 @@ export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWat
   );
 }
 
-function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId, user }: {
+function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, onAddToLibrary, projectId, user }: {
   projectId: string;
   user: User | null;
   line: BomLineDetail;
@@ -65,9 +68,11 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId
   busy: boolean;
   onWatch: (line: BomLineDetail) => void;
   onOpenPart: (partId: string) => void;
+  onAddToLibrary?: (line: BomLineDetail) => void;
 }) {
   const references = line.references.join(" ");
-  const canWatchThis = canWatch && !!line.manufacturer && !!line.mpn;
+  const notInLibrary = result?.in_library === false;
+  const canWatchThis = canWatch && !!line.manufacturer && !!line.mpn && !notInLibrary;
   return (
     <li className="space-y-2 rounded-lg border p-3 text-sm">
       <div>
@@ -87,6 +92,9 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId
         {result && (result.state === "unknown" || (result.state === "tracked" && !result.watched)) && canWatchThis ? (
           <Button size="sm" disabled={busy} onClick={() => onWatch(line)}><Eye className="h-4 w-4" />Watch this part</Button>
         ) : null}
+        {notInLibrary && onAddToLibrary ? (
+          <Button size="sm" onClick={() => onAddToLibrary(line)}><LibraryBig className="h-4 w-4" />Add to Component Database</Button>
+        ) : null}
       </div>
       {projectId ? <BomLineComments projectId={projectId} lineKey={line.key} user={user} /> : null}
     </li>
@@ -95,6 +103,7 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId
 
 function reasonFor(result: SupplyBomLineResult | undefined): string {
   if (!result) return "Looking this up...";
+  if (result.in_library === false && result.state !== "tracked") return "Not in the Component Database.";
   if (result.state === "unknown") return "Prism does not know this part yet. Watch it and it is read within a few minutes.";
   if (result.state === "no_mpn") return "This symbol has no part number, so Prism cannot track it.";
   if (result.state === "ambiguous") return "Several makers have this number. Name the maker on the symbol, or choose it in Review.";

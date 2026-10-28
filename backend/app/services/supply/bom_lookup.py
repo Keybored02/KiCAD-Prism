@@ -290,6 +290,8 @@ class Loaded:
     extras: Mapping[str, list]
     rates: fx.Rates | None
     preferred_of: Mapping[str, Any]
+    # The keys of lines a catalog component has (by Prism ID or by manufacturer and part number); None when the library was not asked.
+    library: frozenset[str] | None = None
 
 
 def load(
@@ -322,8 +324,21 @@ def load(
     return Loaded(
         lines=list(lines), known=known, resolved=resolved, items=items, offers=offers, summary=summary, per_board=per_board,
         first_line=first_line, by_key={line.key: line for line in lines}, settings=settings, extras=extras,
-        rates=fx.latest(conn), preferred_of=preferences.of_parts(conn, list(per_board)),
+        rates=fx.latest(conn), preferred_of=preferences.of_parts(conn, list(per_board)), library=_library_lines(lines, known, in_library),
     )
+
+
+def _library_lines(
+    lines: Sequence[BomLine], known: Mapping[str, tuple[str, str]], in_library: Callable[[Iterable[tuple[str, str]]], set[tuple[str, str]]] | None,
+) -> frozenset[str] | None:
+    """The lines a catalog component has: placed by Prism ID, or naming a component's manufacturer and part number (D12)."""
+
+    if in_library is None:
+        return None
+    loose = [line for line in lines if line.prism_id not in known and match_key(line.mpn)]
+    have = in_library((line.manufacturer, line.mpn) for line in loose)
+    named = {line.key for line in loose if (line.manufacturer.strip().casefold(), line.mpn.strip().casefold()) in have}
+    return frozenset({line.key for line in lines if line.prism_id in known} | named)
 
 
 def _percents(loaded: Loaded, attrition_percent: float | None) -> dict[str, float]:
@@ -345,7 +360,7 @@ def _entries(
     results: dict[str, dict[str, Any]] = {}
     for line in loaded.lines:
         state, part_id, how = loaded.resolved[line.key]
-        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": needed(line.quantity, build_quantity, percents.get(part_id, attrition_percent or 0) if part_id else (attrition_percent or 0))}
+        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "in_library": _in_library(loaded, line), "need": needed(line.quantity, build_quantity, percents.get(part_id, attrition_percent or 0) if part_id else (attrition_percent or 0))}
         if part_id:
             item = loaded.summary[part_id]
             offers_here = loaded.offers.get(part_id, [])
@@ -372,6 +387,14 @@ def _entries(
             }
         results[line.key] = entry
     return results
+
+
+def _in_library(loaded: Loaded, line: BomLine) -> bool | None:
+    """Whether a catalog component has the line; None for a line without a part number, or when the library was not asked."""
+
+    if loaded.library is None or not match_key(line.mpn):
+        return None
+    return line.key in loaded.library
 
 
 def price(conn, loaded: Loaded, build_quantity: int, attrition_percent: float | None = 0) -> dict[str, Any]:
