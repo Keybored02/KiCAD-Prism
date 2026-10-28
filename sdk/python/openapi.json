@@ -44681,6 +44681,23 @@
         ]
       }
     },
+    "/api/v1/supply/insights/risk.csv": {
+      "get": {
+        "operationId": "insights_risk_csv",
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "Every tracked part with its risk figures."
+          }
+        },
+        "summary": "Insights Risk Csv",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
     "/api/v1/supply/inventory-sources": {
       "get": {
         "operationId": "list_inventory_sources",

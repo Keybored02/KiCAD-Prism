@@ -31,7 +31,7 @@ follow it, add it to the library first.
 | **Supply → Dashboard** | What needs a person: parts at risk, out of stock or ending, open alerts, the tracked projects, and the library components whose part is ending. |
 | **Supply → Tracking** | Every part Prism follows, by tier, with the tools to track a part or check a BOM file. |
 | **Supply → Projects** | The parts of each project, a project at a time. |
-| **Supply → Insights** | Runway, sourcing, lifecycle, lead times, prices, market and trade, across all your parts. |
+| **Supply → Insights** | Runway, sourcing, lifecycle, lead times, prices, market and trade, across all your parts. A panel shows once it has data. **Export** downloads every tracked part with its risk figures as a CSV. |
 | A component's **Supply** tab | How one component stands: its parts, your local stock and each distributor. |
 | **Library Manager → Catalog** | A **Supply** column and filters for every component. |
 | A project's **Supply** tab | Whether a project can be built, what it costs and what stops it. |

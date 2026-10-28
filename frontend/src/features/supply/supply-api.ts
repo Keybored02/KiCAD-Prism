@@ -1,6 +1,6 @@
 /** Typed client for `/api/supply`. Errors are `ApiHttpError` with the server's code. */
 
-import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { ApiHttpError, fetchApi, fetchJson, fetchText, readApiError } from "@/lib/api";
 import type {
   ForecastInsights,
   PartForecast,
@@ -361,6 +361,11 @@ export function getForecastInsights(signal?: AbortSignal): Promise<ForecastInsig
 
 export function getSupplyInsights(signal?: AbortSignal): Promise<SupplyInsightsPage> {
   return fetchJson<SupplyInsightsPage>(`${BASE}/insights`, { signal }, "Could not load the insights");
+}
+
+/** Every tracked part with its risk figures, as CSV. */
+export function getRiskCsv(): Promise<string> {
+  return fetchText(`${BASE}/insights/risk.csv`, undefined, "Could not export the risk by part");
 }
 
 export function getSupplyOverview(signal?: AbortSignal): Promise<SupplyOverview> {

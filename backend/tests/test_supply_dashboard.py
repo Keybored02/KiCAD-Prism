@@ -114,6 +114,24 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(page["scatter_missing"], {"no_rate": 1, "no_lead_time": 0})
         self.assertEqual(page["distributors"]["repricing"], [])
 
+    def test_the_risk_export_has_a_row_a_part_with_its_findings_in_words(self) -> None:
+        import csv
+        import io
+
+        self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
+        self.follow("STEADY-1", [500] * 9, holders=("c1", "c2"))
+        self.follow("=CMD-1", [500] * 9)
+        with self.store.connection() as conn:
+            self.part_insights.renew(conn, NOW)
+            rows = list(csv.DictReader(io.StringIO(self.insights_page.risk_csv(conn))))
+        by_mpn = {row["MPN"]: row for row in rows}
+        self.assertEqual(set(by_mpn), {"FALL-1", "STEADY-1", "'=CMD-1"})
+        fall = by_mpn["FALL-1"]
+        self.assertEqual((fall["Days to zero"], fall["Lead time (days)"], fall["Distributors holding"]), ("2", "30", "1"))
+        self.assertIn("Runs out within 2 weeks", fall["Findings"])
+        self.assertIn("One distributor", fall["Findings"])
+        self.assertEqual(by_mpn["STEADY-1"]["Findings"], "")
+
 
     def test_the_risk_grid_puts_unknown_in_its_own_cells_and_deadlines_come_soonest_first(self) -> None:
         falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])

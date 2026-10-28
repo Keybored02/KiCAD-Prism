@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_supply_reader
@@ -30,6 +30,20 @@ async def insights_overview(_user: AuthenticatedUser = Depends(require_supply_re
             return insights_page.build(conn)
 
     return await asyncio.to_thread(read)
+
+
+@router.get(
+    "/insights/risk.csv",
+    response_class=Response,
+    responses={200: {"description": "Every tracked part with its risk figures.", "content": {"text/csv": {}}}},
+)
+async def insights_risk_csv(_user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
+    def read() -> str:
+        with supply_connectors.service.store.connection() as conn:
+            return insights_page.risk_csv(conn)
+
+    content = await asyncio.to_thread(read)
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="supply-risk-by-part.csv"'})
 
 
 @router.get("/market")
