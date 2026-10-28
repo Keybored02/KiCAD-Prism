@@ -150,7 +150,9 @@ The Visualizer's **BOM** tab adds **Supply**, **Stock**, **Stores**, **Unit pric
 only. Prices are for the project's usual build when it is tracked, otherwise
 for one board, and each unit price shows the quantity it is for
 (**€0.93 @ 100**). **Distributor** is where that price and stock come from,
-not the BOM's own **Vendor** field. A line
+not the BOM's own **Vendor** field. **Supply columns** above the table keeps
+just Reference, part number, Qty and the supply columns, so they fit without
+scrolling sideways; your browser remembers the choice. A line
 whose symbol has a **Prism ID** takes its component's part; other lines are
 matched by manufacturer and part number. Choose **Show part details** on a row
 for the full picture, **Watch this part**, or **Add to Component Database**

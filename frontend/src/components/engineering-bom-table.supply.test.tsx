@@ -202,6 +202,47 @@ describe("supply columns on the BOM", () => {
   });
 });
 
+describe("the supply column set", () => {
+  const SUPPLY_HEADERS = [
+    "Reference", "Manufacturer Part Number", "Qty",
+    "Supply", "Stock", "Stores", "Unit price", "Extended", "Distributor", "Lead time",
+  ];
+  const headerNames = () => screen.getAllByRole("columnheader").map((cell) => cell.textContent);
+
+  it("leaves exactly the columns a supply engineer reads, in order", () => {
+    renderTable("designer");
+    expect(headerNames()).not.toEqual(SUPPLY_HEADERS);
+    fireEvent.click(screen.getByRole("button", { name: "Supply columns" }));
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+  });
+
+  it("puts the table back as it was when pressed again", () => {
+    renderTable("designer");
+    const before = headerNames();
+    const toggle = screen.getByRole("button", { name: "Supply columns" });
+    fireEvent.click(toggle);
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+    fireEvent.click(toggle);
+    expect(headerNames()).toEqual(before);
+  });
+
+  it("remembers the choice for the next visit", () => {
+    renderTable("designer");
+    fireEvent.click(screen.getByRole("button", { name: "Supply columns" }));
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+    cleanup();
+
+    renderTable("designer");
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+    expect(screen.getByRole("button", { name: "Supply columns" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("has no switch for a reader without supply access", () => {
+    renderTable("viewer");
+    expect(screen.queryByRole("button", { name: "Supply columns" })).toBeNull();
+  });
+});
+
 describe("actions on the BOM", () => {
   it("reports a lookup that failed and retries", async () => {
     mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async (_lines, build) => lookupFor(build));
