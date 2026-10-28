@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
+from app.services.supply.project_supply import ROLLUP_MAX_AGE
+
 RAW_DAYS = 60
 BATCH_DAYS = 30
 
@@ -89,17 +91,32 @@ def _compact(conn, now: datetime, days: int) -> int:
 
 
 def trim_summaries(conn) -> int:
-    """Forget kept summaries nobody has read for a week, and the change log nothing kept can still depend on."""
+    """Forget kept summaries nobody has read for a week, rollups past the age a reader accepts, and every change mark that
+    no kept row can still depend on. Returns how many marks were removed.
+
+    A mark matters only to a kept row worked out before it (``snap <= xid``). A mark older than every transaction still
+    running can matter to no row kept later either, so it goes as soon as the rows it touches have been worked out again:
+    one summary nobody reads again does not hold back the marks of every other part.
+    """
 
     conn.execute("DELETE FROM supply_part_summaries WHERE computed_at < NOW() - INTERVAL '7 days'")
-    conn.execute("DELETE FROM supply_project_rollups WHERE computed_at < NOW() - INTERVAL '7 days'")
-    # A mark older than everything kept can no longer make anything stale. Kept rollups read the parts' marks too.
-    oldest = (
-        "LEAST(COALESCE((SELECT MIN(snap) FROM supply_part_summaries), {now}), COALESCE((SELECT MIN(snap) FROM supply_project_rollups), {now}))"
-    ).format(now="pg_snapshot_xmin(pg_current_snapshot())::text::bigint")
-    removed = conn.execute(f"DELETE FROM supply_summary_dirty WHERE xid < {oldest}").rowcount
+    conn.execute("DELETE FROM supply_project_rollups WHERE computed_at < NOW() - %s", (ROLLUP_MAX_AGE,))
+    running = "pg_snapshot_xmin(pg_current_snapshot())::text::bigint"
+    # Kept rollups read the parts' marks too.
+    removed = conn.execute(
+        f"""
+        WITH read_by_rollups AS MATERIALIZED (
+            SELECT part_id, MIN(r.snap) AS snap FROM supply_project_rollups r, unnest(r.part_ids) AS part_id GROUP BY part_id
+        )
+        DELETE FROM supply_summary_dirty d WHERE d.xid < {running}
+          AND NOT EXISTS (SELECT 1 FROM supply_part_summaries s WHERE s.part_id = d.part_id AND s.snap <= d.xid)
+          AND NOT EXISTS (SELECT 1 FROM read_by_rollups r WHERE r.part_id = d.part_id AND r.snap <= d.xid)
+        """
+    ).rowcount
     removed += conn.execute(
-        "DELETE FROM supply_rollup_dirty WHERE xid < COALESCE((SELECT MIN(snap) FROM supply_project_rollups), "
-        "pg_snapshot_xmin(pg_current_snapshot())::text::bigint)"
+        f"""
+        DELETE FROM supply_rollup_dirty d WHERE d.xid < {running}
+          AND NOT EXISTS (SELECT 1 FROM supply_project_rollups r WHERE r.snap <= d.xid AND d.scope IN (r.project_id, '*'))
+        """
     ).rowcount
     return int(removed or 0)
