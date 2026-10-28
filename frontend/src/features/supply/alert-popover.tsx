@@ -2,10 +2,13 @@ import { Bell } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { SupplyWatchSummary } from "@/types/supply";
 import { AlertRulesSection } from "./alert-rules-section";
 
 /** A bell beside the title: which alerts this part raises, how big a price rise matters, and a target price. Only for a watched part. */
-export function AlertPopover({ partId, canEdit }: { partId: string; canEdit: boolean }) {
+export function AlertPopover({ partId, canEdit, watch, onChanged }: {
+  partId: string; canEdit: boolean; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
+}) {
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -14,7 +17,7 @@ export function AlertPopover({ partId, canEdit }: { partId: string; canEdit: boo
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="max-h-[28rem] w-[min(26rem,90vw)] gap-3 overflow-y-auto p-3">
-        <AlertRulesSection partId={partId} canEdit={canEdit} />
+        <AlertRulesSection partId={partId} canEdit={canEdit} watch={watch} onChanged={onChanged} />
       </PopoverContent>
     </Popover>
   );

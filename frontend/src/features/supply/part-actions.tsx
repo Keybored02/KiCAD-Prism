@@ -7,7 +7,7 @@ import { WatchPopover } from "./watch-popover";
 export function PartActions({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; canEdit: boolean; onChanged: () => Promise<void> }) {
   return (
     <>
-      {detail.watch && canEdit ? <AlertPopover partId={detail.part.id} canEdit={canEdit} /> : null}
+      {detail.watch && canEdit ? <AlertPopover partId={detail.part.id} canEdit={canEdit} watch={detail.watch} onChanged={onChanged} /> : null}
       <WatchPopover detail={detail} canEdit={canEdit} onChanged={onChanged} />
       <DatasheetLink partId={detail.part.id} />
     </>
