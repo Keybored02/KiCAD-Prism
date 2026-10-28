@@ -47,8 +47,8 @@ describe("the Supply tab", () => {
     expect(await screen.findByRole("region", { name: "Stock" })).toBeTruthy();
     expect(mocked.findSupplyPart).toHaveBeenCalledWith("Texas Instruments", "LM358D", expect.anything());
     expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything());
-    const link = screen.getByRole("link", { name: "Open in Supply" });
-    expect(link.getAttribute("href")).toBe("/?section=supply&supplyView=parts&part=p1");
+    const link = screen.getByRole("link", { name: "Open in Supply Tracking" });
+    expect(link.getAttribute("href")).toBe("/?section=supply&supplyView=tracking&part=p1");
   });
 
   it("offers to watch the component's part only while nobody follows it", async () => {

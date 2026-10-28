@@ -241,12 +241,14 @@ async def cross_reference_of(part_id: str, _user: AuthenticatedUser = Depends(re
 
 @router.get("/parts/{part_id}/library-component")
 async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """The catalog component that has this part, so the part sheet can open it. None when the library has none."""
+    """The catalog component the part counts for (its main part first, then one it is an approved alternate of), so a part link
+    can open it. None when the library has none."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             part = parts.get_part(conn, part_id)
-        return {"component_id": catalog_read.component_for(part.manufacturer_name, part.mpn)}
+            held = component_parts.components_holding(conn, [part_id]).get(part_id) or []
+        return {"component_id": held[0]["id"] if held else catalog_read.component_for(part.manufacturer_name, part.mpn)}
 
     return await _run(read)
 

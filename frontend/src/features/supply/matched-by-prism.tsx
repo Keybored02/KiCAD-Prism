@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import type { SupplyMatched } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { CollapsibleSection } from "./collapsible-section";
 import { undoLearnedAlias, undoSettledPart } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -10,7 +11,7 @@ function SettledRow({ part, canDecide, onDecided }: { part: SupplyMatched["parts
   const { busy, error, run } = useConnectorSubmit();
   return (
     <li className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-      <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(part.part_id)}`} className="font-medium text-primary hover:underline">{part.mpn}</Link>
+      <Link to={partHref(part.part_id)} className="font-medium text-primary hover:underline">{part.mpn}</Link>
       <span className="flex-1 text-muted-foreground">made by {part.manufacturer}, from what distributors list</span>
       {canDecide ? (
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(async () => { await undoSettledPart(part.part_id); await onDecided(); })}>Undo</Button>

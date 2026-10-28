@@ -8,17 +8,17 @@ describe("the Supply entries of the command palette", () => {
     const goTo = vi.fn((params: string) => () => params);
     const commands = supplyCommands("designer", goTo);
     const labels = commands.map((command) => command.label);
-    expect(labels.slice(0, 5)).toEqual(["Supply: Dashboard", "Supply: Parts", "Supply: Review", "Supply: Insights", "Supply: Connectors"]);
-    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=parts");
+    expect(labels.slice(0, 5)).toEqual(["Supply: Dashboard", "Supply: Tracking", "Supply: Review", "Supply: Insights", "Supply: Connectors"]);
+    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=tracking");
   });
 
   it("open Parts on a group when it is named in words", () => {
     const goTo = vi.fn((params: string) => () => params);
     const commands = supplyCommands("qa", goTo);
     expect(commands.map((command) => command.label)).toContain("Supply: parts out of stock");
-    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=parts&partsOnly=out_of_stock");
-    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=parts&partsScope=waiting");
-    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=parts&tool=bom-file");
+    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=tracking&partsOnly=out_of_stock");
+    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=tracking&partsScope=waiting");
+    expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=tracking&tool=bom-file");
   });
 
   it("are absent for a viewer or a signed-out user", () => {

@@ -120,7 +120,7 @@ function Tracked({ partId, componentId, user }: { partId: string; componentId: s
         <span className="flex items-center gap-1">
           <PartActions detail={detail} canEdit={canEdit} onChanged={part.refresh} />
           <Button asChild size="icon" variant="outline" className="h-8 w-8 shrink-0">
-            <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(partId)}`} aria-label="Open in Supply" title="Open in Supply">
+            <Link to={`/?section=supply&supplyView=tracking&part=${encodeURIComponent(partId)}`} aria-label="Open in Supply Tracking" title="Open in Supply Tracking">
               <ExternalLink className="h-4 w-4" />
             </Link>
           </Button>

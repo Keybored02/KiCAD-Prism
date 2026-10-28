@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Boxes, FolderKanban, LayoutDashboard, LineChart, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { getLibraryComponentOf } from "./supply-api";
 import { MOVED_TO_LIBRARY, resolvePlace, type SupplyTab } from "./supply-views";
 
 const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ default: module.DashboardView })));
@@ -14,7 +15,7 @@ const ProjectsView = lazy(() => import("./projects-view").then((module) => ({ de
 
 const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", title: "Supply Dashboard", icon: LayoutDashboard },
-  { id: "parts", label: "Parts", title: "Tracked Parts", icon: Boxes },
+  { id: "tracking", label: "Tracking", title: "Tracking", icon: Boxes },
   { id: "projects", label: "Projects", title: "Projects", icon: FolderKanban },
   { id: "insights", label: "Insights", title: "Supply Insights", icon: LineChart },
 ];
@@ -43,6 +44,24 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       return updated;
     }, { replace: true });
   }, [movedTo, setSearchParams]);
+  // A link to one part opens the component it counts for, on its Supply tab; a part the library has no component for opens its
+  // sheet on Tracking.
+  const linkedPart = searchParams.get("supplyView") === "part" ? searchParams.get("part") : null;
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!linkedPart) return undefined;
+    const controller = new AbortController();
+    const toTracking = () => setSearchParams((current) => {
+      const updated = new URLSearchParams(current);
+      updated.set("supplyView", "tracking");
+      return updated;
+    }, { replace: true });
+    getLibraryComponentOf(linkedPart, controller.signal).then(({ component_id: componentId }) => {
+      if (componentId) navigate(`/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`, { replace: true });
+      else toTracking();
+    }, () => { if (!controller.signal.aborted) toTracking(); });
+    return () => controller.abort();
+  }, [linkedPart, navigate, setSearchParams]);
   // A tab stays mounted once opened, so switching back shows it as it was instead of loading it again.
   const [opened, setOpened] = useState<SupplyTab[]>([view]);
   useEffect(() => { setOpened((current) => (current.includes(view) ? current : [...current, view])); }, [view]);
@@ -100,7 +119,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           {mounted.map((id) => (
             <div key={id} hidden={id !== view} className="h-full">
               {id === "dashboard" && <DashboardView user={user} active={view === "dashboard"} />}
-              {id === "parts" && <PartsView user={user} active={view === "parts"} headerSlot={view === "parts" ? headerSlot : null} />}
+              {id === "tracking" && <PartsView user={user} active={view === "tracking"} headerSlot={view === "tracking" ? headerSlot : null} />}
               {id === "projects" && <ProjectsView user={user} active={view === "projects"} />}
               {id === "insights" && <InsightsView user={user} active={view === "insights"} />}
             </div>

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import type { SupplyChoice, SupplyChoiceOption } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { CollapsibleSection } from "./collapsible-section";
 import { chooseSupplyMaker, otherSupplyMaker, markPartNumbers } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -73,7 +74,7 @@ export function MakerChoices({ choices, onDecided }: { choices: readonly SupplyC
         {choices.map((choice) => (
           <li key={`${choice.part_id}:${choice.kind}`} aria-label={`Choice for ${choice.mpn}`}>
             <div className="flex flex-wrap items-center gap-2 bg-muted/20 px-3 py-2">
-              <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(choice.part_id)}`} className="text-sm font-medium text-primary hover:underline">{choice.mpn}</Link>
+              <Link to={partHref(choice.part_id)} className="text-sm font-medium text-primary hover:underline">{choice.mpn}</Link>
               <span className="text-xs text-muted-foreground">
                 {choice.kind === "number"
                   ? "Not listed by its own number. Sold as:"

@@ -36,10 +36,10 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "waiting", label: "Waiting for room" },
   { id: "pick", label: "Pick a packaging" },
   { id: "in_use", label: "In use" },
-  { id: "all", label: "All known" },
 ];
 
-/** Parts Prism knows about, with their stock. The URL holds the scope, search and open part. */
+/** Supply > Tracking: the parts Prism follows, by tier, what waits for room or a packaging, and the BOM-file check. Browsing every
+ * part is the catalog's job. The URL holds the scope, search and open part. */
 export function PartsView({ user, headerSlot, active = true }: { user: User | null; headerSlot?: HTMLElement | null; active?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");

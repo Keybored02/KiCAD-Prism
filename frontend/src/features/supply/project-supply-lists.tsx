@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import type { ProjectSupply } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { releaseComplianceCsvUrl } from "./release-check-api";
 import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
@@ -33,7 +34,7 @@ export function ProjectSupplyReleases({ projectId, releases }: { projectId: stri
             <p className="text-xs text-destructive">
               Since then:{" "}
               {release.changed_since.map((item, index) => (
-                <span key={item.part_id}>{index > 0 ? ", " : ""}<Link className="underline" to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(item.part_id)}`}>{item.mpn}</Link> is now {STATUS_LABEL[item.now].toLowerCase()}</span>
+                <span key={item.part_id}>{index > 0 ? ", " : ""}<Link className="underline" to={partHref(item.part_id)}>{item.mpn}</Link> is now {STATUS_LABEL[item.now].toLowerCase()}</span>
               ))}
             </p>
           ) : null}

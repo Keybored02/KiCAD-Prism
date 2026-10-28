@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import type { SupplyToApprove } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { CollapsibleSection } from "./collapsible-section";
 import { decideWaiver } from "./supply-api";
 import { formatAgo } from "./supply-format";
@@ -40,7 +41,7 @@ export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToAppr
         {waivers.map((item) => (
           <Row
             key={item.id} kind="Waiver" title={`${item.mpn}, ${item.manufacturer}`} detail={`${item.reason} (${item.proposed_by}, ${formatAgo(item.proposed_at)})`}
-            to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(item.part_id)}`}
+            to={partHref(item.part_id)}
             decide={(approve) => decideWaiver(item.id, approve)} canDecide={canDecide} onDecided={onDecided}
           />
         ))}

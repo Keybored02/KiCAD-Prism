@@ -84,8 +84,8 @@ export function InsightsView({ user = null, active = true }: { user?: User | nul
   }
   const page = loaded.data;
   const signals = page.market.signals ?? [];
-  const openGroup = (name: string) => go("parts", { partsQ: name });
-  const openFilter = (filter: PartsFilter) => go("parts", filter ? { partsOnly: filter, partsScope: "watched" } : { partsScope: "watched" });
+  const openGroup = (name: string) => go("tracking", { partsQ: name });
+  const openFilter = (filter: PartsFilter) => go("tracking", filter ? { partsOnly: filter, partsScope: "watched" } : { partsScope: "watched" });
 
   return (
     <div ref={scroller} className="themed-scrollbar relative h-full overflow-y-auto">

@@ -242,6 +242,21 @@ class ComponentPartsTests(unittest.TestCase):
                 ending_parts.dismiss(conn, component_id, [], AUTHOR)
             conn.execute("DELETE FROM supply_ending_dismissals WHERE component_id = %s", (component_id,))
 
+    def test_a_part_link_opens_the_component_the_part_counts_for(self) -> None:
+        from app.api import supply_parts
+
+        component = self._component()
+        component_id = str(component["id"])
+        number = f"ALT-{uuid.uuid4().hex[:8]}"
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id])
+            alternate = self.cp.propose_alternate(conn, component_id, component["manufacturer"], number, AUTHOR)
+            self.cp.decide(conn, component_id, alternate["part_id"], True, "qa@example.com")
+        app = type(self.app)()
+        app.include_router(supply_parts.router)
+        answer = _request(app, "GET", f"/api/supply/parts/{alternate['part_id']}/library-component", user=self.users["designer"])
+        self.assertEqual((answer.status, answer.json["component_id"]), (200, component_id), "an approved alternate leads to its component")
+
 
 if __name__ == "__main__":
     unittest.main()

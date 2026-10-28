@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import type { BudgetCall, BudgetConnector, SupplyCapacity } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { getBudget } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 
@@ -108,7 +109,7 @@ export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capaci
             ))}
             {item.owners.parts.slice(0, 5).map((part) => (
               <li key={part.part_id} className="text-muted-foreground">
-                <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(part.part_id)}`} className="text-primary hover:underline">{part.mpn}</Link>
+                <Link to={partHref(part.part_id)} className="text-primary hover:underline">{part.mpn}</Link>
                 , {part.manufacturer}: {part.calls_a_day.toFixed(2)} a day{part.pick_saves > 0 ? `, a packaging pick saves ${part.pick_saves.toFixed(2)}` : ""}
               </li>
             ))}

@@ -65,7 +65,7 @@ describe("the dashboard", () => {
   it("opens the place that deals with each count", async () => {
     renderView();
     fireEvent.click(await atRiskTile());
-    expect(search()).toContain("supplyView=parts");
+    expect(search()).toContain("supplyView=tracking");
     expect(search()).toContain("partsOnly=at_risk");
     expect(search()).not.toContain("partsQ");
     fireEvent.click(screen.getByText("Waiting for room").closest("button")!);
@@ -135,7 +135,7 @@ describe("the dashboard", () => {
   it("opens a part from an alert", async () => {
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "OOS-1" }));
-    expect(search()).not.toContain("supplyView=parts");
+    expect(search()).not.toContain("supplyView=tracking");
     expect(search()).toContain("part=");
     expect((await screen.findByText(/^Sheet of /)).textContent).toMatch(/^Sheet of \S+/);
   });
