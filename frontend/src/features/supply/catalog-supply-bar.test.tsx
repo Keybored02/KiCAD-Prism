@@ -83,3 +83,13 @@ describe("the catalog supply filters", () => {
     expect(container.textContent).toBe("");
   });
 });
+
+describe("the In local stock filter", () => {
+  it("keeps components the local inventory can supply now", () => {
+    expect(supplyFilterFrom("local_stock")).toBe("local_stock");
+    expect(passesSupplyFilter("local_stock", { status: "unknown", stock: null, watched: false, local_available: 300 })).toBe(true);
+    expect(passesSupplyFilter("local_stock", { status: "ok", stock: 10, watched: true, local_available: 0 })).toBe(false);
+    expect(passesSupplyFilter("local_stock", { status: "ok", stock: 10, watched: true })).toBe(false);
+    expect(passesSupplyFilter("local_stock", undefined)).toBe(false);
+  });
+});

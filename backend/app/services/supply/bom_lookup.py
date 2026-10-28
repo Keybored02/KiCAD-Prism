@@ -575,6 +575,7 @@ def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
     found = {
         key: {
             "status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["tracking"] is not None,
+            "unit_price": summary[part_id].get("unit_price"), "currency": summary[part_id].get("currency") or "",
             "restriction": (marks.get(key) or {}).get("level"),
         }
         for key, (state, part_id, _how) in resolved.items()
@@ -582,7 +583,7 @@ def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
     }
     # A marked component shows its mark even when Prism does not track its part.
     for key, mark in marks.items():
-        found.setdefault(key, {"status": "unknown", "stock": None, "watched": False, "restriction": mark["level"]})
+        found.setdefault(key, {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": mark["level"]})
     return found
 
 

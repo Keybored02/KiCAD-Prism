@@ -324,6 +324,16 @@ class InventorySyncTests(unittest.TestCase):
             ("4200/BS4/AVI4", "available", False), ("4200/BS4/AVI4", "on hold", False), ("4200/EXT4/V1", "available", True),
         ])
         self.assertEqual(_request(app, "GET", f"/api/supply/components/{component['id']}/local-stock", user=self.users["viewer"]).status, 403)
+        from app.api import supply_bom
+        from app.services.supply.inventory import levels
+
+        with self.store.connection() as conn:
+            self.assertEqual(levels.available_by_component(conn, [str(component["id"]), "no-stock"]), {str(component["id"]): 300.0})
+        bom = type(self.app)()
+        bom.include_router(supply_bom.router)
+        body = {"components": [{"key": str(component["id"]), "manufacturer": component["manufacturer"], "mpn": component["mpn"], "quantity": 1}]}
+        status = _request(bom, "POST", "/api/supply/bom/components-status", user=self.users["designer"], body=body).json["items"][str(component["id"])]
+        self.assertEqual((status["local_available"], status["status"], status["watched"]), (300.0, "unknown", False), "local stock shows on an untracked component")
 
 
 if __name__ == "__main__":

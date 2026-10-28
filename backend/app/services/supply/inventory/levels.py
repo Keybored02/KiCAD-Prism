@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.supply import component_parts
+
 AVAILABLE = frozenset({"available", ""})
 
 
@@ -59,3 +61,21 @@ def local_stock(conn, component_id: str) -> dict[str, Any]:
         "at_vendor": None if mixed else at_vendor,
         "rows": items,
     }
+
+
+def available_by_component(conn, component_ids: list[str]) -> dict[str, float | None]:
+    """Available local stock per component that has any rows, as ``local_stock`` counts it; None where units are mixed.
+
+    Empty in a schema without the catalog (the supply-only test schemas)."""
+
+    if not component_ids or not component_parts.library_present(conn):
+        return {}
+    rows = conn.execute(
+        """
+        SELECT component_id, COUNT(DISTINCT btrim(uom)) AS units,
+               SUM(CASE WHEN NOT external AND lower(btrim(inventory_status)) = ANY(%s) THEN GREATEST(quantity - allocated, 0) ELSE 0 END) AS available
+        FROM inventory_levels WHERE component_id = ANY(%s) GROUP BY component_id
+        """,
+        (sorted(AVAILABLE), list(component_ids)),
+    ).fetchall()
+    return {row["component_id"]: (None if row["units"] > 1 else float(row["available"] or 0)) for row in rows}

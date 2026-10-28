@@ -217,7 +217,7 @@ class BomLookupTests(unittest.TestCase):
         ]}
         response = self.call("/api/supply/bom/components-status", body)
         self.assertEqual(response.status, 200, response.text)
-        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True, "restriction": None}})
+        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True, "unit_price": "0.5", "currency": "EUR", "restriction": None}})
         self.assertEqual(self.call("/api/supply/bom/components-status", body, role="viewer").status, 403)
         with self.store.connection() as conn:
             from app.services.supply import ending_parts
@@ -225,7 +225,7 @@ class BomLookupTests(unittest.TestCase):
             ending_parts.set_restriction(conn, "cmp-2", "not_for_new_designs", "", "", "qa@example.com")
         self.addCleanup(lambda: self.store.connection().__enter__().execute("DELETE FROM supply_component_restrictions"))
         marked = self.call("/api/supply/bom/components-status", body).json["items"]
-        self.assertEqual(marked["cmp-2"], {"status": "unknown", "stock": None, "watched": False, "restriction": "not_for_new_designs"},
+        self.assertEqual(marked["cmp-2"], {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": "not_for_new_designs"},
                          "a marked component shows its mark though Prism does not track its part")
         self.assertEqual(self.call("/api/supply/bom/components-status", {"components": []}).json, {"items": {}})
 
