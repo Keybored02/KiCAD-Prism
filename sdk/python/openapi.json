@@ -9185,6 +9185,25 @@
         "title": "DetectedPaths",
         "type": "object"
       },
+      "DismissIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reasons"
+        ],
+        "title": "DismissIn",
+        "type": "object"
+      },
       "DocFileContent": {
         "additionalProperties": true,
         "properties": {
@@ -44178,6 +44197,52 @@
           }
         },
         "summary": "List Ending",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/ending/{component_id}/dismissal": {
+      "put": {
+        "description": "Nothing to do about this component for now. It comes back when its part gains a new reason.",
+        "operationId": "dismiss_ending",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DismissIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Ending",
         "tags": [
           "supply"
         ]

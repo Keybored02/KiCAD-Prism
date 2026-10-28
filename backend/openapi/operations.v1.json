@@ -539,6 +539,11 @@
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
     "typed": true
   },
+  "dismiss_ending": {
+    "method": "PUT",
+    "path": "/api/v1/supply/ending/{component_id}/dismissal",
+    "typed": true
+  },
   "download_asset": {
     "method": "GET",
     "path": "/api/v1/remote-provider/assets/{asset_id}",

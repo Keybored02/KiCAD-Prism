@@ -10,6 +10,7 @@ import type { User } from "@/types/auth";
 import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
+import { EndingNotifications } from "./ending-notifications";
 import { RunwayCard } from "./dashboard-charts";
 import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
@@ -51,15 +52,15 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
     { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: showAlerts },
     { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
     ...(likely ? [{ ...likely, icon: Hourglass, bad: true, onClick: parts("likely_out_4w") }] : []),
-    ...(canOpenLibraryManager(user?.role) && data?.ending_components
-      ? [{ label: "Ending in library", value: data.ending_components, icon: Hourglass, bad: true, onClick: () => navigate("/?section=library-manager&libraryView=ending") }]
-      : []),
   ];
+  const openComponent = (componentId: string) =>
+    navigate(`/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`);
 
   return (
     <div className="themed-scrollbar relative h-full overflow-y-auto px-4 pb-4 pt-2">
       <div className="space-y-4">
         {user?.role === "admin" ? <AdminStrip waiting={data?.figures.waiting ?? 0} /> : null}
+        {canOpenLibraryManager(user?.role) ? <EndingNotifications role={user?.role} onOpenComponent={openComponent} /> : null}
         {dashboard.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {dashboard.status === "error" ? (
           <Alert variant="destructive">

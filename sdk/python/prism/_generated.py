@@ -1642,6 +1642,10 @@ class DetectedPaths(TypedDict, total=True):
     validation: PathConfigValidation
 
 
+class DismissIn(TypedDict, total=True):
+    reasons: list[str]
+
+
 class DocFileContent(TypedDict, total=True):
     content: str
     path: str
@@ -5525,6 +5529,15 @@ class GeneratedClient:
             "POST",
             "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
             path_params={"snapshot_id": snapshot_id},
+            body=body,
+        )
+
+    def dismiss_ending(self, component_id: str, *, body: dict[str, Any] | None = None) -> None:
+        """Dismiss Ending"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/ending/{component_id}/dismissal",
+            path_params={"component_id": component_id},
             body=body,
         )
 

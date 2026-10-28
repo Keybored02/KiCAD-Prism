@@ -280,3 +280,27 @@ def library_part(conn, manufacturer: str, mpn: str, actor: str, *, may_create: b
             parts.record_spelling(conn, library[0], manufacturer.strip(), "bom")
         return parts.get_part(conn, library[0])
     raise parts.AmbiguousNumber(f"Several makers have the part number {mpn.strip()}. Name the maker to tell them apart.")
+
+
+def components_holding(conn, part_ids: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
+    """For each part, the active components it counts for (main part or approved alternate), with name, maker, number and
+    workflow stage from the current revision."""
+
+    wanted = sorted({str(item) for item in part_ids if item})
+    if not wanted or not library_present(conn):
+        return {}
+    rows = conn.execute(
+        """
+        SELECT cp.part_id, c.id, r.name, r.manufacturer, r.mpn, r.release_status
+        FROM component_parts cp JOIN components c ON c.id = cp.component_id JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE cp.part_id = ANY(%s) AND cp.approval = 'approved' AND c.is_active = 1
+        ORDER BY cp.part_id, cp.role = 'main' DESC, lower(r.name)
+        """,
+        (wanted,),
+    ).fetchall()
+    found: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        found.setdefault(row["part_id"], []).append({
+            "id": row["id"], "name": row["name"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "workflow_stage": row["release_status"],
+        })
+    return found

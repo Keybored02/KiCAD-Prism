@@ -212,6 +212,36 @@ class ComponentPartsTests(unittest.TestCase):
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector,))
         self.assertEqual(left, {recent.id, library.id}, "only the week-old check of a non-library number is gone")
 
+    def test_an_ending_part_names_the_components_it_counts_for(self) -> None:
+        component = self._component()
+        component_id = str(component["id"])
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id])
+            main_id = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            other = self._component()
+            self.cp.sync_main(conn, [str(other["id"])])
+            alternate = self.cp.propose_alternate(conn, str(other["id"]), component["manufacturer"], component["mpn"], AUTHOR)
+            self.assertEqual(alternate["part_id"], main_id, "the other component proposes this one's main part")
+            held = self.cp.components_holding(conn, [main_id])
+            self.assertEqual([item["id"] for item in held[main_id]], [component_id], "a pending alternate is not yet the other's")
+            self.cp.decide(conn, str(other["id"]), main_id, True, "qa@example.com")
+            held = self.cp.components_holding(conn, [main_id])
+            self.assertEqual([item["id"] for item in held[main_id]], [component_id, str(other["id"])], "main first, then the approved alternate")
+            self.assertEqual(held[main_id][0]["mpn"], component["mpn"])
+
+    def test_a_dismissal_holds_only_for_the_reasons_it_was_made_for(self) -> None:
+        from app.services.supply import ending_parts
+
+        component_id = str(self._component()["id"])
+        with self.store.connection() as conn:
+            ending_parts.dismiss(conn, component_id, ["nrnd"], AUTHOR)
+            stored = ending_parts.dismissals_of(conn, [component_id])[component_id]
+            self.assertEqual(stored, ending_parts.reasons_key([{"kind": "nrnd"}]))
+            self.assertNotEqual(stored, ending_parts.reasons_key([{"kind": "nrnd"}, {"kind": "last_time_buy"}]), "a new reason brings it back")
+            with self.assertRaises(ValueError):
+                ending_parts.dismiss(conn, component_id, [], AUTHOR)
+            conn.execute("DELETE FROM supply_ending_dismissals WHERE component_id = %s", (component_id,))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -311,7 +311,7 @@ export function LibraryComponentWorkspace({
   const requestedRevisionId = searchParams.get("revision") || "";
   const compareRevisionId = searchParams.get("compare") || "";
   const returnView = searchParams.get("libraryView") || "catalog";
-  const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : returnView === "ending" ? "Ending Parts" : "Catalog";
+  const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : "Catalog";
   const [currentComponent, setCurrentComponent] = useState<CatalogComponent | null>(null);
   const [activeComponent, setActiveComponent] = useState<CatalogComponent | null>(null);
   // Every tab's evidence belongs to one component generation, so it is stored

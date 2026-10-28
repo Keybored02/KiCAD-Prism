@@ -5,11 +5,16 @@ outlook under two years). The library decides what that means for a component. T
 components, the reason and its source, the last-time-buy date, stock and the projects that use the part. Nothing here changes
 the catalog.
 
-Two decisions, both for QA and administrators, kept in ``component_restrictions`` (supply data never enters the revision hash):
+The components are those the part counts for in ``component_parts`` (main part or approved alternate); a schema without the
+catalog falls back to a catalog search by part number.
+
+Three decisions, all for QA and administrators, kept outside the revision (supply data never enters the revision hash):
 
 * ``not_for_new_designs``: the component stays released and keeps resolving where it is placed; it is marked, not hidden.
 * ``retired``: recorded after the component was archived through the catalog's own workflow (which takes it out of the export).
   Retiring is allowed while tracked projects still use the part: the dialog shows them first.
+* dismissed (``supply_ending_dismissals``): nothing to do for now. It holds while the reasons stay the same; a new reason
+  brings the component back.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from __future__ import annotations
 import time
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import catalog_read, facts, outlook, part_insights, parts_view, usage
+from app.services.supply import catalog_read, component_parts, facts, outlook, part_insights, parts_view, usage
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.vocabulary import Lifecycle
@@ -124,7 +129,7 @@ def undecided_count(conn, role: str | None = None) -> int:
     now = time.monotonic()
     if _counted is None or now - _counted[0] > _COUNT_FOR:
         try:
-            _counted = (now, sum(1 for row in queue(conn, role)["items"] if row["restriction"] is None))
+            _counted = (now, sum(1 for row in queue(conn, role)["items"] if row["restriction"] is None and not row["dismissed"]))
         except Exception:  # noqa: BLE001 - a tile on the Dashboard must not depend on the catalog answering
             return 0
     return _counted[1]
@@ -144,6 +149,8 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
     ending = [(item, reasons_of(item, bands.get(item["id"]))) for item in items.values()]
     ending = [(item, reasons) for item, reasons in ending if reasons]
     ending.sort(key=lambda pair: (-len(pair[1]), pair[0]["mpn"].lower()))
+    holders = component_parts.components_holding(conn, [item["id"] for item, _ in ending[:limit]])
+    library = component_parts.library_present(conn)
     rows: list[dict[str, Any]] = []
     for item, reasons in ending[:limit]:
         last_buy = [
@@ -151,7 +158,7 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
             for fact in facts.for_part(conn, item["id"]) if fact["name"] == "last_buy_date" for source in fact["sources"]
         ]
         used = [{"project_id": use["project_id"], "name": use["project_name"], "quantity": use["quantity"]} for use in usage.used_in(conn, item["id"], role)]
-        for component in _components_of(item):
+        for component in (holders.get(item["id"], []) if library else _components_of(item)):
             stage = str(component.get("workflow_stage") or component.get("stage") or "")
             if stage == "archived":
                 continue
@@ -162,10 +169,42 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
                 "projects": used, "restriction": None,
             })
     marks = restrictions_of(conn, [row["component"]["id"] for row in rows])
+    dismissed = dismissals_of(conn, [row["component"]["id"] for row in rows])
     kept = []
     for row in rows:
         row["restriction"] = marks.get(row["component"]["id"])
+        row["dismissed"] = dismissed.get(row["component"]["id"]) == reasons_key(row["reasons"])
         if row["restriction"] and row["restriction"]["level"] == "retired":
             continue
         kept.append(row)
     return {"items": kept, "tracked": len(tracked), "more": max(0, len(ending) - limit)}
+
+
+def reasons_key(reasons: Sequence[Mapping[str, Any]]) -> str:
+    """The reasons a dismissal was made for, as one comparable text."""
+
+    return ",".join(sorted({str(reason["kind"]) for reason in reasons}))
+
+
+def dismissals_of(conn, component_ids: Sequence[str]) -> dict[str, str]:
+    ids = list({item for item in component_ids if item})
+    if not ids:
+        return {}
+    return {row["component_id"]: row["reasons"] for row in conn.execute(
+        "SELECT component_id, reasons FROM supply_ending_dismissals WHERE component_id = ANY(%s)", (ids,)).fetchall()}
+
+
+def dismiss(conn, component_id: str, reason_kinds: Sequence[str], actor: str) -> None:
+    """Nothing to do about this component for these reasons. A new reason brings it back."""
+
+    actor = actor_text(actor)
+    key = reasons_key([{"kind": kind} for kind in reason_kinds])
+    if not key:
+        raise ValueError("Say which reasons are dismissed.")
+    conn.execute(
+        "INSERT INTO supply_ending_dismissals (component_id, reasons, dismissed_by) VALUES (%s, %s, %s) "
+        "ON CONFLICT (component_id) DO UPDATE SET reasons = EXCLUDED.reasons, dismissed_by = EXCLUDED.dismissed_by, dismissed_at = NOW()",
+        (component_id, key, actor),
+    )
+    write_audit(conn, actor, "component.ending.dismiss", component_id, {"reasons": key}, subject_kind="component")
+    forget_count()

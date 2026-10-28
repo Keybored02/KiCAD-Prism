@@ -466,6 +466,23 @@ def _m094_csv_jlc_class(conn) -> None:
     )
 
 
+def _m095_ending_dismissals(conn) -> None:
+    """A person's "nothing to do" about a component whose part is ending. It holds while the reasons stay the same; a new
+    reason (say, last time buy after not recommended) brings the component back."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_ending_dismissals (
+            component_id TEXT PRIMARY KEY,
+            reasons TEXT NOT NULL,
+            dismissed_by TEXT NOT NULL,
+            dismissed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 def _m078_forget_cached_prices(conn) -> None:
     """The kept list summaries and insights were worked out before prices were converted and given a kind; they are worked out again."""
 
