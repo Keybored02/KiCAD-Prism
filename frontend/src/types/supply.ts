@@ -631,6 +631,9 @@ export interface SupplyRowOffer {
   product_url?: string;
   currency: string;
   price_breaks: Array<[number, string]>;
+  /** The workspace currency, and the prices in it; null when this line's currency has no rate. */
+  base_currency?: string;
+  base_price_breaks?: Array<[number, string]> | null;
 }
 
 export interface SupplyPartRow {

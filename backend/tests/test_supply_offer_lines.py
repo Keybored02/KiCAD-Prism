@@ -94,3 +94,24 @@ class OfferLineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InBaseTests(unittest.TestCase):
+    def test_a_line_carries_its_prices_in_the_workspace_currency_and_keeps_its_own(self) -> None:
+        from decimal import Decimal
+
+        from app.services.supply.fx import Rates
+        from app.services.supply.offer_lines import in_base
+
+        rates = Rates(day=None, per_eur={"INR": Decimal("90"), "USD": Decimal("1.1")})
+        lines = [
+            {"currency": "EUR", "price_breaks": [[1, "2.00"], [100, "1.50"]]},
+            {"currency": "INR", "price_breaks": [[1, "180"]]},
+            {"currency": "XYZ", "price_breaks": [[1, "3"]]},
+        ]
+        out = in_base(lines, "INR", rates)
+        self.assertEqual(out[0]["base_price_breaks"], [[1, "180.0000"], [100, "135.0000"]])
+        self.assertEqual(out[0]["price_breaks"], [[1, "2.00"], [100, "1.50"]])
+        self.assertEqual(out[1]["base_price_breaks"], [[1, "180.0000"]])
+        self.assertIsNone(out[2]["base_price_breaks"], "no rate for the line's currency")
+        self.assertEqual({line["base_currency"] for line in out}, {"INR"})
