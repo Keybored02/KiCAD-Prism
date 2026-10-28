@@ -2,7 +2,7 @@
 title: Place released parts in KiCad
 description: Connect desktop KiCad to Prism's Remote Symbol Provider, then search for and place released library parts in your schematic.
 sidebar:
-  order: 9
+  order: 10
 ---
 
 Prism's Remote Symbol Provider lets you search the released parts in
