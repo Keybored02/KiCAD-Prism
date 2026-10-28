@@ -82,7 +82,8 @@ export function ProjectPartsList({ projectId, parts, currency, selectedId, onOpe
   const narrowed = query !== "" || lifecycle !== "" || vendor !== "" || only !== null;
   const items = inProjectOrder((loaded.data?.items ?? []).filter((item) => only === null || only.has(item.id)), lines, sort);
   // A line that matches no part has nothing to search or filter by, so it shows only while nothing narrows the list.
-  const unmatched = chip !== null || lifecycle !== "" || vendor !== "" ? [] : parts.filter((part) => !part.part_id && (query === "" || hasReference(part, wanted)));
+  // The Unchecked chip is exactly these lines.
+  const unmatched = (chip !== null && chip !== "unchecked") || lifecycle !== "" || vendor !== "" ? [] : parts.filter((part) => !part.part_id && (query === "" || hasReference(part, wanted)));
 
   return (
     <div className="space-y-3">

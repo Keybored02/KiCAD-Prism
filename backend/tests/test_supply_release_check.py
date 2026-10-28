@@ -97,7 +97,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.part("OBS-1", stock=0, lifecycle="obsolete")
         with self.store.connection() as conn:
             result = self.release_check.check(conn, lines(self.bom()), NOW)
-        self.assertEqual((result["parts"], result["tracked"], result["not_tracked"]), (3, 2, 1), "a line with no number is not a line")
+        self.assertEqual((result["parts"], result["tracked"], result["not_tracked"]), (4, 2, 2), "a line with no number is a line, and not tracked")
         self.assertEqual(result["status"], "fatal")
         self.assertEqual(result["needing_a_look"], 1)
         (attention,) = result["attention"]
@@ -555,7 +555,8 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(by_mpn["PLAIN-1"]["rohs_stated"], "")
         self.assertIn("No RoHS statement from any distributor.", by_mpn["PLAIN-1"]["gaps"])
         self.assertIn("Prism does not track this part, so nothing is known about it.", by_mpn["=EVIL()"]["gaps"])
-        self.assertEqual(draft["summary"]["parts"], 3, "the line without a part number is not a distinct part")
+        self.assertEqual(draft["summary"]["parts"], 4, "the line without a part number is listed, with nothing known about it")
+        self.assertIn("No part number on the BOM line.", by_mpn[""]["gaps"])
         self.assertIn("'=EVIL()", csv_text)
         self.assertNotIn(",=EVIL()", csv_text)
         self.assertEqual(compliance_draft.to_csv({"parts": []}).strip(), ",".join(compliance_draft.HEADER))

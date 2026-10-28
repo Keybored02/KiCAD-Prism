@@ -43,14 +43,28 @@ function BuildTile({ supply, boards, onOpenPart, editor }: { supply: ProjectSupp
   const limiting = (supply.parts ?? []).find((part) => part.key === rollup.limited_by);
   const covered = rollup.can_build;
   const short = covered !== null && covered < boards;
+  const limitedBy = short && limiting ? (
+    <>limited by{" "}
+      {limiting.part_id ? <button type="button" className="text-primary hover:underline" onClick={() => onOpenPart(limiting.part_id as string)}>{limiting.mpn}</button> : limiting.mpn}</>
+  ) : null;
+  // A line nobody could check (no part number, an unknown or ambiguous part) leaves the answer open, whatever the rest covers.
+  const unchecked = rollup.not_tracked;
+  if (unchecked > 0) {
+    return (
+      <Tile label="Build" bad action={editor}>
+        <p className={big(true)}>Unconfirmed</p>
+        <p className="text-xs tabular-nums text-muted-foreground">
+          {covered === null ? "" : `${Math.min(covered, boards).toLocaleString()} of ${boards.toLocaleString()} boards · `}{unchecked.toLocaleString()} unchecked
+        </p>
+        {limitedBy ? <p className="text-xs text-muted-foreground">{limitedBy}</p> : null}
+      </Tile>
+    );
+  }
   return (
     <Tile label="Build" bad={short} action={editor}>
       <p className={big(short)}>{covered === null ? "Not known" : `${Math.min(covered, boards).toLocaleString()} of ${boards.toLocaleString()} boards`}</p>
       <p className="text-xs text-muted-foreground">
-        {covered === null ? "No stock figure yet." : short && limiting ? (
-          <>limited by{" "}
-            {limiting.part_id ? <button type="button" className="text-primary hover:underline" onClick={() => onOpenPart(limiting.part_id as string)}>{limiting.mpn}</button> : limiting.mpn}</>
-        ) : `The stock covers ${covered.toLocaleString()}.`}
+        {covered === null ? "No stock figure yet." : limitedBy ?? `The stock covers ${covered.toLocaleString()}.`}
       </p>
     </Tile>
   );
@@ -107,19 +121,19 @@ function HealthTile({ supply }: { supply: ProjectSupply }) {
   );
 }
 
-/** How much of the build the stock covers, line by line: the share of lines whose parts are in stock for the boards. */
+/** How much of the build the stock covers, line by line: the share of every BOM line whose part is in stock for the boards. A line
+ *  without a stock figure counts as not covered, so the share is never 100% while a line is unchecked. */
 function CoverageTile({ supply, boards }: { supply: ProjectSupply; boards: number }) {
   const lines = supply.parts ?? [];
   const known = lines.filter((part) => part.part_id && part.stock !== null);
   const covered = known.filter((part) => !part.short).length;
   const unknown = lines.length - known.length;
-  const share = known.length === 0 ? null : covered / known.length;
-  const low = share !== null && share < 1;
+  const share = known.length === 0 ? null : covered / lines.length;
   return (
     <Tile label="Stock coverage" bad={share !== null && share < 0.9}>
       <p className={big(share !== null && share < 0.9)}>{share === null ? "No data" : `${Math.round(share * 100)}%`}</p>
       <p className="text-xs text-muted-foreground">
-        {share === null ? "No stock figure yet." : `${covered} of ${known.length} lines in stock for ${boards.toLocaleString()} boards${low ? `, ${known.length - covered} short` : ""}`}
+        {share === null ? "No stock figure yet." : `${covered} of ${lines.length} lines in stock for ${boards.toLocaleString()} boards${known.length > covered ? `, ${known.length - covered} short` : ""}`}
         {unknown > 0 && share !== null ? `, ${unknown} unknown` : ""}
       </p>
     </Tile>

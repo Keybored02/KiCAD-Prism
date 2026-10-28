@@ -1,9 +1,10 @@
 import type { ProjectSupplyPart } from "@/types/supply";
 
 /** What a "needs a look" chip counts and filters the parts table by. */
-export type Chip = "out" | "short" | "limiting" | "end_of_life" | "alerts" | "not_priced";
+export type Chip = "unchecked" | "out" | "short" | "limiting" | "end_of_life" | "alerts" | "not_priced";
 
 export const CHIPS: ReadonlyArray<{ key: Chip; label: string }> = [
+  { key: "unchecked", label: "Unchecked" },
   { key: "out", label: "Out of stock" },
   { key: "short", label: "Short for this build" },
   { key: "limiting", label: "Limiting the build" },
@@ -49,6 +50,7 @@ export function limitingKeys(parts: readonly ProjectSupplyPart[]): ReadonlySet<s
 /** Whether a part row is one the chip counts. `limiting` is the keys of the lines that limit the build. */
 export function matchesChip(part: ProjectSupplyPart, chip: Chip, limiting: ReadonlySet<string> = new Set()): boolean {
   switch (chip) {
+    case "unchecked": return part.state !== "tracked";
     case "out": return part.part_id !== null && part.stock === 0;
     case "short": return part.short;
     case "limiting": return limiting.has(part.key);
