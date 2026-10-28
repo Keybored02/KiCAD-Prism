@@ -7753,6 +7753,53 @@
         "title": "CreateServiceClientRequest",
         "type": "object"
       },
+      "CreateSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "display_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "interval_hours": {
+            "default": 24,
+            "maximum": 168.0,
+            "minimum": 1.0,
+            "title": "Interval Hours",
+            "type": "integer"
+          },
+          "token": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "base_url"
+        ],
+        "title": "CreateSourceRequest",
+        "type": "object"
+      },
       "CreatedPersonalToken": {
         "description": "The one response that carries the secret, shown once.",
         "properties": {
@@ -12065,6 +12112,111 @@
           "errors"
         ],
         "title": "InventoryImportResult",
+        "type": "object"
+      },
+      "InventorySource": {
+        "properties": {
+          "api_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Version"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "has_token": {
+            "title": "Has Token",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "interval_hours": {
+            "title": "Interval Hours",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "inventree",
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_error": {
+            "title": "Last Error",
+            "type": "string"
+          },
+          "last_status": {
+            "title": "Last Status",
+            "type": "string"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "server": {
+            "title": "Server",
+            "type": "string"
+          },
+          "unmatched": {
+            "title": "Unmatched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "base_url",
+          "category_id",
+          "enabled",
+          "interval_hours",
+          "has_token",
+          "server",
+          "api_version",
+          "last_sync_at",
+          "last_status",
+          "last_error",
+          "matched",
+          "unmatched"
+        ],
+        "title": "InventorySource",
         "type": "object"
       },
       "IpcOption": {
@@ -20150,6 +20302,72 @@
         "title": "SemanticIndexStatus",
         "type": "object"
       },
+      "ServerCategory": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "pathstring": {
+            "title": "Pathstring",
+            "type": "string"
+          },
+          "pk": {
+            "title": "Pk",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pk",
+          "name",
+          "pathstring",
+          "parent"
+        ],
+        "title": "ServerCategory",
+        "type": "object"
+      },
+      "ServerCheck": {
+        "properties": {
+          "api_version": {
+            "title": "Api Version",
+            "type": "integer"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/ServerCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "instance": {
+            "title": "Instance",
+            "type": "string"
+          },
+          "server": {
+            "title": "Server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "api_version",
+          "instance",
+          "categories"
+        ],
+        "title": "ServerCheck",
+        "type": "object"
+      },
       "ServerFolderImportRequest": {
         "properties": {
           "display_name": {
@@ -21122,6 +21340,43 @@
         "title": "SyncQueued",
         "type": "object"
       },
+      "SyncResult": {
+        "properties": {
+          "error": {
+            "default": "",
+            "title": "Error",
+            "type": "string"
+          },
+          "matched": {
+            "default": 0,
+            "title": "Matched",
+            "type": "integer"
+          },
+          "records": {
+            "default": 0,
+            "title": "Records",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unmatched": {
+            "default": 0,
+            "title": "Unmatched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "SyncResult",
+        "type": "object"
+      },
       "ThreadPoolMetrics": {
         "additionalProperties": true,
         "properties": {
@@ -21791,6 +22046,65 @@
         "title": "TradeMarkIn",
         "type": "object"
       },
+      "UnmatchedPart": {
+        "properties": {
+          "ipn": {
+            "title": "Ipn",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "reason": {
+            "enum": [
+              "no_component",
+              "sap_code_shared",
+              "mpn_shared"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "remote_part": {
+            "title": "Remote Part",
+            "type": "string"
+          },
+          "seen_at": {
+            "format": "date-time",
+            "title": "Seen At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "remote_part",
+          "ipn",
+          "mpn",
+          "manufacturer",
+          "name",
+          "quantity",
+          "records",
+          "reason",
+          "seen_at"
+        ],
+        "title": "UnmatchedPart",
+        "type": "object"
+      },
       "UnpinnedModel": {
         "additionalProperties": true,
         "properties": {
@@ -22284,6 +22598,86 @@
           }
         },
         "title": "UpdateRepresentationRequest",
+        "type": "object"
+      },
+      "UpdateSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "interval_hours": {
+            "anyOf": [
+              {
+                "maximum": 168.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Hours"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          }
+        },
+        "title": "UpdateSourceRequest",
         "type": "object"
       },
       "UpdateWatchRequest": {
@@ -43939,6 +44333,287 @@
           }
         },
         "summary": "Insights Overview",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources": {
+      "get": {
+        "operationId": "list_inventory_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InventorySource"
+                  },
+                  "title": "Response List Inventory Sources",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Inventory Sources",
+        "tags": [
+          "supply"
+        ]
+      },
+      "post": {
+        "operationId": "create_inventory_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventorySource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Inventory Source",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources/{source_id}": {
+      "delete": {
+        "operationId": "delete_inventory_source",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Inventory Source",
+        "tags": [
+          "supply"
+        ]
+      },
+      "patch": {
+        "operationId": "update_inventory_source",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventorySource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Inventory Source",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources/{source_id}/check": {
+      "post": {
+        "description": "Ask the server who it is and which categories it has, with the stored token. Changes nothing.",
+        "operationId": "check_inventory_source",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Inventory Source",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources/{source_id}/sync": {
+      "post": {
+        "description": "Read the source now. A failed read keeps the stock it had, marked stale.",
+        "operationId": "sync_inventory_source",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Inventory Source",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources/{source_id}/unmatched": {
+      "get": {
+        "operationId": "list_unmatched_parts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnmatchedPart"
+                  },
+                  "title": "Response List Unmatched Parts",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Unmatched Parts",
         "tags": [
           "supply"
         ]

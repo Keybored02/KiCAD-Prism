@@ -299,6 +299,18 @@ def _housekeeping_if_due(store: SupplyStore) -> None:
         logging.getLogger(__name__).info("Housekeeping failed", exc_info=True)
 
 
+def _sync_inventory(store: SupplyStore) -> None:
+    """Read the local inventory sources that are due (decision D15). A source that fails keeps its stock, marked stale."""
+
+    from app.services.supply import credentials
+    from app.services.supply.inventory import sync as inventory_sync
+
+    try:
+        inventory_sync.sync_due(store, credentials.default_keyring_factory())
+    except Exception:  # noqa: BLE001 - the next scan tries again; it never stops the scanner
+        logging.getLogger(__name__).info("Inventory sync failed", exc_info=True)
+
+
 def _prune_finished_jobs(job_service: Any) -> None:
     """The scanner queues a job for each connector with work many times a day; finished ones older than a week are dropped, at the
     housekeeping rhythm. Best effort."""
@@ -330,6 +342,7 @@ def schedule_due_supply_jobs(
     with store.connection() as conn:
         connector_ids = connectors_with_work(conn, moment)
     _housekeeping_if_due(store)
+    _sync_inventory(store)
     _prune_finished_jobs(job_service)
     # One job per account: connectors on the same credentials are one caller to the provider, so they take turns.
     by_account: dict[str, list[str]] = {}
