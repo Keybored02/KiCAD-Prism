@@ -281,6 +281,7 @@ def housekeeping(store: SupplyStore) -> int:
         _sync_tracking(conn)
         _pick_packagings(conn)
         _renew_insights(conn)
+        refresh_rollups(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
         retention.trim_summaries(conn)
@@ -463,6 +464,18 @@ def _snapshot_figures(conn) -> None:
         logging.getLogger(__name__).info("Figures not stored", exc_info=True)
 
 
+def refresh_rollups(conn) -> None:
+    """Work out the tracked projects' rollups that a change made stale, so the Dashboard and the project cards find them kept. Best effort."""
+
+    from app.services.supply import project_supply
+
+    try:
+        with conn.transaction():
+            project_supply.refresh_rollups(conn)
+    except Exception:  # noqa: BLE001 - a reader works out a stale rollup itself
+        logging.getLogger(__name__).info("Project rollups not refreshed", exc_info=True)
+
+
 def _renew_insights(conn) -> None:
     """Keep the facts the Dashboard and Insights list for each tracked part (no distributor call). Best effort."""
 
@@ -558,6 +571,9 @@ def run_supply_poll_job(context: Any) -> Any:
         calls, polled_count, gone, holding = calls + polled.calls, polled_count + polled.polled, gone + polled.gone, holding + polled.holding
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
     details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
+    if polled_count:
+        with connectors.store.connection() as conn:
+            refresh_rollups(conn)
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,
         "calls": calls, "spare_calls": spare_calls, "polled": polled_count, "gone": gone, "holding": holding, "poll_stopped": poll_stopped,

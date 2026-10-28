@@ -542,3 +542,80 @@ def _m079_forecasts(conn) -> None:
         """,
         prepare=False,
     )
+
+
+# Tables a project's rollup is made from beyond its parts' own offers (those mark the part, see ``_m038_part_summaries``):
+# per project, and for every project at once.
+_ROLLUP_BY_PROJECT = ("supply_tracked_projects", "supply_bom_usage", "supply_bom_usage_variants", "supply_bom_usage_projects")
+_ROLLUP_EVERYWHERE = (
+    "supply_settings", "supply_fx_rates", "inventory_levels", "component_parts", "supply_part_alternates", "supply_part_preferences",
+    "supply_part_tiers", "supply_parts", "supply_part_numbers", "supply_part_spellings", "supply_manufacturer_aliases", "components",
+)
+
+
+def _m096_project_rollups(conn) -> None:
+    """A tracked project's usual-build answer (boards, limiting line, cost, unchecked lines), kept so the Dashboard, the project
+    cards and the Projects view read it instead of pricing every BOM line on each request.
+
+    A kept rollup is current while no mark it did not see (its snapshot, ``seen``) names one of its parts (the parts' summary
+    marks), its project or every project (``*``). Marks come from triggers, one per statement for the tables every project
+    depends on. Comparing with the snapshot, not only its oldest running transaction, keeps a long transaction elsewhere from
+    making every rollup stale.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_project_rollups (
+            project_id TEXT NOT NULL,
+            variant TEXT NOT NULL DEFAULT '',
+            data JSONB NOT NULL,
+            part_ids TEXT[] NOT NULL DEFAULT '{}',
+            -- The snapshot it was worked out under, and its oldest running transaction (marks below it were all seen).
+            seen TEXT NOT NULL,
+            snap BIGINT NOT NULL,
+            -- The transaction that worked it out: its own later changes are not in its snapshot's view of itself.
+            own BIGINT NOT NULL DEFAULT 0,
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (project_id, variant)
+        );
+        CREATE TABLE IF NOT EXISTS supply_rollup_dirty (
+            id BIGSERIAL PRIMARY KEY,
+            scope TEXT NOT NULL,
+            xid BIGINT NOT NULL DEFAULT (pg_current_xact_id()::text::bigint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_supply_rollup_dirty_scope ON supply_rollup_dirty (scope, xid);
+
+        CREATE OR REPLACE FUNCTION supply_rollup_by_project() RETURNS TRIGGER AS $$
+        BEGIN
+            IF TG_OP IN ('UPDATE', 'DELETE') THEN INSERT INTO supply_rollup_dirty (scope) VALUES (OLD.project_id); END IF;
+            IF TG_OP IN ('INSERT', 'UPDATE') THEN INSERT INTO supply_rollup_dirty (scope) VALUES (NEW.project_id); END IF;
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION supply_rollup_everywhere() RETURNS TRIGGER AS $$
+        BEGIN
+            INSERT INTO supply_rollup_dirty (scope) VALUES ('*');
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+        """,
+        prepare=False,
+    )
+    for table in _ROLLUP_BY_PROJECT:
+        conn.execute(
+            f"DROP TRIGGER IF EXISTS trg_supply_rollup_{table} ON {table}; "
+            f"CREATE TRIGGER trg_supply_rollup_{table} AFTER INSERT OR UPDATE OR DELETE ON {table} "
+            "FOR EACH ROW EXECUTE FUNCTION supply_rollup_by_project();",
+            prepare=False,
+        )
+    for table in _ROLLUP_EVERYWHERE:
+        # The catalog's own tables are missing where supply runs alone (its tests); the rollup then has no library to follow.
+        row = conn.execute("SELECT to_regclass(%s) IS NOT NULL", (table,)).fetchone()
+        if next(iter(row.values())) if isinstance(row, dict) else row[0]:
+            conn.execute(
+                f"DROP TRIGGER IF EXISTS trg_supply_rollup_{table} ON {table}; "
+                f"CREATE TRIGGER trg_supply_rollup_{table} AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON {table} "
+                "FOR EACH STATEMENT EXECUTE FUNCTION supply_rollup_everywhere();",
+                prepare=False,
+            )

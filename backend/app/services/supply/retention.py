@@ -92,8 +92,14 @@ def trim_summaries(conn) -> int:
     """Forget kept summaries nobody has read for a week, and the change log nothing kept can still depend on."""
 
     conn.execute("DELETE FROM supply_part_summaries WHERE computed_at < NOW() - INTERVAL '7 days'")
-    removed = conn.execute(
-        "DELETE FROM supply_summary_dirty WHERE xid < COALESCE((SELECT MIN(snap) FROM supply_part_summaries), "
+    conn.execute("DELETE FROM supply_project_rollups WHERE computed_at < NOW() - INTERVAL '7 days'")
+    # A mark older than everything kept can no longer make anything stale. Kept rollups read the parts' marks too.
+    oldest = (
+        "LEAST(COALESCE((SELECT MIN(snap) FROM supply_part_summaries), {now}), COALESCE((SELECT MIN(snap) FROM supply_project_rollups), {now}))"
+    ).format(now="pg_snapshot_xmin(pg_current_snapshot())::text::bigint")
+    removed = conn.execute(f"DELETE FROM supply_summary_dirty WHERE xid < {oldest}").rowcount
+    removed += conn.execute(
+        "DELETE FROM supply_rollup_dirty WHERE xid < COALESCE((SELECT MIN(snap) FROM supply_project_rollups), "
         "pg_snapshot_xmin(pg_current_snapshot())::text::bigint)"
     ).rowcount
     return int(removed or 0)
