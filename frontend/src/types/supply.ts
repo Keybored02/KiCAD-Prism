@@ -1674,7 +1674,7 @@ export interface SupplyInsightsPage {
   };
 }
 
-/** A local inventory server (InvenTree, or Vision serving its API) whose stock fills the catalog. The token never comes back. */
+/** A local inventory server (InvenTree, or a server serving its API) whose stock fills the catalog. The token never comes back. */
 export interface InventorySource {
   id: string;
   kind: "inventree";

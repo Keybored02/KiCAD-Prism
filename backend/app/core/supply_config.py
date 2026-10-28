@@ -38,7 +38,7 @@ class SupplySettings(BaseSettings):
         default="",
         description=(
             "Comma-separated host names of inventory servers on your own network, for example "
-            "vision.example.internal. Only these may resolve to private addresses; HTTPS and certificate "
+            "inventory.example.internal. Only these may resolve to private addresses; HTTPS and certificate "
             "checks still apply, and link-local addresses stay refused. Empty allows public addresses only."
         ),
     )

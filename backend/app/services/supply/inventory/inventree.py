@@ -1,4 +1,4 @@
-"""A read-only client for InvenTree's REST API, and for any server that serves the same subset (Vision).
+"""A read-only client for InvenTree's REST API, and for any server that serves the same subset of it.
 
 It reads what a stock sync needs: the server's identity, the category tree, the parts of one category with their
 manufacturer part numbers, the stock records of that category, and the location tree. Shapes follow InvenTree's
@@ -8,7 +8,7 @@ Requests go through ``SafeHttpClient``: HTTPS only, to the source's own host, at
 a host the operator lists in ``SUPPLY_INVENTORY_PRIVATE_HOSTS``. The client never writes and never logs the token. Errors
 are the providers' ``ProviderError`` subclasses.
 
-Only the filters InvenTree and Vision both serve are sent: Vision answers any other with ``400``.
+Only the filters every compatible server is known to serve are sent: some answer any other with ``400``.
 """
 
 from __future__ import annotations
@@ -172,7 +172,7 @@ class InvenTreeClient:
             if pk is not None:
                 parts[pk] = Part(pk=pk, name=_text(row.get("full_name")) or _text(row.get("name")), ipn=_text(row.get("IPN")), units=_text(row.get("units")))
         mpns: dict[int, list[tuple[str, str]]] = {}
-        # No manufacturer_detail filter: Vision refuses it, and serves the detail anyway. The maker is only a hint.
+        # No manufacturer_detail filter: some compatible servers refuse it, and serve the detail anyway. The maker is only a hint.
         for row in self._pages("company/part/manufacturer/", {}):
             part = _pk(row.get("part"))
             mpn = _text(row.get("MPN"))
