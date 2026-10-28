@@ -96,14 +96,15 @@ def lines_from_csv(text: str, identities: Identities | None = None) -> ReadBom:
             continue
         key = f"{alias_key(manufacturer)}|{number}"
         line = found.setdefault(key, {"manufacturer": manufacturer, "mpn": mpn, "alias": alias_key(manufacturer), "number": number,
-                                      "quantity": 0, "refs": [], "lcsc": ""})
+                                      "quantity": 0, "refs": [], "lcsc": "", "prism_id": ""})
         line["quantity"] += _quantity(row)
         line["refs"] += [ref for ref in re.split(r"[\s,;]+", _first(row, REFERENCE_FIELDS)) if ref]
         line["lcsc"] = line["lcsc"] or lcsc_of(row)
+        line["prism_id"] = line["prism_id"] or (prism_id_of(row) if placed else "")
     return ReadBom(
         [
             UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], line["quantity"],
-                      " ".join(sorted(line["refs"]))[:MAX_REFERENCES_TEXT], line["lcsc"])
+                      " ".join(sorted(line["refs"]))[:MAX_REFERENCES_TEXT], line["lcsc"], prism_id=line["prism_id"])
             for key, line in found.items()
         ],
         rows=len(fitted),

@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import type { SupplyBomLineResult } from "@/types/supply";
+import { AlternatesNote } from "./alternates-note";
 import { untrackedLabel, type RowSupply } from "./bom-supply";
 import { JlcIcon, MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
@@ -20,6 +21,14 @@ function manufacturerHint(result: SupplyBomLineResult): string {
   if (result.manufacturer_match === "unmatched") return "Matched on the part number alone: Prism does not know this manufacturer spelling.";
   if (result.manufacturer_match === "lcsc") return "Matched by the LCSC number on the symbol.";
   return "";
+}
+
+/** ", alternate ALT-1" when the purchase is of an approved alternate, not the line's own part. */
+function alternateBought(result: SupplyBomLineResult): string {
+  const bought = result.buy?.part_id;
+  if (!bought || bought === result.part_id) return "";
+  const alternate = result.alternates?.find((item) => item.part_id === bought);
+  return alternate ? `, alternate ${alternate.mpn}` : "";
 }
 
 function LineCell({ column, result }: { column: string; result: SupplyBomLineResult }) {
@@ -50,6 +59,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
         >
           {formatStock(result.stock)}
           <span className="text-muted-foreground"> / {(result.part_need ?? result.need).toLocaleString()}</span>
+          <AlternatesNote alternates={result.alternates} statusFrom={result.status_from} />
         </span>
       );
     case "Unit price":
@@ -60,7 +70,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
       return buy ? (
         <span
           className={buy.covers ? undefined : "text-warning"}
-          title={`Buy ${buy.quantity.toLocaleString()} from ${buy.connector_name} (${buy.sku})${buy.covers ? "" : ". No offer holds enough stock."}`}
+          title={`Buy ${buy.quantity.toLocaleString()} from ${buy.connector_name} (${buy.sku})${alternateBought(result)}${buy.covers ? "" : ". No offer holds enough stock."}`}
         >
           {formatPrice(buy.extended, buy.currency)}
         </span>

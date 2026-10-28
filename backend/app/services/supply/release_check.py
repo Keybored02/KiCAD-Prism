@@ -45,19 +45,28 @@ def check(conn, lines: Sequence[usage.UsageLine], now: datetime | None = None, w
 
 
 def _assess(conn, lines: Sequence[usage.UsageLine], now: datetime) -> dict[str, Any]:
-    bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity, lcsc=line.lcsc) for line in lines]
+    bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity, prism_id=line.prism_id, lcsc=line.lcsc) for line in lines]
+    known = bom_lookup.library_identities(bom, bom_lookup.library_readers(conn).get("identities"))
+    bom = bom_lookup.with_library_identity(bom, known)
     resolved = bom_lookup.resolve_lines(bom, conn)
     needs: dict[str, int] = {}
     for line in bom:
         part_id = resolved[line.key][1]
         if part_id:
             needs[part_id] = needs.get(part_id, 0) + line.quantity
-    assessed = assessment.assess_parts(conn, sorted(needs), needs, now)
+    # A line may be built with its component's approved alternates (D2): each is assessed for the line's need, and the best counts.
+    alternates = bom_lookup.line_alternates(conn, bom, resolved, known)
+    assessed = assessment.assess_parts(
+        conn, sorted({*needs, *(other for others in alternates.values() for other in others)}),
+        needs | {other: needs[part_id] for part_id, others in alternates.items() for other in others}, now,
+    )
 
     rows = []
     for line in bom:
         state, part_id, _how = resolved[line.key]
-        entry = assessed.get(part_id) if part_id else None
+        group = [candidate for candidate in [part_id, *alternates.get(part_id, ())] if candidate in assessed] if part_id else []
+        chosen = bom_lookup.best_of(group, lambda candidate: assessed[candidate]["status"]) if group else None
+        entry = assessed[chosen] if chosen else None
         rows.append({
             "manufacturer": line.manufacturer,
             "mpn": line.mpn,
@@ -71,6 +80,9 @@ def _assess(conn, lines: Sequence[usage.UsageLine], now: datetime) -> dict[str, 
                 for f in _open(entry["findings"])
             ] if entry else [],
             "waived": sum(1 for f in entry["findings"] if f["waiver"] and f["waiver"]["holds"]) if entry else 0,
+            # The component's approved parts the line counted, and the alternate its status came from.
+            "alternates": group[1:],
+            "status_from": chosen if chosen != part_id else None,
         })
     rolled = health_rules.rollup([(r["health"], r["quantity"], Status(r["status"])) for r in rows if r["status"]])
     blocking = [r for r in rows if r["status"] in _BLOCKING]

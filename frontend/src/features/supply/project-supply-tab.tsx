@@ -7,9 +7,10 @@ import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canOpenSupply } from "@/lib/roles";
+import { CreateComponentDialog } from "@/components/workspace/create-component-dialog";
+import { canOpenSupply, canWriteCatalog } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { ProjectSupply } from "@/types/supply";
+import type { ProjectSupply, ProjectSupplyPart } from "@/types/supply";
 import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
 import { ProjectHeadline } from "./project-headline";
 import { OpenPartSheet } from "./open-part-sheet";
@@ -45,6 +46,7 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
   // The boards a person typed; until then the page is for the project's usual build (100 when it has none).
   const [boardsChoice, setBoards] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [adding, setAdding] = useState<ProjectSupplyPart | null>(null);
   const fetcher = useCallback(
     (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, "", signal),
     [projectId, variant, boardsChoice],
@@ -113,10 +115,22 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
       {supply.available ? (
         <section aria-label="Parts" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
-          <ProjectPartsList projectId={projectId} parts={everyPart} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open} />
+          <ProjectPartsList
+            projectId={projectId} parts={everyPart} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
+            onAddToLibrary={canWriteCatalog(user?.role) ? setAdding : undefined}
+          />
         </section>
       ) : null}
       <OpenPartSheet user={user} active />
+      {adding ? (
+        <CreateComponentDialog
+          key={adding.key}
+          open
+          onOpenChange={(next) => { if (!next) setAdding(null); }}
+          initial={{ value: "", manufacturer: adding.manufacturer, manufacturerPartNumber: adding.mpn }}
+          onCreated={() => loaded.refresh()}
+        />
+      ) : null}
     </div>
   );
 }

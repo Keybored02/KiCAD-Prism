@@ -15,7 +15,7 @@ without the catalog (the supply-only test schemas) has no library to require, so
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import psycopg
 
@@ -85,6 +85,35 @@ def counted_parts(conn, component_ids: Iterable[str]) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for row in rows:
         found.setdefault(row["component_id"], []).append(row["part_id"])
+    return found
+
+
+def alternates_for(conn, leads: Mapping[str, Iterable[str]]) -> dict[str, list[str]]:
+    """The approved alternates each BOM part may be built with, keyed by the part a line resolved to.
+
+    ``leads`` maps that part to the components its lines name by Prism ID. A part no line places is taken as the
+    component whose main part it is, when exactly one component has it as main. Empty in a schema without the catalog.
+    """
+
+    if not leads or not library_present(conn):
+        return {}
+    named = {part_id: {str(item) for item in components if item} for part_id, components in leads.items()}
+    loose = sorted(part_id for part_id, components in named.items() if not components)
+    if loose:
+        owners: dict[str, list[str]] = {}
+        for row in conn.execute(
+            "SELECT part_id, component_id FROM component_parts WHERE role = 'main' AND part_id = ANY(%s)", (loose,)
+        ).fetchall():
+            owners.setdefault(row["part_id"], []).append(row["component_id"])
+        for part_id, components in owners.items():
+            if len(components) == 1:
+                named[part_id] = set(components)
+    counted = counted_parts(conn, {component for components in named.values() for component in components})
+    found: dict[str, list[str]] = {}
+    for part_id, components in named.items():
+        others = [other for component in sorted(components) for other in counted.get(component, []) if other != part_id]
+        if others:
+            found[part_id] = list(dict.fromkeys(others))
     return found
 
 

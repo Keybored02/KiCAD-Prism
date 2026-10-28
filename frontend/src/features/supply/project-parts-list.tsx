@@ -50,13 +50,14 @@ function inProjectOrder(items: SupplyPartRow[], lines: ProjectLines, sort: Parts
  * A project's parts, as the Parts tab lists them (compact or a row for each vendor, search, lifecycle and vendor menus, runs out
  * first, sortable columns) with the pieces a board uses, the pieces the build needs and each line's cost added.
  */
-export function ProjectPartsList({ projectId, parts, currency, selectedId, onOpen }: {
+export function ProjectPartsList({ projectId, parts, currency, selectedId, onOpen, onAddToLibrary }: {
   projectId: string;
   /** The project's lines of the BOM. */
   parts: ProjectSupplyPart[];
   currency: string;
   selectedId: string | null;
   onOpen: (partId: string) => void;
+  onAddToLibrary?: (line: ProjectSupplyPart) => void;
 }) {
   const [query, setQuery] = useState("");
   const [lifecycle, setLifecycle] = useState<PartsFilter>("");
@@ -68,7 +69,7 @@ export function ProjectPartsList({ projectId, parts, currency, selectedId, onOpe
   const wanted = query.trim().toLowerCase();
   const byReference = useMemo(() => (parts.some((part) => hasReference(part, wanted)) ? new Set(parts.flatMap((part) => (part.part_id && hasReference(part, wanted) ? [part.part_id] : []))) : null), [parts, wanted]);
   const loaded = useSupplyPartsList("all", byReference !== null ? "" : query, lifecycle, LIMIT, projectId, vendor, serverSort(sort));
-  const lines = useMemo<ProjectLines>(() => ({ byPart: linesByPart(parts), currency }), [parts, currency]);
+  const lines = useMemo<ProjectLines>(() => ({ byPart: linesByPart(parts), currency, onAddToLibrary }), [parts, currency, onAddToLibrary]);
   // The parts a chip keeps, by part: a line that matches no part cannot be one of them.
   const limiting = useMemo(() => limitingKeys(parts), [parts]);
   const byChip = useMemo(() => (chip === null ? null : new Set(parts.flatMap((part) => (part.part_id && matchesChip(part, chip, limiting) ? [part.part_id] : [])))), [parts, chip, limiting]);

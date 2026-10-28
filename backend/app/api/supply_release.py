@@ -58,10 +58,10 @@ async def bom_health(
             rows = usage.project_rows(conn, project_id, variant)
             if not rows:
                 return {"available": False}
-            lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
+            lines = [project_supply.bom_line(row) for row in rows]
             return {
                 "available": True, "build_quantity": build_quantity, "variant": variant, "variants": usage.project_variants(conn, project_id),
-                "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"],
+                "rollup": bom_lookup.lookup(conn, lines, build_quantity, **bom_lookup.library_readers(conn))["rollup"],
             }
 
     return await _run(read)

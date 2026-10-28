@@ -126,6 +126,11 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
           ? "No stock reading yet."
           : `${formatStock(result.stock)} in stock, ${need} needed${result.short ? ". Not enough." : "."}`}
       </p>
+      {result.alternates?.length ? (
+        <p className="text-xs text-muted-foreground">
+          Alternates counted: {result.alternates.map((alternate) => `${alternate.mpn} (${alternate.stock === null ? "not read" : formatStock(alternate.stock)})`).join(", ")}
+        </p>
+      ) : null}
       {result.part_need !== undefined && result.part_need !== result.need ? (
         <p className="text-xs text-muted-foreground">This part is on more than one line; the need counts all of them.</p>
       ) : null}
