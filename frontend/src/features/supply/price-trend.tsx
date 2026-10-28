@@ -6,6 +6,7 @@ import { leadText, daysSince } from "./price-text";
 import { HoverDetails } from "./hover-details";
 import { PriceQuantity } from "./price-quantity";
 import { formatPrice } from "./supply-format";
+import { TestDataChip } from "./test-data-chip";
 
 interface PriceTrendProps {
   price: SupplyPartDetail["price"];
@@ -56,6 +57,7 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
         </p>
         <div className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
           {formatPrice(latest, currency)}
+          <TestDataChip show={headline?.price_test_data} />
           <HoverDetails label="Show what the price is">
             <p className="text-xs text-muted-foreground">{hints.join(" ")}</p>
             {details}

@@ -146,9 +146,11 @@ checked-out commit.
 ## Supply columns in the BOM
 
 The Visualizer's **BOM** tab adds **Supply**, **Stock**, **Stores**, **Unit price**,
-**Extended** and **Lead time** columns, at the latest revision only. Prices
-are for the project's usual build when it is tracked, otherwise for one board,
-and each unit price shows the quantity it is for (**€0.93 @ 100**). A line
+**Extended**, **Distributor** and **Lead time** columns, at the latest revision
+only. Prices are for the project's usual build when it is tracked, otherwise
+for one board, and each unit price shows the quantity it is for
+(**€0.93 @ 100**). **Distributor** is where that price and stock come from,
+not the BOM's own **Vendor** field. A line
 whose symbol has a **Prism ID** takes its component's part; other lines are
 matched by manufacturer and part number. Choose **Show part details** on a row
 for the full picture, **Watch this part**, or **Add to Component Database**
@@ -193,6 +195,10 @@ While the stores feed or a distributor connector can't be read, a red line
 across the top of the Dashboard says which one, with its last good read:
 **Stores feed down · 17:09**. The figures behind it may be out of date until
 it reads again. **Connectors →** opens the place to fix it.
+
+Prices and stock from the Simulated market, a made-up distributor for demos
+and testing, carry a **Test data** chip wherever they show. **Ask DigiKey for
+substitutes** appears only while a DigiKey connector is on.
 
 Every Dashboard count opens a list with exactly that many parts: a cell of the
 risk grid opens the parts with that lifecycle and that many distributors. A

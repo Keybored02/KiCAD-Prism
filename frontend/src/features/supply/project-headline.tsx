@@ -8,6 +8,7 @@ import { BoardCount } from "./board-count";
 import { StatusBar } from "./project-row-summary";
 import { StatusDot } from "./status-dot";
 import { formatPrice, STATUS_LABEL } from "./supply-format";
+import { TestDataChip } from "./test-data-chip";
 
 function Tile({ label, bad, action, children }: { label: string; bad?: boolean; action?: ReactNode; children: ReactNode }) {
   return (
@@ -82,7 +83,7 @@ function CostTile({ supply, boards }: { supply: ProjectSupply; boards: number })
   return (
     <Tile label="Cost">
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-        <p><span className={big(false)}>{formatPrice(rollup.cost_build, currency, 2)}</span> <span className="text-xs text-muted-foreground">for {boards.toLocaleString()} boards</span></p>
+        <p><span className={big(false)}>{formatPrice(rollup.cost_build, currency, 2)}</span> <span className="text-xs text-muted-foreground">for {boards.toLocaleString()} boards</span><TestDataChip show={rollup.test_data} /></p>
         {rollup.cost_per_board ? <p><span className={big(false)}>{formatPrice(rollup.cost_per_board, currency, 2)}</span> <span className="text-xs text-muted-foreground">a board</span></p> : null}
       </div>
       {notes.length > 0 ? <p className="text-xs text-muted-foreground">{notes.join(", ")}</p> : null}

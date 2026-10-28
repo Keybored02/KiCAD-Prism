@@ -9,6 +9,7 @@ import { JlcIcon, MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
 import { StoresCell } from "./stores-cell";
+import { TestDataChip } from "./test-data-chip";
 
 const MUTED = <span className="text-muted-foreground">{"-"}</span>;
 
@@ -66,7 +67,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
       );
     case "Unit price":
       if (result.bought_with) return <span className="text-muted-foreground" title="This part is on more than one line and is bought once">with another line</span>;
-      return buy ? <span>{formatPrice(buy.unit_price, buy.currency)}<span className="text-muted-foreground"> @ {buy.quantity.toLocaleString()}</span></span> : MUTED;
+      return buy ? <span>{formatPrice(buy.unit_price, buy.currency)}<span className="text-muted-foreground"> @ {buy.quantity.toLocaleString()}</span><TestDataChip show={buy.test_data} /></span> : MUTED;
     case "Extended":
       if (result.bought_with) return MUTED;
       return buy ? (
@@ -77,6 +78,10 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
           {formatPrice(buy.extended, buy.currency)}
         </span>
       ) : MUTED;
+    case "Distributor":
+      // Where the price and stock come from: the distributor whose offer the build buys.
+      if (result.bought_with) return MUTED;
+      return buy ? <span className="truncate">{buy.connector_name}<TestDataChip show={buy.test_data} /></span> : MUTED;
     case "Lead time":
       return leadTime(result.lead_time_days) ? <span>{leadTime(result.lead_time_days)}</span> : MUTED;
     default:

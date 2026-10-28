@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
-import { askSubstitutes, getCrossReference } from "./supply-api";
+import { askSubstitutes, getCrossReference, listSupplyConnectors } from "./supply-api";
+import { useLoaded } from "./use-loaded";
 import { FoldSection } from "./fold-section";
 import { SuggestionsList } from "./suggestions-list";
 import { formatStock } from "./supply-format";
@@ -18,6 +19,10 @@ const label = (key: string) => SAME_LABEL[key] ?? key.replace(/_/g, " ");
 /** Alternatives found in what Prism holds, graded by how close they are. Looked up when the section opens or when asked (no distributor is called). A person checks footprint and pins before using one. */
 export function CrossReferenceSection({ partId, canEdit }: { partId: string; canEdit: boolean }) {
   const [found, setFound] = useState<CrossReference | null>(null);
+  const connectorsFetcher = useCallback((signal: AbortSignal) => listSupplyConnectors(signal), []);
+  const connectors = useLoaded("connectors", connectorsFetcher, "Could not load the connectors", "supply");
+  // Substitutes come from DigiKey alone, so the button shows only while a DigiKey connector is on.
+  const digikey = (connectors.data ?? []).some((connector) => connector.provider === "digikey" && connector.enabled);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const look = async () => {
@@ -50,7 +55,7 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
       title="Alternatives" open={open} onOpenChange={(next) => { setOpen(next); if (next && !found && !busy) void look(); }}
       actions={(
         <span className="ml-auto flex gap-1">
-          {canEdit ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}
+          {canEdit && digikey ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void ask()}>Ask DigiKey for substitutes</Button> : null}
           <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void look()}>Find alternatives</Button>
         </span>
       )}

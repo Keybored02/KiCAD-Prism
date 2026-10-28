@@ -83,7 +83,7 @@ def _parts(
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "short": bool(entry.get("short")),
-            "unit_price": buy.get("unit_price"), "buy_quantity": buy.get("quantity"), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
+            "unit_price": buy.get("unit_price"), "buy_quantity": buy.get("quantity"), "test_data": bool(buy.get("test_data")), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
             # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
             "line_cost": None if entry.get("bought_with") or not buy else (buy.get("in_base") if converted else buy.get("extended")),
             "alerts": alerts.get(part_id, 0),

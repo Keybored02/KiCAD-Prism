@@ -15,6 +15,7 @@ from typing import Any, Callable, Literal
 
 from app.services.supply import budget, facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, stock, usage
 from app.services.supply.assessment import settings_store
+from app.services.supply.providers import registry
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -217,7 +218,7 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
         r["part_id"]: r["data"] for r in conn.execute(
             """
             SELECT s.part_id, s.data FROM supply_part_summaries s
-            WHERE s.part_id = ANY(%s) AND s.snap > 0
+            WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data'
               AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
             """,
             (ids,),
@@ -445,6 +446,7 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
         stats["boards"] = rollup["can_build"]
         stats["build_quantity"] = int(tracked["build_quantity"])
         stats["unchecked"] = int(rollup["not_tracked"])
+        stats["test_data"] = bool(rollup.get("test_data"))
         kept, _left_out = cost_history.series(conn, project_id, variant, 120)
         stats["cost_change_percent"] = cost_history.change_percent(kept) if kept else None
     stats["alerts"] = int(conn.execute(
@@ -867,6 +869,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "connector_id": r["connector_id"],
             "connector_name": r["connector_name"],
             "provider": r["provider"],
+            "test_data": registry.is_simulated(r["provider"]),
             "sku": r["sku"],
             "packaging": r["packaging"],
             "reel_size": r["reel_size"],
