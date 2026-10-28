@@ -79,3 +79,42 @@ def available_by_component(conn, component_ids: list[str]) -> dict[str, float | 
         (sorted(AVAILABLE), list(component_ids)),
     ).fetchall()
     return {row["component_id"]: (None if row["units"] > 1 else float(row["available"] or 0)) for row in rows}
+
+
+# What a component's stores cell says. The same four words on every screen (UX-03).
+STOCK, NONE, NOT_CONNECTED, DOWN = "stock", "none", "not_connected", "down"
+
+
+def stores_state(conn, component_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Per component: ``state`` (stock, none, not_connected or down), ``available`` as ``local_stock`` counts it (None where units
+    are mixed or nothing is held) and ``since``, the last good read of a feed that is down.
+
+    Stores are connected when an enabled source exists or any stock row does (a catalog CSV import has no source). A source whose
+    last read failed makes every component "down": its "none" can no longer be told from "not read". Empty without the catalog."""
+
+    if not component_ids or not component_parts.library_present(conn):
+        return {}
+    available = available_by_component(conn, component_ids)
+    sources = conn.execute("SELECT id, last_status, last_sync_at FROM inventory_sources WHERE enabled").fetchall()
+    connected = bool(sources) or conn.execute("SELECT 1 FROM inventory_levels LIMIT 1").fetchone() is not None
+    down = [row for row in sources if row["last_status"] == "error"]
+    since = None
+    if down:
+        good = conn.execute(
+            "SELECT MAX(fetched_at) AS at FROM inventory_levels WHERE source_id = ANY(%s)", ([row["id"] for row in down],)
+        ).fetchone()
+        since = (good and good["at"]) or min((row["last_sync_at"] for row in down if row["last_sync_at"]), default=None)
+        since = since.isoformat() if hasattr(since, "isoformat") else since
+    found: dict[str, dict[str, Any]] = {}
+    for component_id in component_ids:
+        held = available.get(component_id)
+        # Rows in several units have no total, but there is stock.
+        mixed = component_id in available and held is None
+        if not connected:
+            state = NOT_CONNECTED
+        elif down:
+            state = DOWN
+        else:
+            state = STOCK if held or mixed else NONE
+        found[component_id] = {"state": state, "available": held or None, "since": since if state == DOWN else None}
+    return found

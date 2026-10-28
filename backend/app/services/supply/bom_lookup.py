@@ -39,6 +39,7 @@ from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
 from app.services.supply.vocabulary import Status
 from app.services.supply.identity import alias_key, match_key
+from app.services.supply.inventory import levels
 
 MAX_LINES = 2000
 MAX_WATCH_LINES = 200
@@ -330,6 +331,8 @@ class Loaded:
     library: frozenset[str] | None = None
     # Per line part, the approved alternates of its component that are not on the BOM themselves (D2): their stock and offers count.
     alternates: Mapping[str, list[str]] = field(default_factory=dict)
+    # Per line key, the stores state of the line's catalog component (levels.stores_state); a line with no component has none.
+    stores: Mapping[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def load(
@@ -360,12 +363,31 @@ def load(
     settings = settings_store.load(conn)
     extras: dict[str, list] = {}
     _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings, extras)
+    stores = _stores_of_lines(conn, lines, resolved, known)
     return Loaded(
         lines=list(lines), known=known, resolved=resolved, items=items, offers=offers, summary=summary, per_board=per_board,
         first_line=first_line, by_key={line.key: line for line in lines}, settings=settings, extras=extras,
         rates=fx.latest(conn), preferred_of=preferences.of_parts(conn, list(per_board)), library=_library_lines(lines, known, in_library),
         alternates={part_id: [other for other in others if other in summary] for part_id, others in alternates.items()},
+        stores=stores,
     )
+
+
+def _stores_of_lines(
+    conn, lines: Sequence[BomLine], resolved: Mapping[str, tuple[str, str | None, str | None]], known: Mapping[str, tuple[str, str]],
+) -> dict[str, dict[str, Any]]:
+    """The stores state of each line's catalog component: the one its Prism ID places, else the one component its part counts for."""
+
+    holders = component_parts.components_of(conn, [part_id for _, part_id, _ in resolved.values() if part_id]) if component_parts.library_present(conn) else {}
+    component_of: dict[str, str] = {}
+    for line in lines:
+        part_id = resolved[line.key][1]
+        if line.prism_id and line.prism_id in known:
+            component_of[line.key] = line.prism_id
+        elif part_id and len(holders.get(part_id, [])) == 1:
+            component_of[line.key] = holders[part_id][0]
+    states = levels.stores_state(conn, sorted(set(component_of.values())))
+    return {key: states[component] for key, component in component_of.items() if component in states}
 
 
 def _counted(loaded: Loaded, part_id: str) -> list[str]:
@@ -416,6 +438,8 @@ def _entries(
     for line in loaded.lines:
         state, part_id, how = loaded.resolved[line.key]
         entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "in_library": _in_library(loaded, line), "need": needed(line.quantity, build_quantity, percents.get(part_id, attrition_percent or 0) if part_id else (attrition_percent or 0))}
+        stores = loaded.stores.get(line.key)
+        entry["stores"] = stores
         if part_id:
             item = loaded.summary[part_id]
             group = _counted(loaded, part_id)
@@ -429,6 +453,10 @@ def _entries(
                 stock = sum(stocks) if stocks else None
             part_need = needs[part_id]
             leader = loaded.first_line[part_id]
+            # What the build can draw on: the distributors' stock and what the stores have available (Q1). Held and at-vendor stock
+            # are shown on the component, never counted.
+            on_hand = (stores or {}).get("available")
+            usable = None if stock is None and on_hand is None else (stock or 0) + int(on_hand or 0)
             entry |= {
                 "watched": item["tracking"] is not None,
                 "jlc": item.get("jlc"),
@@ -446,7 +474,8 @@ def _entries(
                 "lead_time_days": _lead_time(offers_here),
                 "fetched_at": item["fetched_at"],
                 "part_need": part_need,
-                "short": stock is not None and stock < part_need,
+                "usable": usable,
+                "short": usable is not None and usable < part_need,
                 # Only the first line of a part carries the purchase; the others say where it is.
                 "buy": _best_purchase(offers_here, part_need, loaded.rates, loaded.settings.base_currency, _preferred_for(part_id, loaded.preferred_of, loaded.settings)) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
@@ -600,7 +629,7 @@ def _rollup(
     can_build = None
     limiting = None
     for part_id, key in first_line.items():
-        stock = results[key]["stock"]
+        stock = results[key].get("usable")
         if stock is None:
             continue
         # Boards the stock covers once the spares are set aside.
@@ -632,7 +661,7 @@ def _rollup(
         "cost_per_board": format(((total - (waste or Decimal(0))) / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
         "can_build": can_build,
         "limited_by": limiting,
-        "without_stock_data": sum(1 for entry in leaders if entry["stock"] is None),
+        "without_stock_data": sum(1 for entry in leaders if entry.get("usable") is None),
         "parts": len(first_line),
     }
 

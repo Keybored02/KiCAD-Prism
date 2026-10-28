@@ -157,16 +157,17 @@ class StatusRequest(BaseModel):
 
 @router.post("/components-status")
 async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """Where each catalog component stands, for the catalog table: distributor status, stock and price, and the available local
-    stock. Components with neither are left out."""
+    """Where each catalog component stands, for the catalog table: distributor status, stock and price, and its stores state
+    (``stores``; ``local_available`` is its available figure). Without stores data, components with no distributor data are left out."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             items = bom_lookup.standing_of(conn, _lines(body.components))
-            local = levels.available_by_component(conn, [line.key for line in body.components])
-        for key, available in local.items():
+            stores = levels.stores_state(conn, [line.key for line in body.components])
+        for key, state in stores.items():
             items.setdefault(key, {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": None})
-            items[key]["local_available"] = available
+            items[key]["local_available"] = state["available"]
+            items[key]["stores"] = state
         return {"items": items}
 
     return await _run(read)

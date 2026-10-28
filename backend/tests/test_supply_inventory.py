@@ -377,6 +377,32 @@ class InventorySyncTests(unittest.TestCase):
         body = {"components": [{"key": str(component["id"]), "manufacturer": component["manufacturer"], "mpn": component["mpn"], "quantity": 1}]}
         status = _request(bom, "POST", "/api/supply/bom/components-status", user=self.users["designer"], body=body).json["items"][str(component["id"])]
         self.assertEqual((status["local_available"], status["status"], status["watched"]), (300.0, "unknown", False), "local stock shows on an untracked component")
+        self.assertEqual(status["stores"], {"state": "stock", "available": 300.0, "since": None})
+        self.assertEqual(answer.json["stores"]["state"], "stock")
+        with self.store.connection() as conn:
+            self.assertEqual(levels.stores_state(conn, ["no-stock"])["no-stock"]["state"], "none", "connected, nothing held")
+            conn.execute("UPDATE inventory_sources SET last_status = 'error' WHERE id = %s", (source_id,))
+            down = levels.stores_state(conn, [str(component["id"]), "no-stock"])
+        self.assertEqual({state["state"] for state in down.values()}, {"down"}, "a failing feed makes every answer unsure")
+        self.assertTrue(down[str(component["id"])]["since"], "it says when the stock was last read")
+        self.assertEqual(down[str(component["id"])]["available"], 300.0, "the last figures stay")
+
+    def test_stores_are_not_connected_without_a_source_or_any_stock(self) -> None:
+        from app.services.supply.inventory import levels
+
+        class Empty:
+            def execute(self, *_args):
+                return self
+
+            def fetchall(self):
+                return []
+
+            def fetchone(self):
+                return None
+
+        with unittest.mock.patch.object(levels.component_parts, "library_present", return_value=True), \
+                unittest.mock.patch.object(levels, "available_by_component", return_value={}):
+            self.assertEqual(levels.stores_state(Empty(), ["c1"]), {"c1": {"state": "not_connected", "available": None, "since": None}})
 
 
 if __name__ == "__main__":

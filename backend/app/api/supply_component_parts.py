@@ -134,8 +134,17 @@ class LocalStockRow(BaseModel):
     updated_at: str
 
 
+class StoresState(BaseModel):
+    # stock, none, not_connected or down: the same words on every screen.
+    state: str
+    available: float | None
+    # The last good read of a feed that is down.
+    since: str | None
+
+
 class LocalStock(BaseModel):
     component_id: str
+    stores: StoresState | None = None
     uom: str
     mixed_units: bool
     available: float | None
@@ -150,6 +159,7 @@ async def get_local_stock(component_id: str, _user: AuthenticatedUser = Depends(
 
     def read() -> LocalStock:
         with _store().connection() as conn:
-            return LocalStock(**levels.local_stock(conn, component_id))
+            state = levels.stores_state(conn, [component_id]).get(component_id)
+            return LocalStock(**levels.local_stock(conn, component_id), stores=state)
 
     return await _run(read)

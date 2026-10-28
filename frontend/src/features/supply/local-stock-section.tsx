@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { LocalStock } from "@/types/supply";
 import { getLocalStock } from "./component-supply-api";
 import { formatWhen } from "./connector-status";
+import { StoresCell } from "./stores-cell";
 
 const number = (value: number | null, uom: string) => (value === null ? "-" : `${value.toLocaleString()}${uom ? ` ${uom}` : ""}`);
 
@@ -23,15 +24,22 @@ export function LocalStockSection({ componentId }: { componentId: string }) {
 
   if (failed) return <p className="text-sm text-destructive">{failed}</p>;
   if (!stock) return <Skeleton className="h-16 w-full" aria-label="Loading the local stock" />;
-  if (stock.rows.length === 0) return null;
+  if (stock.rows.length === 0) {
+    return (
+      <section className="flex items-baseline gap-3" aria-label="Stores">
+        <h3 className="text-sm font-semibold">Stores</h3>
+        <StoresCell stores={stock.stores} className="text-sm" />
+      </section>
+    );
+  }
   const totals = [
     { label: "Available", value: stock.available, title: "OK stock at our locations, less what is allocated" },
     { label: "Held", value: stock.held, title: "At our locations, on hold or otherwise not usable" },
     { label: "At vendor", value: stock.at_vendor, title: "At an external location; not counted as on hand" },
   ];
   return (
-    <section className="space-y-2" aria-label="Local stock">
-      <h3 className="text-sm font-semibold">Local stock</h3>
+    <section className="space-y-2" aria-label="Stores">
+      <h3 className="flex items-baseline gap-3 text-sm font-semibold">Stores{stock.stores?.state === "down" ? <StoresCell stores={stock.stores} className="text-sm font-normal" /> : null}</h3>
       {stock.mixed_units ? <p className="text-xs text-warning">Records use different units, so they are not totalled.</p> : null}
       <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
         {totals.map((total) => (

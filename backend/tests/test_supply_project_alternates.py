@@ -124,6 +124,31 @@ class ProjectAlternatesTests(unittest.TestCase):
         self.assertEqual((result["lines"]["k1"]["stock"], result["lines"]["k1"]["alternates"]), (0, []))
         self.assertEqual(result["lines"]["k2"]["part_id"], alternate_id)
 
+    def test_available_stores_stock_counts_toward_the_build_and_held_stock_does_not(self) -> None:
+        component = self._component()
+        component_id = str(component["id"])
+        stamp = NOW.isoformat()
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id])
+            self._offer(conn, self.cp.parts_of(conn, component_id)[0]["part_id"], 10)
+            for record, quantity, status in (("a", 500, "available"), ("h", 900, "on hold")):
+                conn.execute(
+                    "INSERT INTO inventory_levels (source, component_id, location_key, source_record_id, quantity, inventory_status, fetched_at, updated_at) "
+                    "VALUES ('csv', %s, %s, %s, %s, %s, %s, %s)", (component_id, f"stores-{record}", record, quantity, status, stamp, stamp),
+                )
+        self.addCleanup(self._drop_levels, component_id)
+        rows = [{"key": "k1", "manufacturer": component["manufacturer"], "mpn": component["mpn"], "quantity": 2, "references": "R1 R2", "lcsc": "", "prism_id": component_id}]
+        with self.store.connection() as conn:
+            (part,), rollup, _curve = self.project._parts(conn, rows, 100, {})
+        self.assertEqual(part["stock"], 10, "the distributors' figure stays as it is")
+        self.assertEqual(part["stores"], {"state": "stock", "available": 500.0, "since": None})
+        self.assertFalse(part["short"], "200 needed, 10 + 500 usable")
+        self.assertEqual(rollup["can_build"], 255, "held stock is not counted")
+
+    def _drop_levels(self, component_id: str) -> None:
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM inventory_levels WHERE component_id = %s", (component_id,))
+
     def test_a_line_placed_by_prism_id_takes_the_component_and_its_alternates(self) -> None:
         component, main_id, alternate_id = self._with_alternate()
         rows = [{"key": "k1", "manufacturer": "Someone", "mpn": "WRONG-1", "quantity": 1, "references": "R1", "lcsc": "", "prism_id": str(component["id"])}]

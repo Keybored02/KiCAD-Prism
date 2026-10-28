@@ -14025,6 +14025,16 @@
             "title": "Rows",
             "type": "array"
           },
+          "stores": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoresState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "uom": {
             "title": "Uom",
             "type": "string"
@@ -21270,6 +21280,43 @@
           "components"
         ],
         "title": "StatusRequest",
+        "type": "object"
+      },
+      "StoresState": {
+        "properties": {
+          "available": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "available",
+          "since"
+        ],
+        "title": "StoresState",
         "type": "object"
       },
       "SubmitSetupRequest": {
@@ -42731,7 +42778,7 @@
     },
     "/api/v1/supply/bom/components-status": {
       "post": {
-        "description": "Where each catalog component stands, for the catalog table: distributor status, stock and price, and the available local\nstock. Components with neither are left out.",
+        "description": "Where each catalog component stands, for the catalog table: distributor status, stock and price, and its stores state\n(``stores``; ``local_available`` is its available figure). Without stores data, components with no distributor data are left out.",
         "operationId": "components_status",
         "requestBody": {
           "content": {
