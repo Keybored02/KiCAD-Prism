@@ -10,7 +10,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listSupplyParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
 }));
-vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn() }));
+vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn(), readProjectBom: vi.fn() }));
 vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div role="dialog">Sheet of {partId}</div> : null) }));
 vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button type="button">Track this project</button> }));
 
@@ -248,10 +248,11 @@ describe("the project Supply tab", () => {
     expect(screen.getByRole("link", { name: "Download the costing for 250 boards as a zip" }).getAttribute("href")).toBe("/api/supply/projects/prj/costing.zip?build_quantity=250");
   });
 
-  it("says when the BOM has not been read, and still offers tracking", async () => {
+  it("says when the BOM has not been read, offers to read it now, and still offers tracking", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ available: false, parts: undefined, rollup: undefined, releases: [], notes: [] }));
     renderTab();
-    expect(await screen.findByText(/has not been read yet/)).toBeTruthy();
+    expect(await screen.findByText("Not read")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Read now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Track this project" })).toBeTruthy();
   });
 
