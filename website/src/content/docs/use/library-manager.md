@@ -117,6 +117,12 @@ sheet file, UUIDs, the DNP, BOM and board flags, and the library the schematic
 copied the symbol from. The same part placed on several sheets is one
 candidate.
 
+A symbol that keeps its part number as **MPN** or **Part Number**, its maker as
+**MFR**, or its datasheet as **Datasheet URL** has the value moved into the
+standard **Manufacturer Part Number**, **Manufacturer** or **Datasheet** field.
+The other field is dropped when it only repeated the value, and kept when it
+says something else.
+
 When you no longer need a finished session, delete it from its row. Its open
 candidates and staged files go; components you already accepted stay.
 

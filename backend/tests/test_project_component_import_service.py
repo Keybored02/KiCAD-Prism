@@ -191,6 +191,29 @@ class ProjectComponentImportServiceTests(unittest.TestCase):
 
         self.assertFalse(set(placed) & set(fields))
 
+    def test_a_part_number_under_another_name_fills_the_standard_field(self) -> None:
+        component = self._component("C76", component_uid="cmp-76")
+        component["fields"].update({"Manufacturer Part Number": "", "Part Number": "CL05A105MQ5NNNC", "MFR": "Samsung"})
+        component["fields"].pop("Manufacturer", None)
+
+        proposal = _proposal(component, project_id="p1", source_revision="abc")
+
+        fields = proposal["metadata"]["fields"]
+        self.assertEqual(fields["Manufacturer Part Number"], "CL05A105MQ5NNNC")
+        self.assertEqual(fields["Manufacturer"], "Samsung")
+        self.assertNotIn("Part Number", fields, "a copy of the standard field")
+        self.assertNotIn("MFR", fields)
+        self.assertEqual(proposal["metadata"]["manufacturer_part_number"], "CL05A105MQ5NNNC")
+        self.assertNotIn("missing_metadata_manufacturer_part_number", {finding["code"] for finding in proposal["findings"]})
+
+    def test_an_alias_that_says_something_else_is_kept(self) -> None:
+        component = self._component("U1", component_uid="cmp-1")
+        component["fields"].update({"Manufacturer Part Number": "TPS62840DLCR", "Part Number": "INT-00042"})
+
+        fields = _proposal(component, project_id="p1", source_revision="abc")["metadata"]["fields"]
+
+        self.assertEqual((fields["Manufacturer Part Number"], fields["Part Number"]), ("TPS62840DLCR", "INT-00042"))
+
     def test_one_part_on_two_sheets_is_one_proposal(self) -> None:
         power = self._component("C1", component_uid="cmp-1")
         power["fields"].update({"Manufacturer": "", "Reference": "C1", "Sheetfile": "power.kicad_sch"})
