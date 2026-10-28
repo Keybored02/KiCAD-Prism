@@ -395,7 +395,7 @@ follow redirects while it sends a token.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `TRACKER_CREDENTIAL_ROOT_KEY` | empty | Key that encrypts code host credentials, webhook secrets and linked-account tokens. A 32-byte key as 64 hex characters or base64. Generate it with `openssl rand -hex 32`. Empty: Prism cannot store tracker credentials or outbound webhooks. |
+| `TRACKER_CREDENTIAL_ROOT_KEY` | empty | Key that encrypts code host credentials, webhook secrets, linked-account tokens, distributor credentials and inventory tokens. A 32-byte key as 64 hex characters or base64. Generate it with `openssl rand -hex 32`. Empty: Prism cannot store tracker credentials or outbound webhooks. |
 | `TRACKER_CREDENTIAL_ROOT_KEY_ID` | `v1` | Name of the current key, 1 to 64 characters from `A-Z a-z 0-9 . _ -`. Change it only when you rotate the key. |
 | `TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY` | empty | The previous key, kept while you rotate. |
 | `TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID` | empty | Name of the previous key. Must differ from the current one. |
@@ -424,6 +424,20 @@ follow redirects while it sends a token.
 | `CATALOG_KLC_FOOTPRINT_RULES` | empty | Comma-separated footprint rules to run. Empty runs all. |
 | `CATALOG_KLC_FOOTPRINT_EXCLUDE_RULES` | empty | Comma-separated footprint rules to skip. |
 | `CATALOG_KLC_FOOTPRINT_LIB_DIR` | empty | Footprint library passed to the symbol checks. |
+
+## Supply
+
+Distributor connectors, inventory sources and the workspace's supply settings
+are managed in the app, in **Library Manager → Connectors** (see
+[Connect distributors and inventory](/KiCAD-Prism/admin/supply/)). Their
+credentials are encrypted with `TRACKER_CREDENTIAL_ROOT_KEY`
+([Issue trackers](#issue-trackers)), so set that key before adding any.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `SUPPLY_HTTPS_PROXY` | empty | HTTPS proxy for distributor calls, for example `http://proxy.example.com:3128`. The environment's proxy variables are ignored for these calls. With a proxy, the proxy resolves host names, so Prism checks the host but not its address. |
+| `SUPPLY_OAUTH_BASE_URL` | empty | Address a DigiKey sign-in returns to, when it must differ from `PUBLIC_BASE_URL`. Must be HTTPS. Empty uses `PUBLIC_BASE_URL`. |
+| `SUPPLY_ENABLE_SIMULATED_PROVIDER` | `false` | Allows connectors for a simulated distributor. For development, tests and demos only. |
 
 ## Remote symbols and KiCad
 
