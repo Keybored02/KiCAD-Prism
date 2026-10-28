@@ -10,7 +10,7 @@ import { formatStock, PROBLEM_LABEL } from "./supply-format";
 import { DistributorSquares, ProjectNames, RowFlags } from "./part-row-extras";
 import { PriceCell } from "./price-cell";
 import { RowRunout } from "./part-row-forecast";
-import { BoardCells, CostCell, LineNotes, UnmatchedRow, type ProjectLines } from "./project-line-cells";
+import { BoardCells, CostCell, LineNotes, LinePriceCell, UnmatchedRow, type ProjectLines } from "./project-line-cells";
 import { JlcIcon, LifecycleIcon } from "./supply-icons";
 
 interface PartsTableProps {
@@ -99,7 +99,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                     ? <RowRunout part={part} state={forecastState.runout} />
                     : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">{detailed ? null : <PriceCell part={part} />}</td>
+                {lines && !detailed ? <LinePriceCell line={line} lines={lines} /> : <td className="px-3 py-2 text-right tabular-nums">{detailed ? null : <PriceCell part={part} />}</td>}
                 {lines ? <CostCell line={line} lines={lines} /> : null}
                 <td className="px-3 py-2"><div className="flex justify-end">{detailed ? null : <DistributorSquares part={part} />}</div></td>
                 <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>

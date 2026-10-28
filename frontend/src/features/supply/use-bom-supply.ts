@@ -6,6 +6,7 @@ import type { User } from "@/types/auth";
 import type { SupplyBomLookup, SupplyBomWatchResult } from "@/types/supply";
 import { buildLines, lineInput, type BomLineDetail } from "./bom-supply";
 import { getAssessmentSettings, lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
+import { getProjectTracking } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 
 // A lookup takes this many lines; a BOM with more shows the first ones and says so.
@@ -17,7 +18,7 @@ export interface BomSupply {
   /** False for roles that cannot read supply data: the table then shows nothing extra. */
   enabled: boolean;
   canWatch: boolean;
-  /** The boards the figures are for: one. */
+  /** The boards the figures are for: the tracked project's usual build, else one (UX-05, Q2). */
   buildQuantity: number;
   /** Spares on top of what the boards use, as a percentage; null is by kind of part (small passives get some). The workspace's setting. */
   attritionPercent: number | null;
@@ -46,19 +47,28 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   const settingsFetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
   const workspace = useLoaded("assessment-settings", settingsFetcher, "Could not load the settings", "supply");
   const fallback = workspace.data?.settings;
-  const attritionPercent = fallback ? (fallback.spares_mode === "package" ? null : fallback.spares_percent) : 0;
+  // A tracked project's usual build and spares, so the BOM prices as the project page does. An untracked project, or one whose
+  // tracking cannot be read, prices one board with the workspace's spares.
+  const trackingFetcher = useCallback((signal: AbortSignal) => getProjectTracking(projectId, signal), [projectId]);
+  const tracking = useLoaded(enabled && projectId ? `tracking:${projectId}` : null, trackingFetcher, "Could not load the project's tracking");
+  const tracked = tracking.status === "ready" ? tracking.data?.tracked ?? null : null;
+  const buildQuantity = tracked?.build_quantity ?? BUILD_QUANTITY;
+  const ownSpares = tracked?.spares ?? null;
+  const attritionPercent = ownSpares === "auto" ? null : ownSpares !== null && ownSpares !== "" && Number.isFinite(Number(ownSpares)) ? Number(ownSpares)
+    : fallback ? (fallback.spares_mode === "package" ? null : fallback.spares_percent) : 0;
+  const waiting = workspace.status === "loading" || (enabled && Boolean(projectId) && tracking.status === "loading");
   const allLines = useMemo(() => (enabled ? buildLines(fitted) : []), [enabled, fitted]);
   const lines = useMemo(() => allLines.slice(0, MAX_LINES), [allLines]);
   const fittedKeys = useMemo(() => (lines.length ? new Set(lines.map((line) => line.key)) : EMPTY_KEYS), [lines]);
 
   const requestKey = useMemo(
-    () => (enabled && lines.length > 0 && workspace.status !== "loading" ? `${BUILD_QUANTITY}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
-    [enabled, lines, attritionPercent, workspace.status],
+    () => (enabled && lines.length > 0 && !waiting ? `${buildQuantity}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
+    [enabled, lines, attritionPercent, waiting, buildQuantity],
   );
   const fetcher = useCallback(
     (signal: AbortSignal) =>
-      lookupSupplyBom(lines.map(lineInput), BUILD_QUANTITY, { signal, attritionPercent }),
-    [lines, attritionPercent],
+      lookupSupplyBom(lines.map(lineInput), buildQuantity, { signal, attritionPercent }),
+    [lines, attritionPercent, buildQuantity],
   );
   const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
 
@@ -84,7 +94,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   return {
     enabled,
     canWatch: canEditSupply(user?.role),
-    buildQuantity: BUILD_QUANTITY,
+    buildQuantity,
     attritionPercent,
     projectId,
     lines,

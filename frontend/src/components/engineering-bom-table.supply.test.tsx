@@ -18,10 +18,13 @@ vi.mock("@/features/supply/supply-api", () => ({
   getSupplyPart: vi.fn(),
 }));
 
+vi.mock("@/features/supply/tracking-api", () => ({ getProjectTracking: vi.fn() }));
+
 // Recharts is slow to load cold and is not what these tests are about.
 vi.mock("@/features/supply/stock-chart", () => ({ default: () => <div role="img" aria-label="Stock over the last 90 days" /> }));
 
 import * as api from "@/features/supply/supply-api";
+import { getProjectTracking } from "@/features/supply/tracking-api";
 import { lineKey } from "@/features/supply/bom-supply";
 import { partDetailFixture } from "@/features/supply/supply-test-fixtures";
 import { toast } from "sonner";
@@ -103,6 +106,7 @@ function renderTable(role: UserRole | null, projectId?: string, atHead = true) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.lookupSupplyBom.mockImplementation(async (_lines, build) => lookupFor(build));
+  vi.mocked(getProjectTracking).mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
   window.localStorage.clear();
 });
 afterEach(cleanup);
@@ -114,6 +118,18 @@ function rowOf(value: string): HTMLElement {
 }
 
 describe("supply columns on the BOM", () => {
+  it("prices a tracked project's BOM at its usual build and spares, as the project page does", async () => {
+    vi.mocked(getProjectTracking).mockResolvedValue({
+      tracked: { project_id: "prj_1", variants: [], all_variants: true, build_quantity: 10, spares: "5", connector_ids: null, tracked_by: "a", tracked_at: "2026-10-01T00:00:00Z" },
+      has_usage: true, variants: [],
+    });
+    renderTable("admin", "prj_1");
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalled());
+    const [, build, options] = mocked.lookupSupplyBom.mock.calls[0];
+    expect(build).toBe(10);
+    expect(options?.attritionPercent).toBe(5);
+  });
+
   it("asks only for fitted parts and shows each row's figures", async () => {
     renderTable("designer");
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalled());

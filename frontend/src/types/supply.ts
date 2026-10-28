@@ -1442,6 +1442,8 @@ export interface ProjectSupplyPart {
   /** The catalog component the symbol places; empty when none. */
   prism_id?: string;
   stores?: StoresState | null;
+  /** Pieces the line's purchase buys (the need rounded to the offer's minimum and multiple); `unit_price` is the price at it. */
+  buy_quantity?: number | null;
   /** Whether a catalog component has the line; null for a line without a part number. */
   in_library?: boolean | null;
   /** The component's approved alternates; `stock` and `short` count them. */

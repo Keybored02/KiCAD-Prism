@@ -46,9 +46,26 @@ export function BoardCells({ line }: { line: ProjectSupplyPart | undefined }) {
   );
 }
 
-/** What the line costs for the build. */
+/** The line's unit price at the quantity the build buys, which is what its cost is made of (UX-05). */
+export function LinePriceCell({ line, lines }: { line: ProjectSupplyPart | undefined; lines: ProjectLines }) {
+  if (!line?.unit_price || !lines.currency) return <td className="px-3 py-2 text-right text-muted-foreground">-</td>;
+  return (
+    <td className="px-3 py-2 text-right tabular-nums">
+      {formatPrice(line.unit_price, lines.currency)}
+      {line.buy_quantity ? <span className="text-muted-foreground"> @ {line.buy_quantity.toLocaleString()}</span> : null}
+    </td>
+  );
+}
+
+/** What the line costs for the build, with what it is made of: pieces bought times the unit price. */
 export function CostCell({ line, lines }: { line: ProjectSupplyPart | undefined; lines: ProjectLines }) {
-  return <td className="px-3 py-2 text-right tabular-nums">{line?.line_cost && lines.currency ? formatPrice(line.line_cost, lines.currency) : ""}</td>;
+  if (!line?.line_cost || !lines.currency) return <td className="px-3 py-2 text-right tabular-nums" />;
+  return (
+    <td className="px-3 py-2 text-right tabular-nums">
+      {formatPrice(line.line_cost, lines.currency)}
+      {line.buy_quantity && line.unit_price ? <div className="text-xs text-muted-foreground">{line.buy_quantity.toLocaleString()} × {formatPrice(line.unit_price, lines.currency)}</div> : null}
+    </td>
+  );
 }
 
 /** A line of the BOM that matches no part Prism knows, so the list of parts has no row for it. */

@@ -146,7 +146,9 @@ checked-out commit.
 ## Supply columns in the BOM
 
 The Visualizer's **BOM** tab adds **Supply**, **Stock**, **Stores**, **Unit price**,
-**Extended** and **Lead time** columns, at the latest revision only. A line
+**Extended** and **Lead time** columns, at the latest revision only. Prices
+are for the project's usual build when it is tracked, otherwise for one board,
+and each unit price shows the quantity it is for (**€0.93 @ 100**). A line
 whose symbol has a **Prism ID** takes its component's part; other lines are
 matched by manufacturer and part number. Choose **Show part details** on a row
 for the full picture, **Watch this part**, or **Add to Component Database**

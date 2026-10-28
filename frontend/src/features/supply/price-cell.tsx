@@ -31,7 +31,8 @@ export function PriceCell({ part, now = Date.now() }: { part: SupplyPartRow; now
     price_range: part.price_range ?? null, price_native: part.price_native ?? null, price_seen_day: part.price_seen_day ?? null, price_unrated: part.price_unrated ?? [] });
   return (
     <span title={detail || undefined}>
-      {formatPrice(part.unit_price, part.currency)}{part.price_native ? <span aria-label="converted"> ~</span> : null} <PriceMove percent={part.price_change_percent} />
+      {formatPrice(part.unit_price, part.currency)}{part.price_native ? <span aria-label="converted"> ~</span> : null}
+      {part.price_quantity ? <span className="text-muted-foreground"> @ {part.price_quantity.toLocaleString()}</span> : null} <PriceMove percent={part.price_change_percent} />
       <Note part={part} now={now} />
     </span>
   );

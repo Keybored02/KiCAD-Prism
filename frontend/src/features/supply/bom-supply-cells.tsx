@@ -66,7 +66,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
       );
     case "Unit price":
       if (result.bought_with) return <span className="text-muted-foreground" title="This part is on more than one line and is bought once">with another line</span>;
-      return buy ? <span title={`At ${buy.quantity.toLocaleString()} pieces`}>{formatPrice(buy.unit_price, buy.currency)}</span> : MUTED;
+      return buy ? <span>{formatPrice(buy.unit_price, buy.currency)}<span className="text-muted-foreground"> @ {buy.quantity.toLocaleString()}</span></span> : MUTED;
     case "Extended":
       if (result.bought_with) return MUTED;
       return buy ? (
