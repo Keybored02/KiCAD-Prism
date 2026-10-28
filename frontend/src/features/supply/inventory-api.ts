@@ -1,7 +1,7 @@
 /** Typed client for `/api/supply/inventory-sources`: local inventory servers. */
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
-import type { InventoryServerCheck, InventorySource, InventorySourceInput, InventorySyncResult } from "@/types/supply";
+import type { InventoryServerCheck, InventorySource, InventorySourceInput, InventorySyncResult, InventoryUnmatchedPart } from "@/types/supply";
 
 const BASE = "/api/supply/inventory-sources";
 
@@ -30,4 +30,13 @@ export function checkInventorySource(id: string): Promise<InventoryServerCheck> 
 
 export function syncInventorySource(id: string): Promise<InventorySyncResult> {
   return fetchJson<InventorySyncResult>(path(id, "sync"), { method: "POST" }, "Could not read the server");
+}
+
+export function listUnmatchedParts(id: string, signal?: AbortSignal): Promise<InventoryUnmatchedPart[]> {
+  return fetchJson<InventoryUnmatchedPart[]>(path(id, "unmatched"), { signal }, "Could not load the unmatched stock");
+}
+
+/** Says which component a server part is; the source is read again, so its stock lands at once. */
+export function linkUnmatchedPart(id: string, remotePart: string, componentId: string): Promise<InventorySyncResult> {
+  return fetchJson<InventorySyncResult>(path(id, "unmatched", encodeURIComponent(remotePart), "link"), { method: "POST", body: JSON.stringify({ component_id: componentId }) }, "Could not link the part");
 }

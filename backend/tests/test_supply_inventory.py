@@ -116,7 +116,7 @@ class InventorySyncTests(unittest.TestCase):
         cls.store = type("CatalogSupplyStore", (SupplyStore,), {"url": CATALOG_URL})()
         cls.store._initialized = True
         cls.ring = CredentialKeyring({"t": os.urandom(32)}, "t")
-        cls.users = {role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role) for role in ("viewer", "designer", "admin")}
+        cls.users = {role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role) for role in ("viewer", "designer", "qa", "admin")}
         cls.app = FastAPI()
         install_error_handlers(cls.app)
         cls.app.include_router(supply_inventory.router)
@@ -286,6 +286,22 @@ class InventorySyncTests(unittest.TestCase):
         with unittest.mock.patch.object(supply_inventory, "InvenTreeClient", Down):
             answer = _request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/check", user=self.users["admin"])
         self.assertEqual((answer.status, answer.json["code"], answer.json["detail"]), (502, "upstream_failure", "unavailable: connection refused"))
+
+    def test_qa_links_an_unmatched_part_and_its_stock_lands_at_once(self) -> None:
+        from app.services.supply.inventory import sync
+
+        component = self._component()
+        source_id = self._source()
+        server = self._server("", "X", "Y", [{"pk": 401, "part": 4, "quantity": 8, "status": 10}])
+        self._sync(source_id, server)
+        path = f"/api/supply/inventory-sources/{source_id}/unmatched/4/link"
+        self.assertEqual(_request(self.app, "POST", path, user=self.users["designer"], body={"component_id": str(component["id"])}).status, 403)
+        missing = _request(self.app, "POST", path, user=self.users["qa"], body={"component_id": "no-such-component"})
+        self.assertEqual((missing.status, missing.json["detail"]["code"]), (400, "invalid_source"))
+        with unittest.mock.patch.object(sync, "InvenTreeClient", lambda url, token: _client(server, token)):
+            linked = _request(self.app, "POST", path, user=self.users["qa"], body={"component_id": str(component["id"])})
+        self.assertEqual((linked.status, linked.json["matched"], linked.json["unmatched"]), (200, 1, 0))
+        self.assertEqual([row["component_id"] for row in self._levels(source_id)], [str(component["id"])])
 
 
 if __name__ == "__main__":

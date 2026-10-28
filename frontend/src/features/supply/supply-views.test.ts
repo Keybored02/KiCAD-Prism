@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { resolvePlace } from "./supply-views";
 
 describe("where a Supply address leads", () => {
-  it("opens the five tabs as asked", () => {
-    for (const tab of ["dashboard", "parts", "projects", "review", "insights"] as const) expect(resolvePlace(tab, null).tab).toBe(tab);
+  it("opens the four tabs as asked", () => {
+    for (const tab of ["dashboard", "parts", "projects", "insights"] as const) expect(resolvePlace(tab, null).tab).toBe(tab);
   });
 
   it("sends the old addresses to the tab that took them over", () => {
@@ -19,6 +19,6 @@ describe("where a Supply address leads", () => {
     expect(resolvePlace(null, null).tab).toBe("dashboard");
     expect(resolvePlace("nonsense", null).tab).toBe("dashboard");
     expect(resolvePlace("parts", "bom-file").tool).toBe("bom-file");
-    expect(resolvePlace("review", "bom-file").tool).toBeNull();
+    expect(resolvePlace("insights", "bom-file").tool).toBeNull();
   });
 });

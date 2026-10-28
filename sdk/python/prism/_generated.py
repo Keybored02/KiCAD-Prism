@@ -2498,6 +2498,10 @@ class LinkAssetRequest(TypedDict, total=False):
     target_name: str
 
 
+class LinkRequest(TypedDict, total=True):
+    component_id: str
+
+
 class ListedBuild(TypedDict, total=True):
     """A build as ``store.list_builds`` joins it to its publish record."""
     attempt: int
@@ -6689,6 +6693,15 @@ class GeneratedClient:
             "POST",
             "/api/v1/catalog/components/{component_id}/assets/{asset_type}/link",
             path_params={"component_id": component_id, "asset_type": asset_type},
+            body=body,
+        )
+
+    def link_unmatched_part(self, source_id: str, remote_part: str, *, body: dict[str, Any] | None = None) -> SyncResult:
+        """Link Unmatched Part"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched/{remote_part}/link",
+            path_params={"source_id": source_id, "remote_part": remote_part},
             body=body,
         )
 

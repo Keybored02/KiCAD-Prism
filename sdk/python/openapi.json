@@ -13710,6 +13710,22 @@
         "title": "LinkAssetRequest",
         "type": "object"
       },
+      "LinkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "component_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Component Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "component_id"
+        ],
+        "title": "LinkRequest",
+        "type": "object"
+      },
       "ListedBuild": {
         "additionalProperties": true,
         "description": "A build as ``store.list_builds`` joins it to its publish record.",
@@ -44614,6 +44630,68 @@
           }
         },
         "summary": "List Unmatched Parts",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources/{source_id}/unmatched/{remote_part}/link": {
+      "post": {
+        "description": "Say which component a server part is, then read the source again so its stock lands there now.",
+        "operationId": "link_unmatched_part",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "remote_part",
+            "required": true,
+            "schema": {
+              "title": "Remote Part",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link Unmatched Part",
         "tags": [
           "supply"
         ]
