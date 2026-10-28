@@ -76,6 +76,24 @@ export function errorCodeLabel(code: string): string {
   }
 }
 
+/** A failure in words for anyone, about `server`: "Can't reach DigiKey EU". The code itself shows only on the Connectors page. */
+export function failureWords(code: string, server: string): string {
+  switch (code) {
+    case "auth_failed":
+      return `${server} refused the sign-in`;
+    case "rate_limited":
+    case "budget":
+      return `${server} is busy`;
+    case "unavailable":
+    case "blocked":
+    case "egress_denied":
+    case "host_denied":
+      return `Can't reach ${server}`;
+    default:
+      return `Can't read ${server}'s answer`;
+  }
+}
+
 /** A short local date and time for an ISO timestamp. */
 export function formatWhen(iso: string | null): string {
   if (!iso) return "";

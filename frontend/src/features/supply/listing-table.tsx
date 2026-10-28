@@ -3,6 +3,7 @@ import { Check, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
+import { failureWords } from "./connector-status";
 import { PackagingChip } from "./packaging-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -82,7 +83,7 @@ export function ListingTable({
             {listing.poll ? (
               <p className="mt-2 text-[11px] text-muted-foreground">
                 {tierLabel(listing.poll.tier)}.
-                {listing.poll.error_streak > 0 ? ` Last attempt failed (${listing.poll.last_error_code || "error"}).` : ""}
+                {listing.poll.error_streak > 0 ? ` Last read failed: ${failureWords(listing.poll.last_error_code, listing.connector_name)}.` : ""}
               </p>
             ) : null}
           </article>
