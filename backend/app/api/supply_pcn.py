@@ -1,7 +1,6 @@
 """Product change notices API: entered by people, read by everyone who reads supply data.
 
-Admin and designer enter and close notices. A designer can only name parts Prism already knows; an approver can
-introduce a part (as when adding an alternate).
+Admin and designer enter and close notices. Every part a notice names must be in the Component Database (decision D12).
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import details, parts, pcn, substitutes
+from app.services.supply import component_parts, details, parts, pcn, substitutes
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -52,6 +51,8 @@ async def _run(call: Callable[[], T]) -> T:
         return await asyncio.to_thread(call)
     except (pcn.NoticeNotFound, parts.PartNotFound) as exc:
         raise HTTPException(status_code=404, detail="Not found") from exc
+    except component_parts.NotInLibrary as exc:
+        raise HTTPException(status_code=400, detail={"code": "not_in_library", "message": str(exc)}) from exc
     except parts.UnknownManufacturer as exc:
         raise HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)}) from exc
     except (details.TooSoon, substitutes.TooSoon) as exc:
@@ -89,7 +90,7 @@ async def add_notice(body: NoticeIn, writer: AuthenticatedUser = Depends(require
     def run() -> dict[str, Any]:
         approver = writer.role in SUPPLY_APPROVE_ROLES
         with _store().connection() as conn:
-            ids = [parts.ensure_part(conn, item.manufacturer, item.mpn, writer.email, may_create=approver).id for item in body.parts]
+            ids = [component_parts.library_part(conn, item.manufacturer, item.mpn, writer.email, may_create=approver).id for item in body.parts]
             return pcn.add(
                 conn, body.title, body.kind, ids, writer.email,
                 notice_url=body.notice_url, last_time_buy=body.last_time_buy, last_time_ship=body.last_time_ship, notes=body.notes,

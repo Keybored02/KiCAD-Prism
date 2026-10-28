@@ -6,6 +6,11 @@ but never counted. Approved alternates count wherever the main part does (``coun
 
 Supply facts (offers, stock, health) hang off ``supply_parts``; this table says which of those parts belong to which
 component. The rows live outside component revisions, as stock does: revisions are hashed, and this list changes.
+
+Only library parts are followed (decision D12): a part is in the library when it is a component's main part or an
+approved alternate. Watches, project tracking, change notices and polling ask ``library_part`` / ``in_library``; a
+number with no library component can still be looked up once (``oneoff.py``), and those results expire. A schema
+without the catalog (the supply-only test schemas) has no library to require, so there every part counts.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ import psycopg
 
 from app.services.supply import parts
 from app.services.supply.audit import actor_text, write_audit
-from app.services.supply.identity import match_key
+from app.services.supply.identity import _DASH_CODES, alias_key, match_key
 
 SYSTEM = "system"
 MAIN, ALTERNATE = "main", "alternate"
@@ -27,7 +32,18 @@ class ComponentPartError(ValueError):
     """The request is not valid. The message is safe to show."""
 
 
-def _present(conn) -> bool:
+class NotInLibrary(ComponentPartError):
+    """The part has no library component, so it cannot be followed."""
+
+    def __init__(self, mpn: str) -> None:
+        super().__init__(f"{mpn.strip()} is not in the Component Database. Add it there to follow it.")
+
+
+# match_key in SQL, to find the components that may name a number before syncing their main parts.
+_SQL_MATCH_KEY = "upper(regexp_replace(normalize(r.mpn, NFKC), '[[:space:]_\\-" + "".join(map(chr, _DASH_CODES)) + "]+', '', 'g'))"
+
+
+def library_present(conn) -> bool:
     """Whether this schema holds the catalog (supply-only test schemas do not)."""
 
     row = conn.execute("SELECT to_regclass('component_parts') IS NOT NULL AS present").fetchone()
@@ -121,7 +137,7 @@ def sync_main(conn, component_ids: Iterable[str] | None = None, *, actor: str = 
     """
 
     counts = {"changed": 0, "ambiguous": 0}
-    if not _present(conn):
+    if not library_present(conn):
         return counts
     wanted = None if component_ids is None else sorted({str(item) for item in component_ids if item})
     rows = conn.execute(
@@ -209,3 +225,58 @@ def remove_alternate(conn, component_id: str, part_id: str, actor: str) -> None:
     if row is None:
         raise ComponentPartError("That part is not an alternate of this component.")
     write_audit(conn, actor, "component_part.remove", component_id, {"part_id": part_id}, subject_kind="component")
+
+
+def in_library(conn, part_ids: Iterable[str]) -> set[str]:
+    """The parts among these that are in the library (every one of them in a schema without the catalog)."""
+
+    wanted = sorted({str(item) for item in part_ids if item})
+    if not wanted or not library_present(conn):
+        return set(wanted)
+    rows = conn.execute(
+        "SELECT DISTINCT part_id FROM component_parts WHERE part_id = ANY(%s) AND approval = 'approved'", (wanted,)
+    ).fetchall()
+    return {row["part_id"] for row in rows}
+
+
+def library_part(conn, manufacturer: str, mpn: str, actor: str, *, may_create: bool = True) -> parts.PartRecord:
+    """The library part for a manufacturer and part number, or ``NotInLibrary``.
+
+    The components whose current revision names the number have their main part synced first, so a component added
+    since the last hourly sync counts at once. One library part with the number is that part whatever the maker is
+    spelled as; several, and the maker must tell them apart (``parts.AmbiguousNumber``).
+    """
+
+    if not library_present(conn):
+        return parts.ensure_part(conn, manufacturer, mpn, actor, may_create=may_create)
+    key = match_key(mpn)
+    if not key:
+        raise NotInLibrary(mpn)
+    named = conn.execute(
+        f"""
+        SELECT c.id, r.mpn FROM components c JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE c.is_active = 1 AND {_SQL_MATCH_KEY} = %s
+        """,
+        (key,),
+    ).fetchall()
+    ids = [row["id"] for row in named if match_key(row["mpn"]) == key]
+    if ids:
+        sync_main(conn, ids)
+    rows = conn.execute(
+        """
+        SELECT DISTINCT p.id FROM supply_parts p JOIN component_parts cp ON cp.part_id = p.id
+        WHERE p.match_key = %s AND cp.approval = 'approved' ORDER BY p.id
+        """,
+        (key,),
+    ).fetchall()
+    library = [row["id"] for row in rows]
+    if not library:
+        raise NotInLibrary(mpn)
+    found = parts.find_part(conn, manufacturer, mpn)
+    if found and found.id in library:
+        return found
+    if len(library) == 1:
+        if alias_key(manufacturer):
+            parts.record_spelling(conn, library[0], manufacturer.strip(), "bom")
+        return parts.get_part(conn, library[0])
+    raise parts.AmbiguousNumber(f"Several makers have the part number {mpn.strip()}. Name the maker to tell them apart.")

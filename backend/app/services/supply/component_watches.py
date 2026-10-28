@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, Mapping
 
-from app.services.supply import stock, tracking, watches
+from app.services.supply import component_parts, parts, stock, tracking, watches
 from app.services.supply.audit import actor_text, write_audit
 
 Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
@@ -102,10 +102,13 @@ def sync_component(conn, component_id: str, identities: Identities, actor: str =
         wanted.append((maker, mpn, row["tier"], row["rate"]))
     added = 0
     for maker, mpn, tier, rate in wanted:
-        with conn.transaction():
-            record, created = watches.add_watch(conn, maker, mpn, actor, tier=tier, rate=rate, origin="component")
-            if (created or apply_packaging) and record.packaging != row["packaging"]:
-                watches.update_watch(conn, record.id, actor, packaging=row["packaging"])
+        try:
+            with conn.transaction():
+                record, created = watches.add_watch(conn, maker, mpn, actor, tier=tier, rate=rate, origin="component")
+                if (created or apply_packaging) and record.packaging != row["packaging"]:
+                    watches.update_watch(conn, record.id, actor, packaging=row["packaging"])
+        except (component_parts.NotInLibrary, parts.AmbiguousNumber):
+            continue  # the main part is not settled yet (several makers share the number): the next sync tries again
         added += 1 if created else 0
     return added
 

@@ -140,6 +140,78 @@ class ComponentPartsTests(unittest.TestCase):
         self.assertEqual([part["role"] for part in self._call("qa", "GET", f"{base}/parts").json["parts"]], ["main"])
         self.assertEqual(self._call("qa", "DELETE", f"{base}/alternates/{alternate['part_id']}").json["detail"]["code"], "component_part_error")
 
+    # --- only library parts are followed (D12, D14) ---------------------------------------------------------------
+
+    def test_a_number_with_no_library_component_cannot_be_watched(self) -> None:
+        from app.services.supply import watches
+
+        with self.store.connection() as conn:
+            with self.assertRaises(self.cp.NotInLibrary):
+                watches.add_watch(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+        component = self._component()
+        with self.store.connection() as conn:
+            # No sync has run for the new component: the watch syncs its main part itself.
+            record, created = watches.add_watch(conn, "", component["mpn"], AUTHOR)
+            self.assertTrue(created)
+            self.assertEqual(self.cp.parts_of(conn, str(component["id"]))[0]["part_id"], record.part_id)
+
+    def test_only_library_parts_get_a_tier(self) -> None:
+        from app.services.supply import parts, tracking
+
+        component = self._component()
+        with self.store.connection() as conn:
+            loose = parts.ensure_part(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+            library = self.cp.library_part(conn, component["manufacturer"], component["mpn"], AUTHOR)
+            for part in (loose, library):
+                conn.execute(
+                    "INSERT INTO supply_watches (id, part_id, tier, rate, origin, owner, created_by) VALUES (%s, %s, 2, 'weekly', 'person', %s, %s)",
+                    (uuid.uuid4().hex, part.id, AUTHOR, AUTHOR),
+                )
+            tracking.recompute(conn, [loose.id, library.id])
+            tiered = {row["part_id"] for row in conn.execute(
+                "SELECT part_id FROM supply_part_tiers WHERE part_id = ANY(%s)", ([loose.id, library.id],)).fetchall()}
+        self.assertEqual(tiered, {library.id}, "a watch on a non-library part is never polled")
+
+    def test_a_notice_must_name_library_parts(self) -> None:
+        body = {"title": "EOL", "kind": "end_of_life", "parts": [{"manufacturer": "Nobody", "mpn": f"LOOSE-{uuid.uuid4().hex[:8]}"}]}
+        from app.api import supply_pcn
+
+        app = type(self.app)()
+        app.include_router(supply_pcn.router)
+        answer = _request(app, "POST", "/api/supply/notices", user=self.users["admin"], body=body)
+        self.assertEqual((answer.status, answer.json["detail"]["code"]), (400, "not_in_library"))
+
+    def test_one_off_results_for_non_library_numbers_expire(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.supply import oneoff, parts
+
+        component = self._component()
+        now = datetime.now(timezone.utc)
+        with self.store.connection() as conn:
+            loose = parts.ensure_part(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+            recent = parts.ensure_part(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+            library = self.cp.library_part(conn, component["manufacturer"], component["mpn"], AUTHOR)
+            connector = conn.execute(
+                "INSERT INTO supply_connectors (id, provider, display_name) VALUES (%s, 'csv', %s) RETURNING id",
+                (uuid.uuid4().hex, f"expiry {uuid.uuid4().hex[:6]}"),
+            ).fetchone()["id"]
+            for part, age in ((loose, 8), (recent, 2), (library, 8)):
+                request_id = uuid.uuid4().hex
+                conn.execute(
+                    "INSERT INTO supply_read_requests (id, kind, requested_by, created_at) VALUES (%s, 'bom', %s, %s)",
+                    (request_id, AUTHOR, now - timedelta(days=age)),
+                )
+                conn.execute(
+                    "INSERT INTO supply_read_request_work (request_id, part_id, connector_id) VALUES (%s, %s, %s)",
+                    (request_id, part.id, connector),
+                )
+            oneoff.expire(conn, now)
+            left = {row["id"] for row in conn.execute(
+                "SELECT id FROM supply_parts WHERE id = ANY(%s)", ([loose.id, recent.id, library.id],)).fetchall()}
+            conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector,))
+        self.assertEqual(left, {recent.id, library.id}, "only the week-old check of a non-library number is gone")
+
 
 if __name__ == "__main__":
     unittest.main()

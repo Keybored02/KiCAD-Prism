@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from app.services.supply import alerts, parts, stock, tracking
+from app.services.supply import alerts, component_parts, parts, stock, tracking
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_PINNED = 25
@@ -111,7 +111,7 @@ def add_watch(
     origin: str = "person",
     may_create_manufacturer: bool = True,
 ) -> tuple[WatchRecord, bool]:
-    """Watch a part, creating it if needed. Returns the watch and whether it is new.
+    """Watch a library part. Returns the watch and whether it is new; a number with no library component is ``NotInLibrary``.
 
     Watching a part that is already watched keeps that watch, and applies the rules
     that were asked for on top of it, so nothing the caller sent is dropped. A tier asked for here only ever raises a
@@ -122,7 +122,7 @@ def add_watch(
     threshold = _check_threshold(threshold)
     packaging = _check_packaging(packaging)
     asked_tier = tracking.check_tier(tier, rate or "weekly") if tier is not None else None
-    part = parts.ensure_part(conn, manufacturer_name, mpn, actor, may_create=may_create_manufacturer)
+    part = component_parts.library_part(conn, manufacturer_name, mpn, actor, may_create=may_create_manufacturer)
     existing = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part.id,)).fetchone()
     if existing:
         asked: dict[str, Any] = {}

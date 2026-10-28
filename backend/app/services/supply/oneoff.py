@@ -8,14 +8,19 @@ everywhere they will be.
 
 A part that is already tracked is left out: the schedule reads it. Assembly-only distributors are left out too, as for a
 person's own tracking.
+
+A number with no library component can be checked, but what the check found is temporary (decision D14): it is never
+polled (tiers hold library parts only), and ``expire`` deletes the part and everything read for it ``KEEP_DAYS`` after
+its last check, unless it has joined the Component Database by then.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 from typing import Any, Sequence
 
-from app.services.supply import parts
+from app.services.supply import component_parts, parts
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.providers import registry
@@ -23,6 +28,7 @@ from app.services.supply.providers import registry
 MAX_PARTS = 2000
 MAX_ATTEMPTS = 5
 PER_RUN = 20
+KEEP_DAYS = 7
 
 
 class RequestError(ValueError):
@@ -168,3 +174,33 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
                 )
         _finish(conn)
     return {"parts": len(part_ids), "done": done}
+
+
+def expire(conn, now: datetime) -> int:
+    """Delete the parts only one-off checks named, ``KEEP_DAYS`` after their last check. Returns the parts deleted.
+
+    A part any component names (as main part or alternate, whatever its approval), or that is watched, tiered or on a
+    change notice, is kept. Its listings go with it: their offers and samples are what the check read.
+    """
+
+    if not component_parts.library_present(conn):
+        return 0
+    rows = conn.execute(
+        """
+        SELECT p.id FROM supply_parts p
+        WHERE EXISTS (SELECT 1 FROM supply_read_request_work w WHERE w.part_id = p.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM supply_read_request_work w JOIN supply_read_requests q ON q.id = w.request_id
+              WHERE w.part_id = p.id AND q.created_at > %s)
+          AND NOT EXISTS (SELECT 1 FROM component_parts cp WHERE cp.part_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM supply_watches sw WHERE sw.part_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM supply_part_tiers t WHERE t.part_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM supply_pcn_parts n WHERE n.part_id = p.id)
+        """,
+        (now - timedelta(days=KEEP_DAYS),),
+    ).fetchall()
+    gone = [row["id"] for row in rows]
+    if gone:
+        conn.execute("DELETE FROM supply_listings WHERE part_id = ANY(%s)", (gone,))
+        conn.execute("DELETE FROM supply_parts WHERE id = ANY(%s)", (gone,))
+    return len(gone)
