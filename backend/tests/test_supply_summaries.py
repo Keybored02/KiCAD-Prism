@@ -61,6 +61,25 @@ class SummaryCacheTests(unittest.TestCase):
         with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
             self.assertEqual(self.stock(), 100)
 
+    def test_new_exchange_rates_work_the_summary_out_again(self) -> None:
+        # Rates change every converted price at once, so they mark no part: a kept summary names the rates it was priced with.
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_fx_rates")
+        self.assertEqual(self.stock(), 100)
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_summary_dirty WHERE part_id = %s", (self.watch.part_id,))
+        with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
+            self.assertEqual(self.stock(), 100, "kept while the rates stay")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO supply_fx_rates (day, currency, per_eur, source) VALUES (CURRENT_DATE, 'USD', 1.08, 'manual')")
+        try:
+            with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
+                with self.assertRaisesRegex(AssertionError, "worked out again"):
+                    self.stock()
+        finally:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_fx_rates")
+
     def test_the_jlc_class_rides_on_the_row_without_being_kept_in_the_summary(self) -> None:
         from app.services.supply import facts
 

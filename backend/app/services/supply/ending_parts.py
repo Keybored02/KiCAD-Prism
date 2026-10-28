@@ -19,10 +19,9 @@ Three decisions, all for QA and administrators, kept outside the revision (suppl
 
 from __future__ import annotations
 
-import time
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import catalog_read, component_parts, facts, outlook, part_insights, parts_view, usage
+from app.services.supply import catalog_read, component_parts, facts, outlook, parts_view, usage
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.vocabulary import Lifecycle
@@ -85,7 +84,6 @@ def set_restriction(conn, component_id: str, level: str, reason: str, replacemen
         (component_id, level, reason, replacement_component_id, actor),
     )
     write_audit(conn, actor, "component.restriction", component_id, {"level": level, "reason": reason, "replacement": replacement_component_id}, subject_kind="component")
-    forget_count()
     return restrictions_of(conn, [component_id])[component_id]
 
 
@@ -102,7 +100,6 @@ def status_marks(component_ids: Sequence[str]) -> dict[str, str]:
 def clear_restriction(conn, component_id: str, actor: str) -> None:
     actor = actor_text(actor)
     removed = conn.execute("DELETE FROM supply_component_restrictions WHERE component_id = %s RETURNING level", (component_id,)).fetchone()
-    forget_count()
     if removed:
         write_audit(conn, actor, "component.restriction.clear", component_id, {"was": removed["level"]}, subject_kind="component")
 
@@ -118,37 +115,43 @@ def _components_of(item: Mapping[str, Any]) -> list[dict[str, Any]]:
     return found
 
 
-_COUNT_FOR = 300.0
-_counted: tuple[float, int] | None = None
+def _ending(conn, states: Sequence[Mapping[str, Any]]) -> list[tuple[str, list[dict[str, str]]]]:
+    """The tracked parts that are ending, with why, from their kept states (``parts_view.tracked_states``) and kept outlooks."""
+
+    bands = {row["part_id"]: row["band"] for row in conn.execute(
+        "SELECT part_id, data->>'outlook_band' AS band FROM supply_part_insights WHERE data->>'outlook_band' = ANY(%s)", (list(_OUTLOOK),),
+    ).fetchall()}
+    found = [(state["id"], reasons_of(state, bands.get(state["id"]))) for state in states]
+    return [(part_id, reasons) for part_id, reasons in found if reasons]
 
 
-def undecided_count(conn, role: str | None = None) -> int:
-    """How many listed components nobody has decided about, kept for five minutes: working it out searches the catalog."""
+def undecided_count(conn, states: Sequence[Mapping[str, Any]] | None = None) -> int:
+    """How many components whose part is ending nobody has decided about. ``states`` are the tracked parts' kept states when the
+    caller has them already (the Dashboard does)."""
 
-    global _counted
-    now = time.monotonic()
-    if _counted is None or now - _counted[0] > _COUNT_FOR:
-        try:
-            _counted = (now, sum(1 for row in queue(conn, role)["items"] if row["restriction"] is None and not row["dismissed"]))
-        except Exception:  # noqa: BLE001 - a tile on the Dashboard must not depend on the catalog answering
-            return 0
-    return _counted[1]
-
-
-def forget_count() -> None:
-    global _counted
-    _counted = None
+    try:
+        if not component_parts.library_present(conn):
+            return sum(1 for row in queue(conn)["items"] if row["restriction"] is None and not row["dismissed"])
+        ending = _ending(conn, parts_view.tracked_states(conn) if states is None else states)
+        holders = component_parts.components_holding(conn, [part_id for part_id, _ in ending])
+        rows = [
+            (str(component["id"]), reasons_key(reasons))
+            for part_id, reasons in ending for component in holders.get(part_id, []) if component.get("workflow_stage") != "archived"
+        ]
+        marks = restrictions_of(conn, [component_id for component_id, _ in rows])
+        dismissed = dismissals_of(conn, [component_id for component_id, _ in rows])
+    except Exception:  # noqa: BLE001 - a tile on the Dashboard must not depend on the catalog answering
+        return 0
+    return sum(1 for component_id, key in rows if component_id not in marks and dismissed.get(component_id) != key)
 
 
 def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, Any]:
     """Components whose part is ending, worst first, without the ones already retired."""
 
-    tracked = [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers").fetchall()]
-    items = {item["id"]: item for item in parts_view.summaries_for(conn, tracked)}
-    bands = {row["part_id"]: row.get("outlook_band") for row in part_insights.read_all(conn)}
-    ending = [(item, reasons_of(item, bands.get(item["id"]))) for item in items.values()]
-    ending = [(item, reasons) for item, reasons in ending if reasons]
-    ending.sort(key=lambda pair: (-len(pair[1]), pair[0]["mpn"].lower()))
+    states = parts_view.tracked_states(conn)
+    why = dict(_ending(conn, states))
+    items = {item["id"]: item for item in parts_view.summaries_for(conn, list(why))}
+    ending = sorted(((items[part_id], reasons) for part_id, reasons in why.items()), key=lambda pair: (-len(pair[1]), pair[0]["mpn"].lower()))
     holders = component_parts.components_holding(conn, [item["id"] for item, _ in ending[:limit]])
     library = component_parts.library_present(conn)
     rows: list[dict[str, Any]] = []
@@ -177,7 +180,7 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
         if row["restriction"] and row["restriction"]["level"] == "retired":
             continue
         kept.append(row)
-    return {"items": kept, "tracked": len(tracked), "more": max(0, len(ending) - limit)}
+    return {"items": kept, "tracked": len(states), "more": max(0, len(ending) - limit)}
 
 
 def reasons_key(reasons: Sequence[Mapping[str, Any]]) -> str:
@@ -207,4 +210,3 @@ def dismiss(conn, component_id: str, reason_kinds: Sequence[str], actor: str) ->
         (component_id, key, actor),
     )
     write_audit(conn, actor, "component.ending.dismiss", component_id, {"reasons": key}, subject_kind="component")
-    forget_count()

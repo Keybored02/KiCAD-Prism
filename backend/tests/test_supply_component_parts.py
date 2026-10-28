@@ -248,6 +248,26 @@ class ComponentPartsTests(unittest.TestCase):
             self.assertEqual([item["id"] for item in held[main_id]], [component_id, str(other["id"])], "main first, then the approved alternate")
             self.assertEqual(held[main_id][0]["mpn"], component["mpn"])
 
+    def test_the_ending_count_names_each_undecided_component_of_an_ending_part(self) -> None:
+        from app.services.supply import ending_parts
+
+        component_id = str(self._component()["id"])
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id])
+            main_id = self.cp.parts_of(conn, component_id)[0]["part_id"]
+
+            def count(**state) -> int:
+                return ending_parts.undecided_count(conn, [{"id": main_id, "lifecycle": "active", "dropped": False, **state}])
+
+            self.assertEqual(count(), 0, "an active part is not ending")
+            self.assertEqual(count(lifecycle="obsolete"), 1)
+            ending_parts.set_restriction(conn, component_id, "not_for_new_designs", "", "", "qa@example.com")
+            self.assertEqual(count(lifecycle="obsolete"), 0, "decided")
+            ending_parts.clear_restriction(conn, component_id, "qa@example.com")
+            ending_parts.dismiss(conn, component_id, ["obsolete"], "qa@example.com")
+            self.assertEqual(count(lifecycle="obsolete"), 0, "dismissed for this reason")
+            self.assertEqual(count(lifecycle="obsolete", dropped=True), 1, "a new reason brings it back")
+
     def test_a_dismissal_holds_only_for_the_reasons_it_was_made_for(self) -> None:
         from app.services.supply import ending_parts
 

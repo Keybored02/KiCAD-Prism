@@ -152,7 +152,7 @@ def build(conn, now: datetime | None = None, role: str | None = None) -> dict[st
         "deadlines": risk_views.deadlines(conn, tracked_ids, now.date()),
         "projects": parts_view.tracked_project_rows(conn, items, kept, role),
         "figures": figures,
-        "ending_components": ending_parts.undecided_count(conn, role),
+        "ending_components": ending_parts.undecided_count(conn, items),
         "forecast": forecast_overview.dashboard(conn, now.date()),
         "figure_history": series,
         "statuses": [{"status": status, "count": statuses.get(status, 0)} for status in STATUS_ORDER],

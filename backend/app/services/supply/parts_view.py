@@ -6,6 +6,7 @@ no marketplace stock, pooling per provider). A part with a watch is "watched".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import statistics
 from collections import defaultdict
@@ -192,10 +193,18 @@ def _offer_summary(offers_here: list[dict], policy: str, problem: str | None, pr
     }
 
 
-def _computed(conn, rows, offers: dict[str, list[dict]]) -> dict[str, dict[str, Any]]:
-    problems = _problems(conn, [r["id"] for r in rows])
+def _money(conn) -> tuple[str, fx.Rates, str]:
+    """The workspace currency, the exchange rates, and a key naming both: a kept summary priced with another key is stale."""
+
     base = settings_store.load(conn).base_currency
     rates = fx.latest(conn)
+    named = ",".join([base, str(rates.day), *(f"{currency}={rate}" for currency, rate in sorted(rates.per_eur.items()))])
+    return base, rates, hashlib.sha256(named.encode()).hexdigest()[:16]
+
+
+def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Rates, str] | None = None) -> dict[str, dict[str, Any]]:
+    problems = _problems(conn, [r["id"] for r in rows])
+    base, rates, priced_with = money or _money(conn)
     quantities = price_quantity.of_parts(conn, [r["id"] for r in rows])
     found = {}
     for row in rows:
@@ -207,6 +216,7 @@ def _computed(conn, rows, offers: dict[str, list[dict]]) -> dict[str, dict[str, 
         summary = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
         # Kept with the summary so the Dashboard counts statuses without the rest of the row; a watch change marks it stale.
         summary["status"] = part_status(summary["stock"], row["threshold"], Lifecycle(summary["lifecycle"]), summary["problem"]).value
+        summary["priced_with"] = priced_with
         found[row["id"]] = summary
     return found
 
@@ -215,35 +225,43 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
     """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept."""
 
     ids = [r["id"] for r in rows]
-    # A kept summary is current while no change of its part came from a transaction still running when it was worked out.
+    money = _money(conn)
+    # A kept summary is current while no change of its part came from a transaction still running when it was worked out, and it
+    # was priced in today's currency at today's rates (neither marks a part: they change every price at once).
     fresh = {
         r["part_id"]: r["data"] for r in conn.execute(
             """
             SELECT s.part_id, s.data FROM supply_part_summaries s
             WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data' AND s.data ? 'status'
+              AND s.data->>'priced_with' = %s
               AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
             """,
-            (ids,),
+            (ids, money[2]),
         ).fetchall()
     }
     todo = [r for r in rows if r["id"] not in fresh]
     if todo:
         snap = conn.execute("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS n").fetchone()["n"]
-        found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]))
-        for row in todo:
-            # Keeping it is a favour to the next reader: never wait for a row another transaction holds.
-            mine = conn.execute("SELECT part_id FROM supply_part_summaries WHERE part_id = %s FOR UPDATE SKIP LOCKED", (row["id"],)).fetchone()
-            data = json.dumps(found[row["id"]])
-            if mine:
-                conn.execute(
-                    "UPDATE supply_part_summaries SET data = %s::jsonb, snap = %s, computed_at = NOW() WHERE part_id = %s",
-                    (data, max(snap, 1), row["id"]),
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO supply_part_summaries (part_id, data, snap, computed_at) VALUES (%s, %s::jsonb, %s, NOW()) ON CONFLICT DO NOTHING",
-                    (row["id"], data, max(snap, 1)),
-                )
+        found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]), money)
+        ids = [row["id"] for row in todo]
+        # Keeping them is a favour to the next reader: never wait for a row another transaction holds, and write them all at once.
+        mine = {row["part_id"] for row in conn.execute(
+            "SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s) FOR UPDATE SKIP LOCKED", (ids,)).fetchall()}
+        held = {row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s)", (ids,)).fetchall()} - mine
+        update = [part_id for part_id in ids if part_id in mine]
+        insert = [part_id for part_id in ids if part_id not in mine and part_id not in held]
+        if update:
+            conn.execute(
+                "UPDATE supply_part_summaries s SET data = n.data::jsonb, snap = %s, computed_at = NOW() "
+                "FROM unnest(%s::text[], %s::text[]) AS n(part_id, data) WHERE s.part_id = n.part_id",
+                (max(snap, 1), update, [json.dumps(found[part_id]) for part_id in update]),
+            )
+        if insert:
+            conn.execute(
+                "INSERT INTO supply_part_summaries (part_id, data, snap, computed_at) "
+                "SELECT n.part_id, n.data::jsonb, %s, NOW() FROM unnest(%s::text[], %s::text[]) AS n(part_id, data) ON CONFLICT DO NOTHING",
+                (max(snap, 1), insert, [json.dumps(found[part_id]) for part_id in insert]),
+            )
         fresh.update(found)
     return fresh
 
@@ -340,13 +358,12 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
 
 
 def tracked_states(conn) -> list[dict[str, Any]]:
-    """Every tracked part, uncapped, with what the Dashboard counts: id, status, stock and lifecycle. Reads the kept summaries and
-    works out only the stale ones (the worker keeps them fresh, so normally none)."""
+    """Every tracked part, uncapped, with what the Dashboard counts: id, status, stock, lifecycle and whether every distributor dropped
+    it. Reads the kept summaries and works out only the stale ones (the worker keeps them fresh, so normally none)."""
 
     rows = conn.execute(_ROW_SELECT + "WHERE pt.part_id IS NOT NULL").fetchall()
     sums = _cached(conn, rows)
-    return [{"id": row["id"], "status": sums[row["id"]]["status"], "stock": sums[row["id"]]["stock"], "lifecycle": sums[row["id"]]["lifecycle"]}
-            for row in rows]
+    return [{"id": row["id"], **{key: sums[row["id"]][key] for key in ("status", "stock", "lifecycle", "dropped")}} for row in rows]
 
 
 def tracked_project_rows(conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> list[dict[str, Any]]:
@@ -363,13 +380,15 @@ def tracked_project_rows(conn, states: list[dict[str, Any]], kept: dict[str, dic
         for project_id in of.get(state["id"], ()):
             if project_id in members:
                 members[project_id].append(state)
+    groups = [{"project_id": project_id, "tracked": True, "members": mine} for project_id, mine in members.items()]
+    known = _row_facts(conn, groups)
     rows = []
-    for project_id, mine in members.items():
+    for group in groups:
         statuses: dict[str, int] = {}
-        for state in mine:
+        for state in group["members"]:
             statuses[state["status"]] = statuses.get(state["status"], 0) + 1
-        rows.append({"project_id": project_id, "project_name": names[project_id], "count": len(mine), "statuses": statuses,
-                     "stats": _group_stats(conn, {"project_id": project_id, "tracked": True, "members": mine}, kept)})
+        rows.append({"project_id": group["project_id"], "project_name": names[group["project_id"]], "count": len(group["members"]),
+                     "statuses": statuses, "stats": _group_stats(group, kept, known)})
     # As the Projects view orders them: what needs a look first, then by name.
     rows.sort(key=lambda row: (min((_STATUS_RANK[status] for status in row["statuses"]), default=len(_STATUS_RANK)), row["project_name"].lower()))
     return rows
@@ -422,9 +441,10 @@ def part_groups(
         key=lambda group: (group["project_id"] == NO_PROJECT, not group["tracked"], group["worst"], group["project_name"].lower()),
     )
     kept = part_insights.of_parts(conn, [item["id"] for item in items])
+    known = _row_facts(conn, ordered)
     for group in ordered:
         del group["worst"]
-        group["stats"] = _group_stats(conn, group, kept)
+        group["stats"] = _group_stats(group, kept, known)
         del group["members"]
     return {"groups": ordered, "total": len(items)}
 
@@ -446,8 +466,32 @@ def status_counts(members: list[dict[str, Any]], facts: list[dict[str, Any]]) ->
     }
 
 
-def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
+def _row_facts(conn, groups: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the project rows need beyond their parts, read once for all of them: BOM ages, tracked projects, their kept rollups and cost
+    series, and open alerts per part."""
+
+    from app.services.supply import cost_history, project_supply, tracking  # they read this module, so they are imported here
+
+    real = [group["project_id"] for group in groups if group["project_id"] != NO_PROJECT]
+    read_at = {row["project_id"]: row["updated_at"] for row in conn.execute(
+        "SELECT project_id, updated_at FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()} if real else {}
+    tracked = tracking.tracked_projects(conn, [group["project_id"] for group in groups if group["project_id"] != NO_PROJECT and group["tracked"]])
+    variants = {project_id: (project["variants"] or [""])[0] for project_id, project in tracked.items()}
+    rollups = project_supply.usual_rollups(conn, [(project, variants[project_id]) for project_id, project in tracked.items()])
+    costed = [(project_id, variants[project_id]) for project_id, rollup in rollups.items()
+              if rollup and rollup["cost_per_board"] is not None and rollup["currency"]]
+    members = list({item["id"] for group in groups for item in group["members"]})
+    alerts = {row["part_id"]: int(row["n"]) for row in conn.execute(
+        "SELECT part_id, COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (members,)).fetchall()}
+    return {"read_at": read_at, "tracked": tracked, "variants": variants, "rollups": rollups,
+            "series": cost_history.series_of(conn, costed, 120), "alerts": alerts}
+
+
+def _group_stats(group: dict[str, Any], kept: dict[str, dict[str, Any]], known: dict[str, Any]) -> dict[str, Any]:
+    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts.
+    ``known`` is ``_row_facts`` of the rows shown."""
+
+    from app.services.supply import cost_history  # it reads this module, so it is imported here
 
     members = group["members"]
     facts = [kept.get(item["id"]) or {} for item in members]
@@ -455,19 +499,16 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     project_id = group["project_id"]
     if project_id == NO_PROJECT:
         return stats
-    read = conn.execute("SELECT updated_at FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
-    stats["bom_read_at"] = read["updated_at"].isoformat() if read and read["updated_at"] else None
+    read = known["read_at"].get(project_id)
+    stats["bom_read_at"] = read.isoformat() if read else None
     if not group["tracked"]:
         return stats
-    from app.services.supply import cost_history, project_supply, tracking  # they read this module, so they are imported here
-
-    tracked = tracking.tracked_project(conn, project_id)
+    tracked = known["tracked"].get(project_id)
     stats["variants"] = list(tracked["variants"]) if tracked else []
     stats["all_variants"] = bool(tracked and tracked["all_variants"])
     stats["packaging"] = tracked["packaging"] if tracked else None
-    variant = (tracked["variants"] or [""])[0] if tracked else ""
-    # The same rollup the project page shows, worked out now: the day's stored row only gives the change over time.
-    rollup = project_supply.usual_rollup(conn, tracked, variant) if tracked else None
+    # The same rollup the project page shows: the day's stored row only gives the change over time.
+    rollup = known["rollups"].get(project_id) if tracked else None
     if rollup and rollup["cost_per_board"] is not None and rollup["currency"]:
         stats["cost_per_board"] = format(Decimal(str(rollup["cost_per_board"])), "f")
         stats["currency"] = rollup["currency"]
@@ -475,10 +516,9 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
         stats["build_quantity"] = int(tracked["build_quantity"])
         stats["unchecked"] = int(rollup["not_tracked"])
         stats["test_data"] = bool(rollup.get("test_data"))
-        kept, _left_out = cost_history.series(conn, project_id, variant, 120)
-        stats["cost_change_percent"] = cost_history.change_percent(kept) if kept else None
-    stats["alerts"] = int(conn.execute(
-        "SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])
+        series, _left_out = known["series"].get((project_id, known["variants"][project_id]), ([], []))
+        stats["cost_change_percent"] = cost_history.change_percent(series) if series else None
+    stats["alerts"] = sum(known["alerts"].get(item["id"], 0) for item in members)
     return stats
 
 
