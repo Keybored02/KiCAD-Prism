@@ -39,6 +39,25 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
+@router.get("/build-answers")
+async def build_answers(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """The build answer of each tracked project the caller may see, for the project cards. Never calls a distributor."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return project_supply.build_answers(conn)
+
+    found = await _run(read)
+    visible: dict[str, Any] = {}
+    for project_id, answer in found.items():
+        try:
+            get_project_for_role_or_404(project_id, user.role)
+        except HTTPException:
+            continue
+        visible[project_id] = answer
+    return {"projects": visible}
+
+
 @router.get("/{project_id}/bom-health")
 async def bom_health(
     project_id: str,

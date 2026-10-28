@@ -1782,3 +1782,15 @@ export interface LocalStock {
   at_vendor: number | null;
   rows: LocalStockRow[];
 }
+
+/** A tracked project's build answer at its usual build, as its card shows it. */
+export interface SupplyBuildAnswer {
+  /** Boards the stock covers; null with no stock figure. */
+  boards: number | null;
+  build_quantity: number;
+  /** Parts without enough stock for the usual build. */
+  short: number;
+  /** BOM lines no stock figure checks. */
+  unchecked: number;
+  test_data: boolean;
+}
