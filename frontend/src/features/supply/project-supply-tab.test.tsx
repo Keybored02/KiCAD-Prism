@@ -79,7 +79,7 @@ describe("the project Supply tab", () => {
     const flaky = rows.find((row) => within(row).queryByText("FLAKY-1"))!;
     fireEvent.click(within(flaky).getByRole("button", { name: "FLAKY-1" }));
     expect(screen.getByRole("dialog").textContent).toBe("Sheet of p1");
-    expect(within(flaky).getByRole("img", { name: "Waiting for room to be read" })).toBeTruthy();
+    expect(within(flaky).getByRole("img", { name: "Queued for calls" })).toBeTruthy();
     expect(within(flaky).getByText("U1")).toBeTruthy();
     expect(screen.getByText("7.4 of 10")).toBeTruthy();
   });

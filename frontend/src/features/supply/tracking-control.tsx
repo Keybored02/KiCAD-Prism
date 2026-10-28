@@ -57,7 +57,7 @@ export function TrackingControl({
         {tracking ? `Read ${tracking.rate}${tracking.tier === 1 ? " (tier 1)" : " (tier 2)"}` : "Not followed. Read only when someone asks."}
         {reasons.length > 0 ? `, because of ${reasons.join(" and ")}.` : ""}
       </p>
-      {loaded.data.waiting_at.length > 0 ? <p className="text-xs text-warning">Waiting for room at {loaded.data.waiting_at.length} distributor(s).</p> : null}
+      {loaded.data.waiting_at.length > 0 ? <p className="text-xs text-warning">Queued for calls at {loaded.data.waiting_at.length} distributor(s).</p> : null}
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-2">
           <select

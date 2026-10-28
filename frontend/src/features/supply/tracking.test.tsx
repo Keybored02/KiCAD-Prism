@@ -189,7 +189,7 @@ describe("a part's tracking", () => {
     render(<TrackingControl partId="p1" canEdit onChanged={changed} />);
     expect(await screen.findByText(/Read weekly \(tier 2\), because of a watch from before tiers/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Tier"), { target: { value: "1" } });
-    expect(await screen.findByLabelText("Call budget")).toBeTruthy();
+    expect(await screen.findByLabelText("Daily call limit")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(tracking.setPartTier).toHaveBeenCalledWith("p1", { tier: 1, rate: "weekly" }));
     await waitFor(() => expect(changed).toHaveBeenCalled());
@@ -199,7 +199,7 @@ describe("a part's tracking", () => {
     tracking.getPartTracking.mockResolvedValue({ tier: null, waiting_at: ["c1"] });
     render(<TrackingControl partId="p1" canEdit={false} onChanged={vi.fn()} />);
     expect(await screen.findByText(/Not followed/)).toBeTruthy();
-    expect(screen.getByText(/Waiting for room at 1 distributor/)).toBeTruthy();
+    expect(screen.getByText(/Queued for calls at 1 distributor/)).toBeTruthy();
     expect(screen.queryByLabelText("Tier")).toBeNull();
   });
 });

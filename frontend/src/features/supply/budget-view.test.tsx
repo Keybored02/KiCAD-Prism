@@ -52,8 +52,8 @@ describe("the day's bar", () => {
     const bar = screen.getByRole("img", { name: /^Today's calls:/ });
     expect(bar.getAttribute("aria-label")).toContain("Spent on tracking 300");
     expect(bar.getAttribute("aria-label")).toContain("Kept for scheduled work 400");
-    expect(bar.getAttribute("aria-label")).toContain("Free now 150");
-    expect(screen.getByText("Free now: 150 calls. Resets in 3 h 2 min.")).toBeTruthy();
+    expect(bar.getAttribute("aria-label")).toContain("Left today 150");
+    expect(screen.getByText("150 calls left today. Resets in 3 h 2 min.")).toBeTruthy();
     expect(daySegments(card).reduce((sum, segment) => sum + segment.calls, 0)).toBe(1000);
   });
 

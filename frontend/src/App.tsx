@@ -8,6 +8,7 @@ import { Search } from 'lucide-react';
 import { ApiHttpError, fetchApi } from '@/lib/api';
 import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath, stashCurrentLocation } from '@/lib/auth';
 import { IS_APPLE_PLATFORM } from '@/lib/shortcuts';
+import { roleLabel } from '@/lib/roles';
 import { useHotkeys } from '@/hooks/use-hotkeys';
 import { clearWorkspaceDataCache } from '@/hooks/use-workspace-data';
 import { CommandPalette } from '@/components/command-palette';
@@ -347,7 +348,7 @@ function App() {
                                         </>
                                     )}
                                     {user && user.email === 'guest@local' && (
-                                        <span className="text-sm text-muted-foreground">Viewing as Guest</span>
+                                        <span className="text-sm text-muted-foreground">{roleLabel(user.role)} · sign-in off</span>
                                     )}
                                 </div>
                             </div>

@@ -50,7 +50,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
     { label: "Out of stock", value: data?.figures.out_of_stock, icon: PackageX, bad: true, history: history("out_of_stock"), onClick: parts("out_of_stock") },
     { label: "End of life", value: data?.figures.lifecycle, icon: Ban, bad: true, history: history("lifecycle"), onClick: parts("lifecycle") },
     { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: showAlerts },
-    { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
+    { label: "Queued for calls", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
     ...(likely ? [{ ...likely, icon: Hourglass, bad: true, onClick: parts("likely_out_4w") }] : []),
   ];
   const openComponent = (componentId: string) =>
