@@ -5,6 +5,7 @@ import {
   importedSummary,
   importStatus,
   nextToImport,
+  unreadableCount,
   visibleRepositories,
   type DiscoveredRepository,
   type DiscoveryFilters,
@@ -85,6 +86,20 @@ describe("the list's filters", () => {
     const hidden = repo("hw/d", { dismissed: true, state: "empty", projects: [] });
     expect(visibleRepositories([hidden], only({ showNoKicad: true }))).toEqual([]);
     expect(visibleRepositories([hidden], only({ showNoKicad: true, showDismissed: true }))).toEqual([hidden]);
+  });
+});
+
+describe("unreadable repositories", () => {
+  it("counts the ones Prism could not read, not the ones without KiCad files", () => {
+    const list = [
+      repo("a"),
+      repo("b", { state: "no_access", projects: [] }),
+      repo("c", { state: "error", projects: [] }),
+      repo("d", { state: "blocked", projects: [] }),
+      repo("e", { state: "empty", projects: [] }),
+      repo("f", { state: "pending", projects: [] }),
+    ];
+    expect(unreadableCount(list)).toBe(3);
   });
 });
 

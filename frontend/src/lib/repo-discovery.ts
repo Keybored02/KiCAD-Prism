@@ -103,6 +103,13 @@ export function nextToImport(
     .find((repository) => isKicad(repository) && importStatus(repository) !== "all");
 }
 
+/** How many repositories Prism could not read (no access, blocked, or a failed scan). */
+export function unreadableCount(repositories: DiscoveredRepository[]): number {
+  return repositories.filter((repository) => ADMIN_STATES.has(repository.state)).length;
+}
+
+const ADMIN_STATES = new Set<DiscoveredState>(["no_access", "blocked", "error"]);
+
 /** "2 of 3 imported", or nothing when none are. */
 export function importedSummary(repository: DiscoveredRepository): string {
   const status = importStatus(repository);

@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_DISCOVERY_FILTERS,
   nextToImport,
+  unreadableCount,
   visibleRepositories,
   type DiscoveredRepository,
   type DiscoveryFilters,
@@ -38,6 +39,18 @@ interface ImportInProgress {
   nextId: string | undefined;
 }
 
+/** What to say when the list is empty: not scanned yet, nothing to import, or nothing Prism could read. */
+function emptyMessage(host: string, found: number, hiddenFromDesigners: number, unreadable: number): string {
+  if (found === 0 && hiddenFromDesigners > 0) {
+    return `Prism found ${hiddenFromDesigners} repositories on ${host} but could not read them. An administrator can see why.`;
+  }
+  if (found === 0) return `Scan ${host} to find the repositories that hold KiCad projects.`;
+  if (unreadable > 0) {
+    return `Nothing left to import with these filters. Prism could not read ${unreadable} of the ${found} repositories; tick Unreadable to see why.`;
+  }
+  return "Nothing left to import with these filters.";
+}
+
 export function RepoDiscoveryDialog({ open, onOpenChange, onImported }: RepoDiscoveryDialogProps) {
   const discovery = useRepoDiscovery();
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_DISCOVERY_FILTERS);
@@ -46,6 +59,7 @@ export function RepoDiscoveryDialog({ open, onOpenChange, onImported }: RepoDisc
 
   const visible = useMemo(() => visibleRepositories(list.candidates, filters), [list.candidates, filters]);
   const source = sources?.find((item) => item.id === sourceId);
+  const unreadable = useMemo(() => unreadableCount(list.candidates), [list.candidates]);
 
   const startImport = (repository: DiscoveredRepository) =>
     // The next repository is fixed now: once this one is imported it leaves the
@@ -164,9 +178,7 @@ export function RepoDiscoveryDialog({ open, onOpenChange, onImported }: RepoDisc
             ) : (
               !scan && (
                 <p className="py-4 text-sm text-muted-foreground">
-                  {list.candidates.length === 0
-                    ? `Scan ${source.host} to find the repositories that hold KiCad projects.`
-                    : "Nothing left to import with these filters."}
+                  {emptyMessage(source.host, list.candidates.length, list.hiddenCount, unreadable)}
                 </p>
               )
             )}

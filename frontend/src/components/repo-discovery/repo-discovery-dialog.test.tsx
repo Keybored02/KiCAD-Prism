@@ -83,6 +83,26 @@ describe("repository discovery dialog", () => {
     expect(screen.getByText("hw/b")).toBeInTheDocument();
   });
 
+  it("says when Prism could not read the repositories it found, instead of claiming nothing is left", async () => {
+    discovery.loadDiscoveredRepositories.mockResolvedValue({
+      candidates: [
+        repo("hw/a", { state: "no_access", projects: [], error: "needs credentials" }),
+        repo("hw/b", { state: "no_access", projects: [], error: "needs credentials" }),
+      ],
+      hiddenCount: 0,
+    });
+    open();
+    expect(await screen.findByText(/could not read 2 of the 2 repositories/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Unreadable"));
+    expect(screen.getAllByText("needs credentials")).toHaveLength(2);
+  });
+
+  it("tells a designer the repositories exist but cannot be read", async () => {
+    discovery.loadDiscoveredRepositories.mockResolvedValue({ candidates: [], hiddenCount: 12 });
+    open();
+    expect(await screen.findByText(/found 12 repositories on git.example.com but could not read them/)).toBeInTheDocument();
+  });
+
   it("explains that nothing is connected", async () => {
     discovery.loadDiscoverySources.mockResolvedValue([]);
     open();
