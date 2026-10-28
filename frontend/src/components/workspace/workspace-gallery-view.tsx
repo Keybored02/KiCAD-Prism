@@ -5,6 +5,8 @@ import { FolderTreeItem, Project } from "@/types/project";
 import { ProjectCard } from "@/components/project-card";
 import { Checkbox } from "@/components/ui/checkbox";
 
+import { ProjectSupplyChip } from "@/features/supply/project-supply-chip";
+import type { SupplyBuildAnswer } from "@/types/supply";
 import { FolderActionMenu, ProjectActionMenu } from "./workspace-action-menus";
 import { WorkspaceSectionHeading } from "./workspace-section-heading";
 import {
@@ -39,6 +41,8 @@ interface WorkspaceGalleryViewProps {
   projectsToolbar?: ReactNode;
   /** Boards at this level across every page. */
   projectCount?: number;
+  /** Tracked projects' build answers, by project id, for their card chips. */
+  supplyAnswers?: Record<string, SupplyBuildAnswer>;
 }
 
 export function WorkspaceGalleryView({
@@ -63,6 +67,7 @@ export function WorkspaceGalleryView({
   canManageProjects,
   projectsToolbar,
   projectCount,
+  supplyAnswers = {},
 }: WorkspaceGalleryViewProps) {
   const projectGridClass = propertiesPanelOpen ? PROJECT_GRID_CLASS_COMPACT : PROJECT_GRID_CLASS;
   const folderGridClass = propertiesPanelOpen ? FOLDER_GRID_CLASS_COMPACT : FOLDER_GRID_CLASS;
@@ -104,6 +109,7 @@ export function WorkspaceGalleryView({
                   )}
                   <ProjectCard
                     project={project}
+                    supply={<ProjectSupplyChip answer={supplyAnswers[project.id]} />}
                     dense={propertiesPanelOpen}
                     selected={selectedProjectId === project.id || bulkSelectedProjectIds.has(project.id)}
                     searchQuery={searchQuery}
@@ -201,6 +207,7 @@ export function WorkspaceGalleryView({
                     )}
                     <ProjectCard
                       project={project}
+                      supply={<ProjectSupplyChip answer={supplyAnswers[project.id]} />}
                       dense={propertiesPanelOpen}
                       selected={selectedProjectId === project.id || bulkSelectedProjectIds.has(project.id)}
                       onClick={() => onSelectProject(project)}

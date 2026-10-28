@@ -19,6 +19,8 @@ interface ProjectCardProps {
     showDelete?: boolean;
     searchQuery?: string;
     actions?: React.ReactNode;
+    /** A chip at the end of the footer: the project's build answer for a tracked project. */
+    supply?: React.ReactNode;
 }
 
 // Highlight matched text in search results
@@ -58,6 +60,7 @@ export function ProjectCard({
     showDelete,
     searchQuery = "",
     actions,
+    supply,
 }: ProjectCardProps) {
     const navigate = useNavigate();
 
@@ -182,6 +185,7 @@ export function ProjectCard({
             )}>
                 <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">Updated {projectLastUpdated(project)}</span>
+                {supply}
             </CardFooter>
         </Card>
     );

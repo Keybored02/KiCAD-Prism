@@ -154,6 +154,11 @@
     "path": "/api/v1/supply/budget",
     "typed": true
   },
+  "build_answers": {
+    "method": "GET",
+    "path": "/api/v1/supply/projects/build-answers",
+    "typed": true
+  },
   "build_usage": {
     "method": "POST",
     "path": "/api/v1/supply/bom/usage/build",
