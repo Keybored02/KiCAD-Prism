@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { User, AuthConfig } from './types/auth';
 import { Button } from '@/components/ui/button';
 import { Toaster } from 'sonner';
-import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
 import { ApiHttpError, fetchApi } from '@/lib/api';
 import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath, stashCurrentLocation } from '@/lib/auth';
@@ -12,6 +11,7 @@ import { roleLabel } from '@/lib/roles';
 import { useHotkeys } from '@/hooks/use-hotkeys';
 import { clearWorkspaceDataCache } from '@/hooks/use-workspace-data';
 import { CommandPalette } from '@/components/command-palette';
+import { TopSearch } from '@/components/top-search';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { RoleAuthorityPopover } from '@/components/role-authority-popover';
 import { SessionExpiredBanner, SESSION_BANNER_HEIGHT } from '@/components/session-expired-banner';
@@ -308,19 +308,7 @@ function App() {
                                 </div>
 
                                 <div className="flex justify-center">
-                                    <div className="relative w-full max-w-2xl">
-                                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                        <Input
-                                            data-shortcut-search
-                                            value={workspaceSearchQuery}
-                                            onChange={(event) => setWorkspaceSearchQuery(event.target.value)}
-                                            placeholder="Search projects by name, description, and metadata"
-                                            className="pl-10 pr-10"
-                                        />
-                                        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 border bg-muted px-1 text-[11px] text-muted-foreground">
-                                            /
-                                        </kbd>
-                                    </div>
+                                    <TopSearch value={workspaceSearchQuery} onChange={setWorkspaceSearchQuery} role={user?.role} />
                                 </div>
 
                                 <div className="flex items-center gap-4">
