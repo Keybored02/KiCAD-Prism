@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import component_parts, ending_parts, forecast_overview, overview, part_insights, parts_view, risk_views
+from app.services.supply import alerts, component_parts, ending_parts, forecast_overview, part_insights, parts_view, risk_views
 from app.services.supply.vocabulary import Status
 
 FIGURE_DAYS = 30
@@ -20,11 +20,13 @@ FIGURES = ("watched", "at_risk", "out_of_stock", "lifecycle", "open_alerts", "wa
 STATUS_ORDER = (Status.OK.value, Status.WARNING.value, Status.ERROR.value, Status.FATAL.value, Status.UNKNOWN.value)
 
 
-def _figures_now(conn, now: datetime) -> dict[str, int]:
-    base = overview.build_overview(conn, now)
+def _figures_now(conn, now: datetime, states: list[dict[str, Any]] | None = None) -> dict[str, int]:
+    """The tiles: every tracked part counted (``states`` from ``parts_view.tracked_states``), the open alerts and the queued parts."""
+
+    states = parts_view.tracked_states(conn) if states is None else states
     waiting = conn.execute("SELECT COUNT(DISTINCT part_id) AS n FROM supply_admissions WHERE state = 'waiting'").fetchone()["n"]
-    return {**{name: int(base["figures"][name]) for name in ("watched", "at_risk", "out_of_stock", "lifecycle")},
-            "open_alerts": int(base["open_alerts"]), "waiting": int(waiting)}
+    return {"watched": len(states), **{name: sum(1 for state in states if parts_view.FILTERS[name](state)) for name in ("at_risk", "out_of_stock", "lifecycle")},
+            "open_alerts": int(alerts.count_attention(conn, now)), "waiting": int(waiting)}
 
 
 def snapshot_figures(conn, now: datetime | None = None) -> int:
@@ -124,8 +126,9 @@ def build(conn, now: datetime | None = None, role: str | None = None) -> dict[st
     """Everything the Dashboard page draws."""
 
     now = now or datetime.now(timezone.utc)
-    items, _total = parts_view.ranked_parts(conn, scope="watched", role=role)
-    figures = _figures_now(conn, now)
+    # Every tracked part, uncapped: the tiles, charts and project rows are counts over all of them, from the kept summaries.
+    items = parts_view.tracked_states(conn)
+    figures = _figures_now(conn, now, items)
     series = _figure_series(conn, now.date())
     kept = {row["part_id"]: row for row in part_insights.read_all(conn)}
     statuses = Counter(item["status"] for item in items)
@@ -144,14 +147,10 @@ def build(conn, now: datetime | None = None, role: str | None = None) -> dict[st
             count = (facts or {}).get("holders") if facts else None
             holders["none" if item["stock"] == 0 else "one" if count == 1 else "two" if count == 2 else "three_plus" if count else "unknown"] += 1
     tracked_ids = [item["id"] for item in items]
-    groups = parts_view.part_groups(conn, scope="watched", role=role)["groups"]
     return {
         "risk_grid": risk_views.risk_grid(items, kept),
         "deadlines": risk_views.deadlines(conn, tracked_ids, now.date()),
-        "projects": [
-            {"project_id": group["project_id"], "project_name": group["project_name"], "count": group["count"], "statuses": group["statuses"], "stats": group["stats"]}
-            for group in groups if group["tracked"]
-        ],
+        "projects": parts_view.tracked_project_rows(conn, items, kept, role),
         "figures": figures,
         "ending_components": ending_parts.undecided_count(conn, role),
         "forecast": forecast_overview.dashboard(conn, now.date()),

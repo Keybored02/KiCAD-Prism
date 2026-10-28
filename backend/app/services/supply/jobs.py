@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, budget, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, project_bom, project_supply, quota, retention,
+    accounts, budget, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
@@ -465,12 +465,12 @@ def _snapshot_figures(conn) -> None:
 
 
 def refresh_rollups(conn) -> None:
-    """Work out the tracked projects' rollups that a change made stale, so the Dashboard and the project cards find them kept. Best effort."""
-
-    from app.services.supply import project_supply
+    """Work out the tracked parts' summaries and the tracked projects' rollups that a change made stale, so the Dashboard, the lists
+    and the project cards find them kept. Best effort."""
 
     try:
         with conn.transaction():
+            parts_view.tracked_states(conn)
             project_supply.refresh_rollups(conn)
     except Exception:  # noqa: BLE001 - a reader works out a stale rollup itself
         logging.getLogger(__name__).info("Project rollups not refreshed", exc_info=True)

@@ -204,7 +204,10 @@ def _computed(conn, rows, offers: dict[str, list[dict]]) -> dict[str, dict[str, 
             [o for o in here if not o["marketplace"]], quantities[row["id"]], base, rates,
             lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates),
         )
-        found[row["id"]] = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
+        summary = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
+        # Kept with the summary so the Dashboard counts statuses without the rest of the row; a watch change marks it stale.
+        summary["status"] = part_status(summary["stock"], row["threshold"], Lifecycle(summary["lifecycle"]), summary["problem"]).value
+        found[row["id"]] = summary
     return found
 
 
@@ -217,7 +220,7 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
         r["part_id"]: r["data"] for r in conn.execute(
             """
             SELECT s.part_id, s.data FROM supply_part_summaries s
-            WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data'
+            WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data' AND s.data ? 'status'
               AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
             """,
             (ids,),
@@ -334,6 +337,42 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
     # The sort is stable, so parts of equal status keep their name order.
     items.sort(key=lambda item: _STATUS_RANK[item["status"]])
     return items, int(total)
+
+
+def tracked_states(conn) -> list[dict[str, Any]]:
+    """Every tracked part, uncapped, with what the Dashboard counts: id, status, stock and lifecycle. Reads the kept summaries and
+    works out only the stale ones (the worker keeps them fresh, so normally none)."""
+
+    rows = conn.execute(_ROW_SELECT + "WHERE pt.part_id IS NOT NULL").fetchall()
+    sums = _cached(conn, rows)
+    return [{"id": row["id"], "status": sums[row["id"]]["status"], "stock": sums[row["id"]]["stock"], "lifecycle": sums[row["id"]]["lifecycle"]}
+            for row in rows]
+
+
+def tracked_project_rows(conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> list[dict[str, Any]]:
+    """The Dashboard's row for each tracked project ``role`` may see: its parts' status counts and its kept usual-build rollup."""
+
+    tracked = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_tracked_projects").fetchall()]
+    if not tracked:
+        return []
+    of = _projects_of(conn, [state["id"] for state in states], role)
+    names = {row["project_id"]: row["project_name"] for row in conn.execute(
+        "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (tracked,)).fetchall()}
+    members: dict[str, list[dict[str, Any]]] = {project_id: [] for project_id in tracked if project_id in names}
+    for state in states:
+        for project_id in of.get(state["id"], ()):
+            if project_id in members:
+                members[project_id].append(state)
+    rows = []
+    for project_id, mine in members.items():
+        statuses: dict[str, int] = {}
+        for state in mine:
+            statuses[state["status"]] = statuses.get(state["status"], 0) + 1
+        rows.append({"project_id": project_id, "project_name": names[project_id], "count": len(mine), "statuses": statuses,
+                     "stats": _group_stats(conn, {"project_id": project_id, "tracked": True, "members": mine}, kept)})
+    # As the Projects view orders them: what needs a look first, then by name.
+    rows.sort(key=lambda row: (min((_STATUS_RANK[status] for status in row["statuses"]), default=len(_STATUS_RANK)), row["project_name"].lower()))
+    return rows
 
 
 NO_PROJECT = "none"
