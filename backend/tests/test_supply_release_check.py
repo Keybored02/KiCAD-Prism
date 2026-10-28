@@ -641,10 +641,10 @@ class ReleaseCheckTests(unittest.TestCase):
                 mock.patch("app.services.supply.release_snapshot.catalog_read.component_ids_by_part", return_value={}):
             queue = mock.Mock()
             self.assertTrue(release_snapshot.queue("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com", job_service=queue))
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_9")["state"], "queued")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "queued")
             self.assertEqual(queue.enqueue.call_args.kwargs["artifact_key"], "supply-snapshot:bld_9")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken")
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_9")["state"], "taken")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "taken")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken", "asking twice is harmless")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_1")):
             response = self.request("prj_1/releases/bld_9/supply")
@@ -657,8 +657,8 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.services.supply.release_snapshot.supply_store", self.store), \
                 mock.patch("app.services.supply.release_snapshot.release_source.build_bom_text", side_effect=release_source.NoBuildBom("This build exported no BOM file.")):
             self.assertEqual(release_snapshot.take("prj_1", "bld_x", "vx", "c" * 40, "qa@example.com"), "failed")
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_x"), {"state": "failed", "reason": "This build exported no BOM file."})
-        self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "never"), {"state": "none", "reason": ""})
+            self.assertEqual(self.status_of("prj_1", "bld_x"), {"state": "failed", "reason": "This build exported no BOM file."})
+        self.assertEqual(self.status_of("prj_1", "never"), {"state": "none", "reason": ""})
 
     def test_queueing_never_raises_and_says_when_it_could_not(self) -> None:
         from app.services.supply import release_snapshot
@@ -667,10 +667,14 @@ class ReleaseCheckTests(unittest.TestCase):
             broken = mock.Mock()
             broken.enqueue.side_effect = RuntimeError("down")
             self.assertFalse(release_snapshot.queue("prj_1", "bld_q", "vq", "d" * 40, "qa@example.com", job_service=broken))
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_q")["state"], "failed")
+            self.assertEqual(self.status_of("prj_1", "bld_q")["state"], "failed")
 
-    def conn(self):
-        return self.store.connection().__enter__()
+    def status_of(self, project_id: str, build_id: str) -> dict:
+        from app.services.supply import release_snapshot
+
+        # Closed before returning: a connection left in a transaction blocks dropping the test schema.
+        with self.store.connection() as conn:
+            return release_snapshot.status_of(conn, project_id, build_id)
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply tests")

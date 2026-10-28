@@ -144,6 +144,37 @@ class SummaryCacheTests(unittest.TestCase):
         self.assertEqual(kept, ["future"])
         self.assertEqual(self.stock(), 100, "worked out again when asked")
 
+    def test_one_old_summary_does_not_hold_back_the_marks_of_other_parts(self) -> None:
+        from app.services.supply import retention
+
+        self.assertEqual(self.stock(), 100)
+        part_id = self.watch.part_id
+        # Made-up transaction ids, all older than anything open: the part's summary was worked out at 3 and a rollup reading
+        # 'rolled' at 30. Only marks those two were worked out before still matter.
+        marks = [(part_id, 2), (part_id, 4), ("other", 4), ("rolled", 20), ("rolled", 40)]
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_part_summaries SET snap = 3 WHERE part_id = %s", (part_id,))
+            conn.execute(
+                "INSERT INTO supply_project_rollups (project_id, variant, data, part_ids, seen, snap, computed_at) "
+                "VALUES ('prj_trim', '', '{}'::jsonb, ARRAY['rolled'], '30:30:', 30, NOW()), "
+                "('prj_old', '', '{}'::jsonb, ARRAY['rolled'], '1:1:', 1, NOW() - INTERVAL '2 hours')"
+            )
+            for scope, xid in marks:
+                conn.execute("INSERT INTO supply_summary_dirty (part_id, xid) VALUES (%s, %s)", (scope, xid))
+            conn.execute("INSERT INTO supply_rollup_dirty (scope, xid) VALUES ('prj_trim', 20), ('prj_trim', 40), ('*', 20), ('*', 40)")
+            retention.trim_summaries(conn)
+            summary = conn.execute(
+                "SELECT part_id, xid FROM supply_summary_dirty WHERE xid < 1000 ORDER BY part_id, xid"
+            ).fetchall()
+            rollup = conn.execute("SELECT scope, xid FROM supply_rollup_dirty WHERE xid < 1000 ORDER BY scope, xid").fetchall()
+            projects = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_project_rollups WHERE project_id LIKE 'prj_%'").fetchall()]
+            conn.execute("DELETE FROM supply_project_rollups WHERE project_id LIKE 'prj_%'")
+            conn.execute("DELETE FROM supply_summary_dirty WHERE xid < 1000")
+            conn.execute("DELETE FROM supply_rollup_dirty WHERE xid < 1000")
+        self.assertEqual([(row["part_id"], row["xid"]) for row in summary], [(part_id, 4), ("rolled", 40)])
+        self.assertEqual([(row["scope"], row["xid"]) for row in rollup], [("*", 40), ("prj_trim", 40)])
+        self.assertEqual(projects, ["prj_trim"], "a rollup older than a reader accepts is dropped")
+
     def test_removing_a_part_does_not_trip_the_triggers(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
