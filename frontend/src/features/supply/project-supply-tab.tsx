@@ -16,6 +16,7 @@ import { ProjectHeadline } from "./project-headline";
 import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectPartsList } from "./project-parts-list";
+import { ProjectReadNow } from "./project-read-now";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
@@ -105,11 +106,7 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
           <ProjectCostHistory supply={supply} />
         </div>
       ) : null}
-      {supply.available ? null : (
-        <p className="border border-dashed p-6 text-sm text-muted-foreground">
-          This project's BOM has not been read yet. Open it in the Visualizer, or track the project, and its parts appear here.
-        </p>
-      )}
+      {supply.available ? null : <ProjectReadNow projectId={projectId} onRead={loaded.retry} />}
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? (
