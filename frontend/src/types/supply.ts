@@ -201,8 +201,14 @@ export interface SupplyParameter {
 /** Where a catalog component stands, for the catalog table. */
 export interface SupplyComponentStanding {
   status: SupplyStatus;
+  /** What the distributors hold, summed. */
   stock: number | null;
   watched: boolean;
+  /** The main part's headline unit price at the distributors. */
+  unit_price?: string | null;
+  currency?: string;
+  /** Usable local stock (OK, at our locations, less allocated); absent when the local inventory holds none, null when units are mixed. */
+  local_available?: number | null;
   /** What the library decided about the component: marked for no new designs, or retired. */
   restriction?: RestrictionLevel | null;
 }

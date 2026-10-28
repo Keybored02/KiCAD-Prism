@@ -20,6 +20,7 @@ from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import admission, bom_lookup, catalog_read, project_bom, spreadsheet, usage
+from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -156,11 +157,17 @@ class StatusRequest(BaseModel):
 
 @router.post("/components-status")
 async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """Where each catalog component stands, for the catalog table. Components Prism does not track are left out."""
+    """Where each catalog component stands, for the catalog table: distributor status, stock and price, and the available local
+    stock. Components with neither are left out."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return {"items": bom_lookup.standing_of(conn, _lines(body.components))}
+            items = bom_lookup.standing_of(conn, _lines(body.components))
+            local = levels.available_by_component(conn, [line.key for line in body.components])
+        for key, available in local.items():
+            items.setdefault(key, {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": None})
+            items[key]["local_available"] = available
+        return {"items": items}
 
     return await _run(read)
 

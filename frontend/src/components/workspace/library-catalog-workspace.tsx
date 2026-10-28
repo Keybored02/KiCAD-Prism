@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { CatalogSupplyDot, RestrictionTag } from "@/features/supply/catalog-supply-dot";
 import { CatalogSupplyBar } from "@/features/supply/catalog-supply-bar";
+import { CatalogSupplyCell } from "@/features/supply/catalog-supply-cell";
 import { passesSupplyFilter, supplyFilterFrom } from "@/features/supply/catalog-supply-filter";
 import { useCatalogPicks } from "@/features/supply/use-catalog-picks";
 import { useCatalogSupply } from "@/features/supply/use-catalog-supply";
@@ -49,7 +50,7 @@ import {
   WORKFLOW_BADGE_VARIANT,
 } from "@/lib/catalog-badges";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { canAdministerCatalog, canEditSupply, canWriteCatalog } from "@/lib/roles";
+import { canAdministerCatalog, canEditSupply, canOpenSupply, canWriteCatalog } from "@/lib/roles";
 import { useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -71,6 +72,8 @@ const CATALOG_ROW_HEIGHT = 64;
 // floors the header and rows scroll sideways together instead.
 const CATALOG_GRID_TEMPLATE =
   "minmax(180px,2.4fr) minmax(120px,1.5fr) minmax(120px,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(130px,1.6fr)";
+// Supply roles see one more column: the distributors' status, price and stock, and the usable local stock.
+const CATALOG_SUPPLY_GRID_TEMPLATE = `${CATALOG_GRID_TEMPLATE} minmax(150px,1.4fr)`;
 const CATALOG_OVERSCAN = 6;
 
 type SortKey = "name" | "manufacturer" | "category" | "package_name" | "availability_state" | "workflow_stage" | "updated_at";
@@ -322,6 +325,8 @@ export function LibraryCatalogWorkspace({
   const { standing: supplyStanding, refresh: refreshSupply } = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
   // The Watched and At risk filters narrow the page that is loaded; the server does not know about supply.
   const supplyFilter = supplyFilterFrom(searchParams.get("catalogSupply"));
+  const supplyColumn = canOpenSupply(user?.role);
+  const gridTemplate = supplyColumn ? CATALOG_SUPPLY_GRID_TEMPLATE : CATALOG_GRID_TEMPLATE;
   const shownItems = supplyFilter ? items.filter((item) => passesSupplyFilter(supplyFilter, supplyStanding[item.id])) : items;
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
   const lastVisibleRow = Math.min(shownItems.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
@@ -404,8 +409,8 @@ export function LibraryCatalogWorkspace({
               className="min-h-0 flex-1 overflow-auto"
               onScroll={catalogViewport.onScroll}
             >
-            <div className="min-w-[980px]">
-            <div className="sticky top-0 z-10 grid gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: CATALOG_GRID_TEMPLATE }}>
+            <div className={supplyColumn ? "min-w-[1140px]" : "min-w-[980px]"}>
+            <div className="sticky top-0 z-10 grid gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: gridTemplate }}>
               <span className="min-w-0"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="min-w-0"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="min-w-0"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
@@ -413,6 +418,7 @@ export function LibraryCatalogWorkspace({
               <span className="min-w-0"><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="min-w-0 text-xs font-medium text-muted-foreground">Validation</span>
               <span className="min-w-0"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              {supplyColumn ? <span className="min-w-0 text-xs font-medium text-muted-foreground">Supply</span> : null}
             </div>
               <div className="relative" style={{ height: items.length * CATALOG_ROW_HEIGHT }}>
               {visibleItems.map((component, visibleIndex) => (
@@ -420,7 +426,7 @@ export function LibraryCatalogWorkspace({
                   key={component.id}
                   type="button"
                   className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary", picks.picked.has(component.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
-                  style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: CATALOG_GRID_TEMPLATE }}
+                  style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: gridTemplate }}
                   onClick={(event) => (event.ctrlKey || event.metaKey) && canEditSupply(user?.role) ? picks.toggle(component.id) : selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
@@ -431,6 +437,7 @@ export function LibraryCatalogWorkspace({
                   <div className="flex min-w-0"><WorkflowBadge stage={component.workflow_stage} /></div>
                   <div className="flex min-w-0"><ValidationBadge status={component.validation.status} /></div>
                   <div className="min-w-0"><p className="text-xs font-medium">v{component.revision}</p><p className="truncate text-xs text-muted-foreground" title={component.created_by}>{formatDate(component.revision_updated_at)} · {component.created_by || "Unknown author"}</p></div>
+                  {supplyColumn ? <CatalogSupplyCell standing={supplyStanding[component.id]} /> : null}
                 </button>
               ))}
               </div>
