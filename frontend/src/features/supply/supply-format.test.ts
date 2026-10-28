@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { currencyLabel, formatAgo, formatPrice, formatStock, parseThreshold, sparklinePoints, tierLabel } from "./supply-format";
+import { currencyLabel, formatAgo, formatAxisPrice, formatPrice, formatStock, parseThreshold, sparklinePoints, tierLabel } from "./supply-format";
 
 describe("formatting", () => {
   it("shows stock, or says nothing has been read", () => {
@@ -24,6 +24,7 @@ describe("formatting", () => {
     expect(formatPrice("0.4321", "INR")).toBe("₹0.4321");
     expect(currencyLabel("INR")).toBe("INR · ₹");
     expect(currencyLabel("ZZZZ")).toBe("ZZZZ");
+    expect([formatAxisPrice(950, "INR"), formatAxisPrice(150000, "INR"), formatAxisPrice(12345678, "INR")]).toEqual(["₹950.00", "₹1.5L", "₹1.2Cr"]);
   });
 
   it("says how long ago", () => {

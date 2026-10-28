@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping
 
+from app.core.config import settings as deployment
 from app.services.supply.vocabulary import Status
 
 # Check ids. Severity is the default; a workspace can override it per check.
@@ -102,7 +103,8 @@ class AssessmentSettings:
         return {"small_passive": self.spares_small_passives, "other": self.spares_others}
 
 
-DEFAULTS = AssessmentSettings()
+# The deployment chooses the currency a workspace starts in (SUPPLY_BASE_CURRENCY).
+DEFAULTS = AssessmentSettings(base_currency=deployment.SUPPLY_BASE_CURRENCY)
 
 
 CHECK_LABELS: Mapping[str, str] = MappingProxyType({

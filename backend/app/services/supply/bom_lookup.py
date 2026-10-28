@@ -606,12 +606,15 @@ def _rollup(
     lines_priced = sum(1 for line in lines if results[line.key]["part_id"] and results[first_line[results[line.key]["part_id"]]]["buy"])
     currencies = {buy["currency"] for buy in priced}
     converted = False
-    if len(currencies) == 1:
-        total = sum((Decimal(buy["extended"]) for buy in priced), Decimal(0))
-        shown_currency: str | None = next(iter(currencies))
-    elif priced and all(buy["in_base"] is not None for buy in priced):
+    # The total is in the workspace's currency whenever every price converts to it; prices all in one other currency
+    # that has no rate stay in that currency rather than showing no total.
+    if priced and all(buy["in_base"] is not None for buy in priced):
         total = sum((Decimal(buy["in_base"]) for buy in priced), Decimal(0))
-        shown_currency, converted = base, True
+        shown_currency: str | None = base
+        converted = currencies != {base}
+    elif len(currencies) == 1:
+        total = sum((Decimal(buy["extended"]) for buy in priced), Decimal(0))
+        shown_currency = next(iter(currencies))
     else:
         total, shown_currency = None, None
 

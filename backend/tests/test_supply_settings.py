@@ -28,6 +28,17 @@ class ValidationTests(unittest.TestCase):
         stored = rules.validate(self.good())
         self.assertEqual(rules.to_dto(rules.from_dto(stored)), self.good())
 
+    def test_a_deployment_chooses_the_currency_a_workspace_starts_in(self) -> None:
+        from pydantic import ValidationError
+
+        from app.core.supply_config import SupplySettings
+
+        self.assertEqual(SupplySettings(_env_file=None).SUPPLY_BASE_CURRENCY, "EUR")
+        self.assertEqual(SupplySettings(_env_file=None, SUPPLY_BASE_CURRENCY=" inr ").SUPPLY_BASE_CURRENCY, "INR")
+        for bad in ("rupees", "IN", "₹"):
+            with self.assertRaises(ValidationError, msg=bad):
+                SupplySettings(_env_file=None, SUPPLY_BASE_CURRENCY=bad)
+
     def test_spares_and_alert_defaults_are_kept_and_the_spares_become_a_table_or_a_percent(self) -> None:
         flat = rules.from_dto(rules.validate({**self.good(), "spares_percent": 5}))
         self.assertEqual((flat.default_attrition(), flat.spares_table()), (5.0, {"small_passive": 2.0, "other": 0.0}))

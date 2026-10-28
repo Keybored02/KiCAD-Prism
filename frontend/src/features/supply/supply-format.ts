@@ -82,6 +82,16 @@ function localeOf(currency: string): string | undefined {
   return currency.toUpperCase() === "INR" ? "en-IN" : undefined;
 }
 
+/** An axis tick: a price to two decimals below a thousand, else short (€15K, ₹1.5L, ₹1.2Cr), so it fits beside a chart. */
+export function formatAxisPrice(value: number, currency: string): string {
+  if (Math.abs(value) < 1000) return formatPrice(String(value), currency, 2);
+  try {
+    return new Intl.NumberFormat(localeOf(currency), { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value);
+  } catch {
+    return formatPrice(String(value), currency, 0);
+  }
+}
+
 /** "INR · ₹": a currency's code with its symbol, for choosing one. */
 export function currencyLabel(currency: string): string {
   try {

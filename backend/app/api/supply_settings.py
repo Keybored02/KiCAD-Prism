@@ -9,7 +9,7 @@ import asyncio
 from typing import Any, Callable, Dict, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
@@ -34,7 +34,7 @@ class AssessmentSettingsBody(BaseModel):
     spares_others: float = 0.0
     alert_price_rise_percent: int = 20
     alert_likely_out_percent: int = 70
-    base_currency: str = "EUR"
+    base_currency: str = Field(default_factory=lambda: rules.DEFAULTS.base_currency)
     price_quantity: int = 100
     prefer_distributors: bool = False
     distributor_order: list[str] = []
