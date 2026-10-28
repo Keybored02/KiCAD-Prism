@@ -303,6 +303,28 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual((linked.status, linked.json["matched"], linked.json["unmatched"]), (200, 1, 0))
         self.assertEqual([row["component_id"] for row in self._levels(source_id)], [str(component["id"])])
 
+    def test_local_stock_splits_available_held_and_at_vendor(self) -> None:
+        from app.api import supply_component_parts
+
+        sap = str(uuid.uuid4().int)[:9]
+        component = self._component(sap_code=sap)
+        source_id = self._source()
+        stock = [
+            {"pk": 501, "part": 1, "quantity": 400, "allocated": 100, "status": 10, "location": 50},
+            {"pk": 502, "part": 1, "quantity": 50, "status": 75, "status_text": "On hold", "location": 50},
+            {"pk": 503, "part": 1, "quantity": 30, "status": 10, "location": 51},
+        ]
+        self._sync(source_id, self._server(sap, "X", "Y", stock))
+        app = type(self.app)()
+        app.include_router(supply_component_parts.router)
+        answer = _request(app, "GET", f"/api/supply/components/{component['id']}/local-stock", user=self.users["designer"])
+        self.assertEqual(answer.status, 200)
+        self.assertEqual((answer.json["available"], answer.json["held"], answer.json["at_vendor"]), (300.0, 50.0, 30.0))
+        self.assertEqual([(row["location"], row["status"], row["external"]) for row in answer.json["rows"]], [
+            ("4200/BS4/AVI4", "available", False), ("4200/BS4/AVI4", "on hold", False), ("4200/EXT4/V1", "available", True),
+        ])
+        self.assertEqual(_request(app, "GET", f"/api/supply/components/{component['id']}/local-stock", user=self.users["viewer"]).status, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

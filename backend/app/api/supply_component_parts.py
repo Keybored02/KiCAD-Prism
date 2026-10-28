@@ -1,4 +1,4 @@
-"""Component parts API: a catalog component's main part and its alternates.
+"""Component parts API: a catalog component's main part and its alternates, and its local stock.
 
 Everyone who reads supply data sees them. Designers and administrators propose alternates; QA and administrators
 approve, reject or remove them.
@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import component_parts
+from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/components", tags=["supply"])
 
@@ -114,3 +115,41 @@ async def remove_alternate(
 
     await _run(run)
     return Response(status_code=204)
+
+
+class LocalStockRow(BaseModel):
+    # Unique per row: the source and its location key.
+    key: str
+    source: str
+    source_id: str
+    location: str
+    quantity: float
+    allocated: float
+    status: str
+    external: bool
+    batch: str
+    uom: str
+    stale: bool
+    fetched_at: str
+    updated_at: str
+
+
+class LocalStock(BaseModel):
+    component_id: str
+    uom: str
+    mixed_units: bool
+    available: float | None
+    held: float | None
+    at_vendor: float | None
+    rows: list[LocalStockRow]
+
+
+@router.get("/{component_id}/local-stock")
+async def get_local_stock(component_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> LocalStock:
+    """What the local inventory holds for the component: available, held and at a vendor, per location."""
+
+    def read() -> LocalStock:
+        with _store().connection() as conn:
+            return LocalStock(**levels.local_stock(conn, component_id))
+
+    return await _run(read)

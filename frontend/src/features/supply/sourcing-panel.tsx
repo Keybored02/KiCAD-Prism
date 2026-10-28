@@ -5,9 +5,11 @@ import { Link } from "react-router-dom";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply } from "@/lib/roles";
+import { canEditSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { ComponentPartsSection } from "./component-parts-section";
 import { ComponentWatch } from "./component-watch";
+import { LocalStockSection } from "./local-stock-section";
 import { PartActions } from "./part-actions";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
@@ -23,20 +25,25 @@ interface SourcingPanelProps {
 }
 
 /**
- * The Supply tab of a catalog component: what the distributors hold for its manufacturer part.
- * A component without a manufacturer part number has nothing to look up.
+ * The Supply tab of a catalog component: its parts (main and alternates), the local stock, then what the distributors hold for its
+ * main part. Local stock can match on the SAP code alone; the parts and the distributors need a manufacturer part number.
  */
 export default function SourcingPanel({ componentId, manufacturer, mpn, user }: SourcingPanelProps) {
-  if (!manufacturer.trim() || !mpn.trim()) {
-    return (
-      <Alert>
-        <AlertDescription>This component needs a manufacturer and a manufacturer part number before it can be looked up.</AlertDescription>
-      </Alert>
-    );
-  }
+  const hasPart = Boolean(manufacturer.trim() && mpn.trim());
   return (
     <div className="space-y-6">
-      <Lookup componentId={componentId} manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
+      {hasPart ? <ComponentPartsSection componentId={componentId} canPropose={canEditSupply(user?.role)} canDecide={canReviewSupply(user?.role)} /> : null}
+      <LocalStockSection componentId={componentId} />
+      {hasPart ? (
+        <section className="space-y-2" aria-label="Distributors">
+          <h3 className="text-sm font-semibold">Distributors</h3>
+          <Lookup componentId={componentId} manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
+        </section>
+      ) : (
+        <Alert>
+          <AlertDescription>This component needs a manufacturer and a manufacturer part number before the distributors can be asked.</AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }
