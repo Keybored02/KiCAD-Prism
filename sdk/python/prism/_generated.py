@@ -4164,8 +4164,12 @@ class TradeMarkIn(TypedDict, total=False):
     eccn: str
 
 
-class UnmatchedPart(TypedDict, total=True):
+class UnmatchedPart(TypedDict, total=False):
     ipn: str
+    linked_at: str | None
+    linked_component_id: str | None
+    linked_mpn: str
+    linked_name: str
     manufacturer: str
     mpn: str
     name: str

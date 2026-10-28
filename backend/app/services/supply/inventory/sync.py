@@ -200,19 +200,30 @@ def link(conn, source_id: str, remote_part: str, component_id: str, actor: str) 
     active = conn.execute("SELECT is_active FROM components WHERE id = %s", (component_id,)).fetchone()
     if not active or not active["is_active"]:
         raise sources.SourceError("There is no such component in the library.")
+    waiting = conn.execute("SELECT 1 FROM inventory_unmatched WHERE source_id = %s AND remote_part = %s", (source_id, remote_part)).fetchone()
+    relinked = conn.execute("SELECT 1 FROM inventory_links WHERE source_id = %s AND remote_part = %s", (source_id, remote_part)).fetchone()
     conn.execute(
         "INSERT INTO inventory_links (source_id, remote_part, component_id, linked_by) VALUES (%s, %s, %s, %s) "
         "ON CONFLICT (source_id, remote_part) DO UPDATE SET component_id = EXCLUDED.component_id, linked_by = EXCLUDED.linked_by, linked_at = NOW()",
         (source_id, remote_part, component_id, actor),
     )
-    # Answered: it leaves the review list now, even if the next read fails.
-    gone = conn.execute("DELETE FROM inventory_unmatched WHERE source_id = %s AND remote_part = %s", (source_id, remote_part)).rowcount
-    if gone:
+    # Answered: it no longer needs a person, but stays listed as linked until a read lands its stock on the component (UX-04).
+    if waiting and not relinked:
         conn.execute("UPDATE inventory_sources SET unmatched = GREATEST(unmatched - 1, 0) WHERE id = %s", (source_id,))
     write_audit(conn, actor, "inventory_source.link", source_id, {"remote_part": remote_part, "component_id": component_id}, subject_kind="inventory_source")
 
 
 def unmatched(conn, source_id: str) -> list[dict[str, Any]]:
+    """The source's unmatched parts with stock. A part a person has linked since the last read stays, with the component it was
+    linked to, until a read lands its stock there."""
+
     return [dict(row) for row in conn.execute(
-        "SELECT remote_part, ipn, mpn, manufacturer, name, quantity, records, reason, seen_at FROM inventory_unmatched "
-        "WHERE source_id = %s ORDER BY quantity DESC, remote_part", (source_id,)).fetchall()]
+        """
+        SELECT u.remote_part, u.ipn, u.mpn, u.manufacturer, u.name, u.quantity, u.records, u.reason, u.seen_at,
+               l.component_id AS linked_component_id, COALESCE(r.mpn, '') AS linked_mpn, COALESCE(r.name, '') AS linked_name, l.linked_at
+        FROM inventory_unmatched u
+        LEFT JOIN inventory_links l ON l.source_id = u.source_id AND l.remote_part = u.remote_part
+        LEFT JOIN components c ON c.id = l.component_id
+        LEFT JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE u.source_id = %s ORDER BY (l.component_id IS NOT NULL), u.quantity DESC, u.remote_part
+        """, (source_id,)).fetchall()]

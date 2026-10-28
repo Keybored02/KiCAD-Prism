@@ -22274,6 +22274,39 @@
             "title": "Ipn",
             "type": "string"
           },
+          "linked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked At"
+          },
+          "linked_component_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Component Id"
+          },
+          "linked_mpn": {
+            "default": "",
+            "title": "Linked Mpn",
+            "type": "string"
+          },
+          "linked_name": {
+            "default": "",
+            "title": "Linked Name",
+            "type": "string"
+          },
           "manufacturer": {
             "title": "Manufacturer",
             "type": "string"

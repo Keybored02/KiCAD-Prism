@@ -120,6 +120,11 @@ class UnmatchedPart(BaseModel):
     records: int
     reason: Literal["no_component", "sap_code_shared", "mpn_shared"]
     seen_at: datetime
+    # Set once a person linked the part; the row stays until a read lands its stock on the component.
+    linked_component_id: Optional[str] = None
+    linked_mpn: str = ""
+    linked_name: str = ""
+    linked_at: Optional[datetime] = None
 
 
 @router.get("")

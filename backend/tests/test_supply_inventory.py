@@ -286,6 +286,29 @@ class InventorySyncTests(unittest.TestCase):
         self._sync(source_id, self._server("", "X", "Y", stock))
         self.assertEqual((self._unmatched(source_id), [row["component_id"] for row in self._levels(source_id)]), ({}, [str(component["id"])]))
 
+    def test_a_link_made_while_the_read_fails_stays_listed_as_linked(self) -> None:
+        from app.services.supply.inventory import sync
+
+        component, other = self._component(), self._component()
+        source_id = self._source()
+        stock = [{"pk": 302, "part": 5, "quantity": 7, "status": 10}]
+        self._sync(source_id, self._server("", "X", "Y", stock))
+
+        def counted() -> int:
+            with self.store.connection() as conn:
+                return conn.execute("SELECT unmatched FROM inventory_sources WHERE id = %s", (source_id,)).fetchone()["unmatched"]
+
+        before = counted()
+        with self.store.connection() as conn:
+            sync.link(conn, source_id, "5", str(other["id"]), AUTHOR)
+            sync.link(conn, source_id, "5", str(component["id"]), AUTHOR)
+            sync.fail(conn, source_id, "unavailable: cannot connect", NOW)
+            (row,) = sync.unmatched(conn, source_id)
+        self.assertEqual(counted(), before - 1, "it no longer needs a person, counted once however often it is linked")
+        self.assertEqual((row["remote_part"], row["linked_component_id"], row["linked_mpn"]), ("5", str(component["id"]), component["mpn"]))
+        self._sync(source_id, self._server("", "X", "Y", stock))
+        self.assertEqual(self._unmatched(source_id), {}, "the read lands it on the component")
+
     def test_only_due_sources_are_read(self) -> None:
         from app.services.supply.inventory import sync
 

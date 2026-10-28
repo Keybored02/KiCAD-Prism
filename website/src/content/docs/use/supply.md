@@ -194,7 +194,10 @@ chat messages.
 - **Manufacturer spellings**: maker names the distributors don't settle.
 - **Listings waiting**: distributor listings filed under another number.
 - **Unmatched local stock**: inventory parts with stock that match no library
-  component. **Link** ties one to a component; **Add** creates the component.
+  component. **Link** ties one to a component after showing both side by side;
+  when neither the MPN nor the SAP code agrees, the button reads **Link
+  anyway**. A linked part stays listed as **Linked** until the next read brings
+  its stock to the component. **Add** creates the component.
 
 ## Ask an assistant
 
