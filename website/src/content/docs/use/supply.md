@@ -186,7 +186,11 @@ in price over 30 days, changes lifecycle, gets a new datasheet, has a change
 notice announcing its end, or is dropped by every distributor. A condition
 must hold on two reads at least 30 minutes apart. Acknowledge or snooze an
 alert; it clears by itself once the condition ends. Prism sends no email or
-chat messages. The Dashboard lists the open alerts, the ones the **Open alerts**
+chat messages.
+
+The bell on a watched part opens its alert rules: which alerts it raises, its
+stock threshold (typed beside **At or below the threshold**), the price rise
+that counts and a target price. The Dashboard lists the open alerts, the ones the **Open alerts**
 tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
 While the stores feed or a distributor connector can't be read, a red line
