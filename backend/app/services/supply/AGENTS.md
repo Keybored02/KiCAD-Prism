@@ -46,7 +46,7 @@ root first.
 | `oneoff.py` | Check once: a request lists parts, `read_request_work` has a row for each part and distributor; the worker searches and reads them from the pool, then from spare budget, without tracking anything. |
 | `packaging_picks.py` | One followed listing per part and distributor: the picks waiting, the listings side by side, pick and clear, "same for similar". Only the picked listing is read and counted; `admission.sync` drops a pick whose listing is no longer counted. |
 | `oneoff.py` | Check once: `read_requests` list parts, `read_request_work` has a row per part and distributor; the worker searches and reads them from the pool, then spare budget, without tracking. |
-| `project_supply.py` | The project Supply tab: the stored BOM looked up (parts with tier, waiting and note counts), the builds the project put on the plan, release snapshots judged against today for what changed since, and the line notes. Calls no distributor. |
+| `project_supply.py` | The project Supply tab: the stored BOM looked up (parts with tier, waiting and note counts), the builds the project put on the plan, release snapshots judged against today for what changed since, and the line notes. Calls no distributor. A tracked project's usual-build answer is kept in `supply_project_rollups` (`usual_rollup`, `refresh_rollups`): triggers append marks to `supply_rollup_dirty`, and a kept rollup is current while no mark it did not see names its project, one of its parts or every project, and it is under an hour old. |
 | `alert_rules.py` | Per-part alert rules: muted kinds, the price rise that matters, a target price. `alerts.conditions_for` applies them; `assessment_marks` holds the status each part's assessment is judged against. |
 | `attrition.py` | Spares by package class (small passives 2%, others none), used when a lookup asks for `attrition_percent: null`. |
 | `cross_reference.py` | Alternatives graded direct, form-fit-function or functional from canonical parameters and the distributor category; `grade` is pure. No footprint or pin comparison. |
@@ -80,10 +80,10 @@ root first.
 | `trade_marks.py` | Whether a part is export controlled: what distributors state, and a person's mark that wins. |
 | `risk_views.py` | The Dashboard and Insights risk views: lifecycle against availability, deadlines, distributor coverage, lifecycle and compliance mixes, lead times, price movers, trade. |
 | `providers/packaging_hints.py` | Packaging read from words, and guessed from a SKU or order terms when a distributor says nothing (marked inferred). |
-| `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
+| `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. `housekeeping` (every 10 minutes) refreshes rates, snapshots, tracked BOMs, insights and kept rollups, then runs retention. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings of admitted pairs (the picked listing when one is picked), tier 1 first, in batches within the call budget, and records offers; a sample only when something changed or the last is a day old. `spare=` reads waiting pairs or tier-2 parts early from spare budget. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
 | `offer_lines.py` | A part's offers as the detailed Parts list shows them: one line for each way of buying (DigiKey cut tape and Digi-Reel on the same terms are one; Mouser's reel inside its price table is its own). Keeps every number; the sheet's listings are untouched. |
-| `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
+| `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. Each part's offer summary and status is kept in `supply_part_summaries` and worked out again only when a trigger has marked the part in `supply_summary_dirty`. `tracked_states` and `tracked_project_rows` feed the Dashboard from those kept summaries. |
 | `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown), with the problems that make an unread part an error (no distributor carries it, every listing gone). The assessment pipeline replaces it. |
 | `alerts.py` | Alerts on watched parts: one per part and kind, opened after two looks 30 minutes apart (a lost part opens at once), cleared when the condition clears, acknowledged or snoozed by people. In-app only; nothing is sent anywhere. Evaluated after every read and every watch change. |
 | `insights.py` | Pure: what a part's daily stock history says. Observed net decrease (Theil-Sen slope since the last restock), days to zero and to the threshold, restocks and cadence, and a confidence. A change in how many listings stand behind the figure is cut, never read as a restock. Every answer lists its inputs. |
@@ -133,7 +133,7 @@ root first.
 | `overview.py` | The Supply overview: counts, open alerts, recent changes, data age. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
-| `retention.py` | Rolls raw samples older than 60 days (or the connector's `retention_days`) into `samples_daily`, in slices of 30 days, and `drop_expired` deletes all history past the connector's `keep_days`. Run at the end of each poll job. |
+| `retention.py` | Rolls raw samples older than 60 days (or the connector's `retention_days`) into `samples_daily`, in slices of 30 days, and `drop_expired` deletes all history past the connector's `keep_days`. `trim_summaries` drops kept summaries unread for a week, rollups past their reading age and every change mark no kept row can still depend on. All run in housekeeping. |
 | `backend/app/api/supply_parts.py` | Parts and watches API, and the read-only part lookup the component Sourcing tab uses. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
@@ -197,14 +197,8 @@ root first.
 
 ## Frontend
 
-`frontend/src/features/supply/` holds the UI, with types in
-`frontend/src/types/supply.ts`. The Supply section (`frontend/src/features/supply/supply-workspace.tsx`, opened
-from the sidebar through `frontend/src/components/workspace.tsx`) owns five tabs (Dashboard, Parts, Review, Insights, Connectors); `frontend/src/features/supply/supply-views.ts` maps old addresses to them and a new tab goes in its `VIEWS` list. The project Supply tab is `frontend/src/features/supply/project-supply-tab.tsx`, mounted by the project page for roles that read supply. Icons come from `frontend/src/features/supply/supply-icons.tsx`; use them in lists, tables, bars and cards. The URL holds the scope
-(`partsScope`), the search (`partsQ`) and the open part (`part`). Formatting and
-the threshold parser live in `frontend/src/features/supply/supply-format.ts`. The Connectors tab mounts from
-`frontend/src/components/workspace/library-manager-workspace.tsx`. Each form
-mounts only while its dialog is open, so it resets without effects; keep form
-rules in `frontend/src/features/supply/connector-form-model.ts`, not in components.
+The UI is `frontend/src/features/supply/`; its map is
+`frontend/src/features/supply/AGENTS.md`.
 
 ## Tests
 

@@ -15,6 +15,12 @@ Supply follows the components in your
 library component has can be looked up, but it is never tracked or watched. To
 follow it, add it to the library first.
 
+Two guides walk through Supply by role:
+[Supply for component engineers](/KiCAD-Prism/use/supply-component-engineers/)
+and [Supply for supply chain teams](/KiCAD-Prism/use/supply-scm/). The rules
+behind every figure are in
+[How supply figures are worked out](/KiCAD-Prism/use/supply-figures/).
+
 ## Who can do what
 
 | Role | In Supply |
