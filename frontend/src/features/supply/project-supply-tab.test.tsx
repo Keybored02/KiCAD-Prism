@@ -208,6 +208,17 @@ describe("the project Supply tab", () => {
     expect(screen.getByText(/1 of 2 lines in stock for 100 boards, 1 short/)).toBeTruthy();
   });
 
+  it("prices each line at the quantity the build buys, and shows what the line cost is made of", async () => {
+    const base = supply();
+    const parts = (base.parts ?? []).map((part) => (part.key === "k2" ? { ...part, unit_price: "0.93", buy_quantity: 20, line_cost: "18.60" } : part));
+    mocked.getProjectSupply.mockResolvedValue(supply({ parts }));
+    renderTab();
+    const table = await screen.findByRole("region", { name: "Parts" });
+    await within(table).findByText("GOOD-1");
+    expect(within(table).getAllByText(/@ 20/).length).toBeGreaterThan(0);
+    expect(within(table).getByText(/20 × €0\.93/)).toBeTruthy();
+  });
+
   it("counts a line without a part number as not covered, and lists it under Unchecked", async () => {
     const noMpn = { key: "none:796638-2|TB", manufacturer: "", mpn: "", quantity: 1, references: "J2", part_id: null, state: "no_mpn" as const, status: null, stock: null, lifecycle: null, short: false, unit_price: null, notes: 0, need: 1 };
     const base = supply();
