@@ -104,7 +104,7 @@ class SettingsApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("supply_settings", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
+            for table in ("supply_settings", "supply_fx_rates", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
 
@@ -119,6 +119,7 @@ class SettingsApiTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(response.json["settings"], response.json["defaults"])
         self.assertEqual(len(response.json["checks"]), 19)
+        self.assertEqual(response.json["currencies"], ["EUR"], "no rates yet: the euro, which needs none")
         self.assertEqual(self.call("GET", role="viewer").status, 403)
 
     def test_the_known_spellings_of_makers_are_listed_and_an_administrator_changes_them(self) -> None:
@@ -149,6 +150,19 @@ class SettingsApiTests(unittest.TestCase):
             row = conn.execute("SELECT actor, detail FROM supply_audit_events WHERE action = 'settings.assessment'").fetchone()
         self.assertEqual(row["actor"], "admin@example.com")
         self.assertEqual(row["detail"]["before"]["lead_time_days"], 84)
+
+    def test_a_workspace_costs_in_rupees_once_there_is_a_rate(self) -> None:
+        from decimal import Decimal
+
+        from app.services.supply import fx
+
+        with self.store.connection() as conn:
+            fx.store(conn, datetime(2026, 10, 27, tzinfo=timezone.utc).date(), {"INR": Decimal("106.0635"), "USD": Decimal("1.08")}, "ecb")
+        self.assertEqual(self.call("GET", role="qa").json["currencies"], ["EUR", "INR", "USD"])
+        response = self.call("PUT", self.payload(base_currency="INR"))
+        self.assertEqual((response.status, response.json["settings"]["base_currency"]), (200, "INR"), response.text)
+        with self.store.connection() as conn:
+            self.assertEqual(fx.latest(conn).convert(Decimal("2"), "EUR", "INR"), Decimal("212.1270"))
 
     def test_nobody_else_may_change_them_and_bad_values_are_refused(self) -> None:
         for role in ("qa", "designer", "viewer"):

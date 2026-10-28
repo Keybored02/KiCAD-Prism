@@ -292,6 +292,9 @@ class FarnellTests(unittest.TestCase):
         client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
         (uk,) = fa_provider(client, store="uk.farnell.com", currency="").get_offers(["1278613"])
         self.assertEqual(uk.currency, "GBP")
+        client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
+        (india,) = fa_provider(client, store="in.element14.com", currency="").get_offers(["1278613"])
+        self.assertEqual((len(india.price_breaks), india.currency), (3, "INR"), "element14 India prices in rupees")
 
     def test_a_product_link_is_the_stores_search_for_the_sku_unless_the_service_gives_one(self) -> None:
         from app.services.supply.providers import farnell

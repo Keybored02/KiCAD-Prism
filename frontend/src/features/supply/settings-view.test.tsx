@@ -39,7 +39,13 @@ const view = (settings: AssessmentSettings = defaults): AssessmentSettingsView =
     lead_time_days: [1, 730], last_buy_error_days: [30, 730], late_hours: [1, 720], price_quantity: [1, 1_000_000],
     spares: [0, 100], alert_price_rise_percent: [1, 500], alert_likely_out_percent: [50, 99],
   },
+  currencies: ["EUR", "INR", "USD"],
 });
+
+async function chooseCurrency(name: RegExp) {
+  fireEvent.click(await screen.findByLabelText(/^Currency/));
+  fireEvent.click(await screen.findByRole("option", { name }));
+}
 const person = (role: UserRole): User => ({ name: role, email: `${role}@example.com`, role });
 
 function open(role: UserRole = "admin") {
@@ -65,7 +71,7 @@ describe("the Supply settings window", () => {
 
   it("saves one group by sending the whole settings with that group's fields changed, and shows the default beside a changed field", async () => {
     open();
-    fireEvent.change(await screen.findByLabelText(/^Currency/), { target: { value: "usd" } });
+    await chooseCurrency(/^USD/);
     expect(screen.getByText("default EUR")).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Price quantity/), { target: { value: "1000" } });
     fireEvent.click(screen.getByLabelText("By part type"));
@@ -76,9 +82,16 @@ describe("the Supply settings window", () => {
     }));
   });
 
+  it("offers the currencies with a rate, rupees among them, and costs in the one chosen", async () => {
+    open();
+    await chooseCurrency(/^INR · ₹/);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocked.saveAssessmentSettings).toHaveBeenCalledWith({ ...defaults, base_currency: "INR" }));
+  });
+
   it("keeps a group's save from carrying the figures of another that has not been saved", async () => {
     open();
-    fireEvent.change(await screen.findByLabelText(/^Currency/), { target: { value: "usd" } });
+    await chooseCurrency(/^USD/);
     fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
     fireEvent.change(await screen.findByLabelText(/Price rise alert/), { target: { value: "35" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

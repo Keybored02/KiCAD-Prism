@@ -35,7 +35,7 @@ ignores the environment's proxy variables for these calls.
 | TME | API token and secret | Prices follow the account's country. |
 | Mouser | API key | About 1,000 calls a day. |
 | DigiKey | Client ID and secret | One part per call, so it is slow for large lists. 1,000 calls a day; change notices have their own 50 a day and need an administrator's sign-in (below). |
-| Farnell, Newark, element14 | API key, store, currency | Choose the store carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. For a store outside the UK, the euro zone, the US and Canada, set the currency, or offers show no price. |
+| Farnell, Newark, element14 | API key, store, currency | Choose the store carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. For a store outside the UK, the euro zone, the US, Canada and India, set the currency, or offers show no price. |
 | Avnet | Client ID, client secret, scope, subscription key | From the Avnet API portal once Avnet approves your subscription. Avnet answers by part number only. |
 | Arrow | Login, API key | Pricing & Availability API. Choose the regions to keep. Prices stay in each region's currency and Prism converts them. |
 | LCSC | A file you upload | **Upload CSV** on the connector. Prism makes no calls. |
@@ -78,6 +78,14 @@ supply settings: **Costing** (currency, price quantity, spares, preferred
 distributors), **Health checks**, **Alerts**, **Reading**, **Matching** and
 **Reference data** (exchange rates and the REACH Candidate List). Everyone who
 reads supply can see them; only administrators change them.
+
+The currency menu lists the euro and every currency Prism has an exchange rate
+for, so a workspace in India can cost in Indian rupees (INR). Every price,
+total and cost per board is then shown in rupees, grouped the Indian way
+(₹12,82,650.00), whatever the reader's browser language. The element14 India
+store (`in.element14.com`) prices in rupees without a currency set on the
+connector. DigiKey and Mouser say which currency each price is in, so rupee
+prices from their India sites are read as rupees.
 
 ## Connect your inventory
 

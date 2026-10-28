@@ -1195,6 +1195,8 @@ export interface AssessmentSettingsView {
     lead_time_days: [number, number]; last_buy_error_days: [number, number]; late_hours: [number, number]; price_quantity: [number, number];
     spares: [number, number]; alert_price_rise_percent: [number, number]; alert_likely_out_percent: [number, number];
   };
+  /** The currencies a workspace can cost in: the euro and every one with an exchange rate. */
+  currencies: string[];
 }
 
 /** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */
