@@ -1578,6 +1578,8 @@ export interface SupplyDashboard {
   alerts_by_day: Array<Record<string, number | string>>;
   project_costs: Array<{ project_id: string; project_name: string; currency: string; points: Array<[string, number]> }>;
   insights_ready: number;
+  /** Enabled feeds whose last read failed, with their last good read: stores sources first, then connectors. */
+  failing_feeds: Array<{ kind: "stores" | "connector"; name: string; since: string | null }>;
   /** Lifecycle against availability, a row per lifecycle. */
   risk_grid: Array<{ lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown"; two_plus: number; one: number; out: number; not_read: number }>;
   /** Last-time-buy and last-ship dates in the next year, soonest first. */

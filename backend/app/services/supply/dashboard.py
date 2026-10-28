@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import ending_parts, forecast_overview, overview, part_insights, parts_view, risk_views
+from app.services.supply import component_parts, ending_parts, forecast_overview, overview, part_insights, parts_view, risk_views
 from app.services.supply.vocabulary import Status
 
 FIGURE_DAYS = 30
@@ -90,6 +90,36 @@ def _project_costs(conn, today: date) -> list[dict[str, Any]]:
     return found
 
 
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def failing_feeds(conn) -> list[dict[str, Any]]:
+    """Every enabled feed whose last read failed: stores sources, then distributor connectors, each with its last good read.
+
+    While one fails its figures can no longer be told from "nothing there", so the Dashboard says so above everything else."""
+
+    found: list[dict[str, Any]] = []
+    if component_parts.library_present(conn):
+        for row in conn.execute(
+            """
+            SELECT s.display_name, COALESCE(MAX(l.fetched_at::timestamptz), s.last_sync_at::timestamptz) AS since FROM inventory_sources s
+            LEFT JOIN inventory_levels l ON l.source_id = s.id
+            WHERE s.enabled AND s.last_status = 'error' GROUP BY s.id ORDER BY lower(s.display_name)
+            """
+        ).fetchall():
+            found.append({"kind": "stores", "name": row["display_name"], "since": _iso(row["since"])})
+    for row in conn.execute(
+        """
+        SELECT display_name, last_ok_at FROM supply_connectors
+        WHERE enabled AND (paused_reason <> '' OR (last_error_at IS NOT NULL AND (last_ok_at IS NULL OR last_error_at > last_ok_at)))
+        ORDER BY lower(display_name)
+        """
+    ).fetchall():
+        found.append({"kind": "connector", "name": row["display_name"], "since": _iso(row["last_ok_at"])})
+    return found
+
+
 def build(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     """Everything the Dashboard page draws."""
 
@@ -132,4 +162,5 @@ def build(conn, now: datetime | None = None, role: str | None = None) -> dict[st
         "alerts_by_day": _alerts_by_day(conn, now.date()),
         "project_costs": _project_costs(conn, now.date()),
         "insights_ready": len(kept),
+        "failing_feeds": failing_feeds(conn),
     }

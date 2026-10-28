@@ -158,6 +158,26 @@ describe("the dashboard", () => {
     expect(within(projects).getByText("@ 10")).toBeTruthy();
   });
 
+  it("says above everything which feed is down, and never that nothing needs you, with the way to Connectors", async () => {
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ failing_feeds: [
+      { kind: "stores", name: "Main stores", since: null },
+      { kind: "stores", name: "Second stores", since: null },
+      { kind: "connector", name: "DigiKey EU", since: null },
+    ] }));
+    mocked.listSupplyAlerts.mockResolvedValue({ items: [] });
+    renderView();
+    expect(await screen.findByText("Stores feed down · DigiKey EU down")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Connectors →" }).getAttribute("href")).toBe("/?section=library-manager&libraryView=connectors");
+    expect(await screen.findByText("No open alerts.")).toBeTruthy();
+    expect(screen.queryByText(/Nothing needs you/)).toBeNull();
+  });
+
+  it("has no health strip while every feed reads", async () => {
+    renderView();
+    await atRiskTile();
+    expect(screen.queryByText(/ down/)).toBeNull();
+  });
+
   it("opens a part from an alert", async () => {
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "OOS-1" }));

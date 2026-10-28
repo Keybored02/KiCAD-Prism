@@ -273,6 +273,23 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("201", "error")])
 
+        from app.services.supply import dashboard
+
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO supply_connectors (id, provider, storefront, display_name, last_ok_at, last_error_at) VALUES ('c-down', 'fake', 'XA', 'Down shop', %s, %s), "
+                "('c-ok', 'fake', 'XB', 'Fine shop', %s, %s)", (NOW, NOW + timedelta(hours=1), NOW + timedelta(hours=1), NOW))
+            self.addCleanup(self._drop_connectors)
+            feeds = dashboard.failing_feeds(conn)
+        stores = [feed for feed in feeds if feed["kind"] == "stores"]
+        self.assertEqual([feed["name"] for feed in stores], ["Stock"])
+        self.assertEqual(stores[0]["since"][:10], (NOW + timedelta(days=1)).date().isoformat(), "the last good read")
+        self.assertEqual([(feed["name"], feed["since"][:10]) for feed in feeds if feed["kind"] == "connector"], [("Down shop", NOW.date().isoformat())])
+
+    def _drop_connectors(self) -> None:
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_connectors WHERE id IN ('c-down', 'c-ok')")
+
     def test_a_person_s_link_answers_an_unmatched_part(self) -> None:
         from app.services.supply.inventory import sync
 

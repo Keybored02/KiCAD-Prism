@@ -189,6 +189,11 @@ alert; it clears by itself once the condition ends. Prism sends no email or
 chat messages. The Dashboard lists the open alerts, the ones the **Open alerts**
 tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
+While the stores feed or a distributor connector can't be read, a red line
+across the top of the Dashboard says which one, with its last good read:
+**Stores feed down · 17:09**. The figures behind it may be out of date until
+it reads again. **Connectors →** opens the place to fix it.
+
 Every Dashboard count opens a list with exactly that many parts: a cell of the
 risk grid opens the parts with that lifecycle and that many distributors. A
 tracked project's row shows the boards and the cost per board its own page
