@@ -2,7 +2,7 @@ import type { SupplyMarketHistory, SupplyMarketMetric } from "@/types/supply";
 
 export const MARKET_COLUMNS = [
   { key: "out_of_stock", label: "Out of stock", kind: "share" },
-  { key: "lifecycle_risk", label: "Lifecycle risk", kind: "share" },
+  { key: "lifecycle_risk", label: "Ending (reported)", kind: "share" },
   { key: "dropped", label: "Dropped by distributors", kind: "share" },
   { key: "median_lead_time_days", label: "Median lead time", kind: "days" },
   { key: "price_index", label: "Price index", kind: "index" },

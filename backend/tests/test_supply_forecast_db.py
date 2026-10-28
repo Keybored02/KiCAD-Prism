@@ -316,6 +316,13 @@ class ForecastDbTests(unittest.TestCase):
         self.assertEqual(found["quantity"], 100)
         self.assertTrue(found["price"]["h90"]["flat"])
         self.assertEqual(found["path"][0]["day"], START.date().isoformat())
+        self.assertNotIn("end_of_life", found, "the lifecycle chance waits for the changes it needs; until then it is the prior's")
+        from app.services.supply import forecast_lifecycle
+
+        with self.store.connection() as conn, mock.patch.dict(forecast_price.MIN_SPAN_DAYS, {30: 7, 90: 7}), \
+                mock.patch.object(forecast_lifecycle, "MIN_CHANGES_TO_SHOW", 0):
+            shown = forecast_view.part(conn, self.part_id, START, quantity=100)
+        self.assertIn("p12", shown["end_of_life"], "and is shown once it rests on data")
 
     def test_a_part_with_an_open_notice_and_distributors_dropping_it_is_likelier_to_end_but_never_certain(self) -> None:
         from app.services.supply import forecast_lifecycle
