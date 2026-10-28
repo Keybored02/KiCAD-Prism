@@ -10,7 +10,7 @@ import json
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Sequence
 
 from app.services.supply import bom_comments, bom_lookup, cost_history, tracking, usage
 from app.services.supply.assessment import settings_store
@@ -198,20 +198,26 @@ ROLLUP_MAX_AGE = timedelta(hours=1)
 def _kept_rollup(conn, project_id: str, variant: str) -> tuple[bool, dict[str, Any] | None]:
     """(found, rollup) for a kept rollup no mark has made stale since it was worked out."""
 
-    row = conn.execute(
+    kept = _kept_rollups(conn, [(project_id, variant)])
+    return ((project_id, variant) in kept, kept.get((project_id, variant)))
+
+
+def _kept_rollups(conn, wanted: Sequence[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any] | None]:
+    """The kept rollups no mark has made stale since they were worked out, by (project, variant); stale or missing ones are left out."""
+
+    rows = conn.execute(
         """
-        SELECT r.data FROM supply_project_rollups r
-        WHERE r.project_id = %s AND r.variant = %s AND r.computed_at > NOW() - %s
+        SELECT r.project_id, r.variant, r.data FROM supply_project_rollups r
+        JOIN unnest(%s::text[], %s::text[]) AS w(project_id, variant) ON r.project_id = w.project_id AND r.variant = w.variant
+        WHERE r.computed_at > NOW() - %s
           AND NOT EXISTS (SELECT 1 FROM supply_rollup_dirty d WHERE d.scope IN (r.project_id, '*') AND d.xid >= r.snap
                           AND (d.xid = r.own OR NOT pg_visible_in_snapshot(d.xid::text::xid8, r.seen::pg_snapshot)))
           AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = ANY(r.part_ids) AND d.xid >= r.snap
                           AND (d.xid = r.own OR NOT pg_visible_in_snapshot(d.xid::text::xid8, r.seen::pg_snapshot)))
         """,
-        (project_id, variant, ROLLUP_MAX_AGE),
-    ).fetchone()
-    if row is None:
-        return False, None
-    return True, row["data"].get("rollup")
+        ([project_id for project_id, _ in wanted], [variant for _, variant in wanted], ROLLUP_MAX_AGE),
+    ).fetchall()
+    return {(row["project_id"], row["variant"]): row["data"].get("rollup") for row in rows}
 
 
 def _keep_rollup(conn, project_id: str, variant: str, seen: str, rollup: dict[str, Any] | None, part_ids: list[str]) -> None:
@@ -254,6 +260,16 @@ def usual_rollup(conn, project: dict[str, Any], variant: str) -> dict[str, Any] 
         part_ids = [*loaded.per_board, *(other for others in loaded.alternates.values() for other in others)]
     _keep_rollup(conn, project_id, variant, seen, rollup, part_ids)
     return rollup
+
+
+def usual_rollups(conn, wanted: Sequence[tuple[dict[str, Any], str]]) -> dict[str, dict[str, Any] | None]:
+    """``usual_rollup`` for several tracked projects, by project id: the kept ones in one read, only stale ones worked out."""
+
+    kept = _kept_rollups(conn, [(project["project_id"], variant) for project, variant in wanted])
+    return {
+        project["project_id"]: kept[(project["project_id"], variant)] if (project["project_id"], variant) in kept else usual_rollup(conn, project, variant)
+        for project, variant in wanted
+    }
 
 
 def refresh_rollups(conn) -> int:

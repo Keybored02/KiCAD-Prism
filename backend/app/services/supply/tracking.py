@@ -86,6 +86,13 @@ def tracked_project(conn, project_id: str) -> dict[str, Any] | None:
     return _with_choice(conn, row) if row else None
 
 
+def tracked_projects(conn, project_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """``tracked_project`` for several projects in one read, by project id (untracked ones are left out)."""
+
+    rows = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM supply_tracked_projects WHERE project_id = ANY(%s)", (list(project_ids),)).fetchall()
+    return {row["project_id"]: _with_choice(conn, row) for row in rows}
+
+
 def list_tracked_projects(conn) -> list[dict[str, Any]]:
     rows = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM supply_tracked_projects ORDER BY project_id").fetchall()
     return [_with_choice(conn, row) for row in rows]
