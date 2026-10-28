@@ -1569,11 +1569,6 @@
     "path": "/api/v1/supply/market",
     "typed": true
   },
-  "mcp": {
-    "method": "POST",
-    "path": "/api/v1/supply/mcp",
-    "typed": true
-  },
   "metadata_batch_report": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/batches/{batch_id}/report.csv",

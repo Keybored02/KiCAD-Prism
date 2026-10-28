@@ -7193,13 +7193,6 @@ class GeneratedClient:
             "/api/v1/supply/market",
         )
 
-    def mcp(self) -> dict[str, Any]:
-        """Mcp"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/mcp",
-        )
-
     def metadata_batch_report(self, batch_id: str) -> Any:
         """Export a metadata batch report"""
         return self._request(

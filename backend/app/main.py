@@ -72,7 +72,6 @@ from app.api.supply_pcn import router as supply_pcn_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_bom_comments import router as supply_bom_comments_router
 from app.api.supply_checks import router as supply_checks_router
-from app.api.supply_mcp import router as supply_mcp_router
 from app.api.supply_packaging import router as supply_packaging_router
 from app.api.supply_tracking import budget_router as supply_budget_router, router as supply_tracking_router
 from app.api.supply_release import router as supply_release_router
@@ -468,7 +467,6 @@ app.include_router(supply_tracking_router)
 app.include_router(supply_budget_router)
 app.include_router(supply_packaging_router)
 app.include_router(supply_checks_router)
-app.include_router(supply_mcp_router)
 app.include_router(supply_settings_router)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
