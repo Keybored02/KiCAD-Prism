@@ -1,7 +1,7 @@
 import type { StoresState } from "@/types/supply";
 
 /** "17:09" today, "28 Oct" before. */
-function shortWhen(iso: string | null): string {
+export function shortWhen(iso: string | null): string {
   if (!iso) return "";
   const when = new Date(iso);
   if (Number.isNaN(when.getTime())) return "";

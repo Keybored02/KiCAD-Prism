@@ -158,6 +158,7 @@ export function dashboardFixture(overrides: Partial<SupplyDashboard> = {}): Supp
     alerts_by_day: [],
     project_costs: [],
     insights_ready: 4,
+    failing_feeds: [],
     risk_grid: [
       { lifecycle: "active", two_plus: 1, one: 1, out: 0, not_read: 0 },
       { lifecycle: "nrnd", two_plus: 0, one: 1, out: 1, not_read: 0 },

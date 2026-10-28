@@ -24,9 +24,11 @@ function useAlertList(user: User | null) {
 }
 
 /** The alerts, worst first, with a chip a kind to narrow them. */
-export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
+export function AlertList({ user, overview, feedsFailing = false, kind, onKind, onOpenPart }: {
   user: User | null;
   overview: SupplyOverview | null | undefined;
+  /** A feed is failing: an empty list then never says "Nothing needs you". */
+  feedsFailing?: boolean;
   kind: string;
   onKind: (kind: string) => void;
   onOpenPart: (id: string) => void;
@@ -74,7 +76,7 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
       {actionError ? <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert> : null}
       {status === "ready" && data ? (
         shown.length === 0 ? (
-          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(overview, showCleared)}</div>
+          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(overview, showCleared, feedsFailing)}</div>
         ) : (
           <ul className={cn("border")}>
             {shown.map((alert) => (
@@ -96,8 +98,9 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
   );
 }
 
-function emptyText(overview: SupplyOverview | null | undefined, showCleared: boolean): string {
+function emptyText(overview: SupplyOverview | null | undefined, showCleared: boolean, feedsFailing: boolean): string {
   if (showCleared) return "Nothing here yet.";
+  if (feedsFailing) return "No open alerts.";
   if (!overview) return "Nothing needs you.";
   if (overview.connectors === 0) return "No distributor is connected. Add one under Connectors, and Prism can start reading stock.";
   if (overview.figures.watched === 0) return "No parts are tracked yet. Track a part in Parts and it is read regularly.";

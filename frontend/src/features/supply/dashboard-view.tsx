@@ -11,6 +11,7 @@ import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
 import { EndingNotifications } from "./ending-notifications";
+import { FeedHealthStrip } from "./feed-health-strip";
 import { RunwayCard } from "./dashboard-charts";
 import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
@@ -59,6 +60,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
   return (
     <div className="themed-scrollbar relative h-full overflow-y-auto px-4 pb-4 pt-2">
       <div className="space-y-4">
+        {data ? <FeedHealthStrip feeds={data.failing_feeds ?? []} canOpenConnectors={canOpenLibraryManager(user?.role)} /> : null}
         {user?.role === "admin" ? <AdminStrip waiting={data?.figures.waiting ?? 0} /> : null}
         {canOpenLibraryManager(user?.role) ? <EndingNotifications role={user?.role} onOpenComponent={openComponent} /> : null}
         {dashboard.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
@@ -87,7 +89,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
           </>
         ) : null}
         <div className="grid items-start gap-3 lg:grid-cols-2">
-          <AlertList user={user} overview={overview.data} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
+          <AlertList user={user} overview={overview.data} feedsFailing={(data?.failing_feeds?.length ?? 0) > 0} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
           {overview.data && overview.data.recent_changes.length > 0 ? (
             <details open>
               <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</summary>
