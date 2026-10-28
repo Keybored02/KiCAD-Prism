@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
 import { failureWords } from "./connector-status";
 import { PackagingChip } from "./packaging-chip";
+import { TestDataChip } from "./test-data-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
@@ -47,6 +48,7 @@ export function ListingTable({
                     {listing.sku}
                   </a>
                 ) : <span className="font-medium">{listing.sku}</span>}
+                <TestDataChip show={listing.test_data} />
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
                 {follow?.followed === listing.id ? <Badge variant="default" role="img" aria-label="Followed" title="Followed"><Eye className="h-3 w-3" /></Badge> : null}
                 {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (

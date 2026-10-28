@@ -160,6 +160,7 @@ class FxDatabaseTests(unittest.TestCase):
         self.offer(one, "c2", "B", "0.50", "USD")
         result = self.lookup([{"key": "a", "manufacturer": "Acme", "mpn": "P-1", "quantity": 2}])
         self.assertEqual((result["rollup"]["currency"], result["rollup"]["converted"], result["rollup"]["cost_build"]), ("USD", False, "10.00"))
+        self.assertEqual((result["lines"]["a"]["buy"]["test_data"], result["rollup"]["test_data"]), (True, True), "the simulated market's price is test data")
         self.assertEqual(result["rollup"]["original_costs"], {})
 
     def test_a_rupee_workspace_totals_euro_offers_in_rupees(self) -> None:

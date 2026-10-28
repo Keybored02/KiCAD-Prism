@@ -217,7 +217,7 @@ class BomLookupTests(unittest.TestCase):
         ]}
         response = self.call("/api/supply/bom/components-status", body)
         self.assertEqual(response.status, 200, response.text)
-        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True, "unit_price": "0.5", "currency": "EUR", "restriction": None}})
+        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True, "unit_price": "0.5", "currency": "EUR", "test_data": True, "restriction": None}})
         self.assertEqual(self.call("/api/supply/bom/components-status", body, role="viewer").status, 403)
         with self.store.connection() as conn:
             from app.services.supply import ending_parts

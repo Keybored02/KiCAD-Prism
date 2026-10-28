@@ -541,6 +541,19 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             fx.store(conn, self.now.date(), {currency: Decimal(per_eur)}, "manual")
 
+    def test_a_price_from_the_simulated_market_is_test_data(self) -> None:
+        simulated = self.fake_connector()
+        real = self.fake_connector(provider="pick_demo", display_name="Real")
+        part_id = self.watch_via_api("SIMMED")["part_id"]
+        self.insert_listing(part_id, simulated, "S", stock=10, currency="EUR", price="0.30")
+        item = self.part_row("SIMMED")
+        self.assertEqual((item["unit_price"], item["price_test_data"]), ("0.3", True))
+        self.insert_listing(part_id, real, "R", stock=10, currency="EUR", price="0.20")
+        item = self.part_row("SIMMED")
+        self.assertEqual((item["unit_price"], item["price_test_data"]), ("0.2", False), "the cheapest is a real distributor's")
+        self.assertTrue(self.registry.is_simulated("fake"))
+        self.assertFalse(self.registry.is_simulated("pick_demo"))
+
     def test_prices_in_other_currencies_are_converted_to_the_base_currency(self) -> None:
         cid = self.fake_connector()
         part_id = self.watch_via_api("MIXED")["part_id"]

@@ -165,8 +165,8 @@ describe("supply columns on the BOM", () => {
       expect(within(found).getByText("2 parts")).toBeTruthy();
       return found;
     });
-    // Five supply columns besides Supply, and the table's own "Mixed" for the differing part numbers.
-    expect(within(row).getAllByRole("img", { name: /^Mixed/ })).toHaveLength(5);
+    // Six supply columns besides Supply, and the table's own "Mixed" for the differing part numbers.
+    expect(within(row).getAllByRole("img", { name: /^Mixed/ })).toHaveLength(6);
     expect(within(row).getAllByText("Mixed")).toHaveLength(1);
   });
 

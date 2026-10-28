@@ -216,6 +216,8 @@ export interface SupplyComponentStanding {
   /** The main part's headline unit price at the distributors. */
   unit_price?: string | null;
   currency?: string;
+  /** From a simulated connector: test data, marked wherever it shows. */
+  test_data?: boolean;
   /** Usable local stock (OK, at our locations, less allocated); absent when the local inventory holds none, null when units are mixed. */
   local_available?: number | null;
   stores?: StoresState;
@@ -343,6 +345,8 @@ export interface SupplyBomBuy {
   connector_name: string;
   /** The connector's provider key, for its colour. */
   provider?: string;
+  /** From a simulated connector: test data, marked wherever it shows. */
+  test_data?: boolean;
   sku: string;
   product_url: string;
   /** Pieces bought beyond the need, because of the smallest order and its multiples, and their cost. */
@@ -401,6 +405,8 @@ export interface SupplyBomLineResult {
 }
 
 export interface SupplyBomRollup {
+  /** Some of the cost comes from a simulated connector. */
+  test_data?: boolean;
   lines: number;
   tracked: number;
   not_tracked: number;
@@ -599,6 +605,8 @@ export interface SupplyHeadlinePrice {
   price_native: { price: string; currency: string } | null;
   price_seen_day: string | null;
   price_unrated: string[];
+  /** The figure comes from a simulated connector. */
+  price_test_data?: boolean;
 }
 
 export interface SupplyRowOffer {
@@ -656,6 +664,8 @@ export interface SupplyPartRow {
   price_seen_day?: string | null;
   /** Currencies priced by a distributor that have no exchange rate, so were left out. */
   price_unrated?: string[];
+  /** The price comes from a simulated connector. */
+  price_test_data?: boolean;
   fetched_at: string | null;
   tier: SupplyTier | null;
   /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
@@ -712,6 +722,8 @@ export interface SupplyGroupStats {
   build_quantity?: number;
   /** BOM lines no stock figure checks: the boards count is unconfirmed while any is. */
   unchecked?: number;
+  /** Some of the cost comes from a simulated connector. */
+  test_data?: boolean;
   alerts?: number;
 }
 
@@ -855,6 +867,8 @@ export interface SupplyListing {
   connector_name: string;
   /** The connector's provider key, for its colour. */
   provider?: string;
+  /** From a simulated connector: test data, marked wherever it shows. */
+  test_data?: boolean;
   sku: string;
   packaging: string;
   /** Pieces on a full reel, when the distributor says. */
@@ -1450,6 +1464,8 @@ export interface ProjectSupplyPart {
   stores?: StoresState | null;
   /** Pieces the line's purchase buys (the need rounded to the offer's minimum and multiple); `unit_price` is the price at it. */
   buy_quantity?: number | null;
+  /** From a simulated connector: test data, marked wherever it shows. */
+  test_data?: boolean;
   /** Whether a catalog component has the line; null for a line without a part number. */
   in_library?: boolean | null;
   /** The component's approved alternates; `stock` and `short` count them. */

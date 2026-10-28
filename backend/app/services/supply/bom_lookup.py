@@ -40,6 +40,7 @@ from app.services.supply.audit import write_audit
 from app.services.supply.vocabulary import Status
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.inventory import levels
+from app.services.supply.providers import registry
 
 MAX_LINES = 2000
 MAX_WATCH_LINES = 200
@@ -226,6 +227,7 @@ def _best_purchase(
         "covers": covers,
         "connector_name": offer["connector_name"],
         "provider": offer["provider"],
+        "test_data": registry.is_simulated(offer["provider"]),
         "sku": offer["sku"],
         "product_url": offer["product_url"],
         # The part bought: the line's own, or the approved alternate whose offer won.
@@ -651,6 +653,8 @@ def _rollup(
         "lines_priced": lines_priced,
         "currency": shown_currency,
         "converted": converted,
+        # Some of the cost comes from a simulated connector, so the total is test data.
+        "test_data": any(buy.get("test_data") for buy in priced),
         "rates_day": rates.day.isoformat() if converted and rates is not None and rates.day else None,
         "cost_build": format(total.quantize(Decimal("0.01")), "f") if total is not None else None,
         # What the total is made of before conversion, per currency the offers are quoted in. Empty when nothing was converted.
@@ -680,7 +684,7 @@ def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
         key: {
             "status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["tracking"] is not None,
             "unit_price": summary[part_id].get("unit_price"), "currency": summary[part_id].get("currency") or "",
-            "restriction": (marks.get(key) or {}).get("level"),
+            "test_data": bool(summary[part_id].get("price_test_data")), "restriction": (marks.get(key) or {}).get("level"),
         }
         for key, (state, part_id, _how) in resolved.items()
         if state == TRACKED and part_id in summary

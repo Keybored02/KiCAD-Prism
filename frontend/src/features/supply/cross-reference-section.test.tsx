@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("./supply-api", () => ({ getCrossReference: vi.fn(), addComponentSource: vi.fn(), askSubstitutes: vi.fn(), addSupplyWatch: vi.fn() }));
+vi.mock("./supply-api", () => ({ getCrossReference: vi.fn(), addComponentSource: vi.fn(), askSubstitutes: vi.fn(), addSupplyWatch: vi.fn(), listSupplyConnectors: vi.fn() }));
 
 import { CrossReferenceSection } from "./cross-reference-section";
 import * as api from "./supply-api";
@@ -18,10 +18,19 @@ const result = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getCrossReference).mockResolvedValue(result);
+  vi.mocked(api.listSupplyConnectors).mockResolvedValue([{ provider: "digikey", enabled: true }] as never);
 });
 afterEach(cleanup);
 
 describe("alternatives to a part", () => {
+  it("offers to ask DigiKey only while a DigiKey connector is on", async () => {
+    vi.mocked(api.listSupplyConnectors).mockResolvedValue([{ provider: "fake", enabled: true }, { provider: "digikey", enabled: false }] as never);
+    render(<CrossReferenceSection partId="p1" canEdit />);
+    await waitFor(() => expect(api.listSupplyConnectors).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Find alternatives" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ask DigiKey for substitutes" })).toBeNull();
+  });
+
   it("looks only when asked or opened and grades each", async () => {
     render(<CrossReferenceSection partId="p1" canEdit />);
     expect(api.getCrossReference).not.toHaveBeenCalled();
@@ -74,7 +83,7 @@ describe("alternatives to a part", () => {
     vi.mocked(api.getCrossReference).mockResolvedValue({ ...result, suggestions });
     vi.mocked(api.askSubstitutes).mockResolvedValue({ asked: 1, found: 3, problems: [] });
     render(<CrossReferenceSection partId="p1" canEdit />);
-    fireEvent.click(screen.getByRole("button", { name: "Ask DigiKey for substitutes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ask DigiKey for substitutes" }));
     await waitFor(() => expect(api.askSubstitutes).toHaveBeenCalledWith("p1"));
     expect(await screen.findByText("Suggested by distributors")).toBeTruthy();
   });

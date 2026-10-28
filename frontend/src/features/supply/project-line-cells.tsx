@@ -5,6 +5,7 @@ import type { ProjectSupplyPart } from "@/types/supply";
 import { AlternatesNote } from "./alternates-note";
 import { StoresCell } from "./stores-cell";
 import { formatPrice, formatStock } from "./supply-format";
+import { TestDataChip } from "./test-data-chip";
 
 /** What a project's parts list adds to a part: its lines of the BOM and the currency the cost is in. */
 export interface ProjectLines {
@@ -53,6 +54,7 @@ export function LinePriceCell({ line, lines }: { line: ProjectSupplyPart | undef
     <td className="px-3 py-2 text-right tabular-nums">
       {formatPrice(line.unit_price, lines.currency)}
       {line.buy_quantity ? <span className="text-muted-foreground"> @ {line.buy_quantity.toLocaleString()}</span> : null}
+      <TestDataChip show={line.test_data} />
     </td>
   );
 }
@@ -62,7 +64,7 @@ export function CostCell({ line, lines }: { line: ProjectSupplyPart | undefined;
   if (!line?.line_cost || !lines.currency) return <td className="px-3 py-2 text-right tabular-nums" />;
   return (
     <td className="px-3 py-2 text-right tabular-nums">
-      {formatPrice(line.line_cost, lines.currency)}
+      {formatPrice(line.line_cost, lines.currency)}<TestDataChip show={line.test_data} />
       {line.buy_quantity && line.unit_price ? <div className="text-xs text-muted-foreground">{line.buy_quantity.toLocaleString()} × {formatPrice(line.unit_price, lines.currency)}</div> : null}
     </td>
   );

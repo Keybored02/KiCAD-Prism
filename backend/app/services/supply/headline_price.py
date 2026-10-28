@@ -108,8 +108,11 @@ def headline(
     """The list price of a part: the figure, its kind and what goes with it. ``last_seen`` is asked only when nothing else prices it."""
 
     quotes = [found for found in (quote(offer, wanted, base, rates) for offer in offers) if found is not None]
+    from app.services.supply.providers import registry  # the registry loads every provider, so it is imported when asked
+
+    simulated = {offer["connector_id"] for offer in offers if registry.is_simulated(offer.get("provider") or "")}
     none = {"unit_price": None, "currency": "", "price_quantity": wanted, "price_kind": None, "price_lead_days": None,
-            "price_range": None, "price_native": None, "price_seen_day": None, "price_unrated": _unrated(offers, quotes)}
+            "price_range": None, "price_native": None, "price_seen_day": None, "price_unrated": _unrated(offers, quotes), "price_test_data": False}
     if not quotes:
         return none
     within = [found for found in quotes if found.within]
@@ -137,6 +140,8 @@ def headline(
         "price_range": _range(within or beyond),
         "price_native": {"price": _text(chosen.native), "currency": chosen.currency} if foreign else None,
         "price_seen_day": seen_day.isoformat() if seen_day else None,
+        # The figure came from a simulated connector; a last-seen price is test data when every offer of the part is.
+        "price_test_data": chosen.connector_id in simulated if chosen else bool(offers) and all(offer["connector_id"] in simulated for offer in offers),
     }
 
 

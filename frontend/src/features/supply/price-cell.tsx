@@ -4,6 +4,7 @@ import type { SupplyPartRow } from "@/types/supply";
 import { PriceMove } from "./part-row-extras";
 import { daysSince, leadText, noPriceReason, priceDetail } from "./price-text";
 import { formatPrice } from "./supply-format";
+import { TestDataChip } from "./test-data-chip";
 
 function Note({ part, now }: { part: SupplyPartRow; now: number }) {
   const at = `at ${part.price_quantity.toLocaleString()}`;
@@ -32,7 +33,7 @@ export function PriceCell({ part, now = Date.now() }: { part: SupplyPartRow; now
   return (
     <span title={detail || undefined}>
       {formatPrice(part.unit_price, part.currency)}{part.price_native ? <span aria-label="converted"> ~</span> : null}
-      {part.price_quantity ? <span className="text-muted-foreground"> @ {part.price_quantity.toLocaleString()}</span> : null} <PriceMove percent={part.price_change_percent} />
+      {part.price_quantity ? <span className="text-muted-foreground"> @ {part.price_quantity.toLocaleString()}</span> : null}<TestDataChip show={part.price_test_data} /> <PriceMove percent={part.price_change_percent} />
       <Note part={part} now={now} />
     </span>
   );

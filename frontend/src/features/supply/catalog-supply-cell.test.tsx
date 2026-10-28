@@ -10,7 +10,13 @@ describe("the catalog's Supply column", () => {
   it("shows the distributors' status, price and stock with what the stores hold", () => {
     const { container } = render(<CatalogSupplyCell standing={{ status: "ok", stock: 12400, watched: true, unit_price: "0.5", currency: "EUR", local_available: 300, stores: { state: "stock", available: 300, since: null } }} />);
     expect(container.textContent).toContain("Dist 12,400 · Stores 300");
-    expect(screen.getByTitle("Unit price at the distributors").textContent).toContain("0.50");
+    expect(container.textContent).toContain("0.50");
+    expect(container.textContent).not.toContain("Test data");
+  });
+
+  it("marks a price a simulated connector made up", () => {
+    const { container } = render(<CatalogSupplyCell standing={{ status: "ok", stock: 10, watched: true, unit_price: "0.5", currency: "EUR", test_data: true }} />);
+    expect(container.textContent).toContain("€0.50Test data");
   });
 
   it("says a component is not tracked when only the stores know it", () => {
