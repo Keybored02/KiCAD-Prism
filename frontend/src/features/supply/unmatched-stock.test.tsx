@@ -15,7 +15,7 @@ import { sameIdentity, UnmatchedStockSection } from "./unmatched-stock";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-const source = (id: string, unmatched: number, extra: Partial<InventorySource> = {}) => ({ id, display_name: id === "a" ? "Vision" : "Lab", unmatched, ...extra }) as InventorySource;
+const source = (id: string, unmatched: number, extra: Partial<InventorySource> = {}) => ({ id, display_name: id === "a" ? "Stores" : "Lab", unmatched, ...extra }) as InventorySource;
 const part = (remote_part: string, quantity: number, extra: Partial<InventoryUnmatchedPart> = {}): InventoryUnmatchedPart => ({
   remote_part, ipn: "", mpn: `MPN-${remote_part}`, manufacturer: "Unknown manufacturer", name: `Part ${remote_part}`, quantity, records: 1,
   reason: "no_component", seen_at: "2026-10-28T10:00:00Z", ...extra,
@@ -24,11 +24,11 @@ const part = (remote_part: string, quantity: number, extra: Partial<InventoryUnm
 describe("unmatched local stock", () => {
   it("lists every source's parts, largest stock first", async () => {
     listInventorySources.mockResolvedValue([source("a", 2), source("b", 0)]);
-    listUnmatchedParts.mockImplementation(async (id: string) => (id === "a" ? [part("1", 5), part("2", 400, { ipn: "13970", reason: "sap_code_shared" })] : []));
+    listUnmatchedParts.mockImplementation(async (id: string) => (id === "a" ? [part("1", 5), part("2", 400, { ipn: "10042", reason: "sap_code_shared" })] : []));
     render(<UnmatchedStockSection canDecide />);
     const rows = await screen.findAllByRole("listitem");
     expect(rows.map((row) => row.querySelector("p")?.textContent)).toEqual(["Part 2", "Part 1"]);
-    expect(screen.getByText("Vision · SAP 13970 · MPN-2 · SAP code on several components")).toBeTruthy();
+    expect(screen.getByText("Stores · SAP 10042 · MPN-2 · SAP code on several components")).toBeTruthy();
     // A source counting none unmatched may still hold linked rows waiting for a read.
     expect(listUnmatchedParts).toHaveBeenCalledTimes(2);
     expect(screen.getAllByRole("button", { name: /Link/ })).toHaveLength(2);
@@ -59,7 +59,7 @@ describe("unmatched local stock", () => {
 describe("the identity check before linking", () => {
   it("is the same part on the MPN, spelled any way, or on the SAP code", () => {
     expect(sameIdentity({ mpn: "rc0603fr-0710kl", ipn: "" }, { mpn: "RC0603FR0710KL", sap_code: "" })).toBe(true);
-    expect(sameIdentity({ mpn: "", ipn: "13970" }, { mpn: "X", sap_code: "13970" })).toBe(true);
+    expect(sameIdentity({ mpn: "", ipn: "10042" }, { mpn: "X", sap_code: "10042" })).toBe(true);
     expect(sameIdentity({ mpn: "TNPW060310K0BEEA", ipn: "12723" }, { mpn: "RC0603FR-0710KL", sap_code: "" })).toBe(false);
     expect(sameIdentity({ mpn: "", ipn: "" }, { mpn: "", sap_code: "" })).toBe(false);
   });

@@ -19,8 +19,8 @@ afterEach(cleanup);
 
 function source(extra: Partial<InventorySource> = {}): InventorySource {
   return {
-    id: "s1", kind: "inventree", display_name: "Vision", base_url: "https://vision.example.com", category_id: 3, enabled: true,
-    interval_hours: 24, has_token: true, server: "Vision", api_version: 566, last_sync_at: "2026-10-28T10:00:00Z", last_status: "ok",
+    id: "s1", kind: "inventree", display_name: "Stores", base_url: "https://inventory.example.com", category_id: 3, enabled: true,
+    interval_hours: 24, has_token: true, server: "Stores", api_version: 566, last_sync_at: "2026-10-28T10:00:00Z", last_status: "ok",
     last_error: "", matched: 790, unmatched: 12, ...extra,
   };
 }
@@ -41,10 +41,10 @@ describe("local inventory sources", () => {
     expect(await screen.findByText("790 matched · 12 unmatched")).toBeTruthy();
     expect(screen.getByText("auth_failed: 401")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add source/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Actions for Vision/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Actions for Stores/ })).toBeNull();
     cleanup();
     render(<InventorySourcesSection isAdmin />);
-    expect(await screen.findByRole("button", { name: /Actions for Vision/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Actions for Stores/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add source/ })).toBeTruthy();
   });
 });

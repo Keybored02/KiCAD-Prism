@@ -18,7 +18,7 @@ const REASON: Record<InventoryUnmatchedPart["reason"], string> = {
   mpn_shared: "MPN on several components",
 };
 
-// Vision serves every part under this maker until it knows the real one; it is not worth copying into a new component.
+// Some inventory servers list every part under this maker until it knows the real one; it is not worth copying into a new component.
 const UNKNOWN_MAKER = "unknown manufacturer";
 
 /** A part number as the backend's match key reads it: letters and digits, upper case. */

@@ -103,7 +103,7 @@ class InvenTreeClientTests(unittest.TestCase):
 
     def test_parts_carry_their_manufacturer_part_numbers(self) -> None:
         server = FakeServer({
-            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "13970", "units": ""}, {"pk": 2, "name": "CAP", "IPN": None}],
+            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "10042", "units": ""}, {"pk": 2, "name": "CAP", "IPN": None}],
             "company/part/manufacturer/": [
                 {"pk": 9, "part": 1, "MPN": "TNPW060310K0BEEA", "manufacturer_detail": {"pk": 3, "name": "Vishay"}},
                 {"pk": 10, "part": 99, "MPN": "OUTSIDE"},
@@ -117,7 +117,7 @@ class InvenTreeClientTests(unittest.TestCase):
         from app.services.supply.inventory import sync
 
         server = VisionServer({
-            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "13970"}],
+            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "10042"}],
             "company/part/manufacturer/": [
                 {"pk": 1, "part": 1, "MPN": "TNPW060310K0BEEA", "manufacturer": 1,
                  "manufacturer_detail": {"pk": 1, "name": "Unknown manufacturer"}},
@@ -222,7 +222,7 @@ class InventorySyncTests(unittest.TestCase):
                 {"pk": 11, "part": 2, "MPN": mpn, "manufacturer_detail": {"name": "Unknown manufacturer"}},
                 {"pk": 12, "part": 3, "MPN": shared, "manufacturer_detail": {"name": "Unknown manufacturer"}},
             ],
-            "stock/location/": [{"pk": 50, "pathstring": "4200/BS4/AVI4"}, {"pk": 51, "pathstring": "4200/EXT4/V1", "external": True}],
+            "stock/location/": [{"pk": 50, "pathstring": "WH1/A/01"}, {"pk": 51, "pathstring": "EXT/VENDOR1", "external": True}],
             "stock/": stock,
         })
 
@@ -247,9 +247,9 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual(
             [(row["component_id"], row["source_record_id"], row["quantity"], row["allocated"], row["inventory_status"], row["location_path"], row["external"]) for row in levels],
             [
-                (str(by_sap["id"]), "101", 400.0, 100.0, "available", "4200/BS4/AVI4", False),
-                (str(by_sap["id"]), "102", 50.0, 0.0, "on hold", "4200/EXT4/V1", True),
-                (str(by_mpn["id"]), "103", 7.0, 0.0, "available", "4200/BS4/AVI4", False),
+                (str(by_sap["id"]), "101", 400.0, 100.0, "available", "WH1/A/01", False),
+                (str(by_sap["id"]), "102", 50.0, 0.0, "on hold", "EXT/VENDOR1", True),
+                (str(by_mpn["id"]), "103", 7.0, 0.0, "available", "WH1/A/01", False),
             ],
         )
         self.assertEqual(self._unmatched(source_id), {"3": "mpn_shared", "4": "no_component"})
@@ -404,7 +404,7 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual(answer.status, 200)
         self.assertEqual((answer.json["available"], answer.json["held"], answer.json["at_vendor"]), (300.0, 50.0, 30.0))
         self.assertEqual([(row["location"], row["status"], row["external"]) for row in answer.json["rows"]], [
-            ("4200/BS4/AVI4", "available", False), ("4200/BS4/AVI4", "on hold", False), ("4200/EXT4/V1", "available", True),
+            ("WH1/A/01", "available", False), ("WH1/A/01", "on hold", False), ("EXT/VENDOR1", "available", True),
         ])
         self.assertEqual(_request(app, "GET", f"/api/supply/components/{component['id']}/local-stock", user=self.users["viewer"]).status, 403)
         from app.api import supply_bom

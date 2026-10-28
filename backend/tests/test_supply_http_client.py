@@ -214,8 +214,8 @@ class EgressTests(unittest.TestCase):
     def test_the_private_host_setting_is_a_comma_list(self) -> None:
         from app.core.supply_config import SupplySettings
 
-        listed = SupplySettings(SUPPLY_INVENTORY_PRIVATE_HOSTS_STR=" Vision.Example.Internal. , ,stock.example.com")
-        self.assertEqual(listed.SUPPLY_INVENTORY_PRIVATE_HOSTS, ["vision.example.internal", "stock.example.com"])
+        listed = SupplySettings(SUPPLY_INVENTORY_PRIVATE_HOSTS_STR=" Inventory.Example.Internal. , ,stock.example.com")
+        self.assertEqual(listed.SUPPLY_INVENTORY_PRIVATE_HOSTS, ["inventory.example.internal", "stock.example.com"])
 
     def test_no_allowlist_means_any_public_host(self) -> None:
         client, transport = _client(_response(200, {}), allowed=None)

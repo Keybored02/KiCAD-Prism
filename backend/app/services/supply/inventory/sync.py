@@ -9,7 +9,7 @@ Each server part is matched to one active catalog component, first hit wins:
 1. a person's link (``inventory_links``);
 2. the part's IPN equals one component's SAP code;
 3. one of its MPNs is one component's part number. Several components with the number are told apart by the maker,
-   which is otherwise only a hint (Vision serves every part under "Unknown manufacturer").
+   which is otherwise only a hint (some servers list every part under "Unknown manufacturer").
 
 A part with stock that matches nothing waits in ``inventory_unmatched`` with the reason.
 """

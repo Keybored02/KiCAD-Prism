@@ -51,7 +51,7 @@ export function InventorySourceDialog({ open, source, onClose, onSaved }: {
           <DialogDescription className="sr-only">An InvenTree-compatible server and its API token</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <div className="space-y-1.5"><Label htmlFor="inventory-name">Name</Label><Input id="inventory-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Vision" /></div>
+          <div className="space-y-1.5"><Label htmlFor="inventory-name">Name</Label><Input id="inventory-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Stores" /></div>
           <div className="space-y-1.5"><Label htmlFor="inventory-url">Server</Label><Input id="inventory-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://inventory.example.com" /></div>
           <div className="space-y-1.5">
             <Label htmlFor="inventory-token">API token</Label>
