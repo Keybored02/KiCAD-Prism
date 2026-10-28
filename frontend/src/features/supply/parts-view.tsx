@@ -33,7 +33,7 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "watched", label: "Tracked" },
   { id: "tier1", label: "Tier 1" },
   { id: "tier2", label: "Tier 2" },
-  { id: "waiting", label: "Waiting for room" },
+  { id: "waiting", label: "Queued for calls" },
   { id: "pick", label: "Pick a packaging" },
   { id: "in_use", label: "In use" },
 ];

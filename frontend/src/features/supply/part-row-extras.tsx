@@ -13,7 +13,7 @@ function Tip({ icon: Icon, label, className }: { icon: LucideIcon; label: string
 }
 
 const FLAG: Record<string, { icon: LucideIcon; text: string }> = {
-  waiting: { icon: Hourglass, text: "Waiting for room to be read" },
+  waiting: { icon: Hourglass, text: "Queued for calls" },
   rohs: { icon: ShieldAlert, text: "A distributor says it is not RoHS compliant" },
   reach: { icon: ShieldAlert, text: "A distributor says REACH affects it" },
   ncnr: { icon: Ban, text: "Non-cancellable, non-returnable" },

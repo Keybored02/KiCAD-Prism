@@ -35,7 +35,7 @@ describe("what a part row shows at a glance", () => {
       <RowFlags flags={["waiting", "rohs"]} />
     </>);
     expect(screen.getByText("4%")).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Waiting for room to be read" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Queued for calls" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "A distributor says it is not RoHS compliant" })).toBeTruthy();
   });
 });

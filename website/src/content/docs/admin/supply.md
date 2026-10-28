@@ -1,6 +1,6 @@
 ---
 title: Connect distributors and inventory
-description: Give Prism's supply data its sources, distributor accounts and an InvenTree-compatible inventory, and keep their call budgets and history in hand.
+description: Give Prism's supply data its sources, distributor accounts and an InvenTree-compatible inventory, and keep their daily call limits and history in hand.
 sidebar:
   order: 8
 ---
@@ -42,7 +42,7 @@ ignores the environment's proxy variables for these calls.
 | JLCPCB (assembly) | A file you upload | Read only for projects built at JLCPCB. Its stock is for its own assembly and never counts in a total. |
 | CSV | A file you upload | For air-gapped installs and distributors without an API. Each upload replaces the previous file. |
 
-Connectors on the same credentials share one call budget.
+Connectors on the same credentials share one daily call limit.
 
 ### DigiKey change notices
 
@@ -58,7 +58,7 @@ The sign-in lasts about 90 days. The card shows who signed in and until when,
 and asks for a new sign-in when it runs out. Stock and prices don't depend on
 it.
 
-## Manage the call budget
+## Manage the daily call limit
 
 Each connector's day is split into a share for scheduled reads (at most 90%)
 and a pool for people's reads, first searches and one-off checks. The

@@ -25,7 +25,7 @@ export function daySegments(item: BudgetConnector): Segment[] {
     { id: "spare", label: "Spent on spare work", calls: item.spare_spent, tone: "bg-success" },
     { id: "scheduled", label: "Kept for scheduled work", calls: scheduled, tone: "bg-primary/30" },
     { id: "kept", label: "Kept for people", calls: kept, tone: "bg-warning/30" },
-    { id: "free", label: "Free now", calls: free, tone: "bg-success/30" },
+    { id: "free", label: "Left today", calls: free, tone: "bg-success/30" },
     { id: "margin", label: "Margin", calls: left - scheduled - kept - free, tone: "bg-muted-foreground/20" },
   ].filter((segment) => segment.calls > 0);
 }
@@ -41,7 +41,7 @@ export function DayBar({ item }: { item: BudgetConnector }) {
         {segments.map((segment) => <div key={segment.id} title={`${segment.label}: ${segment.calls}`} className={`h-full ${segment.tone}`} style={{ width: `${(segment.calls / total) * 100}%` }} />)}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {item.free ? `Free now: ${item.free.free.toLocaleString()} ${item.free.free === 1 ? "call" : "calls"}. ` : ""}Resets in {hoursMinutes(item.reset_in_seconds)}.
+        {item.free ? `${item.free.free.toLocaleString()} ${item.free.free === 1 ? "call" : "calls"} left today. ` : ""}Resets in {hoursMinutes(item.reset_in_seconds)}.
       </p>
     </>
   );

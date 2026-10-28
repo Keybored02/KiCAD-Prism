@@ -34,7 +34,7 @@ export function RiskGridCard({ grid, onOpen }: { grid: SupplyDashboard["risk_gri
     <ChartCard
       title="Risk Distribution"
       info="Manufacturer lifecycle against how many distributors hold stock. Unknown is its own row and column: it is not counted as fine."
-      answer={total === 0 ? "No parts tracked yet" : worst === 0 ? "No ending part is thinly held" : `${worst.toLocaleString()} ending ${worst === 1 ? "part is" : "parts are"} out or held by one distributor`}
+      answer={total === 0 ? "No parts tracked yet" : worst === 0 ? "No ending part is low on stock" : `${worst.toLocaleString()} ending ${worst === 1 ? "part is" : "parts are"} out or held by one distributor`}
     >
       <table className="w-full table-fixed border-separate border-spacing-0.5 text-xs">
         <thead>

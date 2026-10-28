@@ -58,7 +58,7 @@ describe("the dashboard", () => {
     renderView();
     const tile = await atRiskTile();
     expect(within(tile).getByText("2")).toBeTruthy();
-    expect(screen.getByText("Waiting for room").closest("button")!.textContent).toContain("3");
+    expect(screen.getByText("Queued for calls").closest("button")!.textContent).toContain("3");
     expect(await screen.findByText("OOS-1")).toBeTruthy();
   });
 
@@ -68,7 +68,7 @@ describe("the dashboard", () => {
     expect(search()).toContain("supplyView=tracking");
     expect(search()).toContain("partsOnly=at_risk");
     expect(search()).not.toContain("partsQ");
-    fireEvent.click(screen.getByText("Waiting for room").closest("button")!);
+    fireEvent.click(screen.getByText("Queued for calls").closest("button")!);
     expect(search()).toContain("partsScope=waiting");
   });
 

@@ -77,8 +77,8 @@ export function TrackingRoomSection() {
   const first = daily ? data.accounts.find((item) => item.name === daily.limited_by) : undefined;
   const spend = first ? spendSentence(first) : null;
   return (
-    <section aria-label="Call budget" className="space-y-2">
-      <h3 className="text-sm font-semibold">Call budget</h3>
+    <section aria-label="Daily call limit" className="space-y-2">
+      <h3 className="text-sm font-semibold">Daily call limit</h3>
       {first && daily && weekly ? (
         <div className="space-y-2">
           <TierProgress label="Tier 1" calls={first.by_tier["1"].calls} parts={first.by_tier["1"].parts} capacity={first.capacity} room={daily.room} />

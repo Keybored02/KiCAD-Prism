@@ -39,7 +39,7 @@ describe("room to track", () => {
       { daily: { room: 794, limited_by: "DigiKey" }, weekly: { room: 3146, limited_by: "DigiKey" } },
     ));
     render(<TrackingRoomSection />);
-    const section = await screen.findByRole("region", { name: "Call budget" });
+    const section = await screen.findByRole("region", { name: "Daily call limit" });
     expect(within(section).getByRole("progressbar", { name: "Tier 1 committed calls" })).toBeTruthy();
     expect(within(section).getByRole("progressbar", { name: "Tier 2 committed calls" })).toBeTruthy();
     expect(within(section).getByText("6 calls for 5 parts · about 790 more fit")).toBeTruthy();

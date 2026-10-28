@@ -3,7 +3,7 @@ import type { BudgetShare } from "@/types/supply";
 /** What a change would add to each connector's committed share: parts that fit, parts that would wait, calls a day. */
 export function BudgetPreview({ connectors }: { connectors: readonly BudgetShare[] }) {
   return (
-    <table className="w-full text-xs" aria-label="Call budget">
+    <table className="w-full text-xs" aria-label="Daily call limit">
       <thead>
         <tr className="text-left text-muted-foreground">
           <th className="py-1 pr-2 font-normal">Distributor</th>

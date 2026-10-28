@@ -96,8 +96,8 @@ a tracked project, someone's choice, or a watched component.
 
 - **Track a project:** on the project's **Supply** tab, choose **Track this
   project**. Choose the designs, the distributors you buy from and the
-  packaging you prefer. Each distributor's daily call budget shows as a bar.
-  Parts that don't fit the budget wait for room.
+  packaging you prefer. Each distributor's daily call limit shows as a bar.
+  Parts that don't fit the limit are queued for calls.
 - **Read now:** the refresh on a part sheet asks the distributors for fresh
   figures. You can do this once every 15 minutes per part.
 - **New revisions:** a tracked project's BOM is read again every 15 minutes.

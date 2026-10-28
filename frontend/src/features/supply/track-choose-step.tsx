@@ -95,7 +95,7 @@ export function TrackChooseStep(props: ChooseProps) {
 
       {preview ? (
         <section aria-label="Cost" className="space-y-1">
-          <h3 className="text-xs font-medium text-muted-foreground">Call budget</h3>
+          <h3 className="text-xs font-medium text-muted-foreground">Daily call limit</h3>
           <TrackCostBars connectors={preview.connectors} onRaise={props.onRaise} />
           {preview.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor.</p> : null}
         </section>
