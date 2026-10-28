@@ -49,14 +49,20 @@ def attrition_of(spares: str) -> float | None | str:
     return percent
 
 
+def bom_line(row: dict[str, Any]) -> bom_lookup.BomLine:
+    """A stored BOM row as a line to look up, with the component its symbol places."""
+
+    return bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], prism_id=row.get("prism_id") or "", lcsc=row["lcsc"])
+
+
 def _parts(
     conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[str, int], attrition_percent: float | None = 0,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     """The BOM lines as the page and the MCP tool read them, the rollup for the build, and the cost curve."""
 
-    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
+    lines = [bom_line(row) for row in rows]
     # What is read does not depend on the build size: it is read once, and priced for the chosen size and for the curve.
-    loaded = bom_lookup.load(conn, lines)
+    loaded = bom_lookup.load(conn, lines, **bom_lookup.library_readers(conn))
     result = bom_lookup.price(conn, loaded, build_quantity, attrition_percent)
     sizes = sorted({*CURVE_SIZES, build_quantity})
     curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
@@ -81,6 +87,8 @@ def _parts(
             # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
             "line_cost": None if entry.get("bought_with") or not buy else (buy.get("in_base") if converted else buy.get("extended")),
             "alerts": alerts.get(part_id, 0),
+            "prism_id": row.get("prism_id") or "", "in_library": entry.get("in_library"),
+            "alternates": entry.get("alternates") or [], "status_from": entry.get("status_from"),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
     return parts, result["rollup"], curve
@@ -134,8 +142,8 @@ def snapshot_costs(conn, now: datetime) -> int:
             rows = usage.project_rows(conn, project["project_id"], variant)
             if not rows:
                 continue
-            lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-            rollup = bom_lookup.lookup(conn, lines, boards, usual_attrition(conn, project))["rollup"]
+            lines = [bom_line(row) for row in rows]
+            rollup = bom_lookup.lookup(conn, lines, boards, usual_attrition(conn, project), **bom_lookup.library_readers(conn))["rollup"]
             if rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
@@ -228,8 +236,8 @@ def _costed(conn, project_id: str, variant: str, build_quantity: int, attrition_
     rows = usage.project_rows(conn, project_id, variant)
     if not rows:
         return None
-    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-    return rows, bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
+    lines = [bom_line(row) for row in rows]
+    return rows, bom_lookup.lookup(conn, lines, build_quantity, attrition_percent, **bom_lookup.library_readers(conn))
 
 
 def _cost_line(row: dict[str, Any], entry: dict[str, Any]) -> list[Any]:

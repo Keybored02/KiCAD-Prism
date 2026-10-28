@@ -25,7 +25,7 @@ connector, as a person's decision.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import math
 import uuid
@@ -45,6 +45,8 @@ MAX_WATCH_LINES = 200
 _NEEDS_A_LOOK = frozenset({"warning", "error", "fatal"})
 # "At risk" is error or fatal everywhere (the Projects view, the Dashboard, this rollup); a warning only needs a look.
 _AT_RISK = frozenset({"error", "fatal"})
+# Which of a line's part and its approved alternates tells the line's status: the best that has been read.
+_PICK = {"ok": 0, "warning": 1, "error": 2, "fatal": 3, "unknown": 4}
 
 NO_MPN, UNKNOWN, AMBIGUOUS, TRACKED = "no_mpn", "unknown", "ambiguous", "tracked"
 
@@ -225,6 +227,8 @@ def _best_purchase(
         "provider": offer["provider"],
         "sku": offer["sku"],
         "product_url": offer["product_url"],
+        # The part bought: the line's own, or the approved alternate whose offer won.
+        "part_id": offer.get("part_id"),
     }
 
 
@@ -272,6 +276,38 @@ def with_library_identity(lines: Sequence[BomLine], library: Mapping[str, tuple[
     return [replace(line, manufacturer=library[line.prism_id][0], mpn=library[line.prism_id][1]) if line.prism_id in library else line for line in lines]
 
 
+def library_readers(conn) -> dict[str, Any]:
+    """The catalog readers a project's lines are looked up with (``identities`` and ``in_library``), so lines placed by Prism ID take
+    their component's part and the rest are told whether the library has them (D3). Empty in a schema without the catalog."""
+
+    from app.services.supply import catalog_read
+
+    return {"identities": catalog_read.identities, "in_library": catalog_read.in_library} if component_parts.library_present(conn) else {}
+
+
+def line_alternates(
+    conn, lines: Sequence[BomLine], resolved: Mapping[str, tuple[str, str | None, str | None]], known: Mapping[str, tuple[str, str]],
+) -> dict[str, list[str]]:
+    """Per part a line resolved to, the approved alternates of its component that are not on the BOM themselves (D2): those of the
+    components the lines place by Prism ID, or of the one component whose main part it is."""
+
+    leads: dict[str, set[str]] = {}
+    for line in lines:
+        part_id = resolved[line.key][1]
+        if part_id:
+            leads.setdefault(part_id, set()).update({line.prism_id} if line.prism_id in known else ())
+    return {
+        part_id: kept for part_id, others in component_parts.alternates_for(conn, leads).items()
+        if (kept := [other for other in others if other not in leads])
+    }
+
+
+def best_of(candidates: Sequence[str], status_of: Callable[[str], str]) -> str:
+    """The candidate with the best status that has been read; the first on a tie."""
+
+    return min(candidates, key=lambda candidate: _PICK.get(status_of(candidate), len(_PICK)))
+
+
 @dataclass(frozen=True)
 class Loaded:
     """What a lookup reads from the database, which does not depend on how many boards are built: pricing it for another build size
@@ -292,6 +328,8 @@ class Loaded:
     preferred_of: Mapping[str, Any]
     # The keys of lines a catalog component has (by Prism ID or by manufacturer and part number); None when the library was not asked.
     library: frozenset[str] | None = None
+    # Per line part, the approved alternates of its component that are not on the BOM themselves (D2): their stock and offers count.
+    alternates: Mapping[str, list[str]] = field(default_factory=dict)
 
 
 def load(
@@ -305,7 +343,8 @@ def load(
     known = library_identities(lines, identities)
     lines = with_library_identity(lines, known)
     resolved = _resolve(lines, conn)
-    part_ids = sorted({part_id for _, part_id, _ in resolved.values() if part_id})
+    alternates = line_alternates(conn, lines, resolved, known)
+    part_ids = sorted({part_id for _, part_id, _ in resolved.values() if part_id} | {other for others in alternates.values() for other in others})
     items, offers = parts_view.summaries_with_offers(conn, part_ids)
     summary = {item["id"]: item for item in items}
 
@@ -325,7 +364,23 @@ def load(
         lines=list(lines), known=known, resolved=resolved, items=items, offers=offers, summary=summary, per_board=per_board,
         first_line=first_line, by_key={line.key: line for line in lines}, settings=settings, extras=extras,
         rates=fx.latest(conn), preferred_of=preferences.of_parts(conn, list(per_board)), library=_library_lines(lines, known, in_library),
+        alternates={part_id: [other for other in others if other in summary] for part_id, others in alternates.items()},
     )
+
+
+def _counted(loaded: Loaded, part_id: str) -> list[str]:
+    """The line's part, then the approved alternates it may be built with."""
+
+    return [part_id, *loaded.alternates.get(part_id, ())]
+
+
+def _pick(loaded: Loaded, part_id: str, assessed: Mapping[str, Mapping[str, Any]] | None) -> str:
+    """The part whose status the line shows: the best of its part and alternates, the line's own part on a tie."""
+
+    def status(candidate: str) -> str:
+        return assessed[candidate]["status"] if assessed is not None and candidate in assessed else loaded.summary[candidate]["status"]
+
+    return best_of(_counted(loaded, part_id), status)
 
 
 def _library_lines(
@@ -363,15 +418,29 @@ def _entries(
         entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "in_library": _in_library(loaded, line), "need": needed(line.quantity, build_quantity, percents.get(part_id, attrition_percent or 0) if part_id else (attrition_percent or 0))}
         if part_id:
             item = loaded.summary[part_id]
-            offers_here = loaded.offers.get(part_id, [])
-            stock = item["stock"]
+            group = _counted(loaded, part_id)
+            chosen = _pick(loaded, part_id, assessed)
+            picked = loaded.summary[chosen]
+            if len(group) == 1:
+                offers_here, stock = loaded.offers.get(part_id, []), item["stock"]
+            else:
+                offers_here = [offer for other in group for offer in loaded.offers.get(other, [])]
+                stocks = [loaded.summary[other]["stock"] for other in group if loaded.summary[other]["stock"] is not None]
+                stock = sum(stocks) if stocks else None
             part_need = needs[part_id]
             leader = loaded.first_line[part_id]
             entry |= {
                 "watched": item["tracking"] is not None,
                 "jlc": item.get("jlc"),
-                "status": item["status"],
-                "problem": item["problem"],
+                "status": picked["status"],
+                "problem": picked["problem"],
+                # The alternate the status is told by, when it is not the line's own part.
+                "status_from": chosen if chosen != part_id else None,
+                "alternates": [
+                    {"part_id": other, "manufacturer": loaded.summary[other]["manufacturer"], "mpn": loaded.summary[other]["mpn"],
+                     "stock": loaded.summary[other]["stock"], "status": loaded.summary[other]["status"]}
+                    for other in group[1:]
+                ],
                 "stock": stock,
                 "lifecycle": item["lifecycle"],
                 "lead_time_days": _lead_time(offers_here),
@@ -383,7 +452,7 @@ def _entries(
                 "bought_with": None if line.key == leader else leader,
                 # The distributor a person prefers for this part, with what it holds, shown first in the drawer.
                 "preferred": _preferred_standing(offers_here, loaded.preferred_of.get(part_id)),
-                "assessment": _assessment_line(assessed[part_id]) if assessed is not None else None,
+                "assessment": _assessment_line(assessed[chosen]) if assessed is not None else None,
             }
         results[line.key] = entry
     return results
@@ -402,15 +471,18 @@ def price(conn, loaded: Loaded, build_quantity: int, attrition_percent: float | 
 
     percents = _percents(loaded, attrition_percent)
     needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in loaded.per_board.items()}
-    assessed = assessment.assess_summaries(conn, loaded.items, loaded.offers, needs, datetime.now(timezone.utc), loaded.settings, loaded.extras)
+    # An alternate is assessed for the whole need of its line, as it would be bought instead.
+    assessed_needs = needs | {other: needs[part_id] for part_id, others in loaded.alternates.items() for other in others}
+    assessed = assessment.assess_summaries(conn, loaded.items, loaded.offers, assessed_needs, datetime.now(timezone.utc), loaded.settings, loaded.extras)
     results = _entries(loaded, build_quantity, attrition_percent, percents, needs, assessed)
+    shown = {part_id: assessed[_pick(loaded, part_id, assessed)] for part_id in loaded.per_board}
     return {
         "build_quantity": build_quantity,
         "attrition_percent": attrition_percent,
         "attrition_by_part": percents if attrition_percent is None else None,
         "lines": results,
         "rollup": _rollup(loaded.lines, results, build_quantity, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.base_currency)
-        | _health_rollup(assessed, needs),
+        | _health_rollup(shown, needs),
     }
 
 

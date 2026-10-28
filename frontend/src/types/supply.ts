@@ -340,6 +340,17 @@ export interface SupplyBomBuy {
   waste_cost?: string;
   /** The next price break above the order; `extra` is what buying that many costs in total against the order (negative: cheaper). */
   next_break?: { quantity: number; unit_price: string; extra: string } | null;
+  /** The part bought: the line's own, or the approved alternate whose offer won. */
+  part_id?: string | null;
+}
+
+/** An approved alternate of a line's component. Its stock and offers count for the line. */
+export interface SupplyBomAlternate {
+  part_id: string;
+  manufacturer: string;
+  mpn: string;
+  stock: number | null;
+  status: SupplyStatus;
 }
 
 export interface SupplyBomLineResult {
@@ -369,6 +380,10 @@ export interface SupplyBomLineResult {
   preferred?: { connector_id: string; connector_name: string; provider: string; stock: number } | null;
   /** How the part stands: its health, status and how many findings still count. */
   assessment?: { health: number; status: SupplyStatus; open: number; checks?: string[] };
+  /** The component's approved alternates; `stock` and `buy` count them. */
+  alternates?: SupplyBomAlternate[];
+  /** The alternate the status is told by, when it is better than the line's own part. */
+  status_from?: string | null;
 }
 
 export interface SupplyBomRollup {
@@ -1410,6 +1425,13 @@ export interface ProjectSupplyPart {
   line_cost?: string | null;
   /** Open alerts on the part. */
   alerts?: number;
+  /** The catalog component the symbol places; empty when none. */
+  prism_id?: string;
+  /** Whether a catalog component has the line; null for a line without a part number. */
+  in_library?: boolean | null;
+  /** The component's approved alternates; `stock` and `short` count them. */
+  alternates?: SupplyBomAlternate[];
+  status_from?: string | null;
 }
 
 export interface ProjectCostPoint {
