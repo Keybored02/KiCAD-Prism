@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { resolvePlace } from "./supply-views";
 
 describe("where a Supply address leads", () => {
-  it("opens the six tabs as asked", () => {
-    for (const tab of ["dashboard", "parts", "projects", "review", "insights", "connectors"] as const) expect(resolvePlace(tab, null).tab).toBe(tab);
+  it("opens the five tabs as asked", () => {
+    for (const tab of ["dashboard", "parts", "projects", "review", "insights"] as const) expect(resolvePlace(tab, null).tab).toBe(tab);
   });
 
   it("sends the old addresses to the tab that took them over", () => {

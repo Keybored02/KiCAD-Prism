@@ -1,5 +1,8 @@
-/** The six Supply tabs, and where the old addresses lead. */
-export type SupplyTab = "dashboard" | "parts" | "projects" | "review" | "insights" | "connectors";
+/** The five Supply tabs, and where the old addresses lead. */
+export type SupplyTab = "dashboard" | "parts" | "projects" | "review" | "insights";
+
+/** Connectors live in Library Manager; `supplyView=connectors` leads there. */
+export const CONNECTORS_PLACE = "/?section=library-manager&libraryView=connectors";
 
 export interface SupplyPlace {
   tab: SupplyTab;
@@ -13,7 +16,6 @@ export function resolvePlace(view: string | null, tool: string | null): SupplyPl
     case "parts":
     case "projects":
     case "review":
-    case "connectors":
     case "insights":
     case "dashboard":
       return { tab: view, tool: view === "parts" && tool === "bom-file" ? "bom-file" : null };

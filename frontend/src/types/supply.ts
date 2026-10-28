@@ -1599,3 +1599,47 @@ export interface SupplyInsightsPage {
     controlled: Array<{ part_id: string; mpn: string; manufacturer: string; eccn: string; state: "controlled" | "disputed"; by_person: boolean }>;
   };
 }
+
+/** A local inventory server (InvenTree, or Vision serving its API) whose stock fills the catalog. The token never comes back. */
+export interface InventorySource {
+  id: string;
+  kind: "inventree";
+  display_name: string;
+  base_url: string;
+  category_id: number | null;
+  enabled: boolean;
+  interval_hours: number;
+  has_token: boolean;
+  server: string;
+  api_version: number | null;
+  last_sync_at: string | null;
+  last_status: "" | "ok" | "error";
+  last_error: string;
+  matched: number;
+  unmatched: number;
+}
+
+export interface InventorySourceInput {
+  display_name?: string;
+  base_url?: string;
+  /** Empty removes the token; left out keeps it. */
+  token?: string;
+  category_id?: number | null;
+  interval_hours?: number;
+  enabled?: boolean;
+}
+
+export interface InventoryServerCheck {
+  server: string;
+  api_version: number;
+  instance: string;
+  categories: Array<{ pk: number; name: string; pathstring: string; parent: number | null }>;
+}
+
+export interface InventorySyncResult {
+  status: "ok" | "error";
+  error: string;
+  matched: number;
+  unmatched: number;
+  records: number;
+}

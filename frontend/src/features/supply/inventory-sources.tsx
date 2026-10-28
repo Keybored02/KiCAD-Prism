@@ -1,0 +1,179 @@
+import { useCallback, useEffect, useState } from "react";
+import { MoreHorizontal, Plus, Warehouse } from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { InventorySource } from "@/types/supply";
+import { formatWhen } from "./connector-status";
+import { deleteInventorySource, listInventorySources, syncInventorySource, updateInventorySource } from "./inventory-api";
+import { InventoryCategoryDialog, InventorySourceDialog } from "./inventory-source-dialogs";
+
+type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; source: InventorySource };
+
+/** The state a source is in, worst first. */
+export function sourceState(source: InventorySource): { label: string; tone: "default" | "secondary" | "destructive" | "outline" } {
+  if (!source.enabled) return { label: "Disabled", tone: "secondary" };
+  if (!source.has_token) return { label: "No token", tone: "destructive" };
+  if (source.category_id === null) return { label: "No category", tone: "outline" };
+  if (source.last_status === "error") return { label: "Read failed", tone: "destructive" };
+  if (!source.last_sync_at) return { label: "Not read yet", tone: "outline" };
+  return { label: "Reading", tone: "default" };
+}
+
+/** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock fills the catalog. */
+export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
+  const [sources, setSources] = useState<InventorySource[] | null>(null);
+  const [failed, setFailed] = useState("");
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setSources(await listInventorySources());
+      setFailed("");
+    } catch (caught) {
+      setFailed(caught instanceof Error ? caught.message : "Could not load inventory sources");
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const put = (source: InventorySource) => setSources((current) => {
+    const rest = (current ?? []).filter((item) => item.id !== source.id);
+    return [...rest, source].sort((a, b) => a.display_name.localeCompare(b.display_name));
+  });
+
+  const readNow = async (source: InventorySource) => {
+    setBusy(source.id);
+    const pending = toast.loading(`Reading ${source.display_name}`);
+    try {
+      const result = await syncInventorySource(source.id);
+      if (result.status === "ok") toast.success(`${result.records.toLocaleString()} stock records`, { id: pending, description: `${result.matched} parts matched, ${result.unmatched} unmatched` });
+      else toast.error(`${source.display_name} could not be read`, { id: pending, description: result.error });
+    } catch (caught) {
+      toast.error("The read could not run", { id: pending, description: caught instanceof Error ? caught.message : undefined });
+    } finally {
+      setBusy(null);
+      await load();
+    }
+  };
+
+  const toggle = async (source: InventorySource) => {
+    try {
+      put(await updateInventorySource(source.id, { enabled: !source.enabled }));
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Could not save the source");
+    }
+  };
+
+  const remove = async (source: InventorySource) => {
+    try {
+      await deleteInventorySource(source.id);
+      setSources((current) => (current ?? []).filter((item) => item.id !== source.id));
+      setDialog(null);
+      toast.success("Source deleted");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Could not delete the source");
+    }
+  };
+
+  return (
+    <section className="space-y-3" aria-label="Local inventory">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold"><Warehouse className="h-4 w-4 text-muted-foreground" />Local inventory</h3>
+        {isAdmin ? <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "create" })}><Plus className="h-4 w-4" />Add source</Button> : null}
+      </div>
+      {failed ? <p className="text-sm text-destructive">{failed}</p> : null}
+      {sources && sources.length === 0 ? <p className="border border-dashed p-4 text-center text-sm text-muted-foreground">No inventory sources</p> : null}
+      {sources && sources.length > 0 ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(24rem,1fr))] gap-3">
+          {sources.map((source) => (
+            <SourceCard
+              key={source.id}
+              source={source}
+              isAdmin={isAdmin}
+              busy={busy === source.id}
+              onRead={() => void readNow(source)}
+              onToggle={() => void toggle(source)}
+              onOpen={(kind) => setDialog({ kind, source })}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {dialog?.kind === "create" || dialog?.kind === "edit" ? (
+        <InventorySourceDialog
+          key={dialog.kind === "edit" ? dialog.source.id : "create"}
+          open
+          source={dialog.kind === "edit" ? dialog.source : null}
+          onClose={() => setDialog(null)}
+          onSaved={(source) => { put(source); toast.success("Source saved"); if (dialog.kind === "create") setDialog({ kind: "category", source }); }}
+        />
+      ) : null}
+      <InventoryCategoryDialog
+        key={dialog?.kind === "category" ? dialog.source.id : "none"}
+        source={dialog?.kind === "category" ? dialog.source : null}
+        onClose={() => setDialog(null)}
+        onSaved={(source) => { put(source); toast.success(`Following category ${source.category_id}`); }}
+      />
+      <ConfirmDialog
+        open={dialog?.kind === "delete"}
+        onOpenChange={(open) => { if (!open) setDialog(null); }}
+        title={`Delete ${dialog?.kind === "delete" ? dialog.source.display_name : "source"}`}
+        description="Its token, the stock it brought in and its unmatched parts are removed."
+        confirmLabel="Delete"
+        onConfirm={() => { if (dialog?.kind === "delete") void remove(dialog.source); }}
+      />
+    </section>
+  );
+}
+
+function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
+  source: InventorySource;
+  isAdmin: boolean;
+  busy: boolean;
+  onRead: () => void;
+  onToggle: () => void;
+  onOpen: (kind: "edit" | "category" | "delete") => void;
+}) {
+  const state = sourceState(source);
+  const host = source.base_url.replace(/^https:\/\//, "");
+  const server = [source.server, source.api_version !== null ? `API ${source.api_version}` : ""].filter(Boolean).join(" · ");
+  const canRead = source.enabled && source.has_token && source.category_id !== null;
+  return (
+    <article className="border bg-card p-4" aria-label={source.display_name}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="truncate text-sm font-semibold">{source.display_name}</h4>
+            <Badge variant={state.tone}>{state.label}</Badge>
+          </div>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground" title={source.base_url}>{[host, server].filter(Boolean).join(" · ")}</p>
+        </div>
+        {isAdmin ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label={`Actions for ${source.display_name}`}><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={!canRead || busy} onSelect={onRead}>Read now</DropdownMenuItem>
+              <DropdownMenuItem disabled={!source.has_token} onSelect={() => onOpen("category")}>Category</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onOpen("edit")}>Edit</DropdownMenuItem>
+              <DropdownMenuItem onSelect={onToggle}>{source.enabled ? "Disable" : "Enable"}</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive" onSelect={() => onOpen("delete")}>Delete</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "-"}</dd>
+        <dt className="text-muted-foreground">Last read</dt><dd>{formatWhen(source.last_sync_at) || "-"}{` · every ${source.interval_hours} h`}</dd>
+        <dt className="text-muted-foreground">Parts</dt><dd>{`${source.matched.toLocaleString()} matched · ${source.unmatched.toLocaleString()} unmatched`}</dd>
+      </dl>
+      {source.last_status === "error" && source.last_error ? <p className="mt-2 truncate text-xs text-destructive" title={source.last_error}>{source.last_error}</p> : null}
+    </article>
+  );
+}

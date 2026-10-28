@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Plug, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
@@ -28,8 +28,8 @@ const SettingsDialog = lazy(() => import("./settings-view").then((module) => ({ 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
 
-/** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
-export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
+/** Distributor accounts, budgets and state, in Library Manager > Connectors. Admins change them. `after` follows the distributors. */
+export function SupplyConnectorsView({ user, headerSlot, after }: { user: User | null; headerSlot?: HTMLElement | null; after?: ReactNode }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();
   const capacity = useSupplyCapacity();
@@ -142,6 +142,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
             ))}
           </div>
         ) : null}
+        {after}
       </div>
 
       <CreateConnectorDialog

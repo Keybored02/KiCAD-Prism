@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import type { SupplyConnector, SupplySignin, SupplySvhcList } from "@/types/supply";
 import { getSupplySignin, getSvhcList, listSupplyConnectors } from "./supply-api";
+import { CONNECTORS_PLACE } from "./supply-views";
 import { useLoaded } from "./use-loaded";
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -75,7 +76,7 @@ export function AdminStrip({ waiting }: { waiting: number }) {
           {notices.map((notice) => (
             <li key={notice.key} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <span>{notice.text}</span>
-              <Link to={`/?section=supply&supplyView=${notice.to === "settings" ? "connectors" : notice.to}`} className="text-xs text-primary hover:underline">{notice.action}</Link>
+              <Link to={notice.to === "settings" || notice.to === "connectors" ? CONNECTORS_PLACE : `/?section=supply&supplyView=${notice.to}`} className="text-xs text-primary hover:underline">{notice.action}</Link>
             </li>
           ))}
         </ul>
