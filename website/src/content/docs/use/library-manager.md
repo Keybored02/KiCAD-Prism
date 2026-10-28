@@ -111,6 +111,12 @@ imported again. Discovery marks those parts **Retired**.
 Symbols and footprints from a project are not approved library assets just
 because a project uses them. Review each one before you accept it.
 
+A project import keeps the fields that describe the part and leaves out the
+ones that describe one placement: the reference designator, the sheet and
+sheet file, UUIDs, the DNP, BOM and board flags, and the library the schematic
+copied the symbol from. The same part placed on several sheets is one
+candidate.
+
 When you no longer need a finished session, delete it from its row. Its open
 candidates and staged files go; components you already accepted stay.
 

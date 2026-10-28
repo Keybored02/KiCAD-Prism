@@ -178,6 +178,30 @@ class ProjectComponentImportServiceTests(unittest.TestCase):
         self.assertFalse(any("prism" in key.casefold() for key in first["metadata"]["fields"]))
         self.assertFalse(any("prism" in key.casefold() for key in first["metadata"].get("alternatives", {})))
 
+    def test_reference_sheet_file_and_placement_flags_never_become_component_fields(self) -> None:
+        placed = {
+            "Reference": "C76", "Sheetfile": "indicators_buttons.kicad_sch", "DNP": "No", "In BOM": "Yes",
+            "kicad_dnp": "false", "kicad_in_bom": "true", "kicad_on_board": "true",
+            "kicad_libsource_lib": "Device", "kicad_libsource_part": "C",
+        }
+        component = self._component("C76", component_uid="cmp-76")
+        component["fields"].update(placed)
+
+        fields = _proposal(component, project_id="p1", source_revision="abc")["metadata"]["fields"]
+
+        self.assertFalse(set(placed) & set(fields))
+
+    def test_one_part_on_two_sheets_is_one_proposal(self) -> None:
+        power = self._component("C1", component_uid="cmp-1")
+        power["fields"].update({"Manufacturer": "", "Reference": "C1", "Sheetfile": "power.kicad_sch"})
+        control = self._component("C9", component_uid="cmp-9")
+        control["fields"].update({"Manufacturer": "", "Reference": "C9", "Sheetfile": "control.kicad_sch"})
+
+        self.assertEqual(
+            _proposal(power, project_id="p1", source_revision="abc")["dedupe_key"],
+            _proposal(control, project_id="p1", source_revision="abc")["dedupe_key"],
+        )
+
     def test_placement_stamp_does_not_split_the_fallback_dedupe_key(self) -> None:
         unstamped = self._component("R1", component_uid="cmp-1")
         unstamped["fields"]["Manufacturer"] = ""
