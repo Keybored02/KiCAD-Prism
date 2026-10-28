@@ -10,6 +10,7 @@ import type { User } from "@/types/auth";
 import { ComponentPartsSection } from "./component-parts-section";
 import { ComponentWatch } from "./component-watch";
 import { LocalStockSection } from "./local-stock-section";
+import { RestrictionNotice } from "./restriction-notice";
 import { PartActions } from "./part-actions";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
@@ -32,6 +33,7 @@ export default function SourcingPanel({ componentId, manufacturer, mpn, user }: 
   const hasPart = Boolean(manufacturer.trim() && mpn.trim());
   return (
     <div className="space-y-6">
+      <RestrictionNotice componentId={componentId} manufacturer={manufacturer} mpn={mpn} canDecide={canReviewSupply(user?.role)} />
       {hasPart ? <ComponentPartsSection componentId={componentId} canPropose={canEditSupply(user?.role)} canDecide={canReviewSupply(user?.role)} /> : null}
       <LocalStockSection componentId={componentId} />
       {hasPart ? (

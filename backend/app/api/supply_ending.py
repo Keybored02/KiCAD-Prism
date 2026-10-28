@@ -30,6 +30,13 @@ class RestrictionIn(BaseModel):
     replacement_component_id: str = Field(default="", max_length=100)
 
 
+class DismissIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The reason kinds shown when the person dismissed it; a new one brings the component back.
+    reasons: list[str] = Field(min_length=1, max_length=10)
+
+
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
@@ -65,6 +72,18 @@ async def clear_restriction(component_id: str, user: AuthenticatedUser = Depends
     def run() -> None:
         with _store().connection() as conn:
             ending_parts.clear_restriction(conn, component_id, user.email)
+
+    await _run(run)
+    return Response(status_code=204)
+
+
+@router.put("/{component_id}/dismissal", status_code=204)
+async def dismiss_ending(component_id: str, body: DismissIn, user: AuthenticatedUser = Depends(require_supply_approver)) -> Response:
+    """Nothing to do about this component for now. It comes back when its part gains a new reason."""
+
+    def run() -> None:
+        with _store().connection() as conn:
+            ending_parts.dismiss(conn, component_id, body.reasons, user.email)
 
     await _run(run)
     return Response(status_code=204)

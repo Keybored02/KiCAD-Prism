@@ -529,6 +529,13 @@ def _component_parts(conn: Any) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_component_parts_part ON component_parts (part_id)")
 
 
+def _supply_ending_dismissals(conn: Any) -> None:
+    """Supply step 95 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
+    from app.services.supply.migration_steps.steps_c import _m095_ending_dismissals
+
+    _m095_ending_dismissals(getattr(conn, "_connection", conn))
+
+
 def _inventory_sources(conn: Any) -> None:
     """Local inventory servers (InvenTree, or any server serving its read API) whose stock fills ``inventory_levels``.
 
@@ -619,6 +626,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (17, "supply_tables", _supply_tables),
     (18, "component_parts", _component_parts),
     (19, "inventory_sources", _inventory_sources),
+    (20, "supply_ending_dismissals", _supply_ending_dismissals),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

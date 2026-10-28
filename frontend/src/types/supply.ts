@@ -225,6 +225,8 @@ export interface EndingPart {
   status: SupplyStatus;
   projects: Array<{ project_id: string; name: string; quantity: number }>;
   restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
+  /** Someone dismissed it for the reasons it has now. */
+  dismissed: boolean;
 }
 
 export interface EndingParts {

@@ -26,3 +26,8 @@ export async function retireComponent(componentId: string, reason: string): Prom
   );
   await setRestriction(componentId, "retired", reason);
 }
+
+/** Nothing to do about this component for these reasons; a new reason brings it back. */
+export async function dismissEnding(componentId: string, reasons: string[]): Promise<void> {
+  await fetchJson(`${BASE}/${encodeURIComponent(componentId)}/dismissal`, { method: "PUT", body: JSON.stringify({ reasons }) }, "Could not dismiss it");
+}

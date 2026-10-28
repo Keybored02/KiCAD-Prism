@@ -14,7 +14,6 @@ import {
   CircuitBoard,
   Database,
   DownloadCloud,
-  Hourglass,
   Info,
   Keyboard,
   LoaderCircle,
@@ -59,7 +58,6 @@ const LIBRARY_VIEWS = [
   { view: "bulk-edit", label: "Bulk Edit", icon: Table2 },
   { view: "imports", label: "Import Center", icon: DownloadCloud },
   { view: "releases", label: "Release Queue", icon: PackageCheck },
-  { view: "ending", label: "Ending Parts", icon: Hourglass },
 ] as const;
 
 const HELP_DIALOG_COMMANDS = [
