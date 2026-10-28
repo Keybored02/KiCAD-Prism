@@ -42,7 +42,9 @@ def _is_instance_context_field(name: object) -> bool:
     candidate.  UUIDs, sheet paths, and sheet names must therefore never become
     catalog metadata or generate a provenance conflict merely because two
     placements are different.  The catalog placement stamp names the revision
-    one placement came from, so it is instance context as well.
+    one placement came from, so it is instance context as well.  So are the
+    reference designator, the sheet file, a placement's DNP / BOM / board flags,
+    and the library the schematic copied the symbol from.
     """
 
     if is_reserved_stamp_key(name):
@@ -60,6 +62,20 @@ def _is_instance_context_field(name: object) -> bool:
         "kicadsheetpathnames",
         "kicadsheetpathuuids",
         "hierarchicalsheetpath",
+        "reference",
+        "references",
+        "sheetfile",
+        "dnp",
+        "inbom",
+        "onboard",
+        "excludefrombom",
+        "excludefromboard",
+        "kicaddnp",
+        "kicadinbom",
+        "kicadonboard",
+        "kicadlibsourcelib",
+        "kicadlibsourcepart",
+        "kicadlibsourcedescription",
     }
 
 
@@ -73,11 +89,7 @@ def _dedupe_key(component: dict[str, Any], *, project_id: str) -> str:
         filtered_fields = {
             str(key): value
             for key, value in fields.items()
-            if (
-                _normalized(key) not in {"reference", "references"}
-                and not _is_instance_context_field(key)
-                and not str(key).startswith("_")
-            )
+            if not _is_instance_context_field(key) and not str(key).startswith("_")
         }
         identity = [
             "project-content",
