@@ -67,7 +67,7 @@ Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
 # Part of the stored revision key. Raise it when what is stored from an index changes (a new kind of row), so every project
 # is read again once. With the index's own revision key it is the fingerprint of what the rows were made from.
-USAGE_VERSION = 4
+USAGE_VERSION = 5
 MAX_VARIANTS = 30
 
 
@@ -104,7 +104,10 @@ def variant_components(payload: Mapping[str, Any], name: str) -> list[Mapping[st
 
 
 def lines_from_components(components: Iterable[Mapping[str, Any]], identities: Identities | None = None) -> list[UsageLine]:
-    """The distinct parts among the fitted components, with how many go on one board. No number, no line.
+    """The distinct parts among the fitted components, with how many go on one board.
+
+    A fitted component with neither a part number nor an LCSC number is still a line, one per value and footprint, so a page that
+    counts the BOM never counts it as checked.
 
     A symbol carrying a ``Prism ID`` that ``identities`` knows takes the library component's manufacturer
     and part number, whatever its own fields say (plan 6.4, step 1).
@@ -122,10 +125,13 @@ def lines_from_components(components: Iterable[Mapping[str, Any]], identities: I
         manufacturer, mpn = placed if placed and placed[1].strip() else identity_of(fields)
         number = match_key(mpn)
         lcsc = lcsc_of(fields)
-        if not number and not lcsc:
-            continue
-        # A symbol with only an LCSC number is kept as a line of its own: it has no part yet, and says so.
-        key = f"{alias_key(manufacturer)}|{number}" if number else f"lcsc:{lcsc}"
+        # A symbol with only an LCSC number, or with no number at all, is kept as a line of its own: it has no part yet, and says so.
+        if number:
+            key = f"{alias_key(manufacturer)}|{number}"
+        elif lcsc:
+            key = f"lcsc:{lcsc}"
+        else:
+            key = f"none:{str(fields.get('Value') or '').strip()}|{str(fields.get('Footprint') or '').strip()}"
         line = found.setdefault(key, {
             "manufacturer": manufacturer, "mpn": mpn if number else "", "alias": alias_key(manufacturer), "number": number, "refs": [],
             "lcsc": "", "datasheet": "", "prism_id": "",

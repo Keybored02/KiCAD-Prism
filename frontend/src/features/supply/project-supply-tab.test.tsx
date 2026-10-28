@@ -173,7 +173,9 @@ describe("the project Supply tab", () => {
       rollup: { ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 },
     }));
     renderTab();
-    expect(await screen.findByText("0 of 100 boards")).toBeTruthy();
+    // One of the three lines is not tracked, so the answer stays open.
+    expect(await screen.findByText("Unconfirmed")).toBeTruthy();
+    expect(screen.getByText("0 of 100 boards · 1 unchecked")).toBeTruthy();
     expect(within(screen.getByLabelText("Headline")).getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
     expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Not priced/ })).toBeNull();
@@ -204,6 +206,20 @@ describe("the project Supply tab", () => {
     expect(await screen.findByText("Stock coverage")).toBeTruthy();
     expect(screen.getByText("50%")).toBeTruthy();
     expect(screen.getByText(/1 of 2 lines in stock for 100 boards, 1 short/)).toBeTruthy();
+  });
+
+  it("counts a line without a part number as not covered, and lists it under Unchecked", async () => {
+    const noMpn = { key: "none:796638-2|TB", manufacturer: "", mpn: "", quantity: 1, references: "J2", part_id: null, state: "no_mpn" as const, status: null, stock: null, lifecycle: null, short: false, unit_price: null, notes: 0, need: 1 };
+    const base = supply();
+    mocked.getProjectSupply.mockResolvedValue(supply({ parts: [...(base.parts ?? []), noMpn] }));
+    renderTab();
+    expect(await screen.findByText("33%")).toBeTruthy();
+    expect(screen.getByText(/1 of 3 lines in stock for 100 boards, 1 short/)).toBeTruthy();
+    const parts = screen.getByRole("region", { name: "Parts" });
+    await within(parts).findByText("GOOD-1");
+    fireEvent.click(screen.getByRole("button", { name: /Unchecked/ }));
+    expect(within(parts).getByText("No MPN")).toBeTruthy();
+    expect(within(parts).queryByText("GOOD-1")).toBeNull();
     expect(screen.queryByText("In 8 weeks")).toBeNull();
   });
 

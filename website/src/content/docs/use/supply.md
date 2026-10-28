@@ -109,13 +109,16 @@ questions:
 
 - **Build**: how many boards the stock covers, and which line limits it. Use
   the pencil to change the number of boards; a tracked project can keep it as
-  its usual build.
+  its usual build. While any line can't be checked (no part number, or a part
+  Prism doesn't know), it reads **Unconfirmed** with how many lines are
+  unchecked.
 - **Cost**: what the boards cost and what one board costs.
 - **Health**: the parts by status.
-- **Stock coverage**: the share of lines in stock for the build.
+- **Stock coverage**: the share of all BOM lines in stock for the build. An
+  unchecked line counts as not covered.
 
 Below them are the cost by build size, the cost over time, the releases, line
-notes and the parts. Use the chips **Out of stock**, **Short for this build**,
+notes and the parts. Use the chips **Unchecked**, **Out of stock**, **Short for this build**,
 **Limiting the build**, **Not priced**, **End of life** and **Open alerts** to
 narrow the parts.
 
@@ -123,7 +126,8 @@ A line counts its component's approved alternates: their stock adds up, and
 the cheapest offer that covers the build may be an alternate's. Such a line
 shows **+N alt**; hover it to see each alternate's stock. A line that no
 library component has shows **Not in library**, with **Add to Component
-Database** for people who can edit the catalog.
+Database** for people who can edit the catalog. A fitted part with no part
+number shows **No MPN**.
 
 **Costing** downloads a zip: the costing with the distributor and its part
 number for each line, the costing split by distributor, a draft RoHS and REACH

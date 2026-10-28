@@ -51,7 +51,7 @@ export function UnmatchedRow({ line, lines }: { line: ProjectSupplyPart; lines: 
     <tr className="border-t">
       <td className="px-3 py-2" />
       <td className="px-3 py-2">
-        <span className="font-medium">{line.mpn || "No part number"}</span>
+        {line.mpn ? <span className="font-medium">{line.mpn}</span> : <span className="font-medium text-destructive">No MPN</span>}
         <div className="text-xs text-muted-foreground">{line.manufacturer}{line.references ? ` · ${line.references}` : ""}</div>
       </td>
       <BoardCells line={line} />

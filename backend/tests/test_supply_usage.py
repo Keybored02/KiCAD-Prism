@@ -74,8 +74,18 @@ class LinesTests(unittest.TestCase):
             component("R2", "Acme", "R-10K"), component("R1", "ACME", "r10k"), component("C1", "Acme", "C-1"),
             component("R9", "Acme", "R-1K", DNP="Yes"), component("TP1"), component("X1", "Acme", "X", **{"In BOM": "No"}),
         ])
-        self.assertEqual([(line.mpn, line.quantity, line.references) for line in lines], [("R-10K", 2, "R1 R2"), ("C-1", 1, "C1")])
-        self.assertEqual({line.match_key for line in lines}, {"R10K", "C1"})
+        self.assertEqual([(line.mpn, line.quantity, line.references) for line in lines], [("R-10K", 2, "R1 R2"), ("C-1", 1, "C1"), ("", 1, "TP1")])
+        self.assertEqual({line.match_key for line in lines}, {"R10K", "C1", ""})
+
+    def test_a_fitted_component_without_any_number_is_a_line_per_value_and_footprint(self) -> None:
+        lines = usage.lines_from_components([
+            component("J2", Value="796638-2", Footprint="TerminalBlock:2P"), component("J3", Value="796638-2", Footprint="TerminalBlock:2P"),
+            component("J4", Value="796638-2", Footprint="TerminalBlock:3P"), component("J5", Value="796638-2", DNP="Yes"),
+        ])
+        self.assertEqual([(line.key, line.mpn, line.match_key, line.quantity, line.references) for line in lines], [
+            ("none:796638-2|TerminalBlock:2P", "", "", 2, "J2 J3"),
+            ("none:796638-2|TerminalBlock:3P", "", "", 1, "J4"),
+        ])
 
     def test_a_prism_id_the_library_knows_replaces_what_the_symbol_says(self) -> None:
         asked = []
