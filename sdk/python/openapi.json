@@ -45042,27 +45042,6 @@
         ]
       }
     },
-    "/api/v1/supply/mcp": {
-      "post": {
-        "operationId": "mcp",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            },
-            "description": "A JSON-RPC answer, or 202 with no body for a notification."
-          }
-        },
-        "summary": "Mcp",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
     "/api/v1/supply/notices": {
       "post": {
         "operationId": "add_notice",
