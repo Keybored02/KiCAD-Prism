@@ -45,9 +45,10 @@ def drop_expired(conn, now: datetime) -> int:
     removed = 0
     for table, column in (("supply_samples", "sampled_at"), ("supply_samples_daily", "day")):
         cut = "%s - (c.keep_days * INTERVAL '1 day')" if table == "supply_samples" else "(%s - (c.keep_days * INTERVAL '1 day'))::date"
+        # A join, not a subquery naming the row's date: that form was evaluated again for every row of the table.
         result = conn.execute(
-            f"DELETE FROM {table} WHERE listing_id IN (SELECT l.id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
-            f"WHERE c.keep_days IS NOT NULL AND {table}.{column} < {cut})",
+            f"DELETE FROM {table} h USING supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
+            f"WHERE h.listing_id = l.id AND c.keep_days IS NOT NULL AND h.{column} < {cut}",
             (now,),
         )
         removed += int(result.rowcount or 0)

@@ -344,12 +344,20 @@ def set_usual_build(conn, project_id: str, build_quantity: int, actor: str) -> d
 
 
 def untrack_project(conn, project_id: str, actor: str) -> bool:
+    return untrack_projects(conn, [project_id], actor) == 1
+
+
+def untrack_projects(conn, project_ids: Sequence[str], actor: str) -> int:
+    """Stop following these projects, and bring the tiers in line once for all of them. Returns how many were followed."""
+
     actor = actor_text(actor)
-    gone = conn.execute("DELETE FROM supply_tracked_projects WHERE project_id = %s RETURNING project_id", (project_id,)).fetchone()
-    if gone:
+    gone = [row["project_id"] for row in conn.execute(
+        "DELETE FROM supply_tracked_projects WHERE project_id = ANY(%s) RETURNING project_id", (list(project_ids),)).fetchall()]
+    for project_id in sorted(gone):
         write_audit(conn, actor, "tracking.project_removed", project_id, {}, subject_kind="project")
+    if gone:
         recompute(conn)
-    return gone is not None
+    return len(gone)
 
 
 # --- derivation --------------------------------------------------------------
@@ -471,6 +479,6 @@ def counts(conn) -> dict[str, int]:
 
 
 __all__ = [
-    "TrackingError", "check_tier", "track_project", "untrack_project", "sync_projects", "tracked_project", "list_tracked_projects",
+    "TrackingError", "check_tier", "track_project", "untrack_project", "untrack_projects", "sync_projects", "tracked_project", "list_tracked_projects",
     "project_parts", "recompute", "tier_of", "counts",
 ]

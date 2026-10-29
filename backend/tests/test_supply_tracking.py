@@ -164,6 +164,23 @@ class TrackingTests(unittest.TestCase):
         kept = self.tier("Acme", "C-1")
         self.assertEqual((kept["tier"], kept["rate"], [r["kind"] for r in kept["reasons"]]), (2, "weekly", ["person"]))
 
+    def test_untracking_several_projects_at_once_works_out_the_tiers_once(self) -> None:
+        from unittest import mock
+
+        self.project("p1", [component("R1", "Acme", "R-1")])
+        self.project("p2", [component("C1", "Acme", "C-1")])
+        self.track("p1")
+        self.track("p2")
+        with self.store.connection() as conn:
+            with mock.patch.object(self.tracking, "recompute", wraps=self.tracking.recompute) as recompute:
+                self.assertEqual(self.tracking.untrack_projects(conn, ["p1", "p2", "never-tracked"], ACTOR), 2)
+            removed = [row["subject_id"] for row in conn.execute(
+                "SELECT subject_id FROM supply_audit_events WHERE action = 'tracking.project_removed' ORDER BY subject_id").fetchall()]
+        self.assertEqual(recompute.call_count, 1)
+        self.assertEqual(removed, ["p1", "p2"])
+        self.assertIsNone(self.tier("Acme", "R-1"))
+        self.assertIsNone(self.tier("Acme", "C-1"))
+
     def test_the_highest_tier_wins_and_every_source_is_a_reason(self) -> None:
         self.project("p1", [component("R1", "Acme", "R-1")])
         with self.store.connection() as conn:
