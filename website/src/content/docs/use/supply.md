@@ -208,10 +208,13 @@ stock threshold (typed beside **At or below the threshold**), the price rise
 that counts and a target price. The Dashboard lists the open alerts, the ones the **Open alerts**
 tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
-While the stores feed or a distributor connector can't be read, a red line
-across the top of the Dashboard says which one, with its last good read:
-**Stores feed down · 17:09**. The figures behind it may be out of date until
-it reads again. **Connectors →** opens the place to fix it.
+The Dashboard opens with an **Inbox**: up to eight lines of what needs a
+person, worst first, each opening where it is acted on. While the stores feed
+or a distributor connector can't be read, it heads the inbox with how long
+ago it last read (**Stores down · since 9 h ago**); the figures behind it may
+be out of date until it reads again, and the line opens Connectors. Ending
+components and the alert list sit below the tiles, folded; an inbox line
+opens them.
 
 Prices and stock from the Simulated market, a made-up distributor for demos
 and testing, carry a **Test data** chip wherever they show. **Ask DigiKey for

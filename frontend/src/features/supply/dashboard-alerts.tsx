@@ -43,7 +43,7 @@ export function AlertList({ user, overview, feedsFailing = false, kind, onKind, 
   }, [listed]);
   const shown = listed.filter((alert) => !kind || alert.kind === kind);
   return (
-    <details id="dashboard-alerts" open>
+    <details id="dashboard-alerts">
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alerts</summary>
       <section aria-label="Alerts" className="mt-2 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-3">

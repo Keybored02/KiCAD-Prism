@@ -1583,7 +1583,21 @@ export interface TrackingRoom {
 }
 
 /** The Dashboard page in one read. */
+/** One line of the Dashboard's inbox: what needs a person, how bad, how many, and where it is acted on. */
+export type SupplyInboxItem = { severity: "fatal" | "error" | "warning" | "info"; count: number } & (
+  | { kind: "feed"; name: string; since: string | null; feed: "stores" | "connector" }
+  | { kind: "ending" }
+  | { kind: "deadline"; part_id: string; mpn: string; deadline: "last_time_buy" | "last_time_ship" | "last_buy_date"; date: string }
+  | { kind: "project_short"; project_id: string; name: string; of: number }
+  | { kind: "project_unconfirmed"; project_id: string; name: string }
+  | { kind: "alerts"; alert_kind: string }
+  | { kind: "likely_out" }
+  | { kind: "approvals" }
+);
+
 export interface SupplyDashboard {
+  /** What needs a person today, worst first, and how many more there are. */
+  inbox?: { items: SupplyInboxItem[]; more: number };
   figures: Record<"watched" | "at_risk" | "out_of_stock" | "lifecycle" | "open_alerts" | "waiting", number>;
   /** Library components whose part is ending and nobody has decided about. */
   ending_components?: number;
