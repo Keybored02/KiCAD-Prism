@@ -291,18 +291,12 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
                    round((0.05 + (abs(hashtext(%(seed)s || ':price:' || l.id)) %% 400) / 100.0)::numeric, 4) AS price
             FROM supply_listings l
         )
-        INSERT INTO supply_samples_daily
-            (listing_id, day, min_stock, max_stock, last_stock, last_unit_price,
-             currency, marketplace, sample_count)
+        INSERT INTO supply_samples_daily (listing_id, day, stock, unit_price, currency)
         SELECT li.id,
                CURRENT_DATE - (d - 1),
                s.stock,
-               s.stock,
-               s.stock,
                li.price,
-               'USD',
-               FALSE,
-               1
+               'USD'
         FROM listing li
         CROSS JOIN generate_series(1, %(days)s) d
         CROSS JOIN LATERAL (
@@ -319,9 +313,9 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
              lead_time_days, lifecycle, discontinued, marketplace, moq, order_multiple)
         SELECT sd.listing_id,
                sd.day + time '12:00',
-               sd.last_stock,
+               sd.stock,
                0,
-               sd.last_unit_price,
+               sd.unit_price,
                sd.currency,
                o.lead_time_days,
                o.lifecycle,

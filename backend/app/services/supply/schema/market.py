@@ -231,15 +231,19 @@ TABLES: tuple[str, ...] = (
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_samples_daily (
+        -- A listing's last reading of a UTC day, once its raw samples are compacted: every column a sample has.
         listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
         day DATE NOT NULL,
-        min_stock INTEGER NOT NULL,
-        max_stock INTEGER NOT NULL,
-        last_stock INTEGER NOT NULL,
-        last_unit_price NUMERIC(14,6),
+        stock INTEGER NOT NULL CHECK (stock >= 0),
+        incoming_qty INTEGER NOT NULL DEFAULT 0,
+        unit_price NUMERIC(14,6),
         currency TEXT NOT NULL DEFAULT '',
+        lead_time_days INTEGER,
+        lifecycle TEXT NOT NULL DEFAULT 'unknown',
+        discontinued BOOLEAN NOT NULL DEFAULT FALSE,
         marketplace BOOLEAN NOT NULL DEFAULT FALSE,
-        sample_count INTEGER NOT NULL CHECK (sample_count >= 1),
+        moq INTEGER NOT NULL DEFAULT 1,
+        order_multiple INTEGER NOT NULL DEFAULT 1,
         PRIMARY KEY (listing_id, day)
     );
     """,

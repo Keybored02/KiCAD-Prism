@@ -16,6 +16,8 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any, Sequence
 
+from app.services.supply.history import days_sql
+
 MIN_EVENTS = 5
 WINDOW_DAYS = 365
 STOCK_DAYS = 90
@@ -76,38 +78,18 @@ def _rounds(restocks: dict[str, dict[str, list[date]]]) -> tuple[dict[str, int],
 def _stock_share(conn, today: date) -> dict[str, tuple[int, int]]:
     """Per connector: days with stock and days observed, over the last ``STOCK_DAYS``, on the shared parts.
 
-    A day's figure is its last raw reading where raw readings are still kept, else the day's rollup. Counted in the database: the
-    days run to millions on a large library, and the shared set is joined there rather than sent as a list of listings."""
+    A day's figure is the listing's last reading that day (``days_sql``). Counted in the database: the days run to millions
+    on a large library, and the shared set is joined there rather than sent as a list of listings."""
 
-    since = today - timedelta(days=STOCK_DAYS)
     rows = conn.execute(
         f"""
-        WITH shared AS MATERIALIZED ({_SHARED_LISTINGS}),
-        -- Each UTC day with a raw reading, and that day's last reading off the marketplace within the window (none if it has none).
-        raw_days AS MATERIALIZED (
-            SELECT s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day,
-                   (array_agg(s.stock ORDER BY s.sampled_at DESC) FILTER (WHERE NOT s.marketplace AND s.sampled_at >= %(since)s))[1] AS stock
-            FROM supply_samples s WHERE s.listing_id IN (SELECT listing_id FROM shared)
-            GROUP BY 1, 2
-        ),
-        counted AS (
-            -- Every rollup day in the window, per listing...
-            SELECT listing_id, COUNT(*) AS seen, COUNT(*) FILTER (WHERE last_stock > 0) AS held
-            FROM supply_samples_daily WHERE day >= %(since_day)s AND NOT marketplace GROUP BY listing_id
-            UNION ALL
-            -- ...less the rollup days a raw reading speaks for...
-            SELECT d.listing_id, -COUNT(*), -COUNT(*) FILTER (WHERE d.last_stock > 0)
-            FROM raw_days r JOIN supply_samples_daily d ON d.listing_id = r.listing_id AND d.day = r.day
-            WHERE r.day >= %(since_day)s AND NOT d.marketplace GROUP BY d.listing_id
-            UNION ALL
-            -- ...plus each raw day's last reading.
-            SELECT listing_id, COUNT(*), COUNT(*) FILTER (WHERE stock > 0) FROM raw_days WHERE stock IS NOT NULL GROUP BY listing_id
-        )
-        SELECT shared.connector_id, SUM(counted.seen) AS seen, SUM(counted.held) AS held
-        FROM counted JOIN shared ON shared.listing_id = counted.listing_id
-        GROUP BY shared.connector_id
+        SELECT l.connector_id, COUNT(*) AS seen, COUNT(*) FILTER (WHERE d.stock > 0) AS held
+        FROM {days_sql(f"SELECT shared.listing_id FROM ({_SHARED_LISTINGS}) shared", "%(since)s")} d
+        JOIN supply_listings l ON l.id = d.listing_id
+        WHERE NOT d.marketplace
+        GROUP BY l.connector_id
         """,
-        {"counted": list(_COUNTED), "since": since, "since_day": since},
+        {"counted": list(_COUNTED), "since": today - timedelta(days=STOCK_DAYS)},
     ).fetchall()
     return {row["connector_id"]: (int(row["held"]), int(row["seen"])) for row in rows}
 

@@ -14,7 +14,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import budget, facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, stock, usage
+from app.services.supply import budget, facts, forecasting, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 from app.services.supply.providers import registry
 from app.services.supply.part_status import (
@@ -698,35 +699,21 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
 
 
 def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
-    """Each listing's last known stock per day: raw samples where they exist, rollups before that."""
+    """Each counted listing's last known stock per day (``days_sql``)."""
 
     states = list(_COUNTED) + ["gone"]
-    raw = conn.execute(
-        """
-        SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, l.connector_id, l.sku, c.provider, {pool} AS pool, l.match_state, l.packaging,
-               (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.marketplace
-        FROM supply_samples s
-        JOIN supply_listings l ON l.id = s.listing_id
-        JOIN supply_connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s AND {counted}
-        ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
-        (part_id, states, since),
-    ).fetchall()
-    rolled = conn.execute(
-        """
-        SELECT d.listing_id, l.connector_id, l.sku, c.provider, {pool} AS pool, l.match_state, l.packaging, d.day, d.last_stock AS stock, d.marketplace
-        FROM supply_samples_daily d
+    days = days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND match_state = ANY(%(states)s)", "%(since)s")
+    rows = conn.execute(
+        f"""
+        SELECT d.listing_id, l.connector_id, l.sku, c.provider, {stock.pool_sql()} AS pool, l.match_state, l.packaging, d.day, d.stock, d.marketplace
+        FROM {days} d
         JOIN supply_listings l ON l.id = d.listing_id
         JOIN supply_connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s AND {counted}
-        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
-        (part_id, states, since.date()),
+        WHERE {stock.counted_listing_sql()}
+        """,
+        {"part": part_id, "states": states, "since": since.date()},
     ).fetchall()
-    merged = {(r["listing_id"], r["day"]): dict(r) for r in rolled}
-    merged.update({(r["listing_id"], r["day"]): dict(r) for r in raw})
-    return list(merged.values())
+    return [dict(row) for row in rows]
 
 
 def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
@@ -780,27 +767,28 @@ LEAD_TREND_MIN_CHANGE_DAYS = 7
 
 
 def lead_time_trend(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
-    """How the quoted lead time moved over the last 90 days: the median of the first two weeks of readings against the last two.
+    """How the quoted lead time moved over the last 90 days: the median of the first two weeks of daily readings against the last two.
     None without lead times in both windows, or when the change is under a week."""
 
     rows = conn.execute(
-        """
-        SELECT s.sampled_at, s.lead_time_days FROM supply_samples s JOIN supply_listings l ON l.id = s.listing_id
-        WHERE l.part_id = %s AND s.lead_time_days IS NOT NULL AND s.sampled_at >= %s ORDER BY s.sampled_at
+        f"""
+        SELECT d.day, d.lead_time_days FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s", "%(since)s")} d
+        WHERE d.lead_time_days IS NOT NULL ORDER BY d.day
         """,
-        (part_id, now - timedelta(days=LEAD_TREND_DAYS)),
+        {"part": part_id, "since": (now - timedelta(days=LEAD_TREND_DAYS)).date()},
     ).fetchall()
     if len(rows) < 2:
         return None
     window = timedelta(days=LEAD_TREND_WINDOW_DAYS)
-    first = [row["lead_time_days"] for row in rows if row["sampled_at"] <= rows[0]["sampled_at"] + window]
-    last = [row["lead_time_days"] for row in rows if row["sampled_at"] >= rows[-1]["sampled_at"] - window]
-    if rows[-1]["sampled_at"] - rows[0]["sampled_at"] < window * 2:
+    first_day, last_day = rows[0]["day"], rows[-1]["day"]
+    if last_day - first_day < window * 2:
         return None
+    first = [row["lead_time_days"] for row in rows if row["day"] <= first_day + window]
+    last = [row["lead_time_days"] for row in rows if row["day"] >= last_day - window]
     before, after = statistics.median(first), statistics.median(last)
     if abs(after - before) < LEAD_TREND_MIN_CHANGE_DAYS:
         return None
-    return {"before": round(before), "after": round(after), "since": rows[0]["sampled_at"].date().isoformat()}
+    return {"before": round(before), "after": round(after), "since": first_day.isoformat()}
 
 
 def _first_seen(conn, part_id: str) -> str | None:

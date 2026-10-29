@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any, Sequence
 
 from app.services.supply import pricing
+from app.services.supply.history import days_sql
 
 WINDOW_DAYS = 30
 CHART_DAYS = 90
@@ -158,33 +159,17 @@ def _points_of(conn, part_ids: Sequence[str], now: datetime, days: int) -> dict[
 
 
 def _daily_rows(conn, part_ids: Sequence[str], now: datetime, days: int) -> list[dict[str, Any]]:
-    """One reading per listing and day (raw samples, then the daily rollups) of the parts: its price at 100, currency and smallest order."""
+    """One reading per listing and day of the parts (``days_sql``): its price at 100, currency and smallest order."""
 
-    since = now - timedelta(days=days)
     return conn.execute(
-        """
-        SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               l.part_id, s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price, s.moq
-        FROM supply_samples s JOIN supply_listings l ON l.id = s.listing_id
-        WHERE l.part_id = ANY(%(parts)s) AND l.match_state = ANY(%(states)s) AND s.sampled_at >= %(since)s
-          AND NOT s.marketplace AND s.unit_price IS NOT NULL AND s.currency <> ''
+        f"""
+        SELECT l.part_id, d.listing_id, d.day, d.currency, d.unit_price AS price, d.moq
+        FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND match_state = ANY(%(states)s)", "%(since)s")} d
+        JOIN supply_listings l ON l.id = d.listing_id
+        WHERE NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
           AND NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
-        ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
         """,
-        {"parts": list(part_ids), "states": list(_COUNTED), "since": since},
-    ).fetchall() + conn.execute(
-        """
-        SELECT l.part_id, d.listing_id, d.day, d.currency, d.last_unit_price AS price,
-               COALESCE((SELECT o.moq FROM supply_offers o WHERE o.listing_id = d.listing_id), 1) AS moq
-        FROM supply_samples_daily d JOIN supply_listings l ON l.id = d.listing_id
-        WHERE l.part_id = ANY(%(parts)s) AND l.match_state = ANY(%(states)s) AND d.day >= %(since_day)s
-          AND NOT d.marketplace AND d.last_unit_price IS NOT NULL AND d.currency <> ''
-          AND NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
-          AND NOT EXISTS (
-              SELECT 1 FROM supply_samples s WHERE s.listing_id = d.listing_id
-                AND (s.sampled_at AT TIME ZONE 'UTC')::date = d.day)
-        """,
-        {"parts": list(part_ids), "states": list(_COUNTED), "since_day": since.date()},
+        {"parts": list(part_ids), "states": list(_COUNTED), "since": (now - timedelta(days=days)).date()},
     ).fetchall()
 
 
@@ -192,14 +177,13 @@ def last_in_stock(conn, part_id: str, base: str, rates) -> tuple[Decimal, date] 
     """The cheapest price at 100 on the most recent day any counted listing had stock, in the base currency, and that day."""
 
     rows = conn.execute(
-        """
-        SELECT (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.currency, s.unit_price AS price
-        FROM supply_samples s JOIN supply_listings l ON l.id = s.listing_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.stock > 0 AND NOT s.marketplace
-          AND s.unit_price IS NOT NULL AND s.currency <> ''
-        ORDER BY s.sampled_at DESC LIMIT 20
+        f"""
+        SELECT d.day, d.currency, d.unit_price AS price
+        FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND match_state = ANY(%(states)s)")} d
+        WHERE d.stock > 0 AND NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
+        ORDER BY d.day DESC LIMIT 20
         """,
-        (part_id, list(_COUNTED)),
+        {"part": part_id, "states": list(_COUNTED)},
     ).fetchall()
     if not rows:
         return None

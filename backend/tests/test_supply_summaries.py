@@ -112,6 +112,19 @@ class SummaryCacheTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertIsNone(self.parts_view.lead_time_trend(conn, self.watch.part_id, NOW), "two days is not a trend")
 
+    def test_a_lead_time_trend_reads_readings_older_than_the_raw_samples_kept(self) -> None:
+        from datetime import timedelta
+
+        with self.store.connection() as conn:
+            # Compacted: only the daily rows remain past 60 days.
+            for days_ago in (80, 75):
+                conn.execute("INSERT INTO supply_samples_daily (listing_id, day, stock, lead_time_days) VALUES ('l1', %s, 100, 28)",
+                             ((NOW - timedelta(days=days_ago)).date(),))
+            for days_ago in (5, 1):
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, lead_time_days) VALUES ('l1', %s, 100, 70)",
+                             (NOW - timedelta(days=days_ago),))
+            self.assertEqual(self.parts_view.lead_time_trend(conn, self.watch.part_id, NOW)["before"], 28)
+
     def test_a_new_reading_makes_it_stale(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
