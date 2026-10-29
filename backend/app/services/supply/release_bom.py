@@ -78,7 +78,12 @@ def _quantity(row: Mapping[str, str]) -> int:
 
 
 def lines_from_csv(text: str, identities: Identities | None = None) -> ReadBom:
-    """The distinct parts in a BOM export, with how many go on a board. Rows marked not fitted are left out."""
+    """The distinct parts in a BOM export, with how many go on a board. Rows marked not fitted are left out.
+
+    The export is what was shipped, so its manufacturer and part number win: the library's identity of a row's Prism ID only fills a
+    row that names no part number. A row keeps its Prism ID (and so its component's approved alternates) only while the shipped part is
+    still that component's part; once the library has moved the component to another part, the row is the shipped part alone.
+    """
 
     rows = _table(text)
     fitted = [row for row in rows if is_fitted(row)]
@@ -89,7 +94,16 @@ def lines_from_csv(text: str, identities: Identities | None = None) -> ReadBom:
     without_number = 0
     for row in fitted:
         placed = library.get(prism_id_of(row))
-        manufacturer, mpn = placed if placed and placed[1].strip() else identity_of(row)
+        if placed and not placed[1].strip():
+            placed = None
+        shipped = identity_of(row)
+        if match_key(shipped[1]):
+            manufacturer, mpn = shipped
+            # Still the component's part when the numbers agree; the Prism ID already names the component, so spellings of the maker may differ.
+            if placed and match_key(placed[1]) != match_key(mpn):
+                placed = None
+        else:
+            manufacturer, mpn = placed if placed else shipped
         number = match_key(mpn)
         if not number:
             without_number += 1

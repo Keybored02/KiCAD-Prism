@@ -172,8 +172,11 @@ for a line the library doesn't have.
 ## Supply in Release Studio
 
 From the outputs stage, Release Studio shows the supply health of the BOM the
-release build exported, with the parts to look at. It informs the release and
-never blocks it. At publish you can choose **Attach the compliance draft (RoHS
+release build exported, with the parts to look at. It checks the parts the
+build shipped with, as the exported BOM names them, even if a library component
+has since moved to another part; a component's approved alternates count only
+while the shipped part is still that component's part. It informs the release
+and never blocks it. At publish you can choose **Attach the compliance draft (RoHS
 and REACH, a working document) to the release**. Prism records what supply
 said at publish with the release; that record never changes.
 
