@@ -118,7 +118,7 @@ def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any
         pool_ids = [row["id"] for row in pool]
         standing = {item["id"]: item for item in parts_view.summaries_for(conn, pool_ids)}
         signatures = {
-            candidate_id: _signature(items) for candidate_id, items in parts_view.parameters_of_parts(conn, pool_ids).items()
+            candidate_id: _signature(items) for candidate_id, items in parts_view.parameters_of_parts(conn, pool_ids, with_facts=False).items()
         }
         for row in pool:
             verdict = grade(base, signatures.get(row["id"], {}))
