@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
+from app.services.supply import clock
 from app.core.config import settings as deployment
 from app.services.supply.assessment import settings as assessment_rules
 from app.services.supply.assessment.settings import AssessmentSettings
@@ -263,10 +264,10 @@ def validate_form(payload: Mapping) -> dict[str, dict]:
 def _write(conn, name: str, value: dict, actor: str) -> None:
     conn.execute(
         """
-        INSERT INTO supply_settings (key, value, updated_by) VALUES (%s, %s::jsonb, %s)
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+        INSERT INTO supply_settings (key, value, updated_by, updated_at) VALUES (%s, %s::jsonb, %s, %s)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at
         """,
-        (name, json.dumps(value), actor),
+        (name, json.dumps(value), actor, clock.now()),
     )
 
 

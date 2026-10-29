@@ -13,10 +13,10 @@ are the item: its title, action, owner, notes, projects, recheck date and QA's d
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Sequence
 
-from app.services.supply import attention, component_parts, usage
+from app.services.supply import attention, clock, component_parts, usage
 from app.services.supply.audit import actor_text, write_audit
 
 SUBJECTS = ("component", "part")
@@ -67,7 +67,7 @@ def create(
     if action not in ACTIONS:
         raise WorkItemError("That action is not one Prism knows.")
     note = _clean_note(note)
-    now = datetime.now(timezone.utc)
+    now = clock.now()
     evidence = [{"text": note, "by": actor, "at": now.isoformat()}] if note else []
     item_id = str(conn.execute(
         f"""
@@ -137,11 +137,11 @@ def update(
         evidence = list(item["evidence"] or [])
         if len(evidence) >= MAX_NOTES:
             raise WorkItemError(f"A work item keeps at most {MAX_NOTES} notes.")
-        fields["evidence"] = json.dumps([*evidence, {"text": note, "by": actor, "at": datetime.now(timezone.utc).isoformat()}])
+        fields["evidence"] = json.dumps([*evidence, {"text": note, "by": actor, "at": clock.now().isoformat()}])
     if fields:
         # Column names come from the fixed set above, never from the caller; the evidence is the row's notes.
         assignments = ", ".join("notes = %s::jsonb" if column == "evidence" else f"{column} = %s" for column in fields)
-        conn.execute(f"UPDATE supply_attention SET {assignments}, updated_at = NOW() WHERE id = %s", (*fields.values(), int(item_id)))
+        conn.execute(f"UPDATE supply_attention SET {assignments}, updated_at = %s WHERE id = %s", (*fields.values(), clock.now(), int(item_id)))
         shown = {key: (value if key != "evidence" else note) for key, value in fields.items()}
         write_audit(conn, actor, "work_item.update", item_id, {key: str(value) for key, value in shown.items()}, subject_kind="work_item")
     return get(conn, item_id)
@@ -159,13 +159,14 @@ def decide(conn, item_id: str, state: str, *, actor: str, approver: bool, note: 
     if state == "done" and not _may_edit(item, actor, approver):
         raise NotAllowed("Only its owner, whoever opened it, or QA may mark a work item done.")
     row_state, disposition = _MOVE[state]
+    now = clock.now()
     conn.execute(
         """
         UPDATE supply_attention SET state = %s, disposition = CASE WHEN %s::text IS NULL THEN (CASE WHEN disposition = 'rejected' THEN '' ELSE disposition END) ELSE %s END,
-            resolved_at = CASE WHEN %s = 'resolved' THEN NOW() END, updated_at = NOW()
+            resolved_at = CASE WHEN %s = 'resolved' THEN %s::timestamptz END, updated_at = %s
         WHERE id = %s
         """,
-        (row_state, disposition, disposition, row_state, int(item_id)),
+        (row_state, disposition, disposition, row_state, now, now, int(item_id)),
     )
     if note:
         update(conn, item_id, actor=actor, approver=approver, note=note)
@@ -180,7 +181,7 @@ def listed(
     """Work items, soonest recheck first. ``state`` is one of ``STATES``, ``live`` (open or accepted), ``mine`` (live and owned by
     ``actor``) or ``due`` (live with a recheck date today or past). Projects the caller may not see are not named."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     where, params = ["w.kind = 'work'"], []
     if state in STATES:
         where.append(f"{STATE_SQL} = %s")

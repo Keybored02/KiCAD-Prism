@@ -21,7 +21,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import counted, fx, insights, price_breaks, price_quantity, prices, stock
+from app.services.supply import clock, counted, fx, insights, price_breaks, price_quantity, prices, stock
 from app.services.supply.history import days_sql
 from app.services.supply import settings as supply_settings
 
@@ -80,7 +80,7 @@ def _events(conn, part_id: str, total: list[list[Any]], first: date) -> list[dic
 
 
 def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_DAYS) -> dict[str, Any]:
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     days = max(1, min(int(days), MAX_DAYS))
     listings = _listings(conn, part_id)
     empty = {"days": days, "currency": "", "connectors": [], "total": [], "events": []}

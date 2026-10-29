@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from app.services.supply import freshness
+from app.services.supply import clock, freshness
 from app.services.supply import settings as supply_settings
 from app.services.supply.audit import actor_text, write_audit
 
@@ -52,9 +52,9 @@ def set_for_part(conn, part_id: str, quantity: int | None, actor: str) -> dict[s
         conn.execute("DELETE FROM supply_part_price_quantity WHERE part_id = %s", (part_id,))
     else:
         conn.execute(
-            "INSERT INTO supply_part_price_quantity (part_id, quantity, set_by) VALUES (%s, %s, %s) "
-            "ON CONFLICT (part_id) DO UPDATE SET quantity = EXCLUDED.quantity, set_by = EXCLUDED.set_by, set_at = NOW()",
-            (part_id, quantity, actor),
+            "INSERT INTO supply_part_price_quantity (part_id, quantity, set_by, set_at) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (part_id) DO UPDATE SET quantity = EXCLUDED.quantity, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at",
+            (part_id, quantity, actor, clock.now()),
         )
     after = of_part(conn, part_id)
     write_audit(conn, actor, "part.price_quantity", part_id, {"before": before["quantity"], "after": after["quantity"], "own": after["own"]},

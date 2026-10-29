@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import accounts, admission, freshness, limits, pacing, quota
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
@@ -143,7 +144,7 @@ class ConnectorService:
         allow_dev: Callable[[], bool] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
         self._offers = CsvOfferStore()
         self._store = store
         self._keyring = keyring_factory or sealed.default_keyring_factory
@@ -291,8 +292,8 @@ class ConnectorService:
         try:
             with self._store.connection() as conn:
                 result = conn.execute(
-                    f"UPDATE supply_connectors SET {''.join(f'{column} = %s, ' for column in own)}updated_at = NOW() WHERE id = %s",
-                    (*own.values(), connector_id),
+                    f"UPDATE supply_connectors SET {''.join(f'{column} = %s, ' for column in own)}updated_at = %s WHERE id = %s",
+                    (*own.values(), self._clock(), connector_id),
                 )
                 if result.rowcount == 0:
                     raise ConnectorNotFound(connector_id)
@@ -329,8 +330,8 @@ class ConnectorService:
                 raise ConnectorError("invalid_credentials", f"{spec.label} takes no credentials.")
             envelope = sealed.seal(self._keyring(), connector_id, cleaned)
             conn.execute(
-                "UPDATE supply_connectors SET credential_envelope = %s, credential_names = %s::jsonb, updated_at = NOW() WHERE id = %s",
-                (envelope, json.dumps(list(cleaned)), connector_id),
+                "UPDATE supply_connectors SET credential_envelope = %s, credential_names = %s::jsonb, updated_at = %s WHERE id = %s",
+                (envelope, json.dumps(list(cleaned)), self._clock(), connector_id),
             )
             accounts.rekey(conn, connector_id, accounts.key_for(self._keyring(), spec.key, cleaned))
             detail: dict[str, Any] = {"names": list(cleaned)}
@@ -433,15 +434,15 @@ class ConnectorService:
             # Connectors on one account share their pacing; one with no credentials shares it with its provider's others.
             account=accounts.pace_key(row["account_key"], row["provider"]),
             credentials=creds,
-            on_limits=lambda found, url: limits.note(self._store, connector_id, found, datetime.now(timezone.utc), url=url),
+            on_limits=lambda found, url: limits.note(self._store, connector_id, found, supply_clock.now(), url=url),
         ))
         return provider
 
     def _set_paused(self, connector_id: str, actor: str, reason: str, action: str) -> dict[str, Any]:
         with self._store.connection() as conn:
             result = conn.execute(
-                "UPDATE supply_connectors SET paused_reason = %s, updated_at = NOW() WHERE id = %s",
-                (reason, connector_id),
+                "UPDATE supply_connectors SET paused_reason = %s, updated_at = %s WHERE id = %s",
+                (reason, self._clock(), connector_id),
             )
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)

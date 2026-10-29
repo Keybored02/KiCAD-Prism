@@ -13,9 +13,10 @@ carry are recorded as searched, so they are not searched on every scan.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import admission, budget, ledger, library_match, parts, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import DiscoveryService
@@ -141,7 +142,7 @@ class Discoverer:
         self._connectors = connectors
         self._store = store
         self._provider_for = provider_for or connectors.load_provider
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
 
     def run(self, connector_id: str, *, limit: int = MAX_PER_RUN, waiting: bool = False, library: bool = False) -> DiscoverySummary:
         """Search for the parts due one. With ``waiting``, search for the parts that wait for room; with ``library``, the library

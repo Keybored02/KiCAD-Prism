@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
-from app.services.supply import alerts, component_parts, parts, stock, tracking
+from app.services.supply import alerts, clock, component_parts, parts, stock, tracking
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_PINNED = 25
@@ -179,11 +179,11 @@ def update_watch(
         return current
     # Column names come from the fixed set above, never from the caller.
     assignments = ", ".join(f"{column} = %s" for column in changes)
-    conn.execute(f"UPDATE supply_watches SET {assignments}, updated_at = NOW() WHERE id = %s", (*changes.values(), watch_id))
+    conn.execute(f"UPDATE supply_watches SET {assignments}, updated_at = %s WHERE id = %s", (*changes.values(), clock.now(), watch_id))
     before = {field: getattr(current, field) for field in changes}
     write_audit(conn, actor, "watch.update", watch_id, {"before": before, "after": changes}, subject_kind="watch")
     tracking.recompute(conn, [current.part_id])
-    alerts.evaluate_parts(conn, [current.part_id], datetime.now(timezone.utc))
+    alerts.evaluate_parts(conn, [current.part_id], clock.now())
     return get_watch(conn, watch_id)
 
 
@@ -211,7 +211,7 @@ def stop_tracking(conn, part_id: str, actor: str) -> bool:
         remove_watch(conn, existing["id"], actor)
     elif components:
         tracking.recompute(conn, [part_id])
-        alerts.evaluate_parts(conn, [part_id], datetime.now(timezone.utc))
+        alerts.evaluate_parts(conn, [part_id], clock.now())
     return existing is not None or bool(components)
 
 
@@ -221,7 +221,7 @@ def remove_watch(conn, watch_id: str, actor: str) -> None:
     conn.execute("DELETE FROM supply_watches WHERE id = %s", (watch_id,))
     tracking.recompute(conn, [current.part_id])
     # Without a watch every condition is false, so its alerts clear.
-    alerts.evaluate_parts(conn, [current.part_id], datetime.now(timezone.utc))
+    alerts.evaluate_parts(conn, [current.part_id], clock.now())
     write_audit(conn, actor, "watch.remove", watch_id,
                 {"part_id": current.part_id, "threshold": current.threshold, "pinned": current.pinned},
                 subject_kind="watch")

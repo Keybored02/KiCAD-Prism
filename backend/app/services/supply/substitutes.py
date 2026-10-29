@@ -14,10 +14,10 @@ tracked or approved from it: a person decides.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
-from app.services.supply import alternates, ledger, parts, trouble
+from app.services.supply import alternates, clock, ledger, parts, trouble
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
@@ -100,7 +100,7 @@ def ask_now(
     """Ask every distributor that can for its substitutes of the part, now. One call each, from the interactive reserve."""
 
     actor = actor_text(actor)
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     store = service.store
     with store.connection() as conn:
         parts.get_part(conn, part_id)
@@ -196,7 +196,7 @@ def due(conn, connector_id: str, now: datetime, limit: int = MAX_AUTO_PER_RUN) -
 def run_due(service, connector_id: str, *, now: datetime | None = None, provider: Any | None = None, limit: int = MAX_AUTO_PER_RUN) -> int:
     """Ask for the substitutes of ending parts, a few a run, from the committed budget. Returns how many were asked."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     connector = service.get(connector_id)
     if CAP_SUBSTITUTES not in registry.get_spec(connector["provider"]).capabilities:
         return 0

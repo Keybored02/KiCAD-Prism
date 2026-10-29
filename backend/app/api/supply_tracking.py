@@ -7,7 +7,6 @@ a preview does exactly what the change would and rolls it back, so the figures s
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any, Callable, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
-from app.services.supply import admission, budget_view, parts, project_bom, room, tracking, usage, watches
+from app.services.supply import admission, budget_view, clock, parts, project_bom, room, tracking, usage, watches
 from app.services.supply import settings as supply_settings
 from app.services.supply.progress import job_progress
 
@@ -84,7 +83,7 @@ def _read_project_bom(conn, project_id: str) -> str:
     visible = [role for role in usage.ALL_ROLES if workspace._is_folder_visible(row, role)]
     return usage.refresh_one(
         conn, project_service._workspace_row_to_project(row), project_bom.existing_index,
-        datetime.now(timezone.utc), visible, catalog_read.identities,
+        clock.now(), visible, catalog_read.identities,
     )
 
 
@@ -172,7 +171,7 @@ async def read_project_bom(project_id: str, user: AuthenticatedUser = Depends(re
             raise ValueError("This project does not exist.")
         project, roles = found[0]
         with _store().connection() as conn:
-            status = project_bom.read(conn, project, roles, datetime.now(timezone.utc))
+            status = project_bom.read(conn, project, roles, clock.now())
         if status == "reading":
             return job_progress("running", total=1)
         return job_progress("done", done=1, total=1, changed=status == "updated")
@@ -282,7 +281,7 @@ async def budget(user: AuthenticatedUser = Depends(require_supply_reader)) -> li
 
     def read() -> list[dict[str, Any]]:
         with _store().connection() as conn:
-            return budget_view.view(conn, datetime.now(timezone.utc), visible)
+            return budget_view.view(conn, clock.now(), visible)
 
     return await _run(read)
 
@@ -293,7 +292,7 @@ async def tracking_room(_user: AuthenticatedUser = Depends(require_supply_reader
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return room.view(conn, datetime.now(timezone.utc))
+            return room.view(conn, clock.now())
 
     return await _run(read)
 

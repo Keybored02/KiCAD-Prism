@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping
 
 import psycopg
 
-from app.services.supply import parts
+from app.services.supply import clock, parts
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import _DASH_CODES, alias_key, match_key
 
@@ -161,11 +161,11 @@ def _set_main(conn, component_id: str, part_id: str | None) -> bool:
     conn.execute(
         """
         INSERT INTO component_parts (component_id, part_id, role, approval, created_by, decided_by, decided_at)
-        VALUES (%s, %s, 'main', 'approved', %s, %s, NOW())
+        VALUES (%s, %s, 'main', 'approved', %s, %s, %s)
         ON CONFLICT (component_id, part_id) DO UPDATE
-            SET role = 'main', approval = 'approved', decided_by = EXCLUDED.decided_by, decided_at = NOW()
+            SET role = 'main', approval = 'approved', decided_by = EXCLUDED.decided_by, decided_at = EXCLUDED.decided_at
         """,
-        (component_id, part_id, SYSTEM, SYSTEM),
+        (component_id, part_id, SYSTEM, SYSTEM, clock.now()),
     )
     return True
 
@@ -225,12 +225,12 @@ def propose_alternate(conn, component_id: str, manufacturer: str, mpn: str, acto
         with conn.transaction():
             conn.execute(
                 """
-                INSERT INTO component_parts (component_id, part_id, role, approval, created_by)
-                VALUES (%s, %s, 'alternate', 'pending', %s)
+                INSERT INTO component_parts (component_id, part_id, role, approval, created_by, created_at)
+                VALUES (%s, %s, 'alternate', 'pending', %s, %s)
                 ON CONFLICT (component_id, part_id) DO UPDATE
-                    SET approval = 'pending', created_by = EXCLUDED.created_by, created_at = NOW(), decided_by = '', decided_at = NULL
+                    SET approval = 'pending', created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at, decided_by = '', decided_at = NULL
                 """,
-                (component_id, part.id, actor),
+                (component_id, part.id, actor, clock.now()),
             )
     except psycopg.errors.ForeignKeyViolation as exc:
         raise ComponentPartError("There is no such component.") from exc
@@ -245,11 +245,11 @@ def decide(conn, component_id: str, part_id: str, approve: bool, actor: str) -> 
     approval = APPROVED if approve else REJECTED
     row = conn.execute(
         """
-        UPDATE component_parts SET approval = %s, decided_by = %s, decided_at = NOW()
+        UPDATE component_parts SET approval = %s, decided_by = %s, decided_at = %s
         WHERE component_id = %s AND part_id = %s AND role = 'alternate'
         RETURNING part_id
         """,
-        (approval, actor, component_id, part_id),
+        (approval, actor, clock.now(), component_id, part_id),
     ).fetchone()
     if row is None:
         raise ComponentPartError("That part is not an alternate of this component.")

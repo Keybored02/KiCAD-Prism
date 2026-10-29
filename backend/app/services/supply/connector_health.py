@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.services.supply import clock
 from app.services.supply.providers import registry
 
 # A listing is late when it was due more than this long ago.
@@ -19,7 +20,7 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def connector_health(conn, now: datetime | None = None) -> list[dict[str, Any]]:
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     rows = conn.execute(
         """
         SELECT c.id, c.display_name, c.provider, c.enabled, c.paused_reason, a.daily_budget, c.last_ok_at,

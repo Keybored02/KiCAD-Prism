@@ -12,11 +12,11 @@ that is recorded as the reason, not retried.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.services.job_kinds import JobKind
-from app.services.supply import catalog_read, release_bom, release_check, release_source
+from app.services.supply import catalog_read, clock, release_bom, release_check, release_source
 from app.services.supply.progress import job_progress
 from app.services.supply.store import supply_store
 
@@ -33,11 +33,11 @@ def artifact_key(build_id: str) -> str:
 def _state(conn, project_id: str, build_id: str, state: str, reason: str = "", *, attempt: bool = False) -> None:
     conn.execute(
         """
-        INSERT INTO supply_release_snapshot_jobs (build_id, project_id, state, reason, attempts) VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (build_id) DO UPDATE SET state = EXCLUDED.state, reason = EXCLUDED.reason, updated_at = NOW(),
+        INSERT INTO supply_release_snapshot_jobs (build_id, project_id, state, reason, attempts, updated_at) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (build_id) DO UPDATE SET state = EXCLUDED.state, reason = EXCLUDED.reason, updated_at = EXCLUDED.updated_at,
             attempts = supply_release_snapshot_jobs.attempts + %s
         """,
-        (build_id, project_id, state, reason[:300], 1 if attempt else 0, 1 if attempt else 0),
+        (build_id, project_id, state, reason[:300], 1 if attempt else 0, clock.now(), 1 if attempt else 0),
     )
 
 
@@ -88,7 +88,7 @@ def queue(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str,
 def take(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str, *, now: datetime | None = None) -> str:
     """Take the snapshot now. Returns ``taken``, or ``failed`` for a reason that retrying will not change."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     try:
         text = release_source.build_bom_text(build_id)
     except release_source.NoBuildBom as exc:

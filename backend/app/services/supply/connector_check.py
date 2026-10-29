@@ -10,10 +10,10 @@ stays the poller's decision.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
-from app.services.supply import ledger
+from app.services.supply import clock, ledger
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.providers import registry
@@ -38,7 +38,7 @@ def _result(ok: bool, code: str, message: str, started: float) -> dict[str, Any]
         "code": code,
         "message": message,
         "took_ms": round((time.monotonic() - started) * 1000),
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": clock.now().isoformat(),
     }
 
 
@@ -47,7 +47,7 @@ def check_connector(
     connector_id: str,
     actor: str,
     *,
-    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    now: Callable[[], datetime] = clock.now,
 ) -> dict[str, Any]:
     """One call to the provider. Raises ``ConnectorNotFound`` and ``SecretStoreLocked``; reports the rest."""
 

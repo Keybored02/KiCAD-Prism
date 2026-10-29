@@ -18,9 +18,10 @@ A part with stock that matches nothing waits in ``inventory_unmatched`` with the
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from app.services.supply import clock
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
@@ -179,7 +180,7 @@ def sync(
 ) -> dict[str, Any]:
     """Read one source and store what it holds. Returns the counts, or the error the source now shows."""
 
-    moment = now or datetime.now(timezone.utc)
+    moment = now or clock.now()
     with store.connection() as conn:
         row = sources.get(conn, source_id)
     spec = registry.get_spec(row["kind"])
@@ -212,7 +213,7 @@ def due(conn, now: datetime) -> list[str]:
 
 
 def sync_due(store: SupplyStore, keyring: sealed.CredentialKeyring, now: datetime | None = None) -> list[dict[str, Any]]:
-    moment = now or datetime.now(timezone.utc)
+    moment = now or clock.now()
     with store.connection() as conn:
         ids = due(conn, moment)
     return [sync(store, keyring, source_id, now=moment) for source_id in ids]
@@ -229,9 +230,9 @@ def link(conn, source_id: str, remote_part: str, component_id: str, actor: str) 
     waiting = conn.execute("SELECT 1 FROM inventory_unmatched WHERE source_id = %s AND remote_part = %s", (source_id, remote_part)).fetchone()
     relinked = conn.execute("SELECT 1 FROM inventory_links WHERE source_id = %s AND remote_part = %s", (source_id, remote_part)).fetchone()
     conn.execute(
-        "INSERT INTO inventory_links (source_id, remote_part, component_id, linked_by) VALUES (%s, %s, %s, %s) "
-        "ON CONFLICT (source_id, remote_part) DO UPDATE SET component_id = EXCLUDED.component_id, linked_by = EXCLUDED.linked_by, linked_at = NOW()",
-        (source_id, remote_part, component_id, actor),
+        "INSERT INTO inventory_links (source_id, remote_part, component_id, linked_by, linked_at) VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (source_id, remote_part) DO UPDATE SET component_id = EXCLUDED.component_id, linked_by = EXCLUDED.linked_by, linked_at = EXCLUDED.linked_at",
+        (source_id, remote_part, component_id, actor, clock.now()),
     )
     # Answered: it no longer needs a person, but stays listed as linked until a read lands its stock on the component (UX-04).
     if waiting and not relinked:

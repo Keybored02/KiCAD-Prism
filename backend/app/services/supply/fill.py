@@ -10,9 +10,10 @@ through the normal metadata edit, which makes a new revision.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import ledger, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.identity import match_key
@@ -54,7 +55,7 @@ class FillService:
     ) -> None:
         self._connectors = connectors
         self._provider_for = provider_for or connectors.load_provider
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
 
     def search(self, mpn: str, manufacturer: str = "") -> dict[str, Any]:
         mpn = mpn.strip()

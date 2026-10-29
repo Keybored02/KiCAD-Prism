@@ -10,9 +10,10 @@ included, which the poller and the discoverer charge to the budget beyond what t
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable, Mapping
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.providers.base import AuthError, ProviderConfig
@@ -36,7 +37,7 @@ class HttpProvider:
         self._client = client or SafeHttpClient(hosts)
         if config.on_limits is not None:
             self._client.on_limits = config.on_limits
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
         self._monotonic = monotonic
         self._sleep = sleep
         self._pacer = pacing.pacer_for(config.account, pace_seconds, monotonic=monotonic, sleep=sleep)

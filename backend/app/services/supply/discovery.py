@@ -181,11 +181,11 @@ class DiscoveryService:
         if existing is None:
             conn.execute(
                 """
-                INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, last_seen_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, first_seen_at, last_seen_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (connector_id, sku) DO NOTHING
                 """,
-                (uuid.uuid4().hex, connector_id, match.sku, part_id, match.mpn, match.manufacturer, state, reason, now),
+                (uuid.uuid4().hex, connector_id, match.sku, part_id, match.mpn, match.manufacturer, state, reason, now, now),
             )
             # A sibling number that turns up in a later search, once the part has been searched here before, is news; the first
             # search finds every sibling at once and says nothing.
@@ -245,10 +245,10 @@ def remember_parameters(conn, part_id: str, provider: str, attributes) -> None:
                 )
             conn.execute(
                 """
-                INSERT INTO supply_part_params (part_id, provider, name, raw) VALUES (%s, %s, %s, %s)
-                ON CONFLICT (part_id, provider, name) DO UPDATE SET raw = EXCLUDED.raw, observed_at = NOW()
+                INSERT INTO supply_part_params (part_id, provider, name, raw, observed_at) VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (part_id, provider, name) DO UPDATE SET raw = EXCLUDED.raw, observed_at = EXCLUDED.observed_at
                 """,
-                (part_id, provider, name, raw),
+                (part_id, provider, name, raw, clock.now()),
             )
 
 

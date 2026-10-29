@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import alerts, component_parts, ending_parts, part_insights, parts_view, risk_views, usage
+from app.services.supply import alerts, clock, component_parts, ending_parts, part_insights, parts_view, risk_views, usage
 from app.services.supply.forecast import views
 from app.services.supply.vocabulary import Status
 
@@ -33,7 +33,7 @@ def _figures_now(conn, now: datetime, states: list[dict[str, Any]] | None = None
 def snapshot_figures(conn, now: datetime | None = None) -> int:
     """Store today's figures unless they were stored already. Returns how many were written."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     today = now.date()
     if conn.execute("SELECT 1 FROM supply_figure_history WHERE day = %s LIMIT 1", (today,)).fetchone():
         return 0
@@ -127,7 +127,7 @@ def failing_feeds(conn) -> list[dict[str, Any]]:
 def build(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     """Everything the Dashboard page draws."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     visible = usage.visible_project_ids(role)
     # Every tracked part, uncapped: the tiles, charts and project rows are counts over all of them, from the kept summaries.
     items = parts_view.tracked_states(conn)

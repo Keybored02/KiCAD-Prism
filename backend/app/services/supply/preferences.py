@@ -7,7 +7,7 @@ Functions on a connection; none commit.
 
 from __future__ import annotations
 
-from app.services.supply import counted, parts
+from app.services.supply import clock, counted, parts
 from app.services.supply.audit import actor_text, write_audit
 
 
@@ -41,10 +41,10 @@ def set_preferred(conn, part_id: str, connector_id: str, actor: str) -> None:
     before = get(conn, part_id)
     conn.execute(
         """
-        INSERT INTO supply_part_preferences (part_id, connector_id, set_by) VALUES (%s, %s, %s)
-        ON CONFLICT (part_id) DO UPDATE SET connector_id = EXCLUDED.connector_id, set_by = EXCLUDED.set_by, set_at = NOW()
+        INSERT INTO supply_part_preferences (part_id, connector_id, set_by, set_at) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (part_id) DO UPDATE SET connector_id = EXCLUDED.connector_id, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
         """,
-        (part_id, connector_id, actor),
+        (part_id, connector_id, actor, clock.now()),
     )
     write_audit(conn, actor, "part.prefer", part_id, {"before": before, "after": connector_id}, subject_kind="part")
 

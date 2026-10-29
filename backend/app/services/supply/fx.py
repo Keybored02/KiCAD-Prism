@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Mapping
 from xml.etree import ElementTree
 
+from app.services.supply import clock
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.providers.base import ProviderError
@@ -77,10 +78,10 @@ def store(conn, day: date, rates: Mapping[str, Decimal], source: str) -> int:
             continue
         conn.execute(
             """
-            INSERT INTO supply_fx_rates (day, currency, per_eur, source) VALUES (%s, %s, %s, %s)
-            ON CONFLICT (day, currency) DO UPDATE SET per_eur = EXCLUDED.per_eur, source = EXCLUDED.source, fetched_at = NOW()
+            INSERT INTO supply_fx_rates (day, currency, per_eur, source, fetched_at) VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (day, currency) DO UPDATE SET per_eur = EXCLUDED.per_eur, source = EXCLUDED.source, fetched_at = EXCLUDED.fetched_at
             """,
-            (day, code, rate, source),
+            (day, code, rate, source, clock.now()),
         )
         saved += 1
     return saved
@@ -104,7 +105,7 @@ def is_stale(rates: Rates, today: date) -> bool:
 def refresh_from_ecb(conn, now: datetime | None = None, client: Any | None = None) -> int:
     """Fetch the ECB file unless rates were fetched in the last 20 hours. Returns how many rates were saved."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     recent = conn.execute("SELECT MAX(fetched_at) AS at FROM supply_fx_rates WHERE source = 'ecb'").fetchone()["at"]
     if recent is not None and now - recent < REFRESH_AFTER:
         return 0
@@ -132,7 +133,7 @@ def enter_manually(conn, day: date, rates: Mapping[str, Any], actor: str) -> int
         parsed[code] = rate
     if not parsed:
         raise ValueError("Give at least one rate.")
-    if day > datetime.now(timezone.utc).date():
+    if day > clock.now().date():
         raise ValueError("A rate cannot be dated in the future.")
     saved = store(conn, day, parsed, "manual")
     write_audit(conn, actor, "fx.manual", day.isoformat(), {"currencies": sorted(parsed)}, subject_kind="fx")

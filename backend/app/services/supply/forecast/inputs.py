@@ -10,12 +10,12 @@ import math
 import statistics
 import time
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Sequence
 
 import numpy as np
 
-from app.services.supply import counted, part_history, prices
+from app.services.supply import clock, counted, part_history, prices
 from app.services.supply.forecast import models
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
@@ -92,7 +92,7 @@ def pooled(conn, today: date | None = None) -> tuple[dict[str, models.OutageMode
     """(outage model per connector id with an ``all`` fallback, real-to-quoted ratio per connector, quote cases per connector)."""
 
     global _pooled
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     if _pooled is not None and time.monotonic() - _pooled[0] < _CACHE_FOR and _pooled[1] == today:
         return _pooled[2]
     rows = conn.execute(
@@ -214,7 +214,7 @@ def forget_lifecycle_rates() -> None:
 def rates(conn, today: date | None = None) -> dict[str, Any]:
     """Pooled and per-maker monthly rates of changes into an ending lifecycle, with the changes and part-months they rest on."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     exposure: dict[str, float] = defaultdict(float)
     for row in conn.execute(
         """
@@ -316,7 +316,7 @@ def _series(conn, metric: str, today: date) -> dict[tuple[str, str], list[tuple[
 def outlook(conn, today: date | None = None) -> dict[str, Any]:
     """Lead times ahead and early warnings across the families Prism has stored figures for."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     leads = []
     for (kind, scope), points in _series(conn, "median_lead_time_days", today).items():
         found = models.lead_trend(points)

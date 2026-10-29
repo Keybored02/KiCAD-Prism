@@ -11,6 +11,7 @@ from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.services.supply import clock
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
@@ -163,7 +164,6 @@ async def read_release_bom(
     _build_of_project(project_id, build_id)
 
     def run() -> dict[str, Any]:
-        from datetime import datetime, timezone
 
         try:
             read_bom = release_bom.lines_from_csv(release_source.build_bom_text(build_id), catalog_read.identities)
@@ -172,7 +172,7 @@ async def read_release_bom(
         with _store().connection() as conn:
             stored = usage.store_project(
                 conn, project_id, project.name or project_id, f"release:{build_id}|u{usage.USAGE_VERSION}", read_bom.lines,
-                datetime.now(timezone.utc),
+                clock.now(),
             )
         return {"stored": stored, "parts": len(read_bom.lines), "without_number": read_bom.without_number}
 

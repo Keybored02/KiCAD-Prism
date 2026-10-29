@@ -15,10 +15,10 @@ reads them like any declaration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from app.services.supply import accounts, alerts, compliance, ledger, notice_budget, oauth, pcn, quota, trouble, usage
+from app.services.supply import accounts, alerts, clock, compliance, ledger, notice_budget, oauth, pcn, quota, trouble
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 
@@ -137,7 +137,7 @@ def run(
 ) -> DetailsSummary:
     """Read the due notices and substances of one connector's listings."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     connector = service.get(connector_id)
     if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
         return DetailsSummary(stopped="inactive")
@@ -205,7 +205,7 @@ def run_spare(
 ) -> DetailsSummary:
     """Read notices of parts nobody tracks, from spare budget only, at most weekly per part."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     connector = service.get(connector_id)
     if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
         return DetailsSummary(stopped="inactive")
@@ -314,7 +314,7 @@ def check_now(
     from app.services.supply.audit import actor_text, write_audit
 
     actor = actor_text(actor)
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     store = service.store
     with store.connection() as conn:
         parts.get_part(conn, part_id)

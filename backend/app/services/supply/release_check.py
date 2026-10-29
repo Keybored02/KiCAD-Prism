@@ -13,15 +13,14 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, Sequence
+from datetime import datetime
+from typing import Any, Mapping, Sequence
 
-from app.services.supply import bom_lookup, compliance_draft, usage
+from app.services.supply import bom_lookup, clock, compliance_draft, usage
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
 from app.services.supply.bom_lookup import BomLine
-from app.services.supply.identity import alias_key, match_key
 from app.services.supply.vocabulary import Status
 
 MAX_LISTED = 25
@@ -39,7 +38,7 @@ def _open(findings: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 def check(conn, lines: Sequence[usage.UsageLine], now: datetime | None = None, without_number: int = 0) -> dict[str, Any]:
     """Assess the distinct parts on a BOM. ``without_number`` counts rows of the BOM that name no part number."""
 
-    result = _assess(conn, lines, now or datetime.now(timezone.utc))
+    result = _assess(conn, lines, now or clock.now())
     result["without_number"] = without_number
     return result
 

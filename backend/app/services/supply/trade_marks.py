@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.supply import facts, parts, trade
+from app.services.supply import clock, facts, parts, trade
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_ECCN = 40
@@ -45,10 +45,10 @@ def set_mark(conn, part_id: str, control: str, eccn: str, actor: str) -> None:
     before = state(conn, part_id)["control"]
     conn.execute(
         """
-        INSERT INTO supply_part_trade_marks (part_id, control, eccn, set_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id) DO UPDATE SET control = EXCLUDED.control, eccn = EXCLUDED.eccn, set_by = EXCLUDED.set_by, set_at = NOW()
+        INSERT INTO supply_part_trade_marks (part_id, control, eccn, set_by, set_at) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id) DO UPDATE SET control = EXCLUDED.control, eccn = EXCLUDED.eccn, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
         """,
-        (part_id, control, code if control == "controlled" else "", actor),
+        (part_id, control, code if control == "controlled" else "", actor, clock.now()),
     )
     write_audit(conn, actor, "part.trade_mark", part_id, {"before": before, "after": control, "eccn": code}, subject_kind="part")
 

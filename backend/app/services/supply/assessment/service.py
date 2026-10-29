@@ -6,10 +6,11 @@ never calls a distributor.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
+from app.services.supply import clock
 from app.services.supply import alert_rules, compliance, facts as stated_facts, fx, part_insights, parts_view, pcn, price_quantity, pricing
 from app.services.supply import settings as supply_settings
 from app.services.supply.assessment import checks, health, risk, waivers
@@ -167,4 +168,4 @@ def assess_parts(
     settings: supply_settings.Settings | None = None,
 ) -> dict[str, dict[str, Any]]:
     items, offers = parts_view.summaries_with_offers(conn, list(part_ids))
-    return assess_summaries(conn, items, offers, needs or {}, now or datetime.now(timezone.utc), settings)
+    return assess_summaries(conn, items, offers, needs or {}, now or clock.now(), settings)

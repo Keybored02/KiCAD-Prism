@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Sequence, cast
 
-from app.services.supply import attention, bom_comments, bom_lookup, cost_history, freshness, tracking, usage
+from app.services.supply import attention, bom_comments, clock, bom_lookup, cost_history, freshness, tracking, usage
 from app.services.supply import settings as supply_settings
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
@@ -70,7 +70,7 @@ def _parts(
     sizes = sorted({*CURVE_SIZES, build_quantity})
     curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
-    alerts = attention.open_counts(conn, datetime.now(timezone.utc), attention.PART, part_ids) if part_ids else {}
+    alerts = attention.open_counts(conn, clock.now(), attention.PART, part_ids) if part_ids else {}
     converted = bool(result["rollup"]["converted"])
     parts = []
     for row in rows:
@@ -217,10 +217,10 @@ def _kept_rollups(conn, wanted: Sequence[tuple[str, str]]) -> dict[tuple[str, st
         """
         SELECT r.project_id, r.variant, r.data FROM supply_project_rollups r
         JOIN unnest(%s::text[], %s::text[]) AS w(project_id, variant) ON r.project_id = w.project_id AND r.variant = w.variant
-        WHERE r.computed_at > NOW() - %s
+        WHERE r.computed_at > %s
           AND NOT {stale}
         """.replace("{stale}", freshness.stale_sql("rollup", "(ARRAY[r.project_id] || r.part_ids)", "r")),
-        ([project_id for project_id, _ in wanted], [variant for _, variant in wanted], ROLLUP_MAX_AGE),
+        ([project_id for project_id, _ in wanted], [variant for _, variant in wanted], clock.now() - ROLLUP_MAX_AGE),
     ).fetchall()
     return {(row["project_id"], row["variant"]): row["data"].get("rollup") for row in rows}
 
@@ -236,11 +236,11 @@ def _keep_rollup(conn, project_id: str, variant: str, seen: str, rollup: dict[st
     conn.execute(
         """
         INSERT INTO supply_project_rollups (project_id, variant, data, part_ids, seen, snap, own, computed_at)
-        VALUES (%s, %s, %s::jsonb, %s, %s, pg_snapshot_xmin(%s::pg_snapshot)::text::bigint, {own}, NOW())
+        VALUES (%s, %s, %s::jsonb, %s, %s, pg_snapshot_xmin(%s::pg_snapshot)::text::bigint, {own}, %s)
         ON CONFLICT (project_id, variant) DO UPDATE SET data = EXCLUDED.data, part_ids = EXCLUDED.part_ids, seen = EXCLUDED.seen,
             snap = EXCLUDED.snap, own = EXCLUDED.own, computed_at = EXCLUDED.computed_at
         """.replace("{own}", freshness.OWN_SQL),
-        (project_id, variant, json.dumps({"rollup": rollup}), sorted(set(part_ids)), seen, seen),
+        (project_id, variant, json.dumps({"rollup": rollup}), sorted(set(part_ids)), seen, seen, clock.now()),
     )
 
 

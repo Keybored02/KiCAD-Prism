@@ -22,7 +22,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import admission, budget, counted, params, parts, pricing
+from app.services.supply import admission, budget, clock, counted, params, parts, pricing
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
@@ -176,11 +176,11 @@ def pick(conn, part_id: str, connector_id: str, listing_id: str, actor: str, *, 
     _check_listing(conn, part_id, connector_id, listing_id)
     conn.execute(
         """
-        INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by, note) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by, note, picked_at) VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (part_id, connector_id) DO UPDATE SET listing_id = EXCLUDED.listing_id, picked_by = EXCLUDED.picked_by,
-            note = EXCLUDED.note, picked_at = NOW()
+            note = EXCLUDED.note, picked_at = EXCLUDED.picked_at
         """,
-        (part_id, connector_id, listing_id, actor, note),
+        (part_id, connector_id, listing_id, actor, note, clock.now()),
     )
     write_audit(conn, actor, "packaging.pick", part_id, {"connector_id": connector_id, "listing_id": listing_id}, subject_kind="part")
     admission.sync(conn)
@@ -226,8 +226,8 @@ def apply_similar(conn, connector_id: str, packaging: str, part_ids: Sequence[st
         if len(matching) != 1 or picked(conn, part_id, connector_id):
             continue
         conn.execute(
-            "INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (part_id, connector_id, matching[0]["id"], actor),
+            "INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by, picked_at) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (part_id, connector_id, matching[0]["id"], actor, clock.now()),
         )
         write_audit(conn, actor, "packaging.pick", part_id, {"connector_id": connector_id, "listing_id": matching[0]["id"], "same_for_similar": True},
                     subject_kind="part")
