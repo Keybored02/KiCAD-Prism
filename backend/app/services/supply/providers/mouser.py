@@ -33,13 +33,10 @@ are spaced ``PACE_SECONDS`` apart so a run cannot burst past the minute.
 
 from __future__ import annotations
 
-import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import Alternate, Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
 from app.services.supply.providers.base import (
@@ -55,6 +52,7 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
+from app.services.supply.providers.http import HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal, parse_lead_time_days
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
@@ -92,28 +90,15 @@ _PACKAGING = {
 }
 
 
-class MouserProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class MouserProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         self._api_key = config.credentials.get("api_key", "")
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
     def _post(self, url: str, body: Mapping[str, Any]) -> Any:
         if not self._api_key:
             raise AuthError("Mouser needs an API key")
-        self._pacer.wait()
-        return self._client.request_json("POST", url, params={"apiKey": self._api_key}, json=body)
+        return self.request("POST", url, params={"apiKey": self._api_key}, json=body)
 
     def _search(self, numbers: Sequence[str], *, exact: bool = True) -> list[dict[str, Any]]:
         answer = self._post(SEARCH_URL, {"SearchByPartRequest": {"mouserPartNumber": "|".join(numbers), "partSearchOptions": "Exact" if exact else "None"}})
@@ -419,6 +404,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="Mouser",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING, CAP_SUBSTANCES}),
     max_batch=MAX_BATCH,

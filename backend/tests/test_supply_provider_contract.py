@@ -44,6 +44,10 @@ class ProviderContractTests(unittest.TestCase):
                 self.assertEqual(spec.required_credentials, tuple(field.name for field in spec.credential_fields))
                 if not spec.metered:
                     self.assertEqual(spec.default_daily_budget, 0, "a free provider has no call budget")
+                if spec.metered and not spec.dev_only:
+                    self.assertTrue(spec.hosts, "a provider that calls out names the hosts it calls")
+                if spec.csv_fed:
+                    self.assertEqual(spec.hosts, (), "a file upload calls nothing")
 
     def test_every_factory_builds_without_touching_the_network(self) -> None:
         for spec in self.specs():

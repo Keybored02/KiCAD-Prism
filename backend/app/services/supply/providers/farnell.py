@@ -31,15 +31,12 @@ number, since several in one ``manuPartNum`` term find nothing.
 from __future__ import annotations
 
 import re
-import time
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from urllib.parse import quote
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers import packaging_hints
 from app.services.supply.providers.base import (
@@ -53,6 +50,7 @@ from app.services.supply.providers.base import (
     ProviderSpec,
 )
 from app.services.supply.identity import keep_family, match_key
+from app.services.supply.providers.http import HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
@@ -97,32 +95,19 @@ _RELEASE_DROPPING = frozenset({6, 7})
 _STOCK_STATUS_ENDED = -3
 
 
-class FarnellProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class FarnellProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         self._api_key = config.credentials.get("api_key", "")
         self._store = config.storefront
         self._currency = config.currency or STORE_CURRENCY.get(config.storefront, "")
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
     def _search(self, term: str) -> list[dict[str, Any]]:
         if not self._api_key:
             raise AuthError("Farnell needs an API key")
         if not self._store:
             raise ProviderError("Farnell needs a store, such as uk.farnell.com")
-        self._pacer.wait()
-        answer = self._client.request_json("GET", BASE_URL, params={
+        answer = self.request("GET", BASE_URL, params={
             "term": term,
             "storeInfo.id": self._store,
             "resultsSettings.responseGroup": "medium",
@@ -323,6 +308,7 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, s
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="Farnell / Newark / element14",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE}),
     max_batch=MAX_MATCHES,

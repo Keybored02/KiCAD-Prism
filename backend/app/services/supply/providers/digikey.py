@@ -18,7 +18,7 @@ It has run against the live service; the answers for LM358DR (2026-10-14) are re
   packaging of a part (cut tape, tape and reel, Digi-Reel each have their own), so a part has one listing per
   packaging. But one answer lists every packaging of its product in ``ProductVariations``, so the listings of
   a part are read together (``groups_by_part``): ``get_offers`` serves a number found in an answer it already
-  has from that answer, and says how many calls it made in ``last_batch_calls``.
+  has from that answer; the calls it made are counted in ``calls``.
 
 Stock. ``QuantityAvailableforPackageType`` is the stock of one packaging. DigiKey shares one pool of
 stock between some packagings, so the provider is declared pooled: a part's stock here is the largest
@@ -45,14 +45,11 @@ Limits. The description gives none. DigiKey's published defaults for this API (1
 from __future__ import annotations
 
 import re
-import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 from urllib.parse import quote
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
 from app.services.supply.models import Alternate, ChangeNotice, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
@@ -68,6 +65,7 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
+from app.services.supply.providers.http import ClientCredentials, HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
@@ -112,45 +110,19 @@ _PACKAGING = {
 }
 
 
-class DigiKeyProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class DigiKeyProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         self._client_id = config.credentials.get("client_id", "")
-        self._client_secret = config.credentials.get("client_secret", "")
+        client_secret = config.credentials.get("client_secret", "")
         self._site = config.storefront
         self._currency = config.currency
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._access_token = ""
-        self._expires_at = 0.0
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
-        self.last_batch_calls = 0
+        self._token = ClientCredentials(
+            TOKEN_URL, form={"client_id": self._client_id, "client_secret": client_secret}, label="DigiKey", margin=TOKEN_MARGIN_SECONDS,
+            missing="" if self._client_id and client_secret else "DigiKey needs a client ID and a client secret",
+        )
 
     # --- calls --------------------------------------------------------------
-
-    def _token(self, *, renew: bool = False) -> str:
-        if not self._client_id or not self._client_secret:
-            raise AuthError("DigiKey needs a client ID and a client secret")
-        if renew or not self._access_token or self._monotonic() >= self._expires_at:
-            answer = self._client.request_json(
-                "POST", TOKEN_URL,
-                form={"client_id": self._client_id, "client_secret": self._client_secret, "grant_type": "client_credentials"},
-            )
-            token = answer.get("access_token") if isinstance(answer, dict) else None
-            if not token:
-                raise AuthError("DigiKey did not issue an access token")
-            self._access_token = str(token)
-            self._expires_at = self._monotonic() + max(float(answer.get("expires_in") or 600) - TOKEN_MARGIN_SECONDS, 1)
-        return self._access_token
 
     def _headers(self, token: str) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {token}", "X-DIGIKEY-Client-Id": self._client_id}
@@ -161,13 +133,7 @@ class DigiKeyProvider:
         return headers
 
     def _call(self, method: str, path: str, **kwargs: Any) -> Any:
-        self._pacer.wait()
-        url = f"{API_URL}{path}"
-        try:
-            answer = self._client.request_json(method, url, headers=self._headers(self._token()), **kwargs)
-        except AuthError:
-            # The token may have lapsed between the check and the call: renew once.
-            answer = self._client.request_json(method, url, headers=self._headers(self._token(renew=True)), **kwargs)
+        answer = self.authorised(self._token, method, f"{API_URL}{path}", self._headers, **kwargs)
         if not isinstance(answer, dict):
             raise ProviderError("DigiKey answered with something other than an object")
         return answer
@@ -198,17 +164,14 @@ class DigiKeyProvider:
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         """Offers for DigiKey product numbers. One answer lists every packaging of its product, so a number found
-        in an answer already read is served from it: a part with three packagings costs one call, not three.
-        ``last_batch_calls`` says how many calls this took."""
+        in an answer already read is served from it: a part with three packagings costs one call, not three."""
 
         wanted = set(skus)
         answers: dict[str, Mapping[str, Any]] = {}
         offers: list[Offer] = []
-        self.last_batch_calls = 0
         for sku in skus:
             if sku not in answers:
                 try:
-                    self.last_batch_calls += 1
                     answer = self._call("GET", f"/search/{_quote(sku)}/productdetails")
                 except NotFound:
                     continue  # a number DigiKey no longer knows: left out, as the contract says
@@ -247,9 +210,8 @@ class DigiKeyProvider:
 
         if not user_token:
             raise AuthError("DigiKey change notices need a person's sign-in")
-        self._pacer.wait()
         try:
-            answer = self._client.request_json("GET", PCN_URL.format(_quote(sku)), headers=self._headers(user_token))
+            answer = self.request("GET", PCN_URL.format(_quote(sku)), headers=self._headers(user_token))
         except ProviderError as exc:
             if exc.code == "not_found":
                 return []  # DigiKey answers 404 for a product without notices
@@ -470,6 +432,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="DigiKey",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_PCN, CAP_SUBSTITUTES}),
     max_batch=1,

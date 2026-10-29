@@ -17,7 +17,7 @@ from app.services.supply import ledger
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import ProviderError
+from app.services.supply.providers.base import ConnectionCheck, ProviderError
 
 # A part number every distributor carries, for providers with no cheaper way to check.
 SAMPLE_MPN = "LM358DR"
@@ -65,9 +65,8 @@ def check_connector(
 
     provider = service.load_provider(connector_id)
     try:
-        check = getattr(provider, "check_connection", None)
-        if check is not None:
-            check()
+        if isinstance(provider, ConnectionCheck):
+            provider.check_connection()
         else:
             provider.lookup_mpn(SAMPLE_MPN)
     except ProviderError as exc:

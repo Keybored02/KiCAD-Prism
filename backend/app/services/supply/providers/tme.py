@@ -36,14 +36,11 @@ tax rate in the same answer, so every offer compares excluding VAT.
 from __future__ import annotations
 
 import base64
-import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 from urllib.parse import quote
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers import packaging_hints
@@ -57,6 +54,7 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
+from app.services.supply.providers.http import ClientCredentials, HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.vocabulary import Packaging
 from app.services.supply.providers.unrecognised import note
@@ -86,47 +84,21 @@ _ON_HAND = "DS_AVAILABLE_IN_STOCK"
 _ARRIVING = "DS_DELIVERY_NEEDS_CONFIRMATION"
 
 
-class TmeProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class TmeProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         token = config.credentials.get("token", "")
         secret = config.credentials.get("secret", "")
-        # Missing credentials surface on the first call, as an AuthError the poller acts on.
-        self._basic = base64.b64encode(f"{token}:{secret}".encode()).decode() if token and secret else ""
         self._country = config.storefront
         self._currency = config.currency
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
-        self._access_token = ""
-        self._expires_at = 0.0
+        # Missing credentials surface on the first call, as an AuthError the poller acts on.
+        basic = base64.b64encode(f"{token}:{secret}".encode()).decode() if token and secret else ""
+        self._token = ClientCredentials(
+            f"{BASE_URL}/auth/token", form={}, headers={"Authorization": f"Basic {basic}"}, label="TME", default_life=300,
+            margin=TOKEN_MARGIN_SECONDS, missing="" if basic else "TME needs a token and an application secret",
+        )
 
-    # --- authentication ----------------------------------------------------
-
-    def _token(self, *, renew: bool = False) -> str:
-        if not self._basic:
-            raise AuthError("TME needs a token and an application secret")
-        if renew or not self._access_token or self._monotonic() >= self._expires_at:
-            answer = self._client.request_json(
-                "POST", f"{BASE_URL}/auth/token",
-                headers={"Authorization": f"Basic {self._basic}"},
-                form={"grant_type": "client_credentials"},
-            )
-            token = answer.get("access_token") if isinstance(answer, dict) else None
-            if not token:
-                raise AuthError("TME did not issue an access token")
-            lifetime = float(answer.get("expires_in") or 300)
-            self._access_token = str(token)
-            self._expires_at = self._monotonic() + max(lifetime - TOKEN_MARGIN_SECONDS, 1)
-        return self._access_token
+    # --- calls --------------------------------------------------------------
 
     def _get(self, path: str, params: Sequence[tuple[str, str]]) -> list[dict[str, Any]]:
         """GET an endpoint and return ``data.elements`` (or ``data.products.elements``)."""
@@ -134,20 +106,9 @@ class TmeProvider:
         query = list(params)
         if self._country:
             query.append(("country", self._country))
-        token = self._token()
-        self._pacer.wait()
-        try:
-            answer = self._client.request_json(
-                "GET", f"{BASE_URL}{path}", params=query,
-                headers={"Authorization": f"Bearer {token}", "Accept-Language": "en"},
-            )
-        except AuthError:
-            # The token may have lapsed between the check and the call: renew once.
-            self._pacer.wait()
-            answer = self._client.request_json(
-                "GET", f"{BASE_URL}{path}", params=query,
-                headers={"Authorization": f"Bearer {self._token(renew=True)}", "Accept-Language": "en"},
-            )
+        answer = self.authorised(
+            self._token, "GET", f"{BASE_URL}{path}", lambda token: {"Authorization": f"Bearer {token}", "Accept-Language": "en"}, params=query,
+        )
         if not isinstance(answer, dict) or answer.get("status") != "OK":
             raise ProviderError("TME answered without an OK status")
         data = answer.get("data") or {}
@@ -159,7 +120,7 @@ class TmeProvider:
     def check_connection(self) -> None:
         """Ask for a fresh token: the cheapest call that proves the token and secret are accepted."""
 
-        self._token(renew=True)
+        self._token.get(self, renew=True)
 
     # --- the contract ------------------------------------------------------
 
@@ -345,6 +306,7 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="TME",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH}),
     max_batch=MAX_BATCH,

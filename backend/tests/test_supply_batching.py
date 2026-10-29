@@ -39,7 +39,7 @@ class DigiKeyGroupTests(unittest.TestCase):
         provider = dk_provider(client)
         offers = provider.get_offers(skus)
         self.assertEqual([(o.sku, o.stock) for o in offers], [(skus[0], 5000), (skus[1], 2500), (skus[2], 5000)])
-        self.assertEqual(provider.last_batch_calls, 1)
+        self.assertEqual(provider.calls, 2, "the token and one product")
         self.assertEqual(len([call for call in client.calls if call["path"].endswith("productdetails")]), 1)
 
     def test_a_number_the_answer_does_not_list_gets_a_call_of_its_own(self) -> None:
@@ -52,7 +52,7 @@ class DigiKeyGroupTests(unittest.TestCase):
         provider = dk_provider(client)
         offers = provider.get_offers(["296-1395-1-ND", "999-1-ND", "296-1395-2-ND"])
         self.assertEqual([o.sku for o in offers], ["296-1395-1-ND", "999-1-ND", "296-1395-2-ND"])
-        self.assertEqual(provider.last_batch_calls, 2)
+        self.assertEqual(provider.calls, 3, "the token and two products")
 
     def test_the_spec_says_listings_are_read_by_part(self) -> None:
         self.assertTrue(digikey.SPEC.groups_by_part)
@@ -198,21 +198,24 @@ class SchedulingTests(unittest.TestCase):
         outer = self
 
         class Stub:
-            last_batch_calls = 1
+            # Counts its requests as ``HttpProvider`` does.
+            calls = 0
 
             def get_offers(self, skus):
                 outer.asked.append(list(skus))
-                self.last_batch_calls = calls_per_group
+                self.calls += calls_per_group
                 return [outer.Offer(provider="demo_grouped", sku=s, mpn="x", manufacturer="Acme", stock=10, fetched_at=outer.clock.now) for s in skus]
 
             def lookup_mpns(self, mpns):
                 outer.asked.append(list(mpns))
+                self.calls += -(-len(mpns) // 3)  # three numbers a call, as the spec says
                 from app.services.supply.identity import match_key
                 return {match_key(m): ([] if m.startswith("NONE") else
                         [outer.PartMatch(provider="demo_grouped", sku=f"S-{m}", mpn=m, manufacturer="Acme")]) for m in mpns}
 
             def lookup_mpn(self, mpn, manufacturer=None):
                 outer.asked.append([mpn])
+                self.calls += 1
                 return []
 
         return Stub()

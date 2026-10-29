@@ -26,13 +26,10 @@ use answers shaped like the definition.
 from __future__ import annotations
 
 import re
-import time
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_BATCH,
@@ -48,6 +45,7 @@ from app.services.supply.providers.base import (
     Unavailable,
 )
 from app.services.supply.identity import match_key
+from app.services.supply.providers.http import ClientCredentials, HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
@@ -76,61 +74,28 @@ def _askable(number: str) -> bool:
     return len(text) >= MIN_PART_NUMBER and "*" not in text
 
 
-class AvnetProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class AvnetProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         credentials = config.credentials
-        self._client_id = credentials.get("client_id", "")
-        self._client_secret = credentials.get("client_secret", "")
-        self._scope = credentials.get("scope", "")
+        client_id, client_secret = credentials.get("client_id", ""), credentials.get("client_secret", "")
+        scope = credentials.get("scope", "")
         self._subscription_key = credentials.get("subscription_key", "")
         self._currency = config.currency
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
-        self._access_token = ""
-        self._expires_at = 0.0
+        self._token = ClientCredentials(
+            TOKEN_URL, form={"client_id": client_id, "client_secret": client_secret, "scope": scope}, label="Avnet",
+            default_life=3600, margin=TOKEN_MARGIN_SECONDS,
+            missing="" if client_id and client_secret and scope and self._subscription_key
+            else "Avnet needs a client ID, a client secret, a scope and a subscription key",
+        )
 
     # --- transport ---------------------------------------------------------
 
-    def _token(self, *, renew: bool = False) -> str:
-        if not (self._client_id and self._client_secret and self._scope and self._subscription_key):
-            raise AuthError("Avnet needs a client ID, a client secret, a scope and a subscription key")
-        if renew or not self._access_token or self._monotonic() >= self._expires_at:
-            answer = self._client.request_json("POST", TOKEN_URL, form={
-                "grant_type": "client_credentials", "client_id": self._client_id,
-                "client_secret": self._client_secret, "scope": self._scope,
-            })
-            token = answer.get("access_token") if isinstance(answer, dict) else None
-            if not token:
-                raise AuthError("Avnet did not issue an access token")
-            self._access_token = str(token)
-            self._expires_at = self._monotonic() + max(float(answer.get("expires_in") or 3600) - TOKEN_MARGIN_SECONDS, 1)
-        return self._access_token
-
     def _post(self, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        for attempt in (0, 1):
-            token = self._token(renew=attempt == 1)
-            self._pacer.wait()
-            try:
-                answer = self._client.request_json("POST", BASE_URL, json=lines, headers={
-                    "Authorization": f"Bearer {token}", "Ocp-Apim-Subscription-Key": self._subscription_key,
-                })
-            except AuthError:
-                if attempt == 0:
-                    continue  # the token may have been revoked early: one new one, then give up
-                raise
-            return _rows(answer)
-        raise AuthError("Avnet refused the credentials")
+        answer = self.authorised(self._token, "POST", BASE_URL, lambda token: {
+            "Authorization": f"Bearer {token}", "Ocp-Apim-Subscription-Key": self._subscription_key,
+        }, json=lines)
+        return _rows(answer)
 
     def _ask(self, numbers: Sequence[str], *, results: int) -> dict[str, list[dict[str, Any]]]:
         """Result lines per asked number (by ``match_key``), errors raised or dropped. One call per ``MAX_LINES`` numbers."""
@@ -326,6 +291,7 @@ def _offer(sku: str, row: Mapping[str, Any], now: datetime) -> Offer:
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="Avnet",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_BATCH}),
     max_batch=MAX_LINES,
