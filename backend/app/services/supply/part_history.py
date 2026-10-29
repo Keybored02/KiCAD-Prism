@@ -35,13 +35,13 @@ DEFAULT_DAYS = 90
 def _listings(conn, part_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT l.id, l.connector_id, c.display_name, c.provider, o.fetched_at, o.moq, o.packaging,
+        SELECT l.id, l.sku, l.connector_id, {pool} AS pool, c.display_name, c.provider, o.fetched_at, o.moq, o.packaging,
                EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
         FROM supply_listings l
         JOIN supply_connectors c ON c.id = l.connector_id
         LEFT JOIN supply_offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND {counted}
-        """.replace("{counted}", stock.counted_listing_sql()),
+        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
         (part_id, list(_COUNTED)),
     ).fetchall()
     return [dict(row) for row in rows]
@@ -145,8 +145,9 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
             mine = [item for item in info["listings"] if item["id"] in live]
             if not mine:
                 continue
+            # The pool and SKU let the total count connectors on one account once, as everywhere else (R1).
             rows = [{"connector_id": connector_id, "provider": info["provider"], "stock": live[item["id"]]["stock"], "marketplace": bool(live[item["id"]]["marketplace"]),
-                     "fetched_at": day, "packaging": item["packaging"]} for item in mine]
+                     "fetched_at": day, "packaging": item["packaging"], "pool": item["pool"], "sku": item["sku"]} for item in mine]
             rows_for_total.extend(rows)
             lines[connector_id]["stock"].append([day.isoformat(), stock.aggregate(rows, "any").total])
             candidates = []

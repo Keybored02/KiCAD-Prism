@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import admission, bom_lookup, catalog_read, project_bom, spreadsheet, usage
 from app.services.supply.inventory import levels
@@ -185,12 +185,12 @@ async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require
     return await _run(read)
 
 
-def _watching(body: WatchRequest, actor: str, role: str):
+def _watching(body: WatchRequest, actor: str, approver: bool):
     lcsc = _lcsc_connector() if any(line.lcsc for line in body.lines) else None
 
     def change(conn) -> dict[str, Any]:
         return bom_lookup.watch_lines(
-            conn, _lines(body.lines), actor, may_create_manufacturer=role in SUPPLY_APPROVE_ROLES,
+            conn, _lines(body.lines), actor, may_create_manufacturer=approver,
             identities=catalog_read.identities, lcsc_connector=lcsc, tier=body.tier, rate=body.rate,
         )
 
@@ -203,7 +203,7 @@ async def preview_watch(body: WatchRequest, user: AuthenticatedUser = Depends(re
 
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.preview(conn, _watching(body, user.email, user.role))
+            report = admission.preview(conn, _watching(body, user.email, is_approver(user)))
         return {key: value for key, value in report.items() if key != "result"} | {"watched": report["result"]}
 
     return await _run(run)
@@ -215,7 +215,7 @@ async def watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_su
 
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.apply(conn, _watching(body, user.email, user.role))
+            report = admission.apply(conn, _watching(body, user.email, is_approver(user)))
         return {**report["result"], "connectors": report["connectors"], "fits_nowhere": report["fits_nowhere"]}
 
     return await _run(run)

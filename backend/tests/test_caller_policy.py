@@ -85,7 +85,7 @@ AREA_ACTIONS = {
     "catalog_admin": ("admin", "admin"),
 }
 
-HUMAN_ONLY_ACTIONS = ("release", "admin", "catalog_qa", "catalog_admin")
+HUMAN_ONLY_ACTIONS = ("release", "admin", "catalog_qa", "catalog_admin", "supply_approve")
 HUMAN_ONLY_DETAIL = "Only a person signed in to Prism can do this; open it in Prism"
 
 

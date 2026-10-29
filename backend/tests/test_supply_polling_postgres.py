@@ -370,6 +370,36 @@ class PollingTests(unittest.TestCase):
         (sample,) = self.rows("SELECT moq, order_multiple FROM supply_samples ORDER BY sampled_at DESC LIMIT 1")
         self.assertEqual(sample["moq"], 1000)
 
+    def test_a_change_is_seen_when_the_samples_before_it_were_deleted(self) -> None:
+        import dataclasses
+
+        from app.services.supply.vocabulary import Lifecycle
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        changes = {"now": False}
+
+        class Shifts:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus):
+                found = self.inner.get_offers(skus)
+                if not changes["now"]:
+                    return [dataclasses.replace(o, lifecycle=Lifecycle.ACTIVE) for o in found]
+                return [dataclasses.replace(o, lifecycle=Lifecycle.NRND, stock=0) for o in found]
+
+        self.provider_behaviour = Shifts
+        self.poller().poll_connector(cid)
+        # Retention took every sample (a short history setting, or a listing read less often than samples are kept).
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_samples")
+        changes["now"] = True
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        kinds = sorted(row["kind"] for row in self.rows("SELECT kind FROM supply_events"))
+        self.assertEqual(kinds, ["lifecycle_changed"])
+        self.assertEqual([row["kind"] for row in self.rows("SELECT kind FROM supply_stock_events")], ["stock_out"])
+
     def test_a_datasheet_address_in_an_offer_is_kept_for_the_part_once(self) -> None:
         import dataclasses
 

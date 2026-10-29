@@ -938,7 +938,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
 
     rows = conn.execute(
         """
-        SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, l.sku, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
+        SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, {pool} AS pool, l.sku, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
                o.reel_size, o.packaging_inferred, l.match_state,
                l.match_reason, l.raw_mpn, l.raw_manufacturer, o.fetched_at, o.stock, o.incoming, o.moq, o.order_multiple, o.price_breaks, o.currency,
                o.lead_time_days, o.lifecycle, o.discontinued, o.rohs, o.reach_affected, o.marketplace, o.product_url,
@@ -949,7 +949,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = %s AND l.match_state <> 'rejected'
         ORDER BY c.display_name, l.sku
-        """,
+        """.replace("{pool}", stock.pool_sql()),
         (part_id,),
     ).fetchall()
 

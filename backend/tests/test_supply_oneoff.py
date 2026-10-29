@@ -6,7 +6,7 @@ import os
 import sys
 import unittest
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -106,9 +106,8 @@ class OneOffTests(unittest.TestCase):
             credential_fields=(), factory=lambda config: Reading(config), default_daily_budget=100, search_reads_offers=True), replace=True)
         try:
             cid = self.connector(provider="demo_reads")
+            # The request is dated by the database; the reads by the test's clock. Neither is compared with the other.
             made = self.ask([("Acme", "ABC123"), ("Acme", "DEF456"), ("Acme", "GHI789")])
-            with self.store.connection() as conn:
-                conn.execute("UPDATE supply_read_requests SET created_at = %s", (self.now - timedelta(minutes=1),))  # the test's clock, not the database's
             clock = lambda: outer.now  # noqa: E731
             provider = lambda connector_id: Reading(self.ProviderConfig(connector_id=connector_id, currency="EUR"), clock=clock)  # noqa: E731
             discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=provider, clock=clock)

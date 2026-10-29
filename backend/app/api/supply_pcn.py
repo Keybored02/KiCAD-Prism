@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import component_parts, details, parts, pcn, substitutes
 
@@ -88,7 +88,7 @@ async def ask_substitutes(part_id: str, user: AuthenticatedUser = Depends(requir
 @router.post("/notices", status_code=201)
 async def add_notice(body: NoticeIn, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
-        approver = writer.role in SUPPLY_APPROVE_ROLES
+        approver = is_approver(writer)
         with _store().connection() as conn:
             ids = [component_parts.library_part(conn, item.manufacturer, item.mpn, writer.email, may_create=approver).id for item in body.parts]
             return pcn.add(

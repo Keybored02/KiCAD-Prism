@@ -125,7 +125,8 @@ RULES: dict[Action, Rule] = {
     "supply_write": Rule(SUPPLY_WRITE_ROLES, "Supply write access required", ("api:write",), _PROVIDER_MODIFY),
     # What Prism follows (a project, a part's tier, a packaging pick) and notes on BOM lines: anyone who reads supply, with a token that may write.
     "supply_follow": Rule(SUPPLY_READ_ROLES, "Supply read access required", ("api:write",), _PROVIDER_MODIFY),
-    "supply_approve": Rule(SUPPLY_APPROVE_ROLES, "Supply review access required", ("api:write",), _PROVIDER_MODIFY),
+    # Waivers, accepted matches, new manufacturers: a sign-off, so an agent never gives it.
+    "supply_approve": Rule(SUPPLY_APPROVE_ROLES, "Supply review access required", ("api:write",), _PROVIDER_MODIFY, human_only=True),
     # Diagnostics (ADR scripting-and-mcp §11, D20/D21): admin reads and a few
     # bounded actions. Not human-only: they inspect and unstick, they sign nothing off.
     "ops_read": Rule(frozenset({"admin"}), "Admin role required", ("ops:read",), _PROVIDER_ADMIN),

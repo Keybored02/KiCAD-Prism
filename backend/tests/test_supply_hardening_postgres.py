@@ -328,6 +328,38 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_samples_daily")], [two])
         self.assertEqual(self.connectors.get(limited)["keep_days"], 30)
 
+    def test_the_history_limit_covers_every_listing_history_but_keeps_what_describes_today(self) -> None:
+        limited = self.connector("fake", storefront="")
+        free = self.connector("csv")
+        self.connectors.update(limited, actor="a@example.com", keep_days=30)
+        part = self.watch().part_id
+        old, older, recent = START - timedelta(days=45), START - timedelta(days=90), START - timedelta(days=5)
+        with self.store.connection() as conn:
+            for listing in (self.add_listing(part, limited, "L"), self.add_listing(part, free, "F")):
+                breaks = "INSERT INTO supply_price_breaks_history (listing_id, since, breaks) VALUES (%s, %s, '[]'::jsonb)"
+                # Ended 45 days ago; held since then, so still today's price.
+                conn.execute(breaks, (listing, older))
+                conn.execute(breaks, (listing, old))
+                stock = "INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after, resolved_on) VALUES (%s, %s, %s, 5, 0, %s)"
+                conn.execute(stock, (listing, older.date(), "stock_out", old.date()))
+                conn.execute(stock, (listing, old.date(), "stock_out", None))  # still out
+                conn.execute(stock, (listing, old.date(), "restock", None))
+                promise = ("INSERT INTO supply_arrival_promises (listing_id, expected, quantity, first_seen_at, last_seen_at, state, resolved_at) "
+                           "VALUES (%s, %s, 10, %s, %s, %s, %s)")
+                conn.execute(promise, (listing, old.date(), older, old, "arrived", old))
+                conn.execute(promise, (listing, recent.date(), old, recent, "open", None))
+                conn.execute("INSERT INTO supply_events (at, kind, part_id, listing_id) VALUES (%s, 'lifecycle_changed', %s, %s)", (old, part, listing))
+                conn.execute("INSERT INTO supply_events (at, kind, part_id, listing_id) VALUES (%s, 'lifecycle_changed', %s, %s)", (recent, part, listing))
+            conn.execute("INSERT INTO supply_call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, 0, 'offers', 'scheduled', 3)",
+                         (free, (START - timedelta(days=120)).date()))
+            self.assertEqual(self.retention.drop_expired(conn, START), 6, "five old rows of the limited listing, and the old call count")
+        left = lambda table: len(self.rows(f"SELECT 1 FROM {table}"))  # noqa: E731
+        self.assertEqual(left("supply_price_breaks_history"), 3, "the ended breaks of the limited listing go; today's stay")
+        self.assertEqual(left("supply_stock_events"), 4, "the stock-out still open stays")
+        self.assertEqual(left("supply_arrival_promises"), 3, "the open promise stays")
+        self.assertEqual(left("supply_events"), 3)
+        self.assertEqual(left("supply_call_counts"), 0)
+
     def test_the_first_run_on_a_long_history_works_in_slices(self) -> None:
         cid = self.connector()
         listing = self.add_listing(self.watch().part_id, cid, "A")
