@@ -7,6 +7,7 @@ vi.mock("./ending-api", () => ({ getEndingParts: vi.fn(), setRestriction: vi.fn(
 import type { EndingPart } from "@/types/supply";
 import * as api from "./ending-api";
 import { EndingNotifications } from "./ending-notifications";
+import { forgetServerState } from "@/lib/server-state";
 
 const item = (over: Partial<EndingPart> = {}): EndingPart => ({
   component: { id: "c1", name: "Op amp", mpn: "LM358DR", manufacturer: "Texas Instruments", stage: "released" },
@@ -83,6 +84,8 @@ describe("ending parts on the Dashboard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Ask QA to dismiss" }));
     await waitFor(() => expect(api.dismissEnding).toHaveBeenCalledWith("c1", ["nrnd", "outlook"]));
     cleanup();
+    // The mocked write skips `changesSupply`, so the kept list is forgotten here, as a real write would have it read again.
+    forgetServerState([]);
     vi.mocked(api.getEndingParts).mockResolvedValue({ items: [item({ dismissal_waiting: true })], tracked: 10, more: 0 });
     render(<EndingNotifications role="designer" onOpenComponent={vi.fn()} />);
     expect((await screen.findByRole("button", { name: "Asked QA" })).hasAttribute("disabled")).toBe(true);
@@ -104,6 +107,7 @@ describe("ending parts on the Dashboard", () => {
     await screen.findByText("Op amp");
     expect(screen.queryByRole("button", { name: "Retire" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     vi.mocked(api.getEndingParts).mockRejectedValueOnce(new Error("Could not load the ending parts"));
     render(<EndingNotifications role="qa" onOpenComponent={vi.fn()} />);
     expect(await screen.findByText("Could not load the ending parts")).toBeTruthy();

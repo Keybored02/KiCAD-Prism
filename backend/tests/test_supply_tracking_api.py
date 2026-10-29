@@ -188,9 +188,9 @@ class TrackingApiTests(unittest.TestCase):
         self.connector()
         body = {"kind": "bom", "project_id": "prj_1", "lines": [{"manufacturer": "Acme", "mpn": "A-1"}, {"manufacturer": "Acme", "mpn": ""}]}
         made = _request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body=body)
-        self.assertEqual((made.status, made.json["parts"], made.json["progress"]["parts"]), (201, 1, 1))
+        self.assertEqual((made.status, made.json["parts"], made.json["progress"]["total"]), (201, 1, 1))
         shown = _request(self.app, "GET", f"/api/supply/checks/{made.json['id']}", user=self.users["designer"])
-        self.assertEqual((shown.status, shown.json["finished"], shown.json["done"]), (200, False, 0))
+        self.assertEqual((shown.status, shown.json["state"], shown.json["done"]), (200, "running", 0))
         self.assertEqual(_request(self.app, "POST", "/api/supply/checks", user=self.users["viewer"], body=body).status, 403)
         self.assertEqual(_request(self.app, "GET", "/api/supply/checks/nope", user=self.users["qa"]).status, 404)
         empty = _request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body={"kind": "bom", "lines": []})

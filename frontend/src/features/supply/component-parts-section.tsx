@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Check, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ComponentPart } from "@/types/supply";
 import { decideAlternate, getComponentParts, proposeAlternate, removeAlternate } from "./component-supply-api";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 
 const APPROVAL: Record<ComponentPart["approval"], { label: string; tone: "default" | "secondary" | "outline" | "destructive" }> = {
   approved: { label: "Approved", tone: "default" },
@@ -20,32 +21,19 @@ const message = (caught: unknown, fallback: string) => (caught instanceof Error 
 /** A component's main part and its alternates. Designers propose an alternate; QA approves, rejects or removes it. Only approved
  * alternates count toward stock and price. */
 export function ComponentPartsSection({ componentId, canPropose, canDecide }: { componentId: string; canPropose: boolean; canDecide: boolean }) {
-  const [parts, setParts] = useState<ComponentPart[] | null>(null);
-  const [failed, setFailed] = useState("");
+  const fetcher = useCallback(async (signal: AbortSignal) => (await getComponentParts(componentId, signal)).parts, [componentId]);
+  const loaded = useLoaded<ComponentPart[]>(`components/${componentId}/parts`, fetcher, "Could not load the component's parts");
+  const parts = loaded.data;
+  const failed = loaded.status === "error" ? loaded.error : "";
   const [busy, setBusy] = useState(false);
   const [maker, setMaker] = useState("");
   const [mpn, setMpn] = useState("");
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      setParts((await getComponentParts(componentId, signal)).parts);
-      setFailed("");
-    } catch (caught) {
-      if (!signal?.aborted) setFailed(message(caught, "Could not load the component's parts"));
-    }
-  }, [componentId]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
-
-  const act = async (run: () => Promise<{ parts: ComponentPart[] } | void>, done: string) => {
+  const act = async (run: () => Promise<unknown>, done: string) => {
     setBusy(true);
     try {
-      const result = await run();
-      if (result) setParts(result.parts);
-      else await load();
+      await run();
+      await invalidateSupply(`components/${componentId}`, "catalog");
       toast.success(done);
       return true;
     } catch (caught) {

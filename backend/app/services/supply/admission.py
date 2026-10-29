@@ -46,10 +46,9 @@ def _accounts(conn) -> tuple[list[_Account], dict[str, tuple[Any, ProviderSpec]]
 
     connectors: dict[str, tuple[Any, ProviderSpec]] = {}
     groups: dict[str, list[Any]] = defaultdict(list)
-    first_of: dict[str, Any] = {}
     for row in conn.execute(
-        "SELECT id, provider, display_name, account_key, daily_budget, interactive_reserve_pct FROM supply_connectors "
-        "WHERE enabled ORDER BY created_at, id"
+        "SELECT c.id, c.provider, c.display_name, c.account_id, a.daily_budget, a.interactive_reserve_pct FROM supply_connectors c "
+        "JOIN supply_accounts a ON a.id = c.account_id WHERE c.enabled ORDER BY c.created_at, c.id"
     ).fetchall():
         try:
             spec = registry.get_spec(row["provider"])
@@ -58,15 +57,14 @@ def _accounts(conn) -> tuple[list[_Account], dict[str, tuple[Any, ProviderSpec]]
         if not spec.metered:
             continue
         connectors[row["id"]] = (row, spec)
-        owner = first_of.setdefault(row["account_key"], row) if row["account_key"] else row
-        groups[owner["id"]].append(row)
+        groups[row["account_id"]].append(row)
     accounts = [
         _Account(
-            owner_id, tuple(item["id"] for item in rows),
-            budget.committed_calls(connectors[owner_id][0]["daily_budget"], connectors[owner_id][0]["interactive_reserve_pct"]),
+            account_id, tuple(item["id"] for item in rows),
+            budget.committed_calls(rows[0]["daily_budget"], rows[0]["interactive_reserve_pct"]),
             {item["id"]: item["display_name"] for item in rows},
         )
-        for owner_id, rows in groups.items()
+        for account_id, rows in groups.items()
     ]
     return accounts, connectors
 

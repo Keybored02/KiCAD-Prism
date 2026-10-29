@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
-from app.services.supply import component_parts, freshness
+from app.services.supply import clock, component_parts, freshness
 from app.services.supply.providers import registry
 from app.services.supply.project_supply import ROLLUP_MAX_AGE
 
@@ -171,10 +171,11 @@ def _compact(conn, now: datetime, days: int) -> int:
     return int(removed or 0)
 
 
-def trim_summaries(conn) -> int:
+def trim_summaries(conn, now: datetime | None = None) -> int:
     """Forget kept summaries nobody has read for a week and rollups past the age a reader accepts, then every change mark no kept
     answer can still depend on (``freshness.trim``). Returns how many marks were removed."""
 
-    conn.execute("DELETE FROM supply_part_summaries WHERE computed_at < NOW() - INTERVAL '7 days'")
-    conn.execute("DELETE FROM supply_project_rollups WHERE computed_at < NOW() - %s", (ROLLUP_MAX_AGE,))
+    now = now or clock.now()
+    conn.execute("DELETE FROM supply_part_summaries WHERE computed_at < %s", (now - timedelta(days=7),))
+    conn.execute("DELETE FROM supply_project_rollups WHERE computed_at < %s", (now - ROLLUP_MAX_AGE,))
     return freshness.trim(conn)

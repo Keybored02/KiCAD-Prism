@@ -29,9 +29,10 @@ ONE_PILE = frozenset({"cut_tape", "custom_reel", "unknown", "other", "several", 
 
 
 def pool_sql(connector: str = "c") -> str:
-    """SQL for a row's stock pool: the account its connector is on (connectors on one set of credentials), else the connector."""
+    """SQL for a row's stock pool: the account its connector is on (connectors on one set of credentials are one account; a
+    connector with none is an account of its own)."""
 
-    return f"COALESCE(NULLIF({connector}.account_key, ''), {connector}.id)"
+    return f"{connector}.account_id"
 
 
 def connector_stock(provider: str, rows: Iterable[Mapping[str, Any]]) -> int:

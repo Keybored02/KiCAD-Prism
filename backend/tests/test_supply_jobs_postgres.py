@@ -89,6 +89,17 @@ class SupplyJobTests(unittest.TestCase):
                 conn.execute(f"DELETE FROM {table}")
         self.clock = Clock()
         self.behaviour = None
+        self.tasks_not_due()
+
+    def tasks_not_due(self) -> None:
+        """The periodic tasks ran a moment ago, so a scan queues only distributor work."""
+
+        from app.services.supply import tasks
+
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_task_runs")
+            for task in tasks.TASKS:
+                conn.execute("INSERT INTO supply_task_runs (name, next_at) VALUES (%s, %s)", (task.name, self.clock.now + task.every))
 
     # --- helpers ----------------------------------------------------------
 
@@ -205,7 +216,7 @@ class SupplyJobTests(unittest.TestCase):
         for n in range(4):
             self.watch(f"P{n}")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO supply_quota_ledger (connector_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
+            conn.execute("INSERT INTO supply_quota_ledger (account_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
         summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.stopped), (1, "budget"))
         self.assertEqual(len(self.rows("SELECT * FROM supply_discovery_runs")), 1)
@@ -521,14 +532,33 @@ class SupplyJobTests(unittest.TestCase):
             conn.execute("UPDATE supply_poll_state SET last_polled_at = %s", (self.clock.now - timedelta(days=2),))
         self.assertEqual(self.work(), [cid], "read two days ago and not due for five: an early read")
 
-    def test_the_scan_does_its_housekeeping_even_when_no_connector_has_work_and_not_every_time(self) -> None:
+    def test_the_scan_queues_one_tasks_job_when_a_task_is_due_even_with_no_connector_work(self) -> None:
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_task_runs SET next_at = %s WHERE name = 'rates'", (self.clock.now,))
         queue = RecordingJobs()
-        self.jobs._housekeeping_at = None
-        with mock.patch.object(self.jobs, "housekeeping") as house:
-            self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
-            self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
-        self.assertEqual(queue.calls, [])
-        self.assertEqual(house.call_count, 1)
+        self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
+        self.assertEqual([(call["kind"], call["artifact_key"]) for call in queue.calls], [("supply_tasks", "supply:tasks")])
+
+    def test_a_task_runs_when_due_in_its_own_transaction_and_a_failure_is_kept_without_stopping_the_rest(self) -> None:
+        from app.services.supply import tasks
+
+        ran = []
+
+        def broken(conn, now, store):
+            conn.execute("INSERT INTO supply_settings (key, value, updated_by) VALUES ('probe', '1', 'test')")
+            raise RuntimeError("ECB unreachable")
+
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_task_runs SET next_at = %s WHERE name IN ('rates', 'market')", (self.clock.now,))
+        fake = (tasks.Task("rates", tasks._TEN_MINUTES, broken), tasks.Task("market", tasks._TEN_MINUTES, lambda conn, now, store: ran.append(now)))
+        with mock.patch.object(tasks, "TASKS", fake), mock.patch.dict(tasks.BY_NAME, {task.name: task for task in fake}):
+            outcome = tasks.run_due(self.store, self.clock.now)
+            self.assertEqual(tasks.run_due(self.store, self.clock.now), {}, "claimed: not due again until its interval passed")
+        self.assertEqual((outcome, ran), ({"rates": False, "market": True}, [self.clock.now]))
+        rows = {row["name"]: row for row in self.rows("SELECT * FROM supply_task_runs WHERE name IN ('rates', 'market')")}
+        self.assertEqual(rows["rates"]["last_error"], "RuntimeError: ECB unreachable")
+        self.assertEqual(self.rows("SELECT key FROM supply_settings WHERE key = 'probe'"), [], "the failing task's own writes were rolled back")
+        self.assertEqual(rows["rates"]["next_at"], self.clock.now + tasks._TEN_MINUTES)
 
     def test_the_scan_queues_nothing_when_there_is_nothing_to_do(self) -> None:
         self.connector()
@@ -545,8 +575,8 @@ class SupplyJobTests(unittest.TestCase):
         context = SimpleNamespace(payload={"connector_id": cid}, progress=lambda **kwargs: progress.append(kwargs["stage"]))
         with (
             mock.patch.object(self.jobs, "ConnectorService", lambda: self.connectors),
-            mock.patch.object(self.jobs, "Discoverer", lambda connectors: self.discoverer_()),
-            mock.patch.object(self.jobs, "Poller", lambda connectors: self.poller_()),
+            mock.patch.object(self.jobs, "Discoverer", lambda connectors, **_kwargs: self.discoverer_()),
+            mock.patch.object(self.jobs, "Poller", lambda connectors, **_kwargs: self.poller_()),
         ):
             result = self.jobs.run_supply_poll_job(context)
             self.assertEqual((result.details["searched"], result.details["polled"]), (1, 0), "nothing was due yet: the search found the listing")

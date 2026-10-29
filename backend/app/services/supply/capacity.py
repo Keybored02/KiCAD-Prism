@@ -22,8 +22,8 @@ _UNPOLLED_TIER = "daily"
 
 def connector_capacity(conn) -> list[dict[str, Any]]:
     connectors = conn.execute(
-        "SELECT id, display_name, provider, daily_budget, interactive_reserve_pct FROM supply_connectors "
-        "WHERE enabled ORDER BY lower(display_name), id"
+        "SELECT c.id, c.display_name, c.provider, a.daily_budget, a.interactive_reserve_pct FROM supply_connectors c "
+        "JOIN supply_accounts a ON a.id = c.account_id WHERE c.enabled ORDER BY lower(c.display_name), c.id"
     ).fetchall()
     tiers: dict[str, dict[str, int]] = {}
     part_tiers: dict[str, dict[str, int]] = {}

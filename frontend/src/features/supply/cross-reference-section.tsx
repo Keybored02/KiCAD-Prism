@@ -1,14 +1,14 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
-import { askSubstitutes, getCrossReference, listSupplyConnectors } from "./supply-api";
-import { useLoaded } from "./use-loaded";
+import { askSubstitutes, getCrossReference } from "./supply-api";
 import { FoldSection } from "./fold-section";
 import { SuggestionsList } from "./suggestions-list";
 import { formatStock } from "./supply-format";
+import { useConnectorList } from "./use-supply-connectors";
 
 const SAME_LABEL: Record<string, string> = {
   resistance: "value", capacitance: "value", inductance: "value", output_voltage: "output voltage", positions: "positions", rows: "rows",
@@ -19,8 +19,7 @@ const label = (key: string) => SAME_LABEL[key] ?? key.replace(/_/g, " ");
 /** Alternatives found in what Prism holds, graded by how close they are. Looked up when the section opens or when asked (no distributor is called). A person checks footprint and pins before using one. */
 export function CrossReferenceSection({ partId, canEdit }: { partId: string; canEdit: boolean }) {
   const [found, setFound] = useState<CrossReference | null>(null);
-  const connectorsFetcher = useCallback((signal: AbortSignal) => listSupplyConnectors(signal), []);
-  const connectors = useLoaded("connectors", connectorsFetcher, "Could not load the connectors", "supply");
+  const connectors = useConnectorList();
   // Substitutes come from DigiKey alone, so the button shows only while a DigiKey connector is on.
   const digikey = (connectors.data ?? []).some((connector) => connector.provider === "digikey" && connector.enabled);
   const [busy, setBusy] = useState(false);

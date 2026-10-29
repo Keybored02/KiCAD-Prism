@@ -45,12 +45,12 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   const enabled = canOpenSupply(user?.role);
   // The figures are for one board, with the workspace's spares (Supply settings), which the lookup waits for.
   const settingsFetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
-  const workspace = useLoaded("assessment-settings", settingsFetcher, "Could not load the settings", "supply");
+  const workspace = useLoaded("settings/assessment", settingsFetcher, "Could not load the settings");
   const fallback = workspace.data?.settings;
   // A tracked project's usual build and spares, so the BOM prices as the project page does. An untracked project, or one whose
   // tracking cannot be read, prices one board with the workspace's spares.
   const trackingFetcher = useCallback((signal: AbortSignal) => getProjectTracking(projectId, signal), [projectId]);
-  const tracking = useLoaded(enabled && projectId ? `tracking:${projectId}` : null, trackingFetcher, "Could not load the project's tracking");
+  const tracking = useLoaded(enabled && projectId ? `projects/${projectId}/tracking` : null, trackingFetcher, "Could not load the project's tracking");
   const tracked = tracking.status === "ready" ? tracking.data?.tracked ?? null : null;
   const buildQuantity = tracked?.build_quantity ?? BUILD_QUANTITY;
   const ownSpares = tracked?.spares ?? null;
@@ -70,7 +70,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
       lookupSupplyBom(lines.map(lineInput), buildQuantity, { signal, attritionPercent }),
     [lines, attritionPercent, buildQuantity],
   );
-  const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
+  const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey === null ? null : `bom-lookup/${requestKey}`, fetcher, "Could not look the BOM up");
 
   const watchLines = useCallback(async (subset: readonly BomLineDetail[]) => {
     const batches: BomLineDetail[][] = [];

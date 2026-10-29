@@ -17,7 +17,7 @@ export function roughly(count: number): string {
 
 function useRoom() {
   const fetcher = useCallback((signal: AbortSignal) => getTrackingRoom(signal), []);
-  return useLoaded<TrackingRoom>("tracking-room", fetcher, "Could not work out the room for tracking");
+  return useLoaded<TrackingRoom>("tracking/room", fetcher, "Could not work out the room for tracking");
 }
 
 function basis(item: TrackingRoomAccount): string {

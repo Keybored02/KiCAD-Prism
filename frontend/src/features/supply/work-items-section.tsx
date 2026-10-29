@@ -22,7 +22,7 @@ const STATE_LABEL: Record<WorkItemState, string> = { open: "Open", accepted: "Ac
 export function WorkItemsSection({ email, canFollow, canDecide }: { email: string; canFollow: boolean; canDecide: boolean }) {
   const [list, setList] = useState<WorkItemList>("live");
   const fetcher = useCallback((signal: AbortSignal) => listWorkItems(list, signal), [list]);
-  const loaded = useLoaded<SupplyWorkItem[]>(`work-items:${list}`, fetcher, "Could not load the work items");
+  const loaded = useLoaded<SupplyWorkItem[]>(`work-items/list/${list}`, fetcher, "Could not load the work items");
   const [open, setOpen] = useState<SupplyWorkItem | null>(null);
   const items = loaded.data ?? [];
   if (loaded.status === "ready" && items.length === 0 && list === "live") return null;
@@ -87,7 +87,7 @@ function WorkItemSheet({ item, email, canFollow, canDecide, onClose, onChanged }
   item: SupplyWorkItem; email: string; canFollow: boolean; canDecide: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const fetcher = useCallback((signal: AbortSignal) => workItemHistory(item.id, signal), [item.id]);
-  const history = useLoaded(`work-item-history:${item.id}:${item.updated_at}`, fetcher, "Could not load the history");
+  const history = useLoaded(`work-items/${item.id}/history/${item.updated_at}`, fetcher, "Could not load the history");
   const [note, setNote] = useState("");
   const [evidence, setEvidence] = useState(item.evidence);
   const add = async () => {
