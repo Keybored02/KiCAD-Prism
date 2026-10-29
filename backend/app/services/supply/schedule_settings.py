@@ -12,8 +12,9 @@ from typing import Any, Mapping
 from app.services.supply.audit import actor_text, write_audit
 
 KEY = "schedule"
-# In the order spare budget is spent: parts waiting for room, then tier-2 parts ahead of their time, then notices of untracked parts.
-SPARE_KINDS = ("waiting", "tier2_early", "notices")
+# In the order spare budget is spent: parts waiting for room, then tier-2 parts ahead of their time, then notices of untracked parts,
+# then matching the library's parts nothing follows (``library_match``).
+SPARE_KINDS = ("waiting", "tier2_early", "notices", "library")
 
 DEFAULTS: dict[str, Any] = {"spare": {kind: True for kind in SPARE_KINDS}}
 

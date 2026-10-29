@@ -1316,6 +1316,17 @@ export interface BudgetNotices {
   per_day: number;
 }
 
+export interface BudgetLibrary {
+  total: number;
+  found: number;
+  not_found: number;
+  /** Parts due a search here now. */
+  waiting: number;
+  calls_a_day: number;
+  /** Null when no spare calls are expected. */
+  days_left: number | null;
+}
+
 export interface BudgetConnector {
   connector_id: string;
   name: string;
@@ -1337,6 +1348,8 @@ export interface BudgetConnector {
   days: BudgetCall[];
   /** The change-notice quota of a provider that keeps one apart from its product calls (DigiKey). */
   notices?: BudgetNotices | null;
+  /** Matching the library's parts nothing follows, from spare budget. */
+  library?: BudgetLibrary | null;
   owners: {
     projects: Array<{ project_id: string; project_name: string; calls_a_day: number }>;
     parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;
@@ -1441,7 +1454,7 @@ export interface CheckProgress {
 
 /** Which spare work is on. */
 export interface ScheduleSettings {
-  spare: { waiting: boolean; tier2_early: boolean; notices: boolean };
+  spare: { waiting: boolean; tier2_early: boolean; notices: boolean; library: boolean };
 }
 
 /** What a person wants to hear about a part. */

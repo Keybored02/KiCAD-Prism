@@ -13,6 +13,7 @@ const SPARE: ReadonlyArray<{ id: keyof Schedule["spare"]; label: string }> = [
   { id: "waiting", label: "Parts waiting for room" },
   { id: "tier2_early", label: "Tier 2 parts ahead of schedule" },
   { id: "notices", label: "Change notices of untracked parts" },
+  { id: "library", label: "Library parts nobody follows" },
 ];
 
 function Form({ initial, readOnly }: { initial: Schedule; readOnly: boolean }) {

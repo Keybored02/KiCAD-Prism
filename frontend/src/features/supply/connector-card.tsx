@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
 import { BudgetDetail } from "./budget-view";
-import { CallBudget, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
+import { CallBudget, LibraryBar, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
 import { formatDateTime } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
@@ -63,6 +63,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
       {connector.metered
         ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} capacity={capacity} /> : undefined} />
         : <OffersFile connector={connector} />}
+      {budget?.library && budget.library.total > 0 ? <LibraryBar library={budget.library} /> : null}
       {providerNote(connector.provider) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider)}</p> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">

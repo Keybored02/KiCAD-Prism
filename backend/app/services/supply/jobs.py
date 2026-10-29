@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, alerts, budget, dashboard, demand, details, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
+    accounts, alerts, budget, dashboard, demand, details, fx, ledger, market, library_match, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.forecast import run as forecast_run
@@ -97,7 +97,7 @@ def _has_spare(conn, row, now: datetime) -> bool:
 
 def _spare_work_due(conn, row, now: datetime, kinds: list[str]) -> bool:
     """Whether a connector has spare work that is due, for the kinds switched on: a part waiting for room that is due a search or a read,
-    a tier-2 listing old enough to read early, a notice to read. Each is a single-row look. Late committed reads (``overdue``) are not
+    a tier-2 listing old enough to read early, a notice to read, a library part to match. Each is a single-row look. Late committed reads (``overdue``) are not
     asked here: the main "due" query queues them already."""
 
     cid = row["id"]
@@ -109,7 +109,9 @@ def _spare_work_due(conn, row, now: datetime, kinds: list[str]) -> bool:
         has_notices = CAP_PCN in registry.get_spec(row["provider"]).capabilities
     except registry.UnknownProvider:
         return False
-    return "notices" in kinds and has_notices and bool(details.due(conn, cid, "notices", now, 1, untracked=True))
+    if "notices" in kinds and has_notices and details.due(conn, cid, "notices", now, 1, untracked=True):
+        return True
+    return "library" in kinds and bool(library_match.pending(conn, cid, row["provider"], now, 1))
 
 
 def _has_pool_or_spare(conn, row, now: datetime) -> bool:
@@ -508,7 +510,7 @@ def _spend_spare(
     connectors: ConnectorService, connector_id: str, *, poller: Poller | None = None, discoverer: Discoverer | None = None
 ) -> tuple[int, int]:
     """Use budget that would otherwise go unused, once all committed work is done. In order: searches and reads for parts
-    late committed reads, then those waiting for room, then tier-2 parts ahead of their time. Best effort, and each stops where the spare allowance does.
+    late committed reads, then those waiting for room, then tier-2 parts ahead of their time, then notices, then the library pass. Best effort, and each stops where the spare allowance does.
     Returns the calls it spent and the listings it read."""
 
     calls = listings = 0
@@ -530,6 +532,8 @@ def _spend_spare(
             calls, listings = calls + early.calls, listings + early.polled
         if "notices" in kinds:
             calls += details.run_spare(connectors, connector_id).read
+        if "library" in kinds:
+            calls += discoverer.run(connector_id, library=True).searched
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Spare work not done", exc_info=True)
     return calls, listings

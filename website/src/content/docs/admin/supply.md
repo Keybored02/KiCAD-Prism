@@ -200,6 +200,14 @@ stale on each component. See
   distributor's part numbers stay, so the next read needs no search. If you
   have the distributor's written permission to keep more, turn on **Keep
   prices of parts not in use** in the connector's **Edit settings**.
+- Library parts that nothing follows are matched to each distributor in the
+  background, using only calls the budget has to spare. Each part is searched
+  once, then again after 90 days. Arrow, TME, Avnet and Mouser go first,
+  because they look up many numbers in one call. DigiKey and Farnell only
+  search the parts none of those carries. Each connector card shows the
+  **Library** bar: parts searched, found, not carried, waiting, and the
+  days left. Turn the pass off with **Library parts nobody follows** in the
+  spare work settings.
 - Call counts are kept 90 days.
 - Providers Prism doesn't know can be added as plugins through the
   `prism.supply_providers` entry point.
