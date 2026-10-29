@@ -157,7 +157,9 @@ wins:
 A SAP code or part number that several components share matches none of them.
 Parts with stock that match nothing appear under **Unmatched local stock** in
 **Library Manager → Review**, where a QA reviewer or administrator links them
-or adds the component.
+or adds the component. Stock that will never be a library component
+(consumables, tools) can be ignored in bulk; see
+[Track supply](/KiCAD-Prism/use/supply/#review-what-prism-could-not-settle).
 
 Only stock with the status OK at your own locations counts as available, less
 what is allocated. Other statuses count as held, and stock at an external

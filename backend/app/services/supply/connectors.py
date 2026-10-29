@@ -134,6 +134,32 @@ def _fetch(conn, connector_id: str):
     return row
 
 
+def _hand_on_ledger(conn, connector_id: str) -> None:
+    """Before an account's oldest connector goes, give its call ledger to the next one, which then holds the account's day: the
+    calls already spent today still count, so deleting a connector never frees a fresh budget before the provider's day resets."""
+
+    from app.services.supply import accounts
+
+    account = accounts.resolve(conn, connector_id)
+    if account.ledger_id != connector_id or len(account.members) < 2:
+        return
+    conn.execute(
+        """
+        INSERT INTO supply_quota_ledger (connector_id, day, spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour,
+                                         spare_hour_spent)
+        SELECT %s, day, spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent
+        FROM supply_quota_ledger WHERE connector_id = %s
+        ON CONFLICT (connector_id, day) DO UPDATE SET
+            spent = supply_quota_ledger.spent + EXCLUDED.spent,
+            interactive_spent = supply_quota_ledger.interactive_spent + EXCLUDED.interactive_spent,
+            spare_spent = supply_quota_ledger.spare_spent + EXCLUDED.spare_spent,
+            spare_hour_spent = supply_quota_ledger.spare_hour_spent + EXCLUDED.spare_hour_spent,
+            scheduled_rest = EXCLUDED.scheduled_rest, scheduled_at = EXCLUDED.scheduled_at, spare_hour = EXCLUDED.spare_hour
+        """,
+        (account.members[1], connector_id),
+    )
+
+
 class ConnectorService:
     def __init__(
         self,
@@ -339,6 +365,7 @@ class ConnectorService:
         actor = actor_text(actor)
         with self._store.connection() as conn:
             row = _fetch(conn, connector_id)
+            _hand_on_ledger(conn, connector_id)
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector_id,))
             write_audit(conn, actor, "connector.delete", connector_id,
                    {"provider": row["provider"], "storefront": row["storefront"]})

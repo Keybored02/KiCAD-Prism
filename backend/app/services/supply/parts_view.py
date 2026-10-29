@@ -368,10 +368,19 @@ def tracked_states(conn) -> list[dict[str, Any]]:
     return [{"id": row["id"], **{key: sums[row["id"]][key] for key in ("status", "stock", "lifecycle", "dropped")}} for row in rows]
 
 
-def tracked_project_rows(conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> list[dict[str, Any]]:
-    """The Dashboard's row for each tracked project ``role`` may see: its parts' status counts and its kept usual-build rollup."""
+_EVERY = object()
 
-    tracked = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_tracked_projects").fetchall()]
+
+def tracked_project_rows(
+    conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None, *, visible: Any = _EVERY,
+) -> list[dict[str, Any]]:
+    """The Dashboard's row for each tracked project ``role`` may see: its parts' status counts and its kept usual-build rollup.
+    ``visible`` is ``usage.visible_project_ids(role)`` when the caller has it already."""
+
+    if visible is _EVERY:
+        visible = usage.visible_project_ids(role)
+    tracked = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_tracked_projects").fetchall()
+               if visible is None or row["project_id"] in visible]
     if not tracked:
         return []
     of = _projects_of(conn, [state["id"] for state in states], role)

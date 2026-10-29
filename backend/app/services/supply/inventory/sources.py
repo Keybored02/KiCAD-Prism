@@ -94,7 +94,8 @@ def create(
 
 
 def update(conn, keyring: sealed.CredentialKeyring, source_id: str, actor: str, **changes: Any) -> dict[str, Any]:
-    """Change a source. A new URL or token clears what the server said about itself until the next read."""
+    """Change a source. A new URL or token clears what the server said about itself until the next read. A new URL, token or category
+    makes the source due now, and the stock it holds (read under the old settings) shows as stale until that read replaces it."""
 
     actor = actor_text(actor)
     get(conn, source_id)
@@ -114,6 +115,9 @@ def update(conn, keyring: sealed.CredentialKeyring, source_id: str, actor: str, 
         clean["credential_envelope"] = sealed.seal(keyring, source_id, {"token": token}, TOKEN_FIELD) if token else ""
     if "base_url" in clean or "credential_envelope" in clean:
         clean |= {"server": "", "api_version": None}
+    if {"base_url", "credential_envelope", "category_id"} & set(clean):
+        clean["last_sync_at"] = None
+        conn.execute("UPDATE inventory_levels SET fetch_status = 'error' WHERE source_id = %s", (source_id,))
     if clean:
         assignments = ", ".join(f"{column} = %s" for column in clean)
         conn.execute(f"UPDATE inventory_sources SET {assignments} WHERE id = %s", (*clean.values(), source_id))

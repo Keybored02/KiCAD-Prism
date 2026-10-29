@@ -67,10 +67,14 @@ class TrackingApiTests(unittest.TestCase):
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
+        # The workspace's folder rules decide which projects aggregate answers name; this test's one project is visible.
+        cls.visible = mock.patch("app.services.supply.usage.visible_project_ids", return_value={"prj_1"})
+        cls.visible.start()
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.patcher.stop()
+        cls.visible.stop()
         cls.registry.unregister("trk_demo")
         from support.postgres import APPLICATION_URL, drop_schema
 
@@ -129,6 +133,9 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual(overview["counts"], {"tier1": 3, "tier2": 0})
         self.assertEqual([p["project_id"] for p in overview["projects"]], ["prj_1"])
         self.assertEqual((overview["budget"][0]["admitted"], overview["budget"][0]["waiting"]), (3, 0))
+        with mock.patch("app.services.supply.usage.visible_project_ids", return_value=set()):
+            hidden = self.call("GET", "").json
+        self.assertEqual((hidden["projects"], hidden["counts"]), ([], {"tier1": 3, "tier2": 0}), "a hidden project is not named")
         state = self.call("GET", "/projects/prj_1").json
         self.assertEqual((state["tracked"]["variants"], state["has_usage"]), ([""], True))
         self.assertEqual(self.call("DELETE", "/projects/prj_1").status, 204)
