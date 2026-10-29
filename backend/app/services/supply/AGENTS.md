@@ -41,7 +41,7 @@ root first.
 | `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
 | `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
-| `tiers.py` | Pure rules: when a listing is next due (`next_poll_at`: once in each provider day for daily, a day-changing jitter for weekly and monthly), which comes first when the budget is short (`urgency`), and when to retry (`retry_at`). |
+| `tiers.py` | Pure rules: when a listing is next due (`next_poll_at`: once in each provider day for daily, a day-changing jitter for weekly and monthly; `stretch` doubles the wait for a calm listing), which comes first when the budget is short (`urgency`), and when to retry (`retry_at`). |
 | `tracking.py` | What Prism follows and why: tracked projects, a person's tier choice (`watches.tier`, `rate`, `origin`) and `part_tiers`, derived from every source with its reasons (`recompute`). Tier 1 is read daily, tier 2 weekly or monthly, tier 3 only on request. |
 | `budget.py` | Pure cost model: calls a day one part costs at one provider by tier, rate and listings followed (reads, notices, substances, searches). |
 | `admission.py` | Where each followed part is read (`admissions`): admitted while the account's committed share has room, else waiting for room. `sync`, `preview` (runs a change and rolls it back) and `apply` ("track where room", refused when nothing fits). |

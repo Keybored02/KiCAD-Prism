@@ -264,8 +264,9 @@ sheet's bell can mute most kinds and set its own thresholds.
 ## How often parts are read
 
 A part on a tracked project, or watched at **Tier 1**, is read daily. **Tier
-2** parts are read weekly or monthly. Other parts are read only when someone
-asks.
+2** parts are read weekly or monthly. A listing that hasn't changed for seven
+reads, and isn't near its threshold, running out or ending, is read half as
+often until it changes. Other parts are read only when someone asks.
 
 When a day's calls can't cover every part due, Prism reads first the parts
 that are out of stock, at or below their threshold, or running out within two

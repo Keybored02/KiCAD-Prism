@@ -658,10 +658,13 @@ class Poller:
     @staticmethod
     def _write_state(conn, listing_id: str, schedule: str, urgency: tiers.Urgency, now: datetime, last_change: datetime | None,
                      *, part_key: str, account_key: str, reset: tuple[str, str], missing: int = 0) -> None:
-        # A listing that is merely missing is asked again within the hour, not on its schedule.
+        # A listing that is merely missing is asked again within the hour, not on its schedule; a calm one waits longer (``tiers.stretch``).
         when = (
             now + min(tiers.interval(schedule), timedelta(hours=1)) if missing
-            else tiers.next_poll_at(now, schedule, part_key=part_key, account_key=account_key, reset_time=reset[0], tz=reset[1])
+            else tiers.next_poll_at(
+                now, schedule, part_key=part_key, account_key=account_key, reset_time=reset[0], tz=reset[1],
+                stretch=tiers.stretch(schedule, urgency, last_change, now),
+            )
         )
         conn.execute(
             """

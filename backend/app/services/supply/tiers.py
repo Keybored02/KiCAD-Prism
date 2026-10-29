@@ -6,6 +6,9 @@ monthly. A listing's ``poll_state.tier`` holds that schedule. Here are the rules
 * ``next_poll_at``: reads come due together, so a batch goes out full. A daily read falls when the account's next provider day
   opens (after its start delay); a weekly or monthly one on a day slot of its part, so the parts of one slot are due at once and a
   part's listings share a slot
+* ``stretch``: a listing whose reading has not changed for ``CALM_READS`` of its intervals, and that no rule marks urgent,
+  is read at half its rate (``MAX_STRETCH``): every two days at tier 1, so a stable part costs half. Any change, or anything
+  that makes it urgent (low stock, a threshold, an ending lifecycle, a projected run-out), puts it back on its rate at once.
 * ``urgency``: which listing to read first when the day's budget cannot cover them all (low stock, near the threshold,
   not recommended for new designs, projected to run out). It sets the order, never the rate.
 
@@ -48,6 +51,8 @@ RUPTURE_HOT_DAYS = 14
 JITTER_SHARE = 0.10
 BACKOFF_BASE = timedelta(minutes=5)
 BACKOFF_CAP = timedelta(hours=24)
+CALM_READS = 7
+MAX_STRETCH = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,9 +108,18 @@ def interval(schedule: str) -> timedelta:
     return INTERVAL[schedule]
 
 
+def stretch(schedule: str, urgency: Urgency, last_change_at: datetime | None, now: datetime) -> int:
+    """How many of its intervals a listing waits: ``MAX_STRETCH`` when it is calm (no change for ``CALM_READS`` intervals and
+    nothing urgent), else 1."""
+
+    if urgency != Urgency.NORMAL or last_change_at is None or now - last_change_at < INTERVAL[schedule] * CALM_READS:
+        return 1
+    return MAX_STRETCH
+
+
 def next_poll_at(
     now: datetime, schedule: str, *, part_key: str = "", account_key: str = "", reset_time: str = quota.DEFAULT_RESET_TIME,
-    tz: str = quota.DEFAULT_RESET_TZ,
+    tz: str = quota.DEFAULT_RESET_TZ, stretch: int = 1,
 ) -> datetime:
     """When to ask again after an answer.
 
@@ -113,11 +127,11 @@ def next_poll_at(
     day opens, plus the account's start delay for that day (``quota.start_delay_seconds``, 5 to 30 minutes), the moment the day's
     budget starts to open. A weekly or monthly one is due on its part's day slot (``part_key``): the first provider day of that slot
     at least ``MIN_WAIT_DAYS`` ahead, at the same time of day. Spreading the calls over the day is the budget's job
-    (``quota.background_allowance``).
+    (``quota.background_allowance``). ``stretch`` multiplies the wait (see ``stretch``).
     """
 
     today = quota.provider_day(now, reset_time, tz)
-    day = today + timedelta(days=1 if schedule == "daily" else MIN_WAIT_DAYS[schedule])
+    day = today + timedelta(days=(1 if schedule == "daily" else MIN_WAIT_DAYS[schedule]) * max(stretch, 1))
     if schedule != "daily":
         slots = SLOTS[schedule]
         slot = int(hashlib.sha256(part_key.encode()).hexdigest()[:8], 16) % slots
