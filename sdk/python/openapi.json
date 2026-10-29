@@ -7826,8 +7826,8 @@
         "additionalProperties": false,
         "properties": {
           "base_url": {
+            "default": "",
             "maxLength": 500,
-            "minLength": 1,
             "title": "Base Url",
             "type": "string"
           },
@@ -7855,6 +7855,15 @@
             "title": "Interval Hours",
             "type": "integer"
           },
+          "kind": {
+            "default": "inventree",
+            "enum": [
+              "inventree",
+              "push"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "token": {
             "default": "",
             "maxLength": 500,
@@ -7863,8 +7872,7 @@
           }
         },
         "required": [
-          "display_name",
-          "base_url"
+          "display_name"
         ],
         "title": "CreateSourceRequest",
         "type": "object"
@@ -12301,7 +12309,10 @@
             "type": "integer"
           },
           "kind": {
-            "const": "inventree",
+            "enum": [
+              "inventree",
+              "push"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -12423,6 +12434,24 @@
           "via_treatment"
         ],
         "title": "IpcOptions",
+        "type": "object"
+      },
+      "IssuedPushToken": {
+        "properties": {
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "prefix"
+        ],
+        "title": "IssuedPushToken",
         "type": "object"
       },
       "JobCancelOut": {
@@ -17018,6 +17047,35 @@
         "title": "PriceQuantityIn",
         "type": "object"
       },
+      "PriceTier": {
+        "additionalProperties": false,
+        "properties": {
+          "quantity": {
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "quantity",
+          "unit_price"
+        ],
+        "title": "PriceTier",
+        "type": "object"
+      },
       "ProcessInfo": {
         "properties": {
           "host": {
@@ -18687,6 +18745,391 @@
           "comments_path"
         ],
         "title": "PushCommentsView",
+        "type": "object"
+      },
+      "PushLevelsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PushedLevel"
+            },
+            "maxItems": 50000,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "PushLevelsRequest",
+        "type": "object"
+      },
+      "PushLevelsResult": {
+        "properties": {
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "unmatched": {
+            "title": "Unmatched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "matched",
+          "unmatched",
+          "records"
+        ],
+        "title": "PushLevelsResult",
+        "type": "object"
+      },
+      "PushOffersRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "offers": {
+            "items": {
+              "$ref": "#/components/schemas/PushedOffer"
+            },
+            "maxItems": 50000,
+            "title": "Offers",
+            "type": "array"
+          },
+          "replace": {
+            "default": false,
+            "title": "Replace",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "offers"
+        ],
+        "title": "PushOffersRequest",
+        "type": "object"
+      },
+      "PushOffersResult": {
+        "properties": {
+          "kept": {
+            "title": "Kept",
+            "type": "integer"
+          },
+          "pushed_at": {
+            "format": "date-time",
+            "title": "Pushed At",
+            "type": "string"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received",
+          "kept",
+          "recorded",
+          "pushed_at"
+        ],
+        "title": "PushOffersResult",
+        "type": "object"
+      },
+      "PushToken": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix",
+          "created_by",
+          "created_at"
+        ],
+        "title": "PushToken",
+        "type": "object"
+      },
+      "PushedLevel": {
+        "additionalProperties": false,
+        "description": "One stock record. ``part`` is the source's own id for the part; its numbers are matched to library components.",
+        "properties": {
+          "allocated": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Allocated",
+            "type": "number"
+          },
+          "batch": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Batch",
+            "type": "string"
+          },
+          "external": {
+            "default": false,
+            "title": "External",
+            "type": "boolean"
+          },
+          "ipn": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Ipn",
+            "type": "string"
+          },
+          "location": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Location",
+            "type": "string"
+          },
+          "manufacturer": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Mpn",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "part": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Part",
+            "type": "string"
+          },
+          "quantity": {
+            "minimum": 0.0,
+            "title": "Quantity",
+            "type": "number"
+          },
+          "sku": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Sku",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Status",
+            "type": "string"
+          },
+          "supplier": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Supplier",
+            "type": "string"
+          },
+          "units": {
+            "default": "",
+            "maxLength": 20,
+            "title": "Units",
+            "type": "string"
+          },
+          "updated": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Updated",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "quantity"
+        ],
+        "title": "PushedLevel",
+        "type": "object"
+      },
+      "PushedOffer": {
+        "additionalProperties": false,
+        "description": "One listing, with the columns of the offers file. Values are checked as a file's are.",
+        "properties": {
+          "currency": {
+            "default": "",
+            "maxLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "discontinued": {
+            "default": false,
+            "title": "Discontinued",
+            "type": "boolean"
+          },
+          "incoming_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incoming Date"
+          },
+          "incoming_qty": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incoming Qty"
+          },
+          "jlc_library": {
+            "default": "",
+            "maxLength": 20,
+            "title": "Jlc Library",
+            "type": "string"
+          },
+          "jlc_preferred": {
+            "default": false,
+            "title": "Jlc Preferred",
+            "type": "boolean"
+          },
+          "lead_time_days": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Days"
+          },
+          "lifecycle": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "manufacturer": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "moq": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moq"
+          },
+          "mpn": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Mpn",
+            "type": "string"
+          },
+          "order_multiple": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Multiple"
+          },
+          "packaging": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Packaging",
+            "type": "string"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/PriceTier"
+            },
+            "maxItems": 50,
+            "title": "Prices",
+            "type": "array"
+          },
+          "product_url": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Product Url",
+            "type": "string"
+          },
+          "rohs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rohs"
+          },
+          "sku": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Sku",
+            "type": "string"
+          },
+          "stock": {
+            "minimum": 0.0,
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sku",
+          "mpn",
+          "manufacturer",
+          "stock"
+        ],
+        "title": "PushedOffer",
         "type": "object"
       },
       "QueueDepth": {
@@ -44166,6 +44609,59 @@
         ]
       }
     },
+    "/api/v1/supply/connectors/{connector_id}/offers": {
+      "post": {
+        "description": "Offers for a file-fed connector. They are kept as its rows and recorded on the listings Prism already has for them.",
+        "operationId": "push_connector_offers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushOffersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushOffersResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Push Connector Offers",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
     "/api/v1/supply/connectors/{connector_id}/pause": {
       "post": {
         "operationId": "pause_supply_connector",
@@ -44426,6 +44922,129 @@
           }
         },
         "summary": "Test Connector Connection",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/connectors/{target_id}/push-token": {
+      "delete": {
+        "operationId": "revoke_connector_push_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Connector Push Token",
+        "tags": [
+          "supply"
+        ]
+      },
+      "get": {
+        "operationId": "get_connector_push_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PushToken"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Connector Push Token"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Connector Push Token",
+        "tags": [
+          "supply"
+        ]
+      },
+      "post": {
+        "operationId": "issue_connector_push_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedPushToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Connector Push Token",
         "tags": [
           "supply"
         ]
@@ -45106,6 +45725,59 @@
         ]
       }
     },
+    "/api/v1/supply/inventory-sources/{source_id}/levels": {
+      "post": {
+        "description": "The whole stock of a push inventory source. It replaces what the source pushed before.",
+        "operationId": "push_inventory_levels",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushLevelsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushLevelsResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Push Inventory Levels",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
     "/api/v1/supply/inventory-sources/{source_id}/sync": {
       "post": {
         "description": "Read the source now. A failed read keeps the stock it had, marked stale.",
@@ -45408,6 +46080,129 @@
           }
         },
         "summary": "Link Unmatched Part",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/inventory-sources/{target_id}/push-token": {
+      "delete": {
+        "operationId": "revoke_inventory_source_push_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Inventory Source Push Token",
+        "tags": [
+          "supply"
+        ]
+      },
+      "get": {
+        "operationId": "get_inventory_source_push_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PushToken"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Inventory Source Push Token"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Inventory Source Push Token",
+        "tags": [
+          "supply"
+        ]
+      },
+      "post": {
+        "operationId": "issue_inventory_source_push_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedPushToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Inventory Source Push Token",
         "tags": [
           "supply"
         ]

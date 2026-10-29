@@ -33,6 +33,8 @@ describe("local inventory sources", () => {
     expect(sourceState(source({ last_status: "error" })).label).toBe("Read failed");
     expect(sourceState(source({ last_sync_at: null, last_status: "" })).label).toBe("Not read yet");
     expect(sourceState(source()).label).toBe("Reading");
+    expect(sourceState(source({ kind: "push", has_token: false, last_sync_at: null })).label).toBe("Not pushed yet");
+    expect(sourceState(source({ kind: "push", has_token: false })).label).toBe("Pushed");
   });
 
   it("lists sources with what they matched, and only admins can change them", async () => {

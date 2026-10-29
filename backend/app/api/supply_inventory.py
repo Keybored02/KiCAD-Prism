@@ -1,4 +1,4 @@
-"""Local inventory sources API: InvenTree-compatible servers whose stock fills the catalog (decision D15).
+"""Local inventory sources API: InvenTree-compatible servers, and sources that push their stock, filling the catalog (D15).
 
 Administrators add, change, check, read and remove sources. Everyone who reads supply data sees which parts a source
 could not match; QA and administrators link them to a component in Library Manager > Review.
@@ -50,7 +50,7 @@ async def _run(call: Callable[[], T]) -> T:
 
 class InventorySource(BaseModel):
     id: str
-    kind: Literal["inventree"]
+    kind: Literal["inventree", "push"]
     display_name: str
     base_url: str
     category_id: Optional[int]
@@ -69,8 +69,10 @@ class InventorySource(BaseModel):
 class CreateSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # "push": the source sends its stock itself (``POST /api/supply/inventory-sources/{id}/levels``) and has no server.
+    kind: Literal["inventree", "push"] = "inventree"
     display_name: str = Field(min_length=1, max_length=sources.MAX_NAME)
-    base_url: str = Field(min_length=1, max_length=500)
+    base_url: str = Field(default="", max_length=500)
     token: str = Field(default="", max_length=500)
     category_id: Optional[int] = None
     interval_hours: int = Field(default=24, ge=1, le=168)
@@ -142,7 +144,7 @@ async def create_inventory_source(body: CreateSourceRequest, admin: Authenticate
         with _store().connection() as conn:
             row = sources.create(
                 conn, _keyring(), admin.email, display_name=body.display_name, url=body.base_url, token=body.token,
-                category_id=body.category_id, interval_hours=body.interval_hours,
+                category_id=body.category_id, interval_hours=body.interval_hours, kind=body.kind,
             )
             return InventorySource(**sources.dto(row))
 

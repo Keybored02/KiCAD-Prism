@@ -204,11 +204,14 @@ class InvenTreeClientTests(unittest.TestCase):
 
 @requires_scratch_postgres("inventory sources")
 class InventoryKindTests(unittest.TestCase):
-    def test_inventree_is_read_and_csv_is_fed(self) -> None:
+    def test_inventree_is_read_push_pushes_and_csv_is_fed(self) -> None:
         from app.services.supply.inventory import registry, sources
 
-        self.assertEqual([(spec.kind, spec.pulled, spec.level_source) for spec in registry.list_specs()], [("csv", False, "csv"), ("inventree", True, "inventree")])
-        self.assertEqual(sources._kind("inventree"), "inventree")
+        self.assertEqual(
+            [(spec.kind, spec.pulled, spec.pushed) for spec in registry.list_specs()],
+            [("csv", False, False), ("inventree", True, False), ("push", False, True)],
+        )
+        self.assertEqual((sources._kind("inventree"), sources._kind("push")), ("inventree", "push"))
         for kind in ("csv", "partdb"):
             with self.assertRaises(sources.SourceError):
                 sources._kind(kind)

@@ -1752,7 +1752,8 @@ export interface SupplyInsightsPage {
 /** A local inventory server (InvenTree, or a server serving its API) whose stock fills the catalog. The token never comes back. */
 export interface InventorySource {
   id: string;
-  kind: "inventree";
+  /** "push": the source sends its stock with a push token; it has no server, token or schedule. */
+  kind: "inventree" | "push";
   display_name: string;
   base_url: string;
   category_id: number | null;
@@ -1769,6 +1770,7 @@ export interface InventorySource {
 }
 
 export interface InventorySourceInput {
+  kind?: "inventree" | "push";
   display_name?: string;
   base_url?: string;
   /** Empty removes the token; left out keeps it. */
@@ -1776,6 +1778,22 @@ export interface InventorySourceInput {
   category_id?: number | null;
   interval_hours?: number;
   enabled?: boolean;
+}
+
+/** What can be pushed to: a file-fed connector (offers) or a push inventory source (stock levels). */
+export type PushTarget = "connector" | "inventory_source";
+
+/** A push token as Prism shows it: never the token, only its first characters. */
+export interface PushToken {
+  prefix: string;
+  created_by: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface IssuedPushToken {
+  token: string;
+  prefix: string;
 }
 
 export interface InventoryServerCheck {

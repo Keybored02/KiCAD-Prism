@@ -1,4 +1,4 @@
-"""Storage for uploaded offers. SQL on a supplied connection; never commits."""
+"""Storage for uploaded and pushed offers. SQL on a supplied connection; never commits."""
 
 from __future__ import annotations
 
@@ -40,9 +40,21 @@ _INSERT = """
     INSERT INTO supply_csv_offers (
         connector_id, sku, mpn, match_key, manufacturer, stock, currency, moq, order_multiple,
         packaging, lead_time_days, lifecycle, discontinued, rohs, product_url,
-        incoming_qty, incoming_date, price_breaks, jlc_library, jlc_preferred
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+        incoming_qty, incoming_date, price_breaks, jlc_library, jlc_preferred, fetched_at
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, NOW())
 """
+
+
+def _values(connector_id: str, row: CsvOfferRow) -> tuple:
+    return (
+        connector_id, row.sku, row.mpn, match_key(row.mpn), row.manufacturer, row.stock,
+        row.currency, row.moq, row.order_multiple, row.packaging.value, row.lead_time_days,
+        row.lifecycle.value, row.discontinued, row.rohs, row.product_url,
+        row.incoming.quantity if row.incoming else None,
+        row.incoming.expected if row.incoming else None,
+        json.dumps([[brk.quantity, str(brk.unit_price)] for brk in row.price_breaks]),
+        row.jlc_library, row.jlc_preferred,
+    )
 
 
 class CsvOfferStore:
@@ -59,21 +71,19 @@ class CsvOfferStore:
 
         conn.execute("DELETE FROM supply_csv_offers WHERE connector_id = %s", (connector_id,))
         with conn.cursor() as cursor:
-            cursor.executemany(
-                _INSERT,
-                [
-                    (
-                        connector_id, row.sku, row.mpn, match_key(row.mpn), row.manufacturer, row.stock,
-                        row.currency, row.moq, row.order_multiple, row.packaging.value, row.lead_time_days,
-                        row.lifecycle.value, row.discontinued, row.rohs, row.product_url,
-                        row.incoming.quantity if row.incoming else None,
-                        row.incoming.expected if row.incoming else None,
-                        json.dumps([[brk.quantity, str(brk.unit_price)] for brk in row.price_breaks]),
-                        row.jlc_library, row.jlc_preferred,
-                    )
-                    for row in rows
-                ],
-            )
+            cursor.executemany(_INSERT, [_values(connector_id, row) for row in rows])
+        return self._stamp(conn, connector_id, filename, actor, len(rows))
+
+    def upsert(self, conn, connector_id: str, rows: Sequence[CsvOfferRow], *, filename: str, actor: str) -> CsvImportInfo:
+        """Replace the connector's rows with these SKUs and keep the rest, in the caller's transaction."""
+
+        conn.execute("DELETE FROM supply_csv_offers WHERE connector_id = %s AND sku = ANY(%s)", (connector_id, [row.sku for row in rows]))
+        with conn.cursor() as cursor:
+            cursor.executemany(_INSERT, [_values(connector_id, row) for row in rows])
+        count = conn.execute("SELECT COUNT(*) AS n FROM supply_csv_offers WHERE connector_id = %s", (connector_id,)).fetchone()["n"]
+        return self._stamp(conn, connector_id, filename, actor, int(count))
+
+    def _stamp(self, conn, connector_id: str, filename: str, actor: str, count: int) -> CsvImportInfo:
         saved = conn.execute(
             """
             INSERT INTO supply_csv_imports (connector_id, filename, imported_by, imported_at, row_count)
@@ -83,7 +93,7 @@ class CsvOfferStore:
                 imported_at = EXCLUDED.imported_at, row_count = EXCLUDED.row_count
             RETURNING filename, imported_by, imported_at, row_count
             """,
-            (connector_id, filename, actor, len(rows)),
+            (connector_id, filename, actor, count),
         ).fetchone()
         return _info(saved)
 
@@ -161,8 +171,8 @@ class CsvOfferStore:
             mpn=row["mpn"],
             manufacturer=row["manufacturer"],
             stock=int(row["stock"]),
-            # The upload time, so the data is as old as the file says it is.
-            fetched_at=row["imported_at"],
+            # When the row arrived, so the data is as old as the file or the push says it is.
+            fetched_at=row["fetched_at"] or row["imported_at"],
             incoming=incoming,
             moq=int(row["moq"]),
             order_multiple=int(row["order_multiple"]),

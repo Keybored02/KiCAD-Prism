@@ -1402,6 +1402,7 @@ class CreateSourceRequest(TypedDict, total=False):
     category_id: int | None
     display_name: str
     interval_hours: int
+    kind: str
     token: str
 
 
@@ -2287,6 +2288,11 @@ class IpcOptions(TypedDict, total=True):
     via_treatment: list[IpcOption]
 
 
+class IssuedPushToken(TypedDict, total=True):
+    prefix: str
+    token: str
+
+
 class JobCancelOut(TypedDict, total=True):
     """The job after a cancel request, and the status that request reached."""
     job_id: str
@@ -3143,6 +3149,11 @@ class PriceQuantityIn(TypedDict, total=False):
     quantity: int | None
 
 
+class PriceTier(TypedDict, total=True):
+    quantity: int
+    unit_price: float | str
+
+
 class ProcessInfo(TypedDict, total=True):
     host: str
     kind: str
@@ -3459,6 +3470,76 @@ class PushCommentsView(TypedDict, total=True):
     comments_path: str
     message: str
     success: bool
+
+
+class PushLevelsRequest(TypedDict, total=True):
+    items: list[PushedLevel]
+
+
+class PushLevelsResult(TypedDict, total=True):
+    matched: int
+    records: int
+    unmatched: int
+
+
+class PushOffersRequest(TypedDict, total=False):
+    offers: list[PushedOffer]
+    replace: bool
+
+
+class PushOffersResult(TypedDict, total=True):
+    kept: int
+    pushed_at: str
+    received: int
+    recorded: int
+
+
+class PushToken(TypedDict, total=False):
+    created_at: str
+    created_by: str
+    last_used_at: str | None
+    prefix: str
+
+
+class PushedLevel(TypedDict, total=False):
+    """One stock record. ``part`` is the source's own id for the part; its numbers are matched to library components."""
+    allocated: float
+    batch: str
+    external: bool
+    ipn: str
+    location: str
+    manufacturer: str
+    mpn: str
+    name: str
+    part: str
+    quantity: float
+    sku: str
+    status: str
+    supplier: str
+    units: str
+    updated: str
+
+
+class PushedOffer(TypedDict, total=False):
+    """One listing, with the columns of the offers file. Values are checked as a file's are."""
+    currency: str
+    discontinued: bool
+    incoming_date: str | None
+    incoming_qty: int | None
+    jlc_library: str
+    jlc_preferred: bool
+    lead_time_days: int | None
+    lifecycle: str
+    manufacturer: str
+    moq: int | None
+    mpn: str
+    order_multiple: int | None
+    packaging: str
+    prices: list[PriceTier]
+    product_url: str
+    rohs: bool | None
+    sku: str
+    stock: int
 
 
 class QueueDepth(TypedDict, total=True):
@@ -6033,6 +6114,14 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
+    def get_connector_push_token(self, target_id: str) -> PushToken | None:
+        """Get Connector Push Token"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/connectors/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
     def get_current_session_user(self) -> UserSession:
         """Get Current Session User"""
         return self._request(
@@ -6137,6 +6226,14 @@ class GeneratedClient:
             "/api/v1/remote-provider/components/{component_id}/inline",
             path_params={"component_id": component_id},
             query={"representation": representation, "revision": revision},
+        )
+
+    def get_inventory_source_push_token(self, target_id: str) -> PushToken | None:
+        """Get Inventory Source Push Token"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources/{target_id}/push-token",
+            path_params={"target_id": target_id},
         )
 
     def get_job(self, job_id: str) -> JobStatus:
@@ -6798,6 +6895,22 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/supply/insights/risk.csv",
+        )
+
+    def issue_connector_push_token(self, target_id: str) -> IssuedPushToken:
+        """Issue Connector Push Token"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
+    def issue_inventory_source_push_token(self, target_id: str) -> IssuedPushToken:
+        """Issue Inventory Source Push Token"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{target_id}/push-token",
+            path_params={"target_id": target_id},
         )
 
     def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -7686,6 +7799,24 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
+    def push_connector_offers(self, connector_id: str, *, body: dict[str, Any] | None = None) -> PushOffersResult:
+        """Push Connector Offers"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/offers",
+            path_params={"connector_id": connector_id},
+            body=body,
+        )
+
+    def push_inventory_levels(self, source_id: str, *, body: dict[str, Any] | None = None) -> PushLevelsResult:
+        """Push Inventory Levels"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/levels",
+            path_params={"source_id": source_id},
+            body=body,
+        )
+
     def put_alert_rules(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Put Alert Rules"""
         return self._request(
@@ -8127,6 +8258,22 @@ class GeneratedClient:
             "POST",
             "/api/v1/admin/trackers/connectors/{connector_id}/revoke",
             path_params={"connector_id": connector_id},
+        )
+
+    def revoke_connector_push_token(self, target_id: str) -> None:
+        """Revoke Connector Push Token"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/connectors/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
+    def revoke_inventory_source_push_token(self, target_id: str) -> None:
+        """Revoke Inventory Source Push Token"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/inventory-sources/{target_id}/push-token",
+            path_params={"target_id": target_id},
         )
 
     def revoke_mcp_client(self, grant_id: str) -> None:
