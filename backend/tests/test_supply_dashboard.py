@@ -135,6 +135,14 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(order("part:desc"), ["D", "C", "B", "A"])
             self.assertEqual(self.parts_view.list_parts(conn, sort="stock:desc", limit=2, offset=2)["items"][0]["mpn"], "D", "paged in the same order")
 
+    def test_the_list_keeps_only_the_parts_named_and_puts_them_in_the_order_given(self) -> None:
+        ids = {mpn: self.follow(mpn, [stock]) for mpn, stock in (("B", 50), ("C", 900), ("D", 0))}
+        with self.store.connection() as conn:
+            listed = self.parts_view.list_parts(conn, part_ids=[ids["B"], ids["D"]], order_ids=[ids["D"], ids["B"]])
+            self.assertEqual(([item["mpn"] for item in listed["items"]], listed["total"]), (["D", "B"], 2))
+            paged = self.parts_view.list_parts(conn, order_ids=[ids["C"]], limit=1, offset=1)
+            self.assertNotEqual(paged["items"][0]["mpn"], "C", "the ordered part is first, the rest follow")
+
     def test_runout_puts_the_likeliest_to_be_out_in_four_weeks_first_then_the_fewest_days_to_zero(self) -> None:
         kept = {
             "none": {"days_to_zero": None, "forecast": {"available": False}},
