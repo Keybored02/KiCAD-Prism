@@ -27,15 +27,20 @@ def unit_price_at(
     moq: int = 1,
     order_multiple: int = 1,
     wanted: int = REFERENCE_QUANTITY,
+    up_to: int | None = None,
 ) -> Decimal | None:
     """The unit price when buying ``wanted`` pieces, or None if no break covers it.
 
     ``breaks`` is ascending by quantity. A price break above the order quantity
     does not apply, and an offer whose cheapest break starts higher than that
-    quantity has no price here (the buyer would need more pieces).
+    quantity has no price here (the buyer would need more pieces). ``up_to`` is
+    the largest quantity the breaks hold for, when the distributor quoted only
+    up to it: a larger order has no price here rather than the quote's.
     """
 
     quantity = order_quantity(wanted, moq, order_multiple)
+    if up_to is not None and quantity > up_to:
+        return None
     chosen: Decimal | None = None
     for break_quantity, price in breaks:
         if break_quantity <= quantity:

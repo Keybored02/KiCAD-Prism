@@ -40,7 +40,7 @@ def _listings(conn, part_id: str, connector_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.raw_mpn, l.packaging AS listing_packaging, o.packaging, o.reel_size, o.packaging_inferred, o.moq, o.order_multiple, o.stock, o.lead_time_days,
-               o.marketplace, o.currency, o.price_breaks, o.fetched_at, o.product_url
+               o.marketplace, o.currency, o.price_breaks, o.price_up_to, o.fetched_at, o.product_url
         FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state = ANY(%s) ORDER BY l.sku
         """,
@@ -57,7 +57,7 @@ def _prices(row: dict[str, Any]) -> dict[str, str | None]:
     breaks = [(int(quantity), Decimal(price)) for quantity, price in (row["price_breaks"] or [])]
     result: dict[str, str | None] = {}
     for quantity in PRICE_QUANTITIES:
-        price = pricing.unit_price_at(breaks, moq=row["moq"] or 1, order_multiple=row["order_multiple"] or 1, wanted=quantity) if breaks else None
+        price = pricing.unit_price_at(breaks, moq=row["moq"] or 1, order_multiple=row["order_multiple"] or 1, wanted=quantity, up_to=row["price_up_to"]) if breaks else None
         result[str(quantity)] = format(price.normalize(), "f") if price is not None else None
     return result
 

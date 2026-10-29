@@ -492,7 +492,7 @@ class Poller:
                 offer = replace(offer, packaging=guess, packaging_inferred=True)
         price = pricing.unit_price_at(
             [(item.quantity, item.unit_price) for item in offer.price_breaks],
-            moq=offer.moq, order_multiple=offer.order_multiple,
+            moq=offer.moq, order_multiple=offer.order_multiple, up_to=offer.price_up_to,
         )
         previous = conn.execute(
             "SELECT sampled_at, stock, unit_price, lifecycle, discontinued, moq, order_multiple FROM supply_samples WHERE listing_id = %s "
@@ -511,8 +511,8 @@ class Poller:
             """
             INSERT INTO supply_offers (listing_id, fetched_at, stock, incoming, moq, order_multiple, packaging, price_breaks,
                                 currency, lead_time_days, lifecycle, discontinued, rohs, marketplace, product_url, reach_affected,
-                                reel_size, packaging_inferred)
-            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                reel_size, packaging_inferred, price_up_to)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (listing_id) DO UPDATE SET
                 fetched_at = EXCLUDED.fetched_at, stock = EXCLUDED.stock, incoming = EXCLUDED.incoming,
                 moq = EXCLUDED.moq, order_multiple = EXCLUDED.order_multiple, packaging = EXCLUDED.packaging,
@@ -520,7 +520,8 @@ class Poller:
                 lead_time_days = EXCLUDED.lead_time_days, lifecycle = EXCLUDED.lifecycle,
                 discontinued = EXCLUDED.discontinued, rohs = EXCLUDED.rohs, marketplace = EXCLUDED.marketplace,
                 product_url = EXCLUDED.product_url, reach_affected = EXCLUDED.reach_affected,
-                reel_size = EXCLUDED.reel_size, packaging_inferred = EXCLUDED.packaging_inferred
+                reel_size = EXCLUDED.reel_size, packaging_inferred = EXCLUDED.packaging_inferred,
+                price_up_to = EXCLUDED.price_up_to
             """,
             (
                 row.id, offer.fetched_at, offer.stock,
@@ -529,11 +530,12 @@ class Poller:
                 json.dumps([[item.quantity, str(item.unit_price)] for item in offer.price_breaks]),
                 offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.rohs,
                 offer.marketplace, offer.product_url, offer.reach_affected, offer.reel_size, offer.packaging_inferred,
+                offer.price_up_to,
             ),
         )
         price_breaks.record(
             conn, row.id, offer.fetched_at, [(item.quantity, item.unit_price) for item in offer.price_breaks],
-            offer.currency, offer.moq, offer.order_multiple,
+            offer.currency, offer.moq, offer.order_multiple, up_to=offer.price_up_to,
         )
         # A reading is kept when something changed since the last, or the last is a day old; a re-read of an unchanged
         # listing the same day adds nothing.
