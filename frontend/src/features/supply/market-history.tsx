@@ -12,7 +12,7 @@ const MarketChart = lazy(() => import("./market-chart"));
 /** One figure over time, a line per group, for the figure chosen above it. Needs at least two stored days to draw a line. */
 export function MarketHistory({ column }: { column: MarketColumn }) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyMarketHistory(column.key, signal), [column.key]);
-  const { status, data } = useLoaded<SupplyMarketHistory>(`history:${column.key}`, fetcher, "Could not load the market history");
+  const { status, data } = useLoaded<SupplyMarketHistory>(`insights/market/${column.key}`, fetcher, "Could not load the market history");
   const days = new Set((data?.series ?? []).flatMap((line) => line.points.map(([day]) => day))).size;
 
   return (

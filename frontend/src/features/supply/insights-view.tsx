@@ -52,10 +52,10 @@ function sectionOnScreen(scroller: HTMLElement, ids: readonly string[]): string 
 }
 
 /** What the readings add up to across every tracked part, in sections you can jump between. */
-export function InsightsView({ user = null, active = true }: { user?: User | null; active?: boolean }) {
+export function InsightsView({ user = null }: { user?: User | null }) {
   const [searchParams] = useSearchParams();
   const fetcher = useCallback((signal: AbortSignal) => getSupplyInsights(signal), []);
-  const loaded = useLoaded<SupplyInsightsPage>("insights", fetcher, "Could not load the insights", "supply");
+  const loaded = useLoaded<SupplyInsightsPage>("insights/page", fetcher, "Could not load the insights");
   const { go, openPart } = useSupplyNavigation();
   const asked = searchParams.get("insightsView");
   const scroller = useRef<HTMLDivElement>(null);
@@ -180,7 +180,7 @@ export function InsightsView({ user = null, active = true }: { user?: User | nul
           </div>
         ) : null}
       </div>
-      <OpenPartSheet user={user} active={active} />
+      <OpenPartSheet user={user} />
     </div>
   );
 }

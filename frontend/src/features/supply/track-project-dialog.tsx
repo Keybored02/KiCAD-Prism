@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Loader2, Radar, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,6 +12,7 @@ import { TrackLinesStep, type TrackLine } from "./track-lines-step";
 import { RaiseBudgetDialog } from "./raise-budget-dialog";
 import { TrackProgressStep } from "./track-progress-step";
 import { chooseTrackLine, getProjectTracking, trackProject, untrackProject } from "./tracking-api";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 import { useTrackProject } from "./use-track-project";
 
 type Step = "choose" | "lines" | "tracking";
@@ -145,16 +146,9 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
 /** "Track this project" while it is not tracked; once it is, a chip and a settings button that opens the same dialog. */
 export function TrackProjectButton({ projectId, onChanged }: { projectId: string; onChanged?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [tracked, setTracked] = useState<boolean | null>(null);
-  const [version, setVersion] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    getProjectTracking(projectId, controller.signal)
-      .then((state) => setTracked(Boolean(state.tracked)))
-      .catch(() => { if (!controller.signal.aborted) setTracked(false); });
-    return () => controller.abort();
-  }, [projectId, version]);
-  const changed = () => { setVersion((current) => current + 1); onChanged?.(); };
+  const fetcher = useCallback((signal: AbortSignal) => getProjectTracking(projectId, signal), [projectId]);
+  const tracked = Boolean(useLoaded(`projects/${projectId}/tracking`, fetcher, "Could not load the project's tracking").data?.tracked);
+  const changed = () => { void invalidateSupply(`projects/${projectId}`); onChanged?.(); };
   return (
     <>
       {tracked ? (

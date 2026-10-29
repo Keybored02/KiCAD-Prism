@@ -18,6 +18,7 @@ from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
 from app.services.supply import admission, budget_view, parts, project_bom, room, tracking, usage, watches
 from app.services.supply import settings as supply_settings
+from app.services.supply.progress import job_progress
 
 router = APIRouter(prefix="/api/supply/tracking", tags=["supply"])
 budget_router = APIRouter(prefix="/api/supply", tags=["supply"])
@@ -177,18 +178,22 @@ async def project_state(project_id: str, user: AuthenticatedUser = Depends(requi
 
 
 @router.post("/projects/{project_id}/read")
-async def read_project_bom(project_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, str]:
-    """Read the project's BOM now; when its newest revision has no index yet, queue one (``reading``) and read it later."""
+async def read_project_bom(project_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Read the project's BOM now, as a job's progress: ``running`` while its newest revision has no index yet (one is
+    queued and read later), else ``done`` with ``changed`` when the parts differ."""
 
     get_project_for_role_or_404(project_id, user.role)
 
-    def run() -> dict[str, str]:
+    def run() -> dict[str, Any]:
         found = project_bom._workspace_projects([project_id])  # noqa: SLF001 - the same lookup the poll job uses
         if not found:
             raise ValueError("This project does not exist.")
         project, roles = found[0]
         with _store().connection() as conn:
-            return {"status": project_bom.read(conn, project, roles, datetime.now(timezone.utc))}
+            status = project_bom.read(conn, project, roles, datetime.now(timezone.utc))
+        if status == "reading":
+            return job_progress("running", total=1)
+        return job_progress("done", done=1, total=1, changed=status == "updated")
 
     return await _run(run)
 

@@ -2,9 +2,12 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import type { SupplyConnector, SupplySignin, SupplySvhcList } from "@/types/supply";
-import { getSupplySignin, getSvhcList, listSupplyConnectors } from "./supply-api";
+import { getSupplySignin, getSvhcList } from "./supply-api";
 import { CONNECTORS_PLACE } from "./supply-views";
 import { useLoaded } from "./use-loaded";
+import { useConnectorList } from "./use-supply-connectors";
+
+const svhcFetcher = (signal: AbortSignal) => getSvhcList(signal);
 
 const DAY_MS = 24 * 3600 * 1000;
 /** ECHA updates the Candidate List twice a year. */
@@ -55,18 +58,19 @@ export function adminNotices(
 
 /** The Dashboard strip for administrators: the few things only they can fix, each with where to fix it. Empty when all is well. */
 export function AdminStrip({ waiting }: { waiting: number }) {
-  const fetcher = useCallback(async (signal: AbortSignal) => {
-    const connectors = await listSupplyConnectors(signal);
+  const connectors = useConnectorList().data;
+  const digikey = (connectors ?? []).flatMap((item) => (item.provider === "digikey" ? [item.id] : [])).join(",");
+  const signinFetcher = useCallback(async (signal: AbortSignal) => {
     const signins = new Map<string, SupplySignin>();
-    await Promise.all(connectors.map(async (item) => {
-      if (item.provider !== "digikey") return;
-      try { signins.set(item.id, await getSupplySignin(item.id, signal)); } catch { /* no sign-in to report */ }
+    await Promise.all(digikey.split(",").filter(Boolean).map(async (id) => {
+      try { signins.set(id, await getSupplySignin(id, signal)); } catch { /* no sign-in to report */ }
     }));
-    let list: SupplySvhcList | null = null;
-    try { list = await getSvhcList(signal); } catch { /* the list is optional */ }
-    return { connectors, signins, list };
-  }, []);
-  const { data } = useLoaded("admin-strip", fetcher, "Could not load the administrator notes", "supply");
+    return signins;
+  }, [digikey]);
+  const signins = useLoaded(connectors ? `connectors/signins/${digikey}` : null, signinFetcher, "Could not load the sign-ins").data;
+  // The list is optional: a failed read shows no note about it.
+  const list = useLoaded("compliance/svhc-list", svhcFetcher, "Could not load the Candidate List").data;
+  const data = connectors && signins ? { connectors, signins, list } : null;
   const notices = data ? adminNotices(data.connectors, data.signins, data.list, waiting, Date.now()) : [];
   if (notices.length === 0) return null;
   return (

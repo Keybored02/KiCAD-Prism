@@ -29,7 +29,7 @@ describe("local inventory sources", () => {
   it("says the worst thing about a source first", () => {
     expect(sourceState(source({ enabled: false, has_token: false })).label).toBe("Disabled");
     expect(sourceState(source({ has_token: false })).label).toBe("No token");
-    expect(sourceState(source({ category_id: null })).label).toBe("No category");
+    expect(sourceState(source({ category_id: null, last_sync_at: null, last_status: "" })).label).toBe("Not read yet");
     expect(sourceState(source({ last_status: "error" })).label).toBe("Read failed");
     expect(sourceState(source({ last_sync_at: null, last_status: "" })).label).toBe("Not read yet");
     expect(sourceState(source()).label).toBe("Reading");

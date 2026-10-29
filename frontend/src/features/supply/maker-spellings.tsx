@@ -11,7 +11,7 @@ import { useLoaded } from "./use-loaded";
 /** The spellings Prism knows for large makers: one row a maker, each spelling removable, and a way to add one to a maker. */
 export function MakerSpellings({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback(async (signal: AbortSignal) => (await listMakerSpellings(signal)).groups, []);
-  const loaded = useLoaded("maker-spellings", fetcher, "Could not load the spellings");
+  const loaded = useLoaded("settings/maker-spellings", fetcher, "Could not load the spellings");
   const { busy, error, run } = useConnectorSubmit();
   const [spelling, setSpelling] = useState("");
   const [group, setGroup] = useState("");

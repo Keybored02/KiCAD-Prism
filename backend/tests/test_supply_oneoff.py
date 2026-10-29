@@ -79,11 +79,11 @@ class OneOffTests(unittest.TestCase):
         cid = self.connector()
         made = self.ask([("Acme", "ABC123"), ("Acme", "DEF456"), ("Acme", ""), ("", "X1")])
         self.assertEqual((made["parts"], [item["reason"] for item in made["skipped"]]), (3, ["no_mpn"]), "a part with no maker is read too")
-        self.assertEqual(self.progress(made["id"])["parts"], 3)
-        self.assertFalse(self.progress(made["id"])["finished"])
+        self.assertEqual(self.progress(made["id"])["total"], 3)
+        self.assertEqual(self.progress(made["id"])["state"], "running")
         self.assertEqual(self.served(cid), {"parts": 3, "done": 3})
         shown = self.progress(made["id"])
-        self.assertEqual((shown["done"], shown["finished"]), (3, True))
+        self.assertEqual((shown["done"], shown["state"]), (3, "done"))
         self.assertEqual(len(self.rows("SELECT 1 FROM supply_offers")), 3, "all were read")
         self.assertEqual(self.rows("SELECT 1 FROM supply_part_tiers"), [])
         self.assertEqual(self.rows("SELECT 1 FROM supply_watches"), [])
@@ -115,7 +115,7 @@ class OneOffTests(unittest.TestCase):
             self.oneoff.run(discoverer, poller, self.store, cid)
             self.assertEqual(self.rows("SELECT SUM(spent) AS n FROM supply_quota_ledger")[0]["n"], 3, "the search was the read: no second call")
             self.assertEqual(len(self.rows("SELECT 1 FROM supply_offers")), 3)
-            self.assertTrue(self.progress(made["id"])["finished"])
+            self.assertEqual(self.progress(made["id"])["state"], "done")
         finally:
             registry.unregister("demo_reads")
 
@@ -147,12 +147,12 @@ class OneOffTests(unittest.TestCase):
         first = self.served(cid)
         self.assertLess(first["done"], 6, "the pool of 4 calls cannot read six parts")
         stuck = self.progress(made["id"])
-        self.assertFalse(stuck["finished"])
+        self.assertEqual(stuck["state"], "running")
         self.assertEqual(self.rows("SELECT MAX(attempts) AS n FROM supply_read_request_work")[0]["n"], 0, "waiting for budget is not a failed try")
         self.now = SUNDAY.replace(hour=23, minute=0)  # the last hours of a day: what is left is spare
         for _ in range(4):
             self.served(cid)
-        self.assertTrue(self.progress(made["id"])["finished"])
+        self.assertEqual(self.progress(made["id"])["state"], "done")
         self.assertIn("oneoff", {r["purpose"] for r in self.rows("SELECT purpose FROM supply_call_counts")})
 
     def test_a_large_check_stops_at_half_the_pool_and_leaves_the_rest_to_people(self) -> None:

@@ -140,5 +140,5 @@ export function ForecastInsightsSection({ page, onOpenPart }: { page: ForecastIn
 /** The forecast figures behind the Insights page, loaded beside it. */
 export function useForecastInsights() {
   const fetcher = useCallback((signal: AbortSignal) => getForecastInsights(signal), []);
-  return useLoaded<ForecastInsights>("forecast-insights", fetcher, "Could not load the forecasts");
+  return useLoaded<ForecastInsights>("insights/forecasts", fetcher, "Could not load the forecasts");
 }

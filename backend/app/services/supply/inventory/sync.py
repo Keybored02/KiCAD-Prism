@@ -1,52 +1,42 @@
 """Reading a local inventory source into the catalog's ``inventory_levels`` (decision D15).
 
-A sync reads the whole followed category, then, in one transaction, replaces the source's stock rows and its list of
-unmatched parts. Nothing is read inside a transaction, and a failed read changes no stock: the source's rows are
+A sync reads the whole inventory (or the one category a source follows), then, in one transaction, replaces the source's
+stock rows and its list of unmatched parts. The source's kind (``registry``) says how it is read. Nothing is read inside a transaction, and a failed read changes no stock: the source's rows are
 marked ``fetch_status = error`` so they show as stale, and the error is kept on the source.
 
 Each server part is matched to one active catalog component, first hit wins:
 
 1. a person's link (``inventory_links``);
-2. the part's IPN equals one component's SAP code;
-3. one of its MPNs is one component's part number. Several components with the number are told apart by the maker,
-   which is otherwise only a hint (some servers list every part under "Unknown manufacturer").
+2. the part's IPN is a component's Prism id;
+3. the part's IPN equals one component's SAP code;
+4. one of its MPNs is one component's part number. Several components with the number are told apart by the maker,
+   which is otherwise only a hint (some servers list every part under "Unknown manufacturer");
+5. one of its supplier part numbers is a distributor listing (SKU) of exactly one component's approved parts.
 
 A part with stock that matches nothing waits in ``inventory_unmatched`` with the reason.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
-from app.services.supply.inventory import sources
-from app.services.supply.inventory.inventree import STATUS_NAMES, STATUS_OK, InvenTreeClient, Location, Part, StockRecord
+from app.services.supply.inventory import registry, sources
+from app.services.supply.inventory.base import InventoryRead, InventoryReader, Part, StockRecord
+from app.services.supply.inventory.inventree import STATUS_NAMES, STATUS_OK
 from app.services.supply.providers.base import ProviderError
 from app.services.supply.store import SupplyStore
 
-SOURCE_NAME = "inventree"
 NO_MATCH, SAP_SHARED, MPN_SHARED = "no_component", "sap_code_shared", "mpn_shared"
 
-ClientFactory = Callable[[str, str], InvenTreeClient]
-
-
-@dataclass(frozen=True, slots=True)
-class Read:
-    """What one read of the server returned."""
-
-    server: str
-    api_version: int
-    parts: Mapping[int, Part]
-    locations: Mapping[int, Location]
-    stock: list[StockRecord]
+ReaderFactory = Callable[[str, str], InventoryReader]
 
 
 class _Library:
-    """The active components, indexed by SAP code and by part number."""
+    """The active components, indexed by SAP code, by part number and by the distributor numbers (SKUs) of their parts."""
 
     def __init__(self, conn) -> None:
         self._conn = conn
@@ -66,12 +56,26 @@ class _Library:
                 self.by_sap.setdefault(row["sap_code"].strip(), []).append(row["id"])
             if match_key(row["mpn"] or ""):
                 self.by_mpn.setdefault(match_key(row["mpn"]), []).append((row["id"], row["manufacturer"] or ""))
+        self.by_sku: dict[str, set[str]] = {}
+        listed = conn.execute("SELECT to_regclass('supply_listings') IS NOT NULL AND to_regclass('component_parts') IS NOT NULL AS ok").fetchone()
+        if listed and listed["ok"]:
+            for row in conn.execute(
+                """
+                SELECT DISTINCT l.sku, cp.component_id FROM supply_listings l
+                JOIN component_parts cp ON cp.part_id = l.part_id AND cp.approval = 'approved'
+                WHERE l.match_state IN ('exact', 'manual')
+                """
+            ).fetchall():
+                if row["component_id"] in self.active:
+                    self.by_sku.setdefault(_sku_key(row["sku"]), set()).add(row["component_id"])
 
     def match(self, part: Part, linked: str | None) -> tuple[str | None, str]:
         """The component and how it matched ("link", "sap_code", "mpn"), or None and why not."""
 
         if linked in self.active:
             return linked, "link"
+        if part.ipn in self.active:
+            return part.ipn, "component_id"
         found = self.by_sap.get(part.ipn, []) if part.ipn else []
         if len(found) == 1:
             return found[0], "sap_code"
@@ -84,6 +88,10 @@ class _Library:
                 return holders[0][0], "mpn"
             if holders:
                 reason = MPN_SHARED
+        for _supplier, sku in part.skus:  # the supplier's name is not needed: a SKU names one listing
+            holders_of_sku = self.by_sku.get(_sku_key(sku), set())
+            if len(holders_of_sku) == 1:
+                return next(iter(holders_of_sku)), "sku"
         return None, reason
 
     def _maker(self, name: str) -> str:
@@ -99,9 +107,8 @@ class _Library:
         return self._makers[key]
 
 
-def read(client: InvenTreeClient, category: int) -> Read:
-    info = client.server()
-    return Read(server=info.server, api_version=info.api_version, parts=client.parts(category), locations=client.locations(), stock=client.stock(category))
+def _sku_key(sku: str) -> str:
+    return "".join(str(sku or "").split()).upper()
 
 
 def _status(record: StockRecord) -> str:
@@ -110,7 +117,7 @@ def _status(record: StockRecord) -> str:
     return (record.status_text or STATUS_NAMES.get(record.status, str(record.status))).strip().casefold()
 
 
-def apply(conn, source_id: str, found: Read, now: datetime) -> dict[str, int]:
+def apply(conn, source_id: str, found: InventoryRead, now: datetime, *, level_source: str = "inventree") -> dict[str, int]:
     """Replace the source's stock rows and unmatched parts with what was read. Returns the counts."""
 
     library = _Library(conn)
@@ -146,7 +153,7 @@ def apply(conn, source_id: str, found: Read, now: datetime) -> dict[str, int]:
                     fetch_status, fetched_at, updated_at, source_id, allocated, location_path, external, batch, source_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, 'ok', %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (SOURCE_NAME, component_id, f"{source_id}/{record.pk}", str(record.pk), record.quantity, part.units, _status(record),
+                (level_source, component_id, f"{source_id}/{record.pk}", str(record.pk), record.quantity, part.units, _status(record),
                  stamp, stamp, source_id, record.allocated, location.pathstring if location else "", bool(location and location.external),
                  record.batch, record.updated),
             )
@@ -168,19 +175,21 @@ def fail(conn, source_id: str, error: str, now: datetime) -> None:
 
 def sync(
     store: SupplyStore, keyring: sealed.CredentialKeyring, source_id: str, *,
-    client_factory: ClientFactory | None = None, now: datetime | None = None,
+    client_factory: ReaderFactory | None = None, now: datetime | None = None,
 ) -> dict[str, Any]:
     """Read one source and store what it holds. Returns the counts, or the error the source now shows."""
 
     moment = now or datetime.now(timezone.utc)
     with store.connection() as conn:
         row = sources.get(conn, source_id)
+    spec = registry.get_spec(row["kind"])
     try:
-        if row["category_id"] is None:
-            raise sources.SourceError("Choose the category to follow first.")
-        client = (client_factory or InvenTreeClient)(row["base_url"], sources.token_of(keyring, row))
+        factory = client_factory or spec.factory
+        if factory is None:
+            raise sources.SourceError("Prism does not read this kind of source.")
+        client = factory(row["base_url"], sources.token_of(keyring, row))
         try:
-            found = read(client, int(row["category_id"]))
+            found = client.read(row["category_id"] if spec.categories else None)
         finally:
             client.close()
     except (ProviderError, sources.SourceError) as exc:
@@ -189,14 +198,14 @@ def sync(
             fail(conn, source_id, message, moment)
         return {"status": "error", "error": message}
     with store.connection() as conn:
-        return {"status": "ok", **apply(conn, source_id, found, moment)}
+        return {"status": "ok", **apply(conn, source_id, found, moment, level_source=spec.level_source)}
 
 
 def due(conn, now: datetime) -> list[str]:
-    """Enabled sources with a token and a category whose last read is older than their interval."""
+    """Enabled sources with a token whose last read is older than their interval."""
 
     rows = conn.execute(
-        "SELECT id, interval_hours, last_sync_at FROM inventory_sources WHERE enabled AND credential_envelope <> '' AND category_id IS NOT NULL ORDER BY id"
+        "SELECT id, interval_hours, last_sync_at FROM inventory_sources WHERE enabled AND credential_envelope <> '' ORDER BY id"
     ).fetchall()
     return [row["id"] for row in rows if row["last_sync_at"] is None or row["last_sync_at"] <= now - timedelta(hours=row["interval_hours"])]
 

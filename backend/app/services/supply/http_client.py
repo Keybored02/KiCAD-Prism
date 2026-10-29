@@ -137,13 +137,15 @@ class RequestsTransport:
         if self._proxy:
             return self._send_via_proxy(method, target, headers, body, timeout, max_bytes)
         parts = urlsplit(target.url)
+        # The port the URL names goes on the pinned address and in the Host header; the certificate is still checked for the name.
+        suffix = f":{target.port}" if target.port else ""
         for address in target.addresses:
-            netloc = f"[{address}]" if ":" in address else address
+            netloc = (f"[{address}]" if ":" in address else address) + suffix
             pinned = urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, ""))
             session = self._session(target.host, address)
             try:
                 response = session.request(
-                    method, pinned, headers={**headers, "Host": target.host}, data=body,
+                    method, pinned, headers={**headers, "Host": target.host + suffix}, data=body,
                     timeout=timeout, allow_redirects=False, stream=True,
                 )
             except requests.ConnectionError:
