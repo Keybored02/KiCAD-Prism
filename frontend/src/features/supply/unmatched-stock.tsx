@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { EyeOff, Link2, LibraryBig, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -11,6 +11,7 @@ import { CreateComponentDialog } from "@/components/workspace/create-component-d
 import type { CatalogComponent } from "@/types/catalog";
 import type { InventorySource, InventoryUnmatchedPart } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 import { countUnmatchedParts, linkUnmatchedPart, listInventorySources, listUnmatchedParts, setUnmatchedIgnored, type UnmatchedGroup } from "./inventory-api";
 import { SearchBox } from "./search-box";
 import { formatDay } from "./supply-format";
@@ -109,34 +110,22 @@ const EMPTY_COUNTS: Record<UnmatchedGroup, number> = { waiting: 0, no_component:
 /** The first `shown` unmatched parts with stock across every source in `group`, waiting ones first and largest first, narrowed by
  * `query`; null until loaded. `counts` are each group's size across the sources, `more` whether any were left out. */
 function useUnmatched(query: string, shown: number, group: UnmatchedGroup) {
-  const [state, setState] = useState<{ items: Waiting[]; counts: Record<UnmatchedGroup, number>; more: boolean } | null>(null);
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      // A source whose parts were all linked counts none unmatched, but its linked rows stay until the next read.
-      const sources = await listInventorySources(signal);
-      // One row past the page tells whether a source has more.
-      const [lists, counted] = await Promise.all([
-        Promise.all(sources.map(async (source) => (
-          await listUnmatchedParts(source.id, signal, { q: query, limit: shown + 1, group })).map((part) => ({ source, part })))),
-        Promise.all(sources.map((source) => countUnmatchedParts(source.id, signal))),
-      ]);
-      const counts = { ...EMPTY_COUNTS };
-      for (const each of counted) for (const key of Object.keys(counts) as UnmatchedGroup[]) counts[key] += each[key] ?? 0;
-      const all = lists.flat().sort((a, b) => Number(Boolean(a.part.linked_component_id)) - Number(Boolean(b.part.linked_component_id)) || b.part.quantity - a.part.quantity);
-      setState({ items: all.slice(0, shown), counts, more: all.length > shown });
-    } catch (caught) {
-      if (!signal?.aborted) {
-        setState({ items: [], counts: EMPTY_COUNTS, more: false });
-        toast.error(caught instanceof Error ? caught.message : "Could not load the unmatched stock");
-      }
-    }
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    // A source whose parts were all linked counts none unmatched, but its linked rows stay until the next read.
+    const sources = await listInventorySources(signal);
+    // One row past the page tells whether a source has more.
+    const [lists, counted] = await Promise.all([
+      Promise.all(sources.map(async (source) => (
+        await listUnmatchedParts(source.id, signal, { q: query, limit: shown + 1, group })).map((part) => ({ source, part })))),
+      Promise.all(sources.map((source) => countUnmatchedParts(source.id, signal))),
+    ]);
+    const counts = { ...EMPTY_COUNTS };
+    for (const each of counted) for (const key of Object.keys(counts) as UnmatchedGroup[]) counts[key] += each[key] ?? 0;
+    const all = lists.flat().sort((a, b) => Number(Boolean(a.part.linked_component_id)) - Number(Boolean(b.part.linked_component_id)) || b.part.quantity - a.part.quantity);
+    return { items: all.slice(0, shown), counts, more: all.length > shown };
   }, [query, shown, group]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
-  return { state, reload: () => void load() };
+  const loaded = useLoaded(`inventory/unmatched/${group}|${shown}|${query}`, fetcher, "Could not load the unmatched stock");
+  return loaded.status === "error" ? { items: [], counts: EMPTY_COUNTS, more: false } : loaded.data;
 }
 
 const keyOf = (item: Waiting) => `${item.source.id}/${item.part.remote_part}`;
@@ -150,10 +139,10 @@ export function UnmatchedStockSection({ canDecide, onDecided }: { canDecide: boo
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const { state, reload } = useUnmatched(query, shown, group);
+  const state = useUnmatched(query, shown, group);
   const total = state ? Object.values(state.counts).reduce((sum, count) => sum + count, 0) : 0;
   if (!state || (total === 0 && !query)) return null;
-  const done = () => { setPicked(new Set()); reload(); onDecided?.(); };
+  const done = () => { setPicked(new Set()); void invalidateSupply("inventory"); onDecided?.(); };
   const shownKeys = state.items.map(keyOf);
   const pickedItems = state.items.filter((item) => picked.has(keyOf(item)));
   const restoring = group === "ignored";

@@ -9,18 +9,14 @@ provider cannot pile up jobs.
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from app.core.config import settings
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, alerts, budget, csv_import_service, dashboard, demand, details, fx, ledger, market, library_match, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
-    substitutes, tracking,
+    accounts, budget, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, substitutes, tasks,
 )
 from app.services.supply import settings as supply_settings
-from app.services.supply.forecast import run as forecast_run
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs, pending_waiting
 from app.services.supply.poller import GROUP_LISTINGS, MAX_BATCHES_PER_RUN, Poller, due_listings, hold_back, spare_listings, with_siblings
@@ -29,12 +25,12 @@ from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANC
 from app.services.supply.store import SupplyStore, supply_store
 
 POLL_JOB_KIND = "supply_poll"
+TASKS_JOB_KIND = "supply_tasks"
+# One tasks job at a time.
+TASKS_ARTIFACT = "supply:tasks"
 SUPPLY_PRIORITY = 200
 SCAN_SECONDS = 60
 # Housekeeping runs from the scanner too, so it goes on when every budget is used up and no poll job is queued.
-HOUSEKEEPING_EVERY = 600
-_housekeeping_at: float | None = None
-_pruned_at: float | None = None
 SYSTEM_REQUESTER = "system:supply-scheduler"
 
 
@@ -86,11 +82,11 @@ def _has_spare(conn, row, now: datetime) -> bool:
         reset_time=account.reset_time, reset_tz=account.reset_tz,
     )
     day = quota.provider_day(now, account.reset_time, account.reset_tz)
-    kept = conn.execute("SELECT scheduled_at FROM supply_quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
+    kept = conn.execute("SELECT scheduled_at FROM supply_quota_ledger WHERE account_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
     if kept is None or kept["scheduled_at"] is None or now - kept["scheduled_at"] > timedelta(minutes=5):
         refresh_scheduled(conn, row["id"], now)
     ledger_row = conn.execute(
-        "SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE connector_id = %s AND day = %s",
+        "SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE account_id = %s AND day = %s",
         (account.ledger_id, day),
     ).fetchone()
     return ledger.free_calls(conn, account.ledger_id, state, ledger_row, now, reset_time=account.reset_time, reset_tz=account.reset_tz) > 0
@@ -189,7 +185,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         if searchable and row["id"] not in ids:
             ids.append(row["id"])
     funded = conn.execute(
-        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM supply_connectors WHERE id = ANY(%s)", (ids,)
+        "SELECT id, provider FROM supply_connectors WHERE id = ANY(%s)", (ids,)
     ).fetchall()
     result = {row["id"] for row in funded if _has_budget(conn, row, now)}
     # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget: a connector is queued for it only
@@ -197,7 +193,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     kinds = supply_settings.load(conn).schedule.kinds()
     spare = conn.execute(
         f"""
-        SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM supply_connectors c
+        SELECT c.id, c.provider FROM supply_connectors c
         WHERE {active} AND c.id <> ALL(%(known)s)
         """,
         {"now": now, "known": sorted(result)},
@@ -209,7 +205,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     wanted = [cid for cid in oneoff.pending_connectors(conn) if cid not in result]
     if wanted:
         for row in conn.execute(
-            f"SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM supply_connectors c WHERE {active} AND c.id = ANY(%(ids)s)",
+            f"SELECT c.id, c.provider FROM supply_connectors c WHERE {active} AND c.id = ANY(%(ids)s)",
             {"now": now, "ids": wanted},
         ).fetchall():
             if _has_pool_or_spare(conn, row, now):
@@ -221,7 +217,10 @@ def _all_held(conn, connector_id: str, now: datetime) -> bool:
     """Whether everything due at a connector is kept back to fill a batch, so a job would only report "nothing due". Asks the poller's
     own rule (``poller.hold_back``) over the listings it would read, for a provider that batches."""
 
-    row = conn.execute("SELECT provider, reset_time, reset_tz FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()
+    row = conn.execute(
+        "SELECT c.provider, a.reset_time, a.reset_tz FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id WHERE c.id = %s",
+        (connector_id,),
+    ).fetchone()
     if row is None:
         return False
     try:
@@ -246,7 +245,7 @@ def _connectors_with_details(conn, now: datetime, known: set[str]) -> set[str]:
 
     found: set[str] = set()
     rows = conn.execute(
-        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM supply_connectors c "
+        "SELECT id, provider FROM supply_connectors c "
         "WHERE c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %s)", (now,)
     ).fetchall()
     for row in rows:
@@ -271,67 +270,6 @@ def _connectors_with_details(conn, now: datetime, known: set[str]) -> set[str]:
     return found
 
 
-def housekeeping(store: SupplyStore) -> int:
-    """Work that needs no distributor call: exchange rates, snapshots, component watches, tracked projects' BOMs, tracking
-    and retention. Returns the samples compacted."""
-
-    with store.connection() as conn:
-        # Each step commits: a step's change marks are then seen by what the next one keeps (``freshness``), and no step holds the
-        # others' rows.
-        for step in (
-            _refresh_rates, _read_catalogues, _snapshot_market, _snapshot_costs, _snapshot_figures, _sync_component_mains, _refresh_project_boms,
-            _sync_tracking, _pick_packagings, _renew_insights, refresh_rollups,
-        ):
-            step(conn)
-            conn.commit()
-        compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
-        conn.commit()
-        retention.drop_expired(conn, datetime.now(timezone.utc))
-        retention.drop_unused(conn, datetime.now(timezone.utc))
-        retention.trim_summaries(conn)
-        oneoff.expire(conn, datetime.now(timezone.utc))
-    return compacted
-
-
-def _housekeeping_if_due(store: SupplyStore) -> None:
-    global _housekeeping_at
-    if _housekeeping_at is not None and time.monotonic() - _housekeeping_at < HOUSEKEEPING_EVERY:
-        return
-    _housekeeping_at = time.monotonic()
-    try:
-        housekeeping(store)
-    except Exception:  # noqa: BLE001 - the next scan tries again; it never stops the scanner
-        logging.getLogger(__name__).info("Housekeeping failed", exc_info=True)
-
-
-def _sync_inventory(store: SupplyStore) -> None:
-    """Read the local inventory sources that are due (decision D15). A source that fails keeps its stock, marked stale."""
-
-    from app.services.supply import credentials
-    from app.services.supply.inventory import sync as inventory_sync
-
-    try:
-        inventory_sync.sync_due(store, credentials.default_keyring_factory())
-    except Exception:  # noqa: BLE001 - the next scan tries again; it never stops the scanner
-        logging.getLogger(__name__).info("Inventory sync failed", exc_info=True)
-
-
-def _prune_finished_jobs(job_service: Any) -> None:
-    """The scanner queues a job for each connector with work many times a day; finished ones older than a week are dropped, at the
-    housekeeping rhythm. Best effort."""
-
-    global _pruned_at
-    if _pruned_at is not None and time.monotonic() - _pruned_at < HOUSEKEEPING_EVERY:
-        return
-    _pruned_at = time.monotonic()
-    try:
-        prune = getattr(job_service, "prune_finished", None)
-        if prune is not None:
-            prune(POLL_JOB_KIND, older_than_seconds=7 * 24 * 60 * 60)
-    except Exception:  # noqa: BLE001 - the next scan tries again
-        logging.getLogger(__name__).info("Finished supply jobs not pruned", exc_info=True)
-
-
 def schedule_due_supply_jobs(
     *,
     job_service: Any | None = None,
@@ -346,15 +284,18 @@ def schedule_due_supply_jobs(
     moment = now or datetime.now(timezone.utc)
     with store.connection() as conn:
         connector_ids = connectors_with_work(conn, moment)
-    _housekeeping_if_due(store)
-    _sync_inventory(store)
-    _prune_finished_jobs(job_service)
+        tasks_due = bool(tasks.due(conn, moment))
+    queued = []
+    if tasks_due:
+        queued.append(job_service.enqueue(
+            TASKS_JOB_KIND, {}, worker_pool="prism", artifact_key=TASKS_ARTIFACT, priority=SUPPLY_PRIORITY,
+            requested_by=SYSTEM_REQUESTER, max_attempts=1,
+        ))
     # One job per account: connectors on the same credentials are one caller to the provider, so they take turns.
     by_account: dict[str, list[str]] = {}
     with store.connection() as conn:
         for connector_id in connector_ids:
             by_account.setdefault(accounts.resolve(conn, connector_id).ledger_id, []).append(connector_id)
-    queued = []
     for ledger_id, members in by_account.items():
         queued.append(job_service.enqueue(
             POLL_JOB_KIND,
@@ -369,148 +310,19 @@ def schedule_due_supply_jobs(
     return queued
 
 
-def _read_details(connectors: ConnectorService, connector_id: str) -> str | None:
+def _read_details(connectors: ConnectorService, connector_id: str, provider: Any = None) -> str | None:
     """Read a few due change notices or substance lists. Best effort: a failure is recorded per listing, never the job."""
 
     try:
-        stopped = details.run(connectors, connector_id).stopped
+        stopped = details.run(connectors, connector_id, provider=provider).stopped
     except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Distributor details not read", exc_info=True)
+        logging.getLogger(__name__).warning("Distributor details not read", exc_info=True)
         return "error"
     try:
-        substitutes.run_due(connectors, connector_id)
+        substitutes.run_due(connectors, connector_id, provider=provider)
     except Exception:  # noqa: BLE001 - substitutes are a favour; the notices and the job do not depend on them
-        logging.getLogger(__name__).info("Substitutes not asked for", exc_info=True)
+        logging.getLogger(__name__).warning("Substitutes not asked for", exc_info=True)
     return stopped
-
-
-def _read_catalogues(conn) -> None:
-    """Published catalogues standing in for offers files, for the connectors whose administrator turned one on (``jlc_catalogue``)."""
-
-    csv_import_service.refresh_catalogues(conn, datetime.now(timezone.utc))
-
-
-def _snapshot_market(conn) -> None:
-    """Store today's market indices once. Best effort."""
-
-    try:
-        with conn.transaction():
-            market.snapshot(conn)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Market indices not stored", exc_info=True)
-
-
-def _snapshot_costs(conn) -> None:
-    """Store today's BOM cost of each tracked project once. Best effort."""
-
-    try:
-        with conn.transaction():
-            project_supply.snapshot_costs(conn, datetime.now(timezone.utc))
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("BOM costs not stored", exc_info=True)
-
-
-def _refresh_rates(conn) -> None:
-    """Keep the exchange rates fresh. Best effort: with no route to the ECB, rates stay as they were."""
-
-    try:
-        fx.refresh_from_ecb(conn)
-    except Exception:  # noqa: BLE001 - prices are shown without conversion when rates are missing
-        logging.getLogger(__name__).info("Exchange rates not refreshed", exc_info=True)
-
-
-COMPONENT_SYNC_EVERY = 3600.0
-_component_sync_at: float | None = None
-
-
-def _sync_component_mains(conn, force: bool = False) -> None:
-    """Keep each component's main part on its current revision, so a watched component whose maker or number changed follows its
-    new part (``component_watches``). Best effort.
-
-    Once an hour per process: setting a component watch already syncs its component at once.
-    """
-
-    global _component_sync_at
-    if not force and _component_sync_at is not None and time.monotonic() - _component_sync_at < COMPONENT_SYNC_EVERY:
-        return
-    _component_sync_at = time.monotonic()
-    try:
-        from app.services.supply import component_parts
-
-        with conn.transaction():
-            if component_parts.sync_main(conn)["changed"]:
-                tracking.recompute(conn)
-    except Exception:  # noqa: BLE001 - the next job tries again
-        logging.getLogger(__name__).info("Component main parts not synced", exc_info=True)
-
-
-def _refresh_project_boms(conn) -> None:
-    """Read tracked projects' BOMs again and queue the index of a new revision (``project_bom.py``). Best effort."""
-
-    try:
-        with conn.transaction():
-            project_bom.refresh_tracked(conn, datetime.now(timezone.utc))
-    except Exception:  # noqa: BLE001 - the project files may be unavailable; the next job tries again
-        logging.getLogger(__name__).info("Project BOMs not refreshed", exc_info=True)
-
-
-def _pick_packagings(conn) -> None:
-    """Pick a packaging for tracked parts that have several listings and no pick, by what their projects buy for. Best effort."""
-
-    try:
-        with conn.transaction():
-            packaging_auto.auto_pick(conn)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Packagings not picked", exc_info=True)
-
-
-def _snapshot_figures(conn) -> None:
-    """Store the Dashboard's figures once a day, so each can show how it moved. Best effort."""
-
-    try:
-        with conn.transaction():
-            dashboard.snapshot_figures(conn)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Figures not stored", exc_info=True)
-
-
-def refresh_rollups(conn) -> None:
-    """Work out the tracked parts' summaries and the tracked projects' rollups that a change made stale, so the Dashboard, the lists
-    and the project cards find them kept. Best effort."""
-
-    try:
-        with conn.transaction():
-            parts_view.tracked_states(conn)
-            project_supply.refresh_rollups(conn)
-    except Exception:  # noqa: BLE001 - a reader works out a stale rollup itself
-        logging.getLogger(__name__).info("Project rollups not refreshed", exc_info=True)
-
-
-def _renew_insights(conn) -> None:
-    """Keep the facts the Dashboard and Insights list for each tracked part (no distributor call). Best effort."""
-
-    try:
-        with conn.transaction():
-            renewed = part_insights.renew(conn)
-            # The drain, the price trend and the forecast the alerts read are these: say what they say now.
-            alerts.evaluate_parts(conn, renewed, datetime.now(timezone.utc))
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Insights not renewed", exc_info=True)
-    try:
-        with conn.transaction():
-            forecast_run.run_checks(conn)
-    except Exception:  # noqa: BLE001 - checking forecasts is a favour; nothing else depends on it
-        logging.getLogger(__name__).info("Forecasts not checked", exc_info=True)
-
-
-def _sync_tracking(conn) -> None:
-    """Add the parts a tracked project's newest BOM brought, and keep the tiers in line. Best effort."""
-
-    try:
-        with conn.transaction():
-            tracking.sync_projects(conn)
-    except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Tracking not synced", exc_info=True)
 
 
 def _spend_spare(
@@ -542,7 +354,7 @@ def _spend_spare(
         if "library" in kinds:
             calls += discoverer.run(connector_id, library=True).searched
     except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).info("Spare work not done", exc_info=True)
+        logging.getLogger(__name__).warning("Spare work not done", exc_info=True)
     return calls, listings
 
 
@@ -554,10 +366,15 @@ def run_supply_poll_job(context: Any) -> Any:
 
     connector_ids = [str(item) for item in context.payload.get("connector_ids") or [context.payload["connector_id"]]]
     connectors = ConnectorService()
-    try:
-        connectors.refresh_account_keys()
-    except Exception:  # noqa: BLE001 - a stale key only splits a shared budget; the poll goes on
-        logging.getLogger(__name__).info("Account keys not refreshed", exc_info=True)
+    # One adapter per connector for the whole job: its session, pacing and token are reused by every read and search.
+    loaded: dict[str, Any] = {}
+
+    def provider_for(connector_id: str) -> Any:
+        if connector_id not in loaded:
+            loaded[connector_id] = connectors.load_provider(connector_id)
+        return loaded[connector_id]
+
+    poller, discoverer = Poller(connectors, provider_for=provider_for), Discoverer(connectors, provider_for=provider_for)
     searched = listings = calls = polled_count = gone = spare_calls = holding = 0
     discovery_stopped = poll_stopped = None
     for connector_id in connector_ids:
@@ -565,29 +382,28 @@ def run_supply_poll_job(context: Any) -> Any:
             with connectors.store.connection() as conn:
                 refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
         except Exception:  # noqa: BLE001 - without the figure no call counts as free; the job's own work goes on
-            logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
+            logging.getLogger(__name__).warning("Scheduled work not counted", exc_info=True)
         context.progress(stage="supply-poll", message="Reading stock and prices", percent=10, force=True)
-        polled = Poller(connectors).poll_connector(connector_id)
+        polled = poller.poll_connector(connector_id)
         context.progress(stage="supply-discover", message="Searching for listings", percent=50, force=True)
-        found = Discoverer(connectors).run(connector_id)
+        found = discoverer.run(connector_id)
         try:
-            oneoff.run(Discoverer(connectors), Poller(connectors), connectors.store, connector_id)
+            oneoff.run(discoverer, poller, connectors.store, connector_id)
         except Exception:  # noqa: BLE001 - a check that fails is tried again; it never fails the job
-            logging.getLogger(__name__).info("Check once not served", exc_info=True)
+            logging.getLogger(__name__).warning("Check once not served", exc_info=True)
         if polled.stopped in (None, "nothing_due", "budget"):
             try:
                 with connectors.store.connection() as conn:
                     refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
             except Exception:  # noqa: BLE001
-                logging.getLogger(__name__).info("Scheduled work not counted", exc_info=True)
-            spare_calls += _spend_spare(connectors, connector_id)[0]
+                logging.getLogger(__name__).warning("Scheduled work not counted", exc_info=True)
+            spare_calls += _spend_spare(connectors, connector_id, poller=poller, discoverer=discoverer)[0]
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone, holding = calls + polled.calls, polled_count + polled.polled, gone + polled.gone, holding + polled.holding
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
-    details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
+    details_stopped = [_read_details(connectors, connector_id, provider_for(connector_id)) for connector_id in connector_ids][-1]
     if polled_count:
-        with connectors.store.connection() as conn:
-            refresh_rollups(conn)
+        tasks.run_one(connectors.store, "rollups", force=True)
     details: Mapping[str, Any] = {
         "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,
         "calls": calls, "spare_calls": spare_calls, "polled": polled_count, "gone": gone, "holding": holding, "poll_stopped": poll_stopped,
@@ -599,4 +415,17 @@ def run_supply_poll_job(context: Any) -> Any:
     )
 
 
-JOB_KINDS = (JobKind(POLL_JOB_KIND, run_supply_poll_job, resources={SUPPLY_RESOURCE: 1}, priority=SUPPLY_PRIORITY, max_attempts=2),)
+def run_supply_tasks_job(context: Any) -> Any:
+    """Job handler: the periodic tasks that are due (``tasks.py``), each in its own transaction."""
+
+    from app.services.job_runtime import JobResult
+
+    outcome = tasks.run_due(supply_store)
+    failed = sorted(name for name, worked in outcome.items() if not worked)
+    return JobResult(message=f"Ran {len(outcome)} supply task(s)", details={"ran": sorted(outcome), "failed": failed})
+
+
+JOB_KINDS = (
+    JobKind(POLL_JOB_KIND, run_supply_poll_job, resources={SUPPLY_RESOURCE: 1}, priority=SUPPLY_PRIORITY, max_attempts=2),
+    JobKind(TASKS_JOB_KIND, run_supply_tasks_job, priority=SUPPLY_PRIORITY, max_attempts=1),
+)

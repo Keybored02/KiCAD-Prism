@@ -118,7 +118,7 @@ def view(conn, now: datetime, visible: set[str] | None = None) -> list[dict[str,
         )
         committed = budget.committed_calls(account.daily_budget, account.reserve_pct)
         hour_row = conn.execute(
-            "SELECT spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)
+            "SELECT spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE account_id = %s AND day = %s", (account.ledger_id, day)
         ).fetchone()
         spare_hour = int(hour_row["spare_hour_spent"]) if hour_row and hour_row["spare_hour"] == quota.day_hour(now, account.reset_time, account.reset_tz) else 0
         reset_in = quota.seconds_to_reset(now, account.reset_time, account.reset_tz)

@@ -21,6 +21,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import { SupplyConnectorsView } from "./connectors-view";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 const admin: User = { name: "Ana", email: "ana@example.com", role: "admin" };
@@ -78,7 +79,7 @@ describe("a CSV connector", () => {
 
   it("uploads the chosen file and shows the result", async () => {
     load();
-    mocked.uploadSupplyCsv.mockResolvedValue({ ...uploaded, ignored_columns: ["notes"] });
+    mocked.uploadSupplyCsv.mockImplementation(async () => { load([csvConnector({ csv_import: uploaded })]); return { ...uploaded, ignored_columns: ["notes"] }; });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     expect(screen.queryByRole("menuitem", { name: "Remove uploaded data" })).toBeNull();
@@ -142,7 +143,7 @@ describe("a CSV connector", () => {
 
   it("removes uploaded data after confirmation", async () => {
     load([csvConnector({ csv_import: uploaded })]);
-    mocked.clearSupplyCsv.mockResolvedValue(undefined);
+    mocked.clearSupplyCsv.mockImplementation(async () => { load(); });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove uploaded data" }));
@@ -165,6 +166,7 @@ describe("a CSV connector", () => {
       expect.objectContaining({ provider: "csv", credentials: {}, daily_budget: 0 }),
     ));
     unmount();
+    forgetServerState([]);
 
     load();
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);

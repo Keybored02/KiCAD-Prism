@@ -10,7 +10,7 @@ import { useLoaded } from "./use-loaded";
 /** Which ECHA Candidate List is loaded, and for administrators a way to load a newer export, so substances declared for parts can be checked against it. */
 export function SvhcListUpload({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => getSvhcList(signal), []);
-  const loaded = useLoaded<SupplySvhcList>("svhc-list", fetcher, "Could not load the Candidate List");
+  const loaded = useLoaded<SupplySvhcList>("compliance/svhc-list", fetcher, "Could not load the Candidate List");
   const { busy, error, run } = useConnectorSubmit();
   const input = useRef<HTMLInputElement>(null);
   const info = loaded.data;

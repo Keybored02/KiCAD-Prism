@@ -107,13 +107,12 @@ describe("the Supply section", () => {
     expect(location).toContain("partsScope=all");
   });
 
-  it("keeps a tab it has opened, hidden, so coming back does not load it again", async () => {
+  it("mounts only the shown tab; the store keeps what a tab showed", async () => {
     renderAt("admin", "/?section=supply");
     fireEvent.mouseDown(await screen.findByRole("tab", { name: "Insights" }), { button: 0, ctrlKey: false });
-    const insights = await screen.findByText("Insights content");
+    expect(await screen.findByText("Insights content")).toBeTruthy();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Dashboard" }), { button: 0, ctrlKey: false });
-    expect(screen.getByText("Insights content")).toBe(insights);
-    expect(insights.closest("[hidden]")).not.toBeNull();
+    await waitFor(() => expect(screen.queryByText("Insights content")).toBeNull());
   });
 
   it("leaves the URL alone when the open tab is clicked again", async () => {

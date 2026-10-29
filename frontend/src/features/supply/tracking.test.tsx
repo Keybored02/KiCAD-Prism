@@ -64,7 +64,7 @@ describe("the track button of a tracked project", () => {
 
 describe("tracking a project", () => {
   beforeEach(() => {
-    tracking.getTrackProgress.mockResolvedValue({ parts: 100, finished: false, connectors: [{ connector_id: "c1", name: "DigiKey", parts: 100, searched: 40 }] });
+    tracking.getTrackProgress.mockResolvedValue({ state: "running", done: 40, total: 100, failed: 0, reason: "", parts: 100, connectors: [{ connector_id: "c1", name: "DigiKey", total: 100, done: 40 }] });
   });
 
   async function open() {
@@ -167,11 +167,11 @@ describe("tracking a project", () => {
   });
 
   it("reads the BOM itself when Prism has not, then goes on", async () => {
+    // The button and the dialog share one read of the project's tracking.
     tracking.getProjectTracking
-      .mockResolvedValueOnce({ tracked: null, has_usage: true, variants: [] }) // the button's own look
       .mockResolvedValueOnce({ tracked: null, has_usage: false, variants: [] })
       .mockResolvedValue({ tracked: null, has_usage: true, variants: ["Lite"] });
-    tracking.readProjectBom.mockResolvedValue({ status: "updated" });
+    tracking.readProjectBom.mockResolvedValue({ state: "done", done: 1, total: 1, failed: 0, reason: "", changed: true });
     tracking.previewTrackProject.mockResolvedValue(preview());
     await open();
     expect(await screen.findByRole("progressbar", { name: "Reading the BOM" })).toBeTruthy();

@@ -18,7 +18,7 @@ const STATE_TEXT: Record<SupplySignin["state"], string> = {
 /** DigiKey change notices need a person's sign-in at DigiKey. Administrators start it and see who did it and until when. */
 export function ConnectorSignin({ connectorId, notices }: { connectorId: string; notices?: BudgetNotices | null }) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplySignin(connectorId, signal), [connectorId]);
-  const loaded = useLoaded<SupplySignin>(`${connectorId}:signin`, fetcher, "Could not load the sign-in");
+  const loaded = useLoaded<SupplySignin>(`connectors/${connectorId}/signin`, fetcher, "Could not load the sign-in");
   const { busy, error, run } = useConnectorSubmit();
   const status = loaded.data;
   if (!status) return null;

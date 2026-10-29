@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { MoreHorizontal, Plus, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import type { InventorySource } from "@/types/supply";
 import { deleteInventorySource, listInventorySources, syncInventorySource, updateInventorySource } from "./inventory-api";
 import { formatDateTime } from "./supply-format";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 import { InventoryCategoryDialog, InventorySourceDialog } from "./inventory-source-dialogs";
 
 type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; source: InventorySource };
@@ -17,33 +18,29 @@ type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; sourc
 export function sourceState(source: InventorySource): { label: string; tone: "default" | "secondary" | "destructive" | "outline" } {
   if (!source.enabled) return { label: "Disabled", tone: "secondary" };
   if (!source.has_token) return { label: "No token", tone: "destructive" };
-  if (source.category_id === null) return { label: "No category", tone: "outline" };
   if (source.last_status === "error") return { label: "Read failed", tone: "destructive" };
   if (!source.last_sync_at) return { label: "Not read yet", tone: "outline" };
   return { label: "Reading", tone: "default" };
 }
 
-/** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock fills the catalog. */
+const load = () => invalidateSupply("inventory");
+
+async function toggle(source: InventorySource) {
+  try {
+    await updateInventorySource(source.id, { enabled: !source.enabled });
+  } catch (caught) {
+    toast.error(caught instanceof Error ? caught.message : "Could not save the source");
+  }
+}
+
+/** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock (all of it, or one category) fills the catalog. */
 export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
-  const [sources, setSources] = useState<InventorySource[] | null>(null);
-  const [failed, setFailed] = useState("");
+  const fetcher = useCallback((signal: AbortSignal) => listInventorySources(signal), []);
+  const loaded = useLoaded("inventory/sources", fetcher, "Could not load inventory sources");
+  const sources = loaded.data;
+  const failed = loaded.status === "error" ? loaded.error : "";
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setSources(await listInventorySources());
-      setFailed("");
-    } catch (caught) {
-      setFailed(caught instanceof Error ? caught.message : "Could not load inventory sources");
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const put = (source: InventorySource) => setSources((current) => {
-    const rest = (current ?? []).filter((item) => item.id !== source.id);
-    return [...rest, source].sort((a, b) => a.display_name.localeCompare(b.display_name));
-  });
 
   const readNow = async (source: InventorySource) => {
     setBusy(source.id);
@@ -60,18 +57,10 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
-  const toggle = async (source: InventorySource) => {
-    try {
-      put(await updateInventorySource(source.id, { enabled: !source.enabled }));
-    } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Could not save the source");
-    }
-  };
-
   const remove = async (source: InventorySource) => {
     try {
       await deleteInventorySource(source.id);
-      setSources((current) => (current ?? []).filter((item) => item.id !== source.id));
+      void load();
       setDialog(null);
       toast.success("Source deleted");
     } catch (caught) {
@@ -109,14 +98,14 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
           open
           source={dialog.kind === "edit" ? dialog.source : null}
           onClose={() => setDialog(null)}
-          onSaved={(source) => { put(source); toast.success("Source saved"); if (dialog.kind === "create") setDialog({ kind: "category", source }); }}
+          onSaved={(source) => { void load(); toast.success("Source saved"); if (dialog.kind === "create") setDialog({ kind: "category", source }); }}
         />
       ) : null}
       <InventoryCategoryDialog
         key={dialog?.kind === "category" ? dialog.source.id : "none"}
         source={dialog?.kind === "category" ? dialog.source : null}
         onClose={() => setDialog(null)}
-        onSaved={(source) => { put(source); toast.success(`Following category ${source.category_id}`); }}
+        onSaved={(source) => { void load(); toast.success(source.category_id === null ? "Reading the whole inventory" : `Following category ${source.category_id}`); }}
       />
       <ConfirmDialog
         open={dialog?.kind === "delete"}
@@ -141,7 +130,7 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
   const state = sourceState(source);
   const host = source.base_url.replace(/^https:\/\//, "");
   const server = [source.server, source.api_version !== null ? `API ${source.api_version}` : ""].filter(Boolean).join(" · ");
-  const canRead = source.enabled && source.has_token && source.category_id !== null;
+  const canRead = source.enabled && source.has_token;
   return (
     <article className="border bg-card p-4" aria-label={source.display_name}>
       <div className="flex items-start justify-between gap-3">
@@ -169,7 +158,7 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
         ) : null}
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "-"}</dd>
+        <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "Whole inventory"}</dd>
         <dt className="text-muted-foreground">Last read</dt><dd>{formatDateTime(source.last_sync_at) || "-"}{` · every ${source.interval_hours} h`}</dd>
         <dt className="text-muted-foreground">Parts</dt><dd>{`${source.matched.toLocaleString()} matched · ${source.unmatched.toLocaleString()} unmatched`}</dd>
       </dl>

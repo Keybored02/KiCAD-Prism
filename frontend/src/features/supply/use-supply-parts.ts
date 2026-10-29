@@ -24,7 +24,7 @@ import { useLoaded } from "./use-loaded";
 
 export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "", limit = 0, projectId = "", vendor = "", sort = "") {
   const fetcher = useCallback((signal: AbortSignal) => sort ? listSupplyParts(scope, query, signal, only, 0, limit, projectId, vendor, sort) : listSupplyParts(scope, query, signal, only, 0, limit, projectId, vendor), [scope, query, only, limit, projectId, vendor, sort]);
-  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}|${projectId}|${limit}|${vendor}|${sort}`, fetcher, "Could not load parts", "parts");
+  return useLoaded<SupplyPartsPage>(`parts/list/${scope}|${query}|${only}|${projectId}|${limit}|${vendor}|${sort}`, fetcher, "Could not load parts");
 }
 
 const FEED_PAGE = 50;
@@ -62,12 +62,12 @@ export function useSupplyManufacturers(): SupplyManufacturer[] {
 
 export function useSupplyPart(partId: string | null) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyPart(partId ?? "", signal), [partId]);
-  return useLoaded<SupplyPartDetail>(partId, fetcher, "Could not load the part");
+  return useLoaded<SupplyPartDetail>(partId === null ? null : `parts/${partId}`, fetcher, "Could not load the part");
 }
 
 export function useSupplyOverview() {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyOverview(signal), []);
-  return useLoaded<SupplyOverview>("overview", fetcher, "Could not load the overview", "overview");
+  return useLoaded<SupplyOverview>("overview", fetcher, "Could not load the overview");
 }
 
 export function useSupplyAlerts(includeResolved: boolean) {
@@ -75,17 +75,17 @@ export function useSupplyAlerts(includeResolved: boolean) {
     async (signal: AbortSignal) => (await listSupplyAlerts(includeResolved, signal)).items,
     [includeResolved],
   );
-  return useLoaded<SupplyAlert[]>(includeResolved ? "resolved" : "active", fetcher, "Could not load alerts", "alerts");
+  return useLoaded<SupplyAlert[]>(includeResolved ? "alerts/resolved" : "alerts/active", fetcher, "Could not load alerts");
 }
 
 /** The part Prism tracks for a catalog component's manufacturer and number; null data when none. */
 export function useSupplyPartFor(manufacturer: string, mpn: string) {
   const fetcher = useCallback((signal: AbortSignal) => findSupplyPart(manufacturer, mpn, signal), [manufacturer, mpn]);
-  return useLoaded<string | null>(`${manufacturer}|${mpn}`, fetcher, "Could not look the part up");
+  return useLoaded<string | null>(`parts/by-number/${manufacturer}|${mpn}`, fetcher, "Could not look the part up");
 }
 
 /** The matching parts grouped by the projects that use them. */
 export function useSupplyPartGroups(scope: PartsScope, query: string, only: PartsFilter = "", vendor = "") {
   const fetcher = useCallback((signal: AbortSignal) => listSupplyPartGroups(scope, query, signal, only, vendor), [scope, query, only, vendor]);
-  return useLoaded<SupplyPartGroups>(`groups|${scope}|${query}|${only}|${vendor}`, fetcher, "Could not load the parts", "parts");
+  return useLoaded<SupplyPartGroups>(`parts/groups/${scope}|${query}|${only}|${vendor}`, fetcher, "Could not load the parts");
 }

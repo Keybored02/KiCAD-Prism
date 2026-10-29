@@ -232,7 +232,7 @@ addresses itself.
 
 An inventory server on your own network (a self-hosted InvenTree or a server that serves its API) needs
 its host name in `SUPPLY_INVENTORY_PRIVATE_HOSTS_STR`; only listed hosts may
-resolve to private addresses, and link-local addresses stay refused.
+resolve to private addresses or use a port other than 443, and link-local addresses stay refused.
 
 ### MCP server
 

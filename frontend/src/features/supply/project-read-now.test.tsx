@@ -19,7 +19,7 @@ afterEach(() => {
 
 describe("reading a project's BOM now", () => {
   it("reloads the tab when the BOM is read at once", async () => {
-    read.mockResolvedValue({ status: "updated" });
+    read.mockResolvedValue({ state: "done", done: 1, total: 1, failed: 0, reason: "", changed: true });
     const onRead = vi.fn();
     render(<ProjectReadNow projectId="prj" onRead={onRead} />);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Read now" })); });
@@ -28,7 +28,8 @@ describe("reading a project's BOM now", () => {
   });
 
   it("shows the wait while the index builds, and reloads when it lands", async () => {
-    read.mockResolvedValueOnce({ status: "reading" }).mockResolvedValueOnce({ status: "reading" }).mockResolvedValue({ status: "unchanged" });
+    const reading = { state: "running" as const, done: 0, total: 1, failed: 0, reason: "" };
+    read.mockResolvedValueOnce(reading).mockResolvedValueOnce(reading).mockResolvedValue({ ...reading, state: "done", done: 1, changed: false });
     const onRead = vi.fn();
     render(<ProjectReadNow projectId="prj" onRead={onRead} />);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Read now" })); });
