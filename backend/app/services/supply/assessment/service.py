@@ -10,9 +10,10 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import alert_rules, compliance, facts as stated_facts, forecasting, fx, part_insights, parts_view, pcn, price_quantity, pricing
+from app.services.supply import alert_rules, compliance, facts as stated_facts, fx, part_insights, parts_view, pcn, price_quantity, pricing
 from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
+from app.services.supply.forecast import store
 from app.services.supply.vocabulary import Lifecycle
 
 
@@ -140,7 +141,7 @@ def assess_summaries(
     # What the history says (the outlook band, the drain, the price trend, the forecast) is kept by housekeeping with the part's
     # other insights, so a read here costs one query.
     kept = part_insights.of_parts(conn, ids)
-    shown = forecasting.shown(forecasting.model_states(conn), "out_4w")
+    shown = store.shown(store.model_states(conn), "out_4w")
     rules = alert_rules.for_parts(conn, ids)
     notices = pcn.for_parts(conn, ids)
     last_buys = last_buy_dates(conn, [item["id"] for item in items])

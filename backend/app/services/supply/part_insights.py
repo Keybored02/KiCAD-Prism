@@ -143,7 +143,7 @@ def _likely_at(conn, part_id: str) -> float:
 def _forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
     """Make and keep the part's forecasts and return the little a list shows. A failure leaves the rest of the insights as they are."""
 
-    from app.services.supply import forecast_run
+    from app.services.supply.forecast import run as forecast_run
 
     try:
         with conn.transaction():

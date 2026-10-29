@@ -11,7 +11,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from app.services.supply import forecast_load, forecast_price, forecast_stock, forecasting, insights, part_history
+from app.services.supply import insights, part_history
+from app.services.supply.forecast import inputs, models, store
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 CHECK_DAYS = 200
@@ -19,32 +20,32 @@ _FAMILY = ("runout", "back_in", "can_buy_4w", "can_buy_8w", "price_30", "price_9
 
 
 def stock_forecast(conn, part_id: str, now: datetime, quantity: int | None = None) -> dict[str, Any]:
-    """The stock forecast of a part (see ``forecast_stock.forecast``), at a quantity (the part's own price quantity by default)."""
+    """The stock forecast of a part (see ``models.stock_forecast``), at a quantity (the part's own price quantity by default)."""
 
-    holders = forecast_load.holders(conn, part_id, now)
-    models, ratios, _cases = forecast_load.pooled(conn, now.astimezone(timezone.utc).date())
-    wanted = quantity or forecast_load.default_quantity(conn, part_id)
-    return forecast_stock.forecast(holders, models, ratios, wanted, weekly=forecast_load.is_weekly(conn, part_id))
+    holders = inputs.holders(conn, part_id, now)
+    outage, ratios, _cases = inputs.pooled(conn, now.astimezone(timezone.utc).date())
+    wanted = quantity or inputs.default_quantity(conn, part_id)
+    return models.stock_forecast(holders, outage, ratios, wanted, weekly=inputs.is_weekly(conn, part_id))
 
 
 def price_forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
-    series = forecast_price.series_of(conn, part_id, now)
+    series = inputs.series_of(conn, part_id, now)
     if not series:
         return {"available": False, "now": None, "reason": "no_prices"}
-    return forecast_price.forecast(series, forecast_price.pooled_moves(conn, _tracked(conn), now), forecast_price.own_moves(conn, part_id, now))
+    return models.price_forecast(series, inputs.pooled_moves(conn, _tracked(conn), now), inputs.own_moves(conn, part_id, now))
 
 
 def price_by_distributor(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     """Each distributor's price in 30 and 90 days, from its own readings, in the currency of the part's history."""
 
     history = part_history.build(conn, part_id, now, 90)
-    pool = forecast_price.pooled_moves(conn, _tracked(conn), now)
+    pool = inputs.pooled_moves(conn, _tracked(conn), now)
     found: list[dict[str, Any]] = []
     for line in history["connectors"]:
         series = [(date.fromisoformat(day), float(price)) for day, price in line["price"]]
         if not series:
             continue
-        result = forecast_price.forecast(series, pool)
+        result = models.price_forecast(series, pool)
         if result.get("available"):
             found.append({"connector_id": line["connector_id"], "now": result["now"], "h30": result["h30"], "h90": result["h90"]})
     return found
@@ -58,24 +59,24 @@ def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
     """Make and keep the forecasts of one part. Returns the little the lists need to show them."""
 
     day = now.astimezone(timezone.utc).date()
-    quantity = forecast_load.default_quantity(conn, part_id)
+    quantity = inputs.default_quantity(conn, part_id)
     stock = stock_forecast(conn, part_id, now, quantity)
     summary: dict[str, Any] = {"available": bool(stock.get("available")), "made_on": day.isoformat()}
     if stock.get("available"):
         run = stock["runout"]
         if run:
-            forecasting.store(conn, "part", part_id, "runout", day, max(math.ceil(run["high"]), 1), model="drain-sim", median=run["median"], low=run["low"], high=run["high"],
-                              probability=run["probability"], inputs=stock["inputs"])
+            store.store(conn, "part", part_id, "runout", day, max(math.ceil(run["high"]), 1), model="drain-sim", median=run["median"], low=run["low"], high=run["high"],
+                        probability=run["probability"], inputs=stock["inputs"])
             summary["runout"] = {
                 "median_date": (day + timedelta(days=round(run["median"]))).isoformat(), "low_date": (day + timedelta(days=round(run["low"]))).isoformat(),
                 "high_date": (day + timedelta(days=round(run["high"]))).isoformat(), "p": run["probability"],
             }
         for item in stock["back"]:
-            forecasting.store(conn, "part", part_id, "back_in", day, max(math.ceil(item["high"]), 1), model="km-sim", scope=item["connector_id"],
-                              median=item["median"], low=item["low"], high=item["high"], inputs={"quote_days": item["quote_days"], "ratio": item["ratio"]})
-        forecasting.store(conn, "part", part_id, "out_4w", day, 28, model="drain-sim", probability=stock["out_everywhere"][4], inputs=stock["inputs"])
+            store.store(conn, "part", part_id, "back_in", day, max(math.ceil(item["high"]), 1), model="km-sim", scope=item["connector_id"],
+                        median=item["median"], low=item["low"], high=item["high"], inputs={"quote_days": item["quote_days"], "ratio": item["ratio"]})
+        store.store(conn, "part", part_id, "out_4w", day, 28, model="drain-sim", probability=stock["out_everywhere"][4], inputs=stock["inputs"])
         for target, weeks in (("can_buy_4w", 4), ("can_buy_8w", 8)):
-            forecasting.store(conn, "part", part_id, target, day, weeks * 7, model="drain-sim", quantity=quantity, probability=stock["weeks"][weeks - 1], inputs=stock["inputs"])
+            store.store(conn, "part", part_id, target, day, weeks * 7, model="drain-sim", quantity=quantity, probability=stock["weeks"][weeks - 1], inputs=stock["inputs"])
         summary |= {"p_out_4w": stock["out_everywhere"][4], "p_out_8w": stock["out_everywhere"][8],
                     "can_buy_4w": stock["weeks"][3], "can_buy_8w": stock["weeks"][7], "out_now": stock["out_now"]}
     _store_end_of_life(conn, part_id, day)
@@ -83,7 +84,7 @@ def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
     if price.get("available"):
         for target, key, horizon in (("price_30", "h30", 30), ("price_90", "h90", 90)):
             p = price[key]
-            forecasting.store(conn, "part", part_id, target, day, horizon, model="repricing-sim", median=p["median"], low=p["low"], high=p["high"], inputs=price["inputs"])
+            store.store(conn, "part", part_id, target, day, horizon, model="repricing-sim", median=p["median"], low=p["low"], high=p["high"], inputs=price["inputs"])
         summary["price_90"] = price["h90"] | {"now": price["now"], "date": (day + timedelta(days=90)).isoformat()}
     return summary
 
@@ -94,7 +95,7 @@ EOL_EVERY_DAYS = 28
 def _store_end_of_life(conn, part_id: str, day: date) -> None:
     """Keep the 12-month end-of-life chance of a part that is not ending, about once a month (its check is a year away)."""
 
-    from app.services.supply import forecast_lifecycle, parts_view
+    from app.services.supply import parts_view
 
     recent = conn.execute(
         "SELECT 1 FROM supply_forecasts WHERE subject_kind = 'part' AND subject_id = %s AND target = 'eol_12' AND made_on > %s",
@@ -105,9 +106,9 @@ def _store_end_of_life(conn, part_id: str, day: date) -> None:
     items = parts_view.summaries_for(conn, [part_id])
     if not items:
         return
-    found = forecast_lifecycle.part_chance(conn, part_id, items[0]["lifecycle"], day, pooled=forecast_lifecycle.pooled_rates(conn, day))
+    found = inputs.part_chance(conn, part_id, items[0]["lifecycle"], day, pooled=inputs.pooled_rates(conn, day))
     if found["available"]:
-        forecasting.store(conn, "part", part_id, "eol_12", day, 365, model="pooled-hazard", probability=found["p12"], inputs={"rate": found["rate"], "changes": found["changes"], "signs": found["signs"]})
+        store.store(conn, "part", part_id, "eol_12", day, 365, model="pooled-hazard", probability=found["p12"], inputs={"rate": found["rate"], "changes": found["changes"], "signs": found["signs"]})
 
 
 # --- checking ---------------------------------------------------------------
@@ -121,7 +122,7 @@ class _Truth:
         self.total = {date.fromisoformat(d): int(n) for d, n in built["total"]}
         self.lines = {line["connector_id"]: {date.fromisoformat(d): int(n) for d, n in line["stock"]} for line in built["connectors"]}
         self.last = max(self.total) if self.total else None
-        self.prices = {day: price for day, price in forecast_price.series_of(conn, part_id, now, CHECK_DAYS)}
+        self.prices = {day: price for day, price in inputs.series_of(conn, part_id, now, CHECK_DAYS)}
         self.ended = [
             row["at"].astimezone(timezone.utc).date() for row in conn.execute(
                 "SELECT at FROM supply_events WHERE part_id = %s AND kind = 'lifecycle_changed' AND payload->>'to' = ANY(%s)",
@@ -186,7 +187,7 @@ def check_due(conn, now: datetime, limit: int = 2000) -> int:
     """Check the forecasts whose day has come. Returns how many."""
 
     day = now.astimezone(timezone.utc).date()
-    rows = [row for row in forecasting.due(conn, day, limit) if row["subject_kind"] == "part"]
+    rows = [row for row in store.due(conn, day, limit) if row["subject_kind"] == "part"]
     by_part: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_part[row["subject_id"]].append(row)
@@ -195,7 +196,7 @@ def check_due(conn, now: datetime, limit: int = 2000) -> int:
         truth = _Truth(conn, part_id, now)
         for row in items:
             observed, inside, void = _judge(row, truth)
-            forecasting.record_check(conn, row["id"], day, observed=observed, inside=inside, void=void)
+            store.record_check(conn, row["id"], day, observed=observed, inside=inside, void=void)
             done += 1
     return done
 
@@ -205,5 +206,5 @@ def run_checks(conn, now: datetime | None = None) -> dict[str, Any]:
 
     now = now or datetime.now(timezone.utc)
     checked = check_due(conn, now)
-    forecasting.forget_old(conn, now.astimezone(timezone.utc).date())
-    return {"checked": checked, "states": forecasting.update_models(conn, now)}
+    store.forget_old(conn, now.astimezone(timezone.utc).date())
+    return {"checked": checked, "states": store.update_models(conn, now)}
