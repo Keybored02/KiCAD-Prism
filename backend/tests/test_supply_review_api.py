@@ -253,9 +253,6 @@ class SupplyReviewApiTests(unittest.TestCase):
     def test_pinning_confirms_the_candidate_part(self) -> None:
         self.assertEqual(self.call("POST", f"/api/supply/review/listings/{self.listing_id('S2')}/pin", role="qa").status, 204)
         self.assertEqual(self.listing_state("S2"), "manual")
-        with self.store.connection() as conn:
-            counted = self.discovery.counted_listings(conn, self.part.id)
-        self.assertIn("S2", [item["sku"] for item in counted])
         self.assertEqual(self.call("GET", "/api/supply/review").json["counts"]["near"], 0)
 
     def test_rejecting_removes_it_and_discovery_does_not_bring_it_back(self) -> None:

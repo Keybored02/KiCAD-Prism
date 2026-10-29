@@ -92,11 +92,6 @@ def get_watch(conn, watch_id: str) -> WatchRecord:
     return _record(row)
 
 
-def list_watches(conn) -> list[WatchRecord]:
-    rows = conn.execute(_SELECT + " ORDER BY lower(m.name), lower(p.mpn)").fetchall()
-    return [_record(row) for row in rows]
-
-
 def add_watch(
     conn,
     manufacturer_name: str,

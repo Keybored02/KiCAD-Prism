@@ -11,7 +11,7 @@ The account's ledger, budget, reserve and reset time are those of its first conn
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Mapping
+from typing import Mapping
 
 from app.services.supply import quota
 from app.services.trackers.secrets import CredentialKeyring
@@ -72,16 +72,3 @@ def resolve(conn, connector_id: str) -> Account:
     return Account(
         row["id"], int(row["daily_budget"]), int(row["interactive_reserve_pct"]), row["reset_time"], row["reset_tz"], tuple(members)
     )
-
-
-def refresh_keys(conn, keyring: CredentialKeyring, unseal: Callable[[CredentialKeyring, str, str], Mapping[str, str]]) -> int:
-    """Recompute every connector's account key, for after the keyring's current key changed. Returns how many changed."""
-
-    changed = 0
-    for row in conn.execute("SELECT id, provider, account_key, credential_envelope FROM supply_connectors").fetchall():
-        credentials = unseal(keyring, row["id"], row["credential_envelope"]) if row["credential_envelope"] else {}
-        key = key_for(keyring, row["provider"], credentials)
-        if key != row["account_key"]:
-            conn.execute("UPDATE supply_connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
-            changed += 1
-    return changed
