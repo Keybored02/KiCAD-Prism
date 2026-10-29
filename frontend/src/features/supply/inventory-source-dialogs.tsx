@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { InventoryServerCheck, InventorySource } from "@/types/supply";
 import { checkInventorySource, createInventorySource, updateInventorySource } from "./inventory-api";
+import { useLoaded } from "./use-loaded";
 
 const WHOLE = "whole";
 
@@ -76,17 +77,13 @@ export function InventoryCategoryDialog({ source, onClose, onSaved }: {
   onClose: () => void;
   onSaved: (source: InventorySource) => void;
 }) {
-  const [check, setCheck] = useState<InventoryServerCheck | null>(null);
-  const [failed, setFailed] = useState("");
+  const sourceId = source?.id ?? "";
+  const fetcher = useCallback((): Promise<InventoryServerCheck> => checkInventorySource(sourceId), [sourceId]);
+  const checked = useLoaded(source ? `inventory/sources/${source.id}/check` : null, fetcher, "Could not reach the server");
+  const check = checked.data;
+  const failed = checked.status === "error" ? checked.error : "";
   const [chosen, setChosen] = useState(source?.category_id !== null && source?.category_id !== undefined ? String(source.category_id) : WHOLE);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!source) return;
-    let live = true;
-    checkInventorySource(source.id).then((found) => { if (live) setCheck(found); }, (caught) => { if (live) setFailed(message(caught)); });
-    return () => { live = false; };
-  }, [source]);
 
   const save = async () => {
     if (!source) return;

@@ -1272,10 +1272,18 @@ export interface TrackingPreview {
 }
 
 /** How far the first searches of a project's parts have got, per distributor. */
-export interface TrackProgress {
+/** Every supply job's progress: asked again until `state` is no longer "running". */
+export interface JobProgress {
+  state: "running" | "done" | "failed" | "none";
+  done: number;
+  total: number;
+  failed: number;
+  reason: string;
+}
+
+export interface TrackProgress extends JobProgress {
   parts: number;
-  finished: boolean;
-  connectors: Array<{ connector_id: string; name: string; parts: number; searched: number }>;
+  connectors: Array<{ connector_id: string; name: string; total: number; done: number }>;
 }
 
 export interface ProjectTrackingState {
@@ -1445,15 +1453,11 @@ export interface PackagingSimilar extends PackagingWaiting {
 }
 
 /** How far a check someone asked for once has got: parts read everywhere they will be, of all of them. */
-export interface CheckProgress {
+export interface CheckProgress extends JobProgress {
   id: string;
   kind: "bom" | "component";
   project_id: string;
   created_at: string;
-  finished: boolean;
-  parts: number;
-  done: number;
-  failed: number;
 }
 
 /** Which spare work is on. */

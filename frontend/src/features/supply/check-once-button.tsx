@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ScanSearch } from "lucide-react";
 import { toast } from "sonner";
 
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { CheckProgress } from "@/types/supply";
 import { getCheck, startCheck } from "./tracking-api";
+import { isRunning, useLoaded } from "./use-loaded";
 
 const EVERY_MS = 5000;
 
@@ -18,25 +19,16 @@ export function CheckOnceButton({
   projectId, lines, onFinished,
 }: { projectId: string; lines: ReadonlyArray<{ manufacturer: string; mpn: string }>; onFinished: () => void }) {
   const [requestId, setRequestId] = useState("");
-  const [progress, setProgress] = useState<CheckProgress | null>(null);
+  const [started, setStarted] = useState<CheckProgress | null>(null);
   const [skipped, setSkipped] = useState(0);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const finished = progress?.finished === true;
-
-  useEffect(() => {
-    if (!requestId || finished) return;
-    const controller = new AbortController();
-    const timer = window.setInterval(() => {
-      getCheck(requestId, controller.signal)
-        .then((next) => {
-          setProgress(next);
-          if (next.finished) onFinished();
-        })
-        .catch(() => undefined);
-    }, EVERY_MS);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [requestId, finished, onFinished]);
+  const fetcher = useCallback((signal: AbortSignal) => getCheck(requestId, signal), [requestId]);
+  const read = useLoaded(requestId ? `checks/${requestId}` : null, fetcher, "Could not read the check", {
+    refreshEvery: EVERY_MS, refreshWhile: isRunning, onData: (next) => { if (next.state === "done") onFinished(); },
+  });
+  const progress = read.data ?? started;
+  const finished = progress?.state === "done";
 
   const start = () => {
     setBusy(true);
@@ -44,7 +36,7 @@ export function CheckOnceButton({
       .then((made) => {
         if (made.parts === 0) { setOpen(false); toast.success("Nothing to check", { description: "Every part is already tracked." }); return; }
         setRequestId(made.id);
-        setProgress(made.progress);
+        setStarted(made.progress);
         setSkipped(made.skipped.length);
       })
       .catch((caught: Error) => toast.error(caught.message))
@@ -52,14 +44,14 @@ export function CheckOnceButton({
   };
 
   const running = progress !== null && !finished;
-  const share = progress && progress.parts > 0 ? Math.min(100, Math.round((progress.done / progress.parts) * 100)) : 0;
+  const share = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
   if (lines.length === 0 && !running) return null;
   return (
     <>
       {running && !open ? (
         <span role="status" className="text-xs text-muted-foreground">
           <button type="button" className="hover:text-foreground" onClick={() => setOpen(true)}>
-            Checking: {progress.done} of {progress.parts} parts read
+            Checking: {progress.done} of {progress.total} parts read
           </button>
         </span>
       ) : (
@@ -79,7 +71,7 @@ export function CheckOnceButton({
                 <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${share}%` }} />
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
-                <span className="bg-secondary px-2 py-0.5 tabular-nums">{progress.done} of {progress.parts} parts read</span>
+                <span className="bg-secondary px-2 py-0.5 tabular-nums">{progress.done} of {progress.total} parts read</span>
                 {progress.failed > 0 ? <span className="bg-warning/15 px-2 py-0.5 text-warning">{progress.failed} failed</span> : null}
                 {skipped > 0 ? <span className="bg-secondary px-2 py-0.5">{skipped} to settle first</span> : null}
               </div>

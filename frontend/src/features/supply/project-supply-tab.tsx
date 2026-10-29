@@ -52,7 +52,7 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
     (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, "", signal),
     [projectId, variant, boardsChoice],
   );
-  const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}:${boardsChoice ?? "usual"}` : null, fetcher, "Could not load the project's supply");
+  const loaded = useLoaded<ProjectSupply>(allowed ? `projects/${projectId}/supply/${variant}|${boardsChoice ?? "usual"}` : null, fetcher, "Could not load the project's supply");
   // The controls stay while a change reloads the page, so a person can go on typing.
   const [last, setLast] = useState<ProjectSupply | null>(null);
   if (loaded.data && loaded.data !== last) setLast(loaded.data);
@@ -118,7 +118,7 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
           />
         </section>
       ) : null}
-      <OpenPartSheet user={user} active />
+      <OpenPartSheet user={user} />
       {adding ? (
         <CreateComponentDialog
           key={adding.key}
