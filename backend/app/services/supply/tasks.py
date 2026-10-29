@@ -1,6 +1,6 @@
-"""Periodic work that needs no distributor call: exchange rates, catalogues, snapshots, component watches, tracked projects'
-BOMs, tracking, packaging picks, insights, forecasts, rollups, retention, inventory sources, account keys and finished
-jobs.
+"""Periodic work that needs no distributor call: exchange rates, catalogues, snapshots, learned spellings, component
+watches, tracked projects' BOMs, tracking, packaging picks, insights, forecasts, rollups, retention, inventory sources,
+account keys and finished jobs.
 
 Each task is a row of ``supply_task_runs`` with when it last ran, last worked and last failed, and when it is due next. The
 scanner queues one ``supply_tasks`` job when any is due (``jobs.py``); the job runs the due ones in order, each in its own
@@ -61,6 +61,15 @@ def _figures(conn, now: datetime, store: SupplyStore) -> None:
     dashboard.snapshot_figures(conn)
 
 
+def _aliases(conn, now: datetime, store: SupplyStore) -> None:
+    """A spelling two or more parts of one maker carry becomes that maker's (``settle.learn_aliases``): one pass over every
+    spelling, so it runs here rather than after each search."""
+
+    from app.services.supply import settle
+
+    settle.learn_aliases(conn)
+
+
 def _component_watches(conn, now: datetime, store: SupplyStore) -> None:
     """Each component's main part follows its current revision, then its watch is synced. Setting a watch syncs at once too."""
 
@@ -119,7 +128,7 @@ def _retention(conn, now: datetime, store: SupplyStore) -> None:
     retention.compact_samples(conn, now)
     retention.drop_expired(conn, now)
     retention.drop_unused(conn, now)
-    retention.trim_summaries(conn)
+    retention.trim_summaries(conn, now)
     oneoff.expire(conn, now)
 
 
@@ -159,6 +168,7 @@ TASKS: tuple[Task, ...] = (
     Task("market", _TEN_MINUTES, _market),
     Task("costs", _TEN_MINUTES, _costs),
     Task("figures", _TEN_MINUTES, _figures),
+    Task("aliases", _TEN_MINUTES, _aliases),
     Task("component_watches", timedelta(hours=1), _component_watches),
     Task("project_boms", _TEN_MINUTES, _project_boms),
     Task("tracking", _TEN_MINUTES, _tracking),
