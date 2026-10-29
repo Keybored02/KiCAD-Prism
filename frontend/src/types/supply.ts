@@ -453,6 +453,8 @@ export interface SupplyBomRollup {
 
 export interface SupplyBomLookup {
   build_quantity: number;
+  /** The spares it priced with, a percent; null is by kind of part. */
+  attrition_percent?: number | null;
   lines: Record<string, SupplyBomLineResult>;
   rollup: SupplyBomRollup;
 }

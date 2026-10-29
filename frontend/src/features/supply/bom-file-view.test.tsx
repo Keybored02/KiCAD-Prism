@@ -72,7 +72,7 @@ describe("the BOM file view", () => {
       { key: "acme | r10k", manufacturer: "Acme", mpn: "R-10K", quantity: 2 },
       { key: "globex | lm,358", manufacturer: "Globex", mpn: "LM,358", quantity: 2 },
     ]);
-    expect(mocked.lookupSupplyBom.mock.calls[0][1]).toBe(5);
+    expect(mocked.lookupSupplyBom.mock.calls[0][1]).toEqual({ buildQuantity: 5, attritionPercent: 0 });
     expect(await screen.findByText("Stock covers 5 boards")).toBeTruthy();
     expect(screen.getByText("R-10K")).toBeTruthy();
   });

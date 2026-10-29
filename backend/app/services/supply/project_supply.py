@@ -293,13 +293,16 @@ def refresh_rollups(conn) -> int:
     return worked
 
 
-def _build_of(conn, project_id: str, build_quantity: int | None, attrition_percent: float | None | str) -> tuple[dict[str, Any] | None, int, float | None]:
-    """The tracked project, and the build and spares a page prices for: as asked, else the project's usual ones."""
+def build_of(
+    conn, project_id: str, build_quantity: int | None, attrition_percent: float | None | str, fallback_build: int = 100,
+) -> tuple[dict[str, Any] | None, int, float | None]:
+    """The tracked project, and the build and spares a page prices for: as asked, else the project's usual ones, else
+    ``fallback_build`` boards with the workspace's spares. An empty ``project_id`` is no project."""
 
-    tracked = tracking.tracked_project(conn, project_id)
+    tracked = tracking.tracked_project(conn, project_id) if project_id else None
     spares = usual_attrition(conn, tracked) if attrition_percent == DEFAULT else cast(float | None, attrition_percent)
     if build_quantity is None:
-        build_quantity = (int(tracked["build_quantity"]) if tracked else None) or 100
+        build_quantity = (int(tracked["build_quantity"]) if tracked else None) or fallback_build
     return tracked, build_quantity, spares
 
 
@@ -315,7 +318,7 @@ def project_lines(
 ) -> list[dict[str, Any]]:
     """The project's BOM lines priced for a build, as the overview's ``parts`` has them; empty when the BOM has not been read."""
 
-    _tracked, build_quantity, attrition_percent = _build_of(conn, project_id, build_quantity, attrition_percent)
+    _tracked, build_quantity, attrition_percent = build_of(conn, project_id, build_quantity, attrition_percent)
     rows = usage.project_rows(conn, project_id, variant)
     if not rows:
         return []
@@ -326,7 +329,7 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int | Non
     """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the project's own
     spares when it is tracked and has them, else the workspace's."""
 
-    tracked, build_quantity, attrition_percent = _build_of(conn, project_id, build_quantity, attrition_percent)
+    tracked, build_quantity, attrition_percent = build_of(conn, project_id, build_quantity, attrition_percent)
     usual = int(tracked["build_quantity"]) if tracked else None
     rows = usage.project_rows(conn, project_id, variant)
     notes = bom_comments.for_project(conn, project_id)

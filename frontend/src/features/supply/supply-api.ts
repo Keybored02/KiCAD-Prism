@@ -120,18 +120,23 @@ function buildSupplyUsageIndexesRequest(): Promise<SupplyIndexBuild> {
   return post(`${BASE}/bom/usage/build`, undefined, "Could not queue the project BOMs");
 }
 
+/**
+ * Stock, price and status of a BOM's lines for a build. Left out, the build and spares are the project's usual ones (one board and
+ * the workspace's spares without a tracked project); the answer says which it priced for.
+ */
 export function lookupSupplyBom(
   lines: BomLineInput[],
-  buildQuantity: number,
-  options: { signal?: AbortSignal; attritionPercent?: number | null } = {},
+  options: { signal?: AbortSignal; buildQuantity?: number; attritionPercent?: number | null; projectId?: string } = {},
 ): Promise<SupplyBomLookup> {
+  const body = {
+    lines,
+    ...(options.projectId ? { project_id: options.projectId } : {}),
+    ...(options.buildQuantity === undefined ? {} : { build_quantity: options.buildQuantity }),
+    ...(options.attritionPercent === undefined ? {} : { attrition_percent: options.attritionPercent }),
+  };
   return fetchJson<SupplyBomLookup>(
     `${BASE}/bom/lookup`,
-    {
-      method: "POST",
-      body: JSON.stringify({ build_quantity: buildQuantity, attrition_percent: options.attritionPercent === undefined ? 0 : options.attritionPercent, lines }),
-      signal: options.signal,
-    },
+    { method: "POST", body: JSON.stringify(body), signal: options.signal },
     "Could not look the BOM up",
   );
 }
