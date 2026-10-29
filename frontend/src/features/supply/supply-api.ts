@@ -26,7 +26,6 @@ import type {
   SupplyManufacturer,
   SupplyDashboard,
   SupplyInsightsPage,
-  SupplyOverview,
   SupplyPartGroups,
   PartHistory,
   SupplyPartDetail,
@@ -365,9 +364,6 @@ export function getRiskCsv(): Promise<string> {
   return fetchText(`${BASE}/insights/risk.csv`, undefined, "Could not export the risk by part");
 }
 
-export function getSupplyOverview(signal?: AbortSignal): Promise<SupplyOverview> {
-  return fetchJson<SupplyOverview>(`${BASE}/overview`, { signal }, "Could not load the overview");
-}
 
 export function listSupplyAlerts(includeResolved: boolean, signal?: AbortSignal): Promise<{ items: SupplyAlert[] }> {
   const query = includeResolved ? "?include_resolved=true" : "";

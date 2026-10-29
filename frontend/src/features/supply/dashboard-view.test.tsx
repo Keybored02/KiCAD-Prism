@@ -3,11 +3,10 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/types/auth";
-import { alertFixture, dashboardFixture, overviewFixture } from "./supply-test-fixtures";
+import { alertFixture, dashboardFixture } from "./supply-test-fixtures";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
-  getSupplyOverview: vi.fn(),
   getSupplyDashboard: vi.fn(),
   listSupplyAlerts: vi.fn(),
   listSupplyParts: vi.fn(),
@@ -44,7 +43,6 @@ const search = () => screen.getByLabelText("location").textContent ?? "";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.getSupplyOverview.mockResolvedValue(overviewFixture());
   mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture());
   mocked.listSupplyAlerts.mockResolvedValue({ items: [alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } })] });
   mocked.listSupplyParts.mockResolvedValue({ items: [], total: 3, limit: 50 });
@@ -196,7 +194,7 @@ describe("the dashboard", () => {
   });
 
   it("tells a new workspace what to do first", async () => {
-    mocked.getSupplyOverview.mockResolvedValue(overviewFixture({ figures: { watched: 0, at_risk: 0, out_of_stock: 0, lifecycle: 0, no_data: 0 }, connectors: 0, open_alerts: 0 }));
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ figures: { watched: 0, at_risk: 0, out_of_stock: 0, lifecycle: 0, open_alerts: 0, waiting: 0 }, connectors: 0 }));
     mocked.listSupplyAlerts.mockResolvedValue({ items: [] });
     renderView();
     expect(await screen.findByText(/No distributor is connected/)).toBeTruthy();

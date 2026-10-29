@@ -165,6 +165,10 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
         "project_costs": _project_costs(conn, now.date(), visible),
         "insights_ready": len(kept),
         "failing_feeds": failing_feeds(conn),
+        # What an empty alert list says depends on these: no distributor yet, nothing tracked, nothing read yet.
+        "connectors": int(conn.execute("SELECT COUNT(*) AS n FROM supply_connectors WHERE enabled").fetchone()["n"]),
+        "no_data": statuses.get("unknown", 0),
+        "recent_changes": alerts.recent_changes(conn, now, role=role),
     }
     built["inbox"] = inbox.items(conn, built, role, now, actor)
     return built

@@ -1067,15 +1067,6 @@ export interface SupplyRecentChange {
   sku: string;
 }
 
-export interface SupplyOverview {
-  figures: { watched: number; at_risk: number; out_of_stock: number; lifecycle: number; no_data: number };
-  open_alerts: number;
-  recent_changes: SupplyRecentChange[];
-  data_age: { oldest: string | null; newest: string | null };
-  /** Enabled connectors. */
-  connectors: number;
-}
-
 export interface AddWatchInput {
   manufacturer: string;
   mpn: string;
@@ -1678,6 +1669,11 @@ export interface SupplyDashboard {
   insights_ready: number;
   /** Enabled feeds whose last read failed, with their last good read: stores sources first, then connectors. */
   failing_feeds: Array<{ kind: "stores" | "connector"; name: string; since: string | null }>;
+  /** Enabled connectors. */
+  connectors: number;
+  /** Tracked parts with no reading yet. */
+  no_data: number;
+  recent_changes: SupplyRecentChange[];
   /** Lifecycle against availability, a row per lifecycle. */
   risk_grid: Array<{ lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown"; two_plus: number; one: number; out: number; not_read: number }>;
   /** Last-time-buy and last-ship dates in the next year, soonest first. */

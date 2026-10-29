@@ -1,4 +1,4 @@
-"""Alerts and the overview: when they open, when they clear, who may act, what the overview counts.
+"""Alerts and the Dashboard: when they open, when they clear, who may act, what the Dashboard counts.
 
 Needs ``PRISM_DATABASE_URL``. Offers are written directly so each condition is exact;
 one test runs the real poller to check the hook.
@@ -31,17 +31,17 @@ class SupplyAlertsTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from fastapi import FastAPI
 
-        from app.api import supply_alerts, supply_connectors, supply_parts
+        from app.api import supply_alerts, supply_connectors, supply_market, supply_parts
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
-        from app.services.supply import alerts, discoverer, overview, poller
+        from app.services.supply import alerts, discoverer, poller
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.providers.base import ProviderConfig
         from app.services.supply.providers.fake import FakeProvider
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
 
-        cls.database, cls.alerts, cls.overview = database, alerts, overview
+        cls.database, cls.alerts = database, alerts
         cls.discoverer, cls.poller = discoverer, poller
         cls.FakeProvider, cls.ProviderConfig = FakeProvider, ProviderConfig
         cls.users = {
@@ -55,6 +55,7 @@ class SupplyAlertsTests(unittest.TestCase):
         cls.app = FastAPI()
         cls.app.include_router(supply_parts.router)
         cls.app.include_router(supply_alerts.router)
+        cls.app.include_router(supply_market.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
@@ -456,9 +457,9 @@ class SupplyAlertsTests(unittest.TestCase):
         alert = self.open_alert()
         for role in ("admin", "designer", "qa"):
             self.assertEqual(self.call("GET", "/api/supply/alerts", role=role).status, 200, role)
-            self.assertEqual(self.call("GET", "/api/supply/overview", role=role).status, 200, role)
+            self.assertEqual(self.call("GET", "/api/supply/dashboard", role=role).status, 200, role)
         self.assertEqual(self.call("GET", "/api/supply/alerts", role="viewer").status, 403)
-        self.assertEqual(self.call("GET", "/api/supply/overview", role="viewer").status, 403)
+        self.assertEqual(self.call("GET", "/api/supply/dashboard", role="viewer").status, 403)
         for role in ("qa", "viewer"):
             self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/acknowledge", role=role).status, 403, role)
             self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/snooze", role=role, body={"hours": 1}).status, 403, role)
@@ -472,9 +473,9 @@ class SupplyAlertsTests(unittest.TestCase):
             self.evaluate(low["part_id"], lost["part_id"], after=later)
         self.assertEqual([a["kind"] for a in self.listed()], ["part_lost", "below_threshold"])
 
-    # --- the overview --------------------------------------------------------
+    # --- what the Dashboard counts ------------------------------------------
 
-    def test_the_overview_counts_what_the_parts_list_shows(self) -> None:
+    def test_the_dashboard_counts_what_the_parts_list_shows(self) -> None:
         fine = self.watch("FINE")
         empty = self.watch("EMPTY")
         eol = self.watch("EOL")
@@ -485,11 +486,9 @@ class SupplyAlertsTests(unittest.TestCase):
         for pid in (empty["part_id"], eol["part_id"]):
             self.evaluate(pid)
             self.evaluate(pid, after=timedelta(hours=1))
-        data = self.call("GET", "/api/supply/overview").json
-        self.assertEqual(data["figures"], {"watched": 4, "at_risk": 2, "out_of_stock": 1, "lifecycle": 1, "no_data": 1, "lifecycle_active": 2, "lifecycle_nrnd": 0, "lifecycle_last_time_buy": 0, "lifecycle_obsolete": 1, "lifecycle_unknown": 1})
-        self.assertEqual(data["open_alerts"], 2)
-        self.assertEqual(data["connectors"], 1)
-        self.assertIsNotNone(data["data_age"]["oldest"])
+        data = self.call("GET", "/api/supply/dashboard").json
+        self.assertEqual({name: data["figures"][name] for name in ("watched", "at_risk", "out_of_stock", "lifecycle", "open_alerts")}, {"watched": 4, "at_risk": 2, "out_of_stock": 1, "lifecycle": 1, "open_alerts": 2})
+        self.assertEqual((data["no_data"], data["connectors"]), (1, 1))
 
     def test_recent_changes_list_alerts_that_opened_or_cleared_and_listings_that_went(self) -> None:
         empty = self.watch("EMPTY")
@@ -509,18 +508,17 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(changes[0]["alert"]["kind"], "out_of_stock")
         self.assertEqual(changes[1]["sku"], "E")
 
-    def test_an_empty_overview(self) -> None:
+    def test_an_empty_dashboard(self) -> None:
         with self.store.connection() as conn:
             conn.execute("DELETE FROM supply_connectors")
-        data = self.call("GET", "/api/supply/overview").json
-        self.assertEqual(data["figures"], {"watched": 0, "at_risk": 0, "out_of_stock": 0, "lifecycle": 0, "no_data": 0, "lifecycle_active": 0, "lifecycle_nrnd": 0, "lifecycle_last_time_buy": 0, "lifecycle_obsolete": 0, "lifecycle_unknown": 0})
-        self.assertEqual((data["connectors"], data["data_age"]), (0, {"oldest": None, "newest": None}))
+        data = self.call("GET", "/api/supply/dashboard").json
+        self.assertEqual((data["figures"]["watched"], data["no_data"], data["connectors"], data["recent_changes"]), (0, 0, 0, []))
 
     def test_acknowledged_alerts_do_not_count_as_open(self) -> None:
         alert = self.open_alert()
-        self.assertEqual(self.call("GET", "/api/supply/overview").json["open_alerts"], 1)
+        self.assertEqual(self.call("GET", "/api/supply/dashboard").json["figures"]["open_alerts"], 1)
         self.call("POST", f"/api/supply/alerts/{alert['id']}/acknowledge")
-        self.assertEqual(self.call("GET", "/api/supply/overview").json["open_alerts"], 0)
+        self.assertEqual(self.call("GET", "/api/supply/dashboard").json["figures"]["open_alerts"], 0)
 
 
 if __name__ == "__main__":

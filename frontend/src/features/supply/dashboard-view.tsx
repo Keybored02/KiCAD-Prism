@@ -21,7 +21,6 @@ import { getSupplyDashboard } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 import { OpenPartSheet } from "./open-part-sheet";
 import { useSupplyNavigation } from "./use-supply-navigation";
-import { useSupplyOverview } from "./use-supply-parts";
 import { CONNECTORS_PLACE, REVIEW_PLACE } from "./supply-views";
 
 const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
@@ -41,7 +40,6 @@ function showAlerts() {
 
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
 export function DashboardView({ user }: { user: User | null }) {
-  const overview = useSupplyOverview();
   const dashboardFetcher = useCallback((signal: AbortSignal) => getSupplyDashboard(signal), []);
   const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard");
   const { go, openPart } = useSupplyNavigation();
@@ -109,16 +107,16 @@ export function DashboardView({ user }: { user: User | null }) {
           </>
         ) : null}
         <div className="grid items-start gap-3 lg:grid-cols-2">
-          <AlertList user={user} overview={overview.data} feedsFailing={(data?.failing_feeds?.length ?? 0) > 0} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
-          {overview.data && overview.data.recent_changes.length > 0 ? (
+          <AlertList user={user} dashboard={data} feedsFailing={(data?.failing_feeds?.length ?? 0) > 0} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
+          {data && data.recent_changes.length > 0 ? (
             <details open>
               <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</summary>
-              <div className="mt-2"><RecentChanges changes={overview.data.recent_changes} onOpenPart={openPart} /></div>
+              <div className="mt-2"><RecentChanges changes={data.recent_changes} onOpenPart={openPart} /></div>
             </details>
           ) : null}
         </div>
       </div>
-      <OpenPartSheet user={user} onChanged={() => void overview.refresh()} />
+      <OpenPartSheet user={user} />
     </div>
   );
 }
