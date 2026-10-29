@@ -39,6 +39,8 @@ export interface SupplyCsvResult extends SupplyCsvImport {
 }
 
 export interface SupplyConnector {
+  /** For an administrator, on a connector whose change notices need a person's sign-in: that sign-in. */
+  signin?: SupplySignin;
   id: string;
   provider: string;
   provider_label: string;

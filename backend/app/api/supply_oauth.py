@@ -1,6 +1,6 @@
 """A person's sign-in at DigiKey, for change notices. Administrators only.
 
-``POST /api/supply/connectors/{id}/signin`` gives the DigiKey address to open; DigiKey sends the browser back to
+Who is signed in comes with an administrator's connector list. ``POST /api/supply/connectors/{id}/signin`` gives the DigiKey address to open; DigiKey sends the browser back to
 ``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Connectors tab with a result code
 in the address (``signin=ok`` or ``signin=failed&reason=<code>``). The page words the code itself. The callback needs the same administrator's session and the one-time state from the start.
 """
@@ -8,7 +8,7 @@ in the address (``signin=ok`` or ``signin=failed&reason=<code>``). The page word
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,22 +27,6 @@ RETURN_TO = "/?section=library-manager&libraryView=connectors"
 
 def _service():
     return supply_connectors.service
-
-
-@router.get("/connectors/{connector_id}/signin")
-async def signin_status(connector_id: str, _admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
-    """Whether someone is signed in for the connector, and the callback address the DigiKey app must list."""
-
-    def read() -> dict[str, Any]:
-        service = _service()
-        service.get(connector_id)
-        with service.store.connection() as conn:
-            return oauth.status(conn, connector_id) | {"redirect_uri": oauth.redirect_uri()}
-
-    try:
-        return await asyncio.to_thread(read)
-    except ConnectorNotFound as exc:
-        raise HTTPException(status_code=404, detail="Connector not found") from exc
 
 
 @router.post("/connectors/{connector_id}/signin")

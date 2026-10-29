@@ -64,6 +64,7 @@ class DetailsTests(unittest.TestCase):
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
         cls.app.include_router(supply_oauth.router)
+        cls.app.include_router(supply_connectors.router)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
 
@@ -608,9 +609,11 @@ class DetailsTests(unittest.TestCase):
             self.assertEqual(back.headers["location"], "/?section=library-manager&libraryView=connectors&signin=ok")
             again = _request(self.app, "GET", "/api/supply/oauth/digikey/callback", user=self.users["admin"], query=f"code=abc&state={state}")
             self.assertTrue(again.headers["location"].endswith("&signin=failed&reason=expired"), again.headers["location"])
-            status = _request(self.app, "GET", f"/api/supply/connectors/{self.digikey}/signin", user=self.users["admin"])
-        self.assertEqual((status.json["signed_in"], status.json["redirect_uri"]),
-                         (True, "https://prism.example/api/supply/oauth/digikey/callback"))
+            listed = _request(self.app, "GET", "/api/supply/connectors", user=self.users["admin"]).json
+            as_designer = _request(self.app, "GET", "/api/supply/connectors", user=self.users["designer"]).json
+        status = next(item for item in listed if item["id"] == self.digikey)["signin"]
+        self.assertEqual((status["signed_in"], status["redirect_uri"]), (True, "https://prism.example/api/supply/oauth/digikey/callback"))
+        self.assertNotIn("signin", next(item for item in as_designer if item["id"] == self.digikey), "only administrators see who signed in")
         self.assertEqual(_request(self.app, "DELETE", f"/api/supply/connectors/{self.digikey}/signin", user=self.users["admin"]).status, 204)
         self.assertEqual(self.rows("SELECT * FROM supply_connector_grants"), [])
 

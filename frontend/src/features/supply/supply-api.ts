@@ -161,10 +161,6 @@ async function deleteSupplyConnectorRequest(id: string): Promise<void> {
   }
 }
 
-export function getSupplySignin(id: string, signal?: AbortSignal): Promise<SupplySignin> {
-  return fetchJson<SupplySignin>(connectorPath(id, "signin"), { signal }, "Could not load the sign-in");
-}
-
 /** Where to send the browser to sign in at DigiKey. */
 export async function startSupplySignin(id: string): Promise<string> {
   return (await post<{ url: string }>(connectorPath(id, "signin"), undefined, "Could not start the sign-in")).url;

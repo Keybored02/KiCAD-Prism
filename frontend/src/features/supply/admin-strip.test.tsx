@@ -11,13 +11,12 @@ const list = (loaded_at: string | null): SupplySvhcList => ({ loaded: loaded_at 
 
 describe("what only an administrator can fix", () => {
   it("says nothing when all is well", () => {
-    expect(adminNotices([connector("dk")], new Map([["dk", signin({ expires_at: day(60) })]]), list(day(-30)), 0, NOW)).toEqual([]);
+    expect(adminNotices([connector("dk", { signin: signin({ expires_at: day(60) }) })], list(day(-30)), 0, NOW)).toEqual([]);
   });
 
   it("names a paused connector, a sign-in about to end or gone, an old Candidate List and parts waiting for room", () => {
     const notices = adminNotices(
-      [connector("dk", { paused_reason: "over budget" }), connector("dk2")],
-      new Map([["dk", signin({ expires_at: day(5) })], ["dk2", signin({ state: "expired" })]]),
+      [connector("dk", { paused_reason: "over budget", signin: signin({ expires_at: day(5) }) }), connector("dk2", { signin: signin({ state: "expired" }) })],
       list(day(-200)), 12, NOW,
     );
     expect(notices.map((item) => item.key)).toEqual(["paused:dk", "signin:dk", "signin:dk2", "echa", "waiting"]);
