@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from app.services.supply import freshness
 from app.services.supply.assessment import settings as rules
 from app.services.supply.audit import actor_text, write_audit
 
@@ -58,23 +59,13 @@ def set_for_part(conn, part_id: str, quantity: int | None, actor: str) -> dict[s
             (part_id, quantity, actor),
         )
     after = of_part(conn, part_id)
-    if after["quantity"] != before["quantity"]:
-        forget(conn, [part_id])
     write_audit(conn, actor, "part.price_quantity", part_id, {"before": before["quantity"], "after": after["quantity"], "own": after["own"]},
                 subject_kind="part")
     return after
 
 
-def forget(conn, part_ids: list[str] | None = None) -> None:
-    """Drop what was worked out for these parts (all of them with ``None``) so it is worked out again.
+def forget(conn) -> None:
+    """Have every kept summary, and so every kept insight and rollup, worked out again: the default quantity or the base currency
+    changed (``freshness``). A part's own quantity marks its own through its row."""
 
-    A kept insight stays readable until then, dated the epoch: older than any renewal cut and first in line. (``-infinity`` was
-    first in line too, but Python cannot read it, and every page that lists insights failed until all of them were renewed.)
-    """
-
-    if part_ids is None:
-        conn.execute("DELETE FROM supply_part_summaries")
-        conn.execute("UPDATE supply_part_insights SET computed_at = 'epoch'::timestamptz")
-        return
-    conn.execute("DELETE FROM supply_part_summaries WHERE part_id = ANY(%s)", (part_ids,))
-    conn.execute("UPDATE supply_part_insights SET computed_at = 'epoch'::timestamptz WHERE part_id = ANY(%s)", (part_ids,))
+    freshness.mark(conn, "summary", ["*"])

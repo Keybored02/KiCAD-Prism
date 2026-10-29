@@ -6,10 +6,11 @@ of them, so housekeeping keeps one row per tracked part (``part_insights``) and 
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import insights, offer_rules, price_behaviour, prices, promises
+from app.services.supply import freshness, insights, offer_rules, price_behaviour, prices, promises
 
 SPARK_DAYS = 30
 PRICE_MOVE_PERCENT = 5
@@ -57,8 +58,12 @@ def _likely_out(facts: dict[str, Any], key: str) -> bool:
     return bool(forecast.get("available")) and not forecast.get("out_now") and (forecast.get(key) or 0) >= LIKELY
 
 
+# Kept facts are renewed when a mark says what they are made from changed (``freshness``), and at least this often, since their
+# trends move with the clock. A run renews as many as it can in ``RENEW_SECONDS`` (one part takes about 90 ms): missing first,
+# then marked, then the oldest.
 RENEW_AFTER = timedelta(hours=20)
-RENEW_PER_RUN = 40
+RENEW_SECONDS = 60.0
+_RENEW_BATCH = 100
 
 
 def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
@@ -149,28 +154,41 @@ def _outlook_band(conn, part_id: str, offers: list[dict[str, Any]], days: list[d
 def refresh(conn, part_id: str, now: datetime) -> None:
     import json
 
+    seen, snap = freshness.seen(conn)
     data = compute(conn, part_id, now)
     conn.execute(
-        "INSERT INTO supply_part_insights (part_id, computed_at, data) VALUES (%s, %s, %s::jsonb) "
-        "ON CONFLICT (part_id) DO UPDATE SET computed_at = EXCLUDED.computed_at, data = EXCLUDED.data",
-        (part_id, now, json.dumps(data)),
+        f"INSERT INTO supply_part_insights (part_id, computed_at, data, seen, snap, own) VALUES (%s, %s, %s::jsonb, %s, %s, {freshness.OWN_SQL}) "
+        "ON CONFLICT (part_id) DO UPDATE SET computed_at = EXCLUDED.computed_at, data = EXCLUDED.data, seen = EXCLUDED.seen, "
+        "snap = EXCLUDED.snap, own = EXCLUDED.own",
+        (part_id, now, json.dumps(data), seen, snap),
     )
 
 
-def renew(conn, now: datetime | None = None, limit: int = RENEW_PER_RUN) -> int:
-    """Work out the facts again for the tracked parts that have none or the oldest. Returns how many."""
+def renew(conn, now: datetime | None = None, seconds: float = RENEW_SECONDS) -> int:
+    """Work out the facts again for the tracked parts that have none, that a mark made stale or that are older than ``RENEW_AFTER``,
+    in that order, until ``seconds`` have gone. Returns how many."""
 
     now = now or datetime.now(timezone.utc)
-    rows = conn.execute(
-        """
-        SELECT pt.part_id FROM supply_part_tiers pt LEFT JOIN supply_part_insights i ON i.part_id = pt.part_id
-        WHERE i.part_id IS NULL OR i.computed_at < %s ORDER BY COALESCE(i.computed_at, '-infinity'::timestamptz), pt.part_id LIMIT %s
-        """,
-        (now - RENEW_AFTER, limit),
-    ).fetchall()
-    for row in rows:
-        refresh(conn, row["part_id"], now)
-    return len(rows)
+    stop, done, tried = time.monotonic() + seconds, 0, set()
+    while time.monotonic() < stop:
+        rows = conn.execute(
+            f"""
+            SELECT pt.part_id FROM supply_part_tiers pt LEFT JOIN supply_part_insights i ON i.part_id = pt.part_id
+            CROSS JOIN LATERAL (SELECT i.part_id IS NOT NULL AND {freshness.stale_sql("insight", "ARRAY[i.part_id]", "i")} AS marked) m
+            WHERE (i.part_id IS NULL OR m.marked OR i.computed_at < %s) AND pt.part_id <> ALL(%s)
+            ORDER BY i.part_id IS NOT NULL, NOT m.marked, i.computed_at, pt.part_id LIMIT {_RENEW_BATCH}
+            """,
+            (now - RENEW_AFTER, list(tried)),
+        ).fetchall()
+        if not rows:
+            break
+        for row in rows:
+            if time.monotonic() >= stop:
+                break
+            refresh(conn, row["part_id"], now)
+            tried.add(row["part_id"])
+            done += 1
+    return done
 
 
 def read_all(conn) -> list[dict[str, Any]]:

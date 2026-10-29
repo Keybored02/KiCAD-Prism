@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping
 
-from app.services.supply import budget, counted, facts, forecasting, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import budget, counted, facts, forecasting, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 from app.services.supply.providers import registry
@@ -240,13 +240,13 @@ _PRICE_KEYS = ("unit_price", "currency", "price_quantity", "price_kind", "price_
 
 def _current_sql(priced_with: str, summary: str = "s") -> str:
     """SQL for "this kept summary is current": worked out by this code, in today's currency at today's rates (neither marks a part:
-    they change every price at once), and no change of its part came from a transaction still running when it was worked out."""
+    they change every price at once), and no change it did not see has marked it (``freshness``)."""
 
     if not priced_with.isalnum():
         raise ValueError("not a pricing key")
     return (
         f"({summary}.version = {SUMMARY_VERSION} AND {summary}.priced_with = '{priced_with}' AND {summary}.snap > 0 "
-        f"AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = {summary}.part_id AND d.xid >= {summary}.snap))"
+        f"AND NOT {freshness.stale_sql('summary', f'ARRAY[{summary}.part_id]', summary)})"
     )
 
 
@@ -261,13 +261,12 @@ def _from_row(row) -> dict[str, Any]:
     }
 
 
-def _keep(conn, found: dict[str, dict[str, Any]]) -> None:
+def _keep(conn, found: dict[str, dict[str, Any]], seen: tuple[str, int]) -> None:
     """Keep worked-out summaries, as a favour to the next reader: never wait for a row another transaction holds, and write them all at
-    once."""
+    once. ``seen`` is the snapshot taken before what they were worked out from was read (``freshness.seen``)."""
 
     if not found:
         return
-    snap = max(conn.execute("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS n").fetchone()["n"], 1)
     ids = list(found)
     mine = {row["part_id"] for row in conn.execute(
         "SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s) FOR UPDATE SKIP LOCKED", (ids,)).fetchall()}
@@ -285,24 +284,28 @@ def _keep(conn, found: dict[str, dict[str, Any]]) -> None:
     insert = [part_id for part_id in ids if part_id not in mine and part_id not in held]
     if update:
         conn.execute(
-            f"UPDATE supply_part_summaries s SET ({columns}, version, snap, computed_at) = "
-            f"(n.status, n.problem, n.stock, n.listings, n.lifecycle, n.dropped, n.tier, n.unit_price, n.as_of, n.price, n.priced_with, %s, %s, NOW()) "
+            f"UPDATE supply_part_summaries s SET ({columns}, version, seen, snap, own, computed_at) = "
+            f"(n.status, n.problem, n.stock, n.listings, n.lifecycle, n.dropped, n.tier, n.unit_price, n.as_of, n.price, n.priced_with, %s, %s, %s, {freshness.OWN_SQL}, NOW()) "
             f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) WHERE s.part_id = n.part_id",
-            (SUMMARY_VERSION, snap, records(update)),
+            (SUMMARY_VERSION, *seen, records(update)),
         )
     if insert:
         conn.execute(
-            f"INSERT INTO supply_part_summaries (part_id, {columns}, version, snap, computed_at) "
-            f"SELECT n.part_id, {', '.join('n.' + name.strip() for name in columns.split(','))}, %s, %s, NOW() "
+            f"INSERT INTO supply_part_summaries (part_id, {columns}, version, seen, snap, own, computed_at) "
+            f"SELECT n.part_id, {', '.join('n.' + name.strip() for name in columns.split(','))}, %s, %s, %s, {freshness.OWN_SQL}, NOW() "
             f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) ON CONFLICT DO NOTHING",
-            (SUMMARY_VERSION, snap, records(insert)),
+            (SUMMARY_VERSION, *seen, records(insert)),
         )
 
 
-def _cached(conn, rows, money: tuple[str, fx.Rates, str] | None = None, offers: dict[str, list[dict]] | None = None) -> dict[str, dict[str, Any]]:
-    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out (from ``offers`` when the caller
-    has read them) and kept."""
+def _cached(
+    conn, rows, money: tuple[str, fx.Rates, str] | None = None, offers: dict[str, list[dict]] | None = None, seen: tuple[str, int] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept. A caller that has read
+    the offers passes them with the snapshot it took before (``freshness.seen``)."""
 
+    if offers is None or seen is None:
+        offers, seen = None, freshness.seen(conn)
     money = money or _money(conn)
     fresh = {
         row["part_id"]: _from_row(row) for row in conn.execute(
@@ -312,7 +315,7 @@ def _cached(conn, rows, money: tuple[str, fx.Rates, str] | None = None, offers: 
     todo = [r for r in rows if r["id"] not in fresh]
     if todo:
         found = _computed(conn, todo, offers if offers is not None else offers_by_part(conn, [r["id"] for r in todo]), money)
-        _keep(conn, found)
+        _keep(conn, found, seen)
         fresh.update(found)
     return fresh
 
@@ -326,24 +329,27 @@ def _bring_up_to_date(conn, where: str, params: list[Any]) -> str:
 
     money = _money(conn)
     while True:
+        seen = freshness.seen(conn)
         rows = conn.execute(
             _ROW_SELECT + f"LEFT JOIN supply_part_summaries s ON s.part_id = p.id WHERE {where} AND NOT COALESCE({_current_sql(money[2])}, FALSE) "
             f"LIMIT {_BATCH}", params,
         ).fetchall()
         if rows:
-            _keep(conn, _computed(conn, rows, offers_by_part(conn, [r["id"] for r in rows]), money))
+            _keep(conn, _computed(conn, rows, offers_by_part(conn, [r["id"] for r in rows]), money), seen)
         if len(rows) < _BATCH:
             return money[2]
 
 
-def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None, *, role: str | None = None) -> list[dict[str, Any]]:
+def _summaries(
+    conn, rows, offers: dict[str, list[dict]] | None = None, *, role: str | None = None, seen: tuple[str, int] | None = None,
+) -> list[dict[str, Any]]:
     """The list-row summary of each part row: status, stock, price, lifecycle, tier, and how many projects ``role`` may see use it.
 
     The offer summaries are the kept ones (``part_summaries``); a stale or missing one is worked out from ``offers`` when given.
     """
 
     ids = [r["id"] for r in rows]
-    sums = _cached(conn, rows, offers=offers)
+    sums = _cached(conn, rows, offers=offers, seen=seen)
     jlc = facts.jlc_classes(conn, ids)
     used = usage.projects_of_parts(conn, ids, role)
 
@@ -385,13 +391,14 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
 
     if not part_ids:
         return [], {}
+    seen = freshness.seen(conn)
     rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [list(part_ids)]).fetchall()
     offers = offers_by_part(conn, [row["id"] for row in rows])
     wanted = {
         row["id"]: [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
         for row in rows
     }
-    return _summaries(conn, rows, wanted, role=role), wanted
+    return _summaries(conn, rows, wanted, role=role, seen=seen), wanted
 
 
 def _scope_where(scope: Scope, query: str, role: str | None) -> tuple[str, list[Any]]:

@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
 
-from app.services.supply import accounts, admission, limits, pacing, quota
+from app.services.supply import accounts, admission, freshness, limits, pacing, quota
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
@@ -312,10 +312,7 @@ class ConnectorService:
                     admission.sync(conn)
                 if "enabled" in fields:
                     # A disabled connector's offers stop counting: the kept summaries of the parts it lists are stale.
-                    conn.execute(
-                        "INSERT INTO supply_summary_dirty (part_id) SELECT DISTINCT part_id FROM supply_listings WHERE connector_id = %s AND part_id IS NOT NULL",
-                        (connector_id,),
-                    )
+                    freshness.mark_sql(conn, "summary", "SELECT part_id FROM supply_listings WHERE connector_id = %s", (connector_id,))
                 return self._dto_from(conn, _fetch(conn, connector_id))
         except UniqueViolation:
             raise ConnectorError("duplicate", "A connector for this provider and storefront already exists.") from None
