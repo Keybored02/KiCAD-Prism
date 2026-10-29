@@ -5,7 +5,7 @@ highest any source gives it, and ``part_tiers`` keeps the sources as its reasons
 
 * ``project``: a part on a chosen variant of a tracked project (tier 1)
 * ``person``: a watch someone set at a tier
-* ``component``: a watch made for a catalog component or its approved alternate
+* ``component``: a watched catalog component's main part (``component_watches``), at the watch's tier
 * ``legacy``: a watch from before tiers existed (tier 2)
 
 Only library parts get a tier (decision D12): a project line with no library component is reported, never followed.
@@ -389,6 +389,18 @@ def _sources(conn, part_ids: Sequence[str] | None) -> dict[str, list[dict[str, A
         found.setdefault(row["part_id"], []).append(
             {"kind": "project", "ref": row["project_id"], "variant": row["variant"], "tier": TIER_1, "rate": "daily"}
         )
+    if component_parts.library_present(conn):
+        for row in conn.execute(
+            """
+            SELECT cp.part_id, w.component_id, w.tier, w.rate FROM supply_component_watches w
+            JOIN component_parts cp ON cp.component_id = w.component_id AND cp.role = 'main'
+            WHERE (%s::text[] IS NULL OR cp.part_id = ANY(%s))
+            """,
+            (only, only),
+        ).fetchall():
+            found.setdefault(row["part_id"], []).append(
+                {"kind": "component", "ref": row["component_id"], "tier": int(row["tier"]), "rate": row["rate"]}
+            )
     library = component_parts.in_library(conn, found)
     return {part_id: reasons for part_id, reasons in found.items() if part_id in library}
 

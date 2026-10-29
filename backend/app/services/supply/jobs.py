@@ -279,7 +279,7 @@ def housekeeping(store: SupplyStore) -> int:
         # Each step commits: a step's change marks are then seen by what the next one keeps (``freshness``), and no step holds the
         # others' rows.
         for step in (
-            _refresh_rates, _read_catalogues, _snapshot_market, _snapshot_costs, _snapshot_figures, _sync_component_watches, _refresh_project_boms,
+            _refresh_rates, _read_catalogues, _snapshot_market, _snapshot_costs, _snapshot_figures, _sync_component_mains, _refresh_project_boms,
             _sync_tracking, _pick_packagings, _renew_insights, refresh_rollups,
         ):
             step(conn)
@@ -423,10 +423,11 @@ COMPONENT_SYNC_EVERY = 3600.0
 _component_sync_at: float | None = None
 
 
-def _sync_component_watches(conn, force: bool = False) -> None:
-    """Watch the parts of watched components, so a component whose maker or number changed is picked up. Best effort.
+def _sync_component_mains(conn, force: bool = False) -> None:
+    """Keep each component's main part on its current revision, so a watched component whose maker or number changed follows its
+    new part (``component_watches``). Best effort.
 
-    Once an hour per process: setting a component watch already syncs at once.
+    Once an hour per process: setting a component watch already syncs its component at once.
     """
 
     global _component_sync_at
@@ -434,14 +435,13 @@ def _sync_component_watches(conn, force: bool = False) -> None:
         return
     _component_sync_at = time.monotonic()
     try:
-        from app.services.supply import catalog_read, component_parts, component_watches
+        from app.services.supply import component_parts
 
         with conn.transaction():
-            # Each component's main part follows its current revision before its watch is synced.
-            component_parts.sync_main(conn)
-            component_watches.sync_all(conn, catalog_read.identities)
-    except Exception:  # noqa: BLE001 - the catalog may be unavailable; the next job tries again
-        logging.getLogger(__name__).info("Component watches not synced", exc_info=True)
+            if component_parts.sync_main(conn)["changed"]:
+                tracking.recompute(conn)
+    except Exception:  # noqa: BLE001 - the next job tries again
+        logging.getLogger(__name__).info("Component main parts not synced", exc_info=True)
 
 
 def _refresh_project_boms(conn) -> None:

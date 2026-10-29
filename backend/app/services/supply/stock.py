@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import counted
+from app.services.supply import component_parts, counted
 from app.services.supply.providers import registry
 
 
@@ -143,5 +143,23 @@ def part_stock(conn, part_id: str) -> PartStock:
         """.replace("{counted}", counted.listing_sql()).replace("{pool}", pool_sql()),
         (part_id,),
     ).fetchall()
+    return aggregate(rows, packaging_of(conn, part_id))
+
+
+def packaging_of(conn, part_id: str) -> str:
+    """The packaging a part is followed in: its watch's, else that of a watched component whose main part it is, else any."""
+
     watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
-    return aggregate(rows, watch["packaging"] if watch else "any")
+    if watch and watch["packaging"] != "any":
+        return watch["packaging"]
+    if component_parts.library_present(conn):
+        row = conn.execute(
+            """
+            SELECT w.packaging FROM supply_component_watches w JOIN component_parts cp ON cp.component_id = w.component_id AND cp.role = 'main'
+            WHERE cp.part_id = %s AND w.packaging <> 'any' ORDER BY w.created_at, w.component_id LIMIT 1
+            """,
+            (part_id,),
+        ).fetchone()
+        if row:
+            return row["packaging"]
+    return "any"
