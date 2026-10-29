@@ -22,9 +22,10 @@ def connector_health(conn, now: datetime | None = None) -> list[dict[str, Any]]:
     now = now or datetime.now(timezone.utc)
     rows = conn.execute(
         """
-        SELECT c.id, c.display_name, c.provider, c.enabled, c.paused_reason, c.daily_budget, c.last_ok_at,
+        SELECT c.id, c.display_name, c.provider, c.enabled, c.paused_reason, a.daily_budget, c.last_ok_at,
                c.last_error_code, c.last_error_at, COALESCE(q.spent, 0) AS spent, COALESCE(q.interactive_spent, 0) AS interactive_spent
-        FROM supply_connectors c LEFT JOIN supply_quota_ledger q ON q.connector_id = c.id AND q.day = %s
+        FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id
+        LEFT JOIN supply_quota_ledger q ON q.account_id = c.account_id AND q.day = %s
         ORDER BY lower(c.display_name), c.id
         """,
         (now.astimezone(timezone.utc).date(),),

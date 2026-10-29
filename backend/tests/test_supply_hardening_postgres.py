@@ -278,7 +278,7 @@ class HardeningTests(unittest.TestCase):
             cid = self.connector("demo_twocall", daily_budget=1000)
             self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
             summary = self.poller().poll_connector(cid)
-            (row,) = self.rows("SELECT spent FROM supply_quota_ledger WHERE connector_id = %s", cid)
+            (row,) = self.rows("SELECT spent FROM supply_quota_ledger WHERE account_id = %s", cid)
             self.assertEqual((summary.calls, row["spent"]), (1, 2), "one batch, two calls on the budget")
         finally:
             registry.unregister("demo_twocall")
