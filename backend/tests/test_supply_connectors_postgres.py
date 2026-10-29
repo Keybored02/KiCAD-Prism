@@ -23,7 +23,7 @@ class SupplyDatabaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         from app.services.postgres_database import database
-        from app.services.supply import schema_migrations
+        from app.services.supply import schema as supply_schema
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.providers import registry
         from app.services.supply.providers.base import CredentialField, ProviderSpec
@@ -32,7 +32,7 @@ class SupplyDatabaseTests(unittest.TestCase):
         from app.services.trackers.secrets import CredentialKeyring
 
         cls.database = database
-        cls.schema_migrations = schema_migrations
+        cls.supply_schema = supply_schema
         cls.registry = registry
         cls.captured = []
 
@@ -71,35 +71,18 @@ class SupplyDatabaseTests(unittest.TestCase):
 
     # --- migrations -------------------------------------------------------
 
-    def test_the_supply_steps_are_one_catalog_ledger_step_and_rerunning_them_is_a_no_op(self) -> None:
+    def test_the_supply_schema_is_one_catalog_ledger_step_and_running_it_again_changes_nothing(self) -> None:
         from app.services.catalog_schema_migrations import CATALOG_LEDGER
 
         versions = {step.name: step.version for step in CATALOG_LEDGER.steps}
         self.assertLess(versions["supply_tables"], versions["component_parts"], "component_parts refers to supply_parts, so it comes after")
-        declared = [version for version, _name, _step in self.schema_migrations.MIGRATIONS]
-        self.assertEqual(sorted(declared), [v for v in range(1, len(declared) + 2) if v != 80], "steps are numbered consecutively")
+        self.assertLess(versions["inventory_sources"], versions["supply_catalog_triggers"], "the rollup triggers need the catalog tables they watch")
+        count = "SELECT (SELECT count(*) FROM pg_tables WHERE schemaname = current_schema()) + (SELECT count(*) FROM supply_maker_seeds) AS n"
         with self.store.connection() as conn:
-            before = conn.execute("SELECT count(*) AS n FROM pg_tables WHERE schemaname = current_schema()").fetchone()["n"]
-            self.schema_migrations.create_supply_tables(conn)
-            after = conn.execute("SELECT count(*) AS n FROM pg_tables WHERE schemaname = current_schema()").fetchone()["n"]
+            before = conn.execute(count).fetchone()["n"]
+            self.supply_schema.create_supply_tables(conn)
+            after = conn.execute(count).fetchone()["n"]
         self.assertEqual(before, after)
-
-    def test_migration_90_raises_a_jlcpcb_budget_left_at_the_old_default_and_leaves_a_chosen_one(self) -> None:
-        jlc = self.service.create(actor="a@example.com", provider="jlcpcb", display_name="JLCPCB")["id"]
-        other = self.service.create(actor="a@example.com", provider="fake", currency="EUR", daily_budget=300)["id"]
-
-        def budgets():
-            with self.store.connection() as conn:
-                self.schema_migrations._m090_jlcpcb_budget(conn)  # noqa: SLF001
-                return {row["id"]: row["daily_budget"] for row in conn.execute("SELECT id, daily_budget FROM supply_connectors").fetchall()}
-
-        with self.store.connection() as conn:
-            conn.execute("UPDATE supply_connectors SET daily_budget = 300 WHERE id = %s", (jlc,))
-        found = budgets()
-        self.assertEqual((found[jlc], found[other]), (1000, 300), "the old default is raised, another provider's budget is not")
-        with self.store.connection() as conn:
-            conn.execute("UPDATE supply_connectors SET daily_budget = 250 WHERE id = %s", (jlc,))
-        self.assertEqual(budgets()[jlc], 250, "a budget a person chose is left")
 
     # --- connectors -------------------------------------------------------
 
