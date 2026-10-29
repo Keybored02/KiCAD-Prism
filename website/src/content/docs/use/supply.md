@@ -216,9 +216,8 @@ and administrators open items and add notes; QA and administrators accept,
 reject or reopen them; the owner, whoever opened it or QA marks one done. An
 item's sheet shows its evidence and its history. A work item changes nothing
 by itself: retiring or marking the component still happens where it always
-does.
-
-The Dashboard's inbox counts the items due a recheck and the ones you own.
+does. **Review → Work items** lists the ones due a recheck and the ones you
+own.
 
 ## Alerts
 
@@ -237,13 +236,9 @@ administrators; a designer's request waits in **To approve** and the alert
 still rises until it is approved. The Dashboard lists the open alerts, the ones the **Open alerts**
 tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
-The Dashboard opens with an **Inbox**: up to eight lines of what needs a
-person, worst first, each opening where it is acted on. While the stores feed
-or a distributor connector can't be read, it heads the inbox with how long
-ago it last read (**Stores down · since 9 h ago**); the figures behind it may
-be out of date until it reads again, and the line opens Connectors. Ending
-components and the alert list sit below the tiles, folded; an inbox line
-opens them.
+Ending components and the alert list sit below the tiles, folded. While the
+stores feed or a distributor connector can't be read, the figures may be out
+of date until it reads again; **Library Manager → Connectors** shows which.
 
 Prices and stock from the Simulated market, a made-up distributor for demos
 and testing, carry a **Test data** chip wherever they show. **Ask DigiKey for
