@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from statistics import median
 from typing import Any
 
@@ -34,6 +35,26 @@ _FINDING_TEXT = {
 }
 
 _OUTLOOK_TEXT = outlook.LABELS
+
+SCORECARD_CACHE_FOR = 6 * 3600.0
+_scorecard: tuple[float, date, dict[str, Any]] | None = None
+
+
+def _kept_scorecard(conn, today: date) -> dict[str, Any]:
+    """The distributor scorecard for ``today``, kept for six hours: it reads every shared listing's last 90 days of stock and a year of
+    stock-outs, which take seconds on a large library and move by the day."""
+
+    global _scorecard
+    if _scorecard is not None and _scorecard[1] == today and time.monotonic() - _scorecard[0] < SCORECARD_CACHE_FOR:
+        return _scorecard[2]
+    found = scorecard.build(conn, today)
+    _scorecard = (time.monotonic(), today, found)
+    return found
+
+
+def forget() -> None:
+    global _scorecard
+    _scorecard = None
 
 
 def _distributors(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -105,7 +126,7 @@ def build(conn) -> dict[str, Any]:
         "counts": counts,
         "scatter": scatter[:SCATTER_MAX],
         "scatter_missing": {"no_rate": no_rate, "no_lead_time": no_lead},
-        "distributors": _distributors(rows) | {"scorecard": scorecard.build(conn, datetime.now(timezone.utc).date())},
+        "distributors": _distributors(rows) | {"scorecard": _kept_scorecard(conn, datetime.now(timezone.utc).date())},
         "market": market.overview(conn),
         "market_trends": _market_trends(conn),
     }

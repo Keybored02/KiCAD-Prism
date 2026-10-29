@@ -767,6 +767,37 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual((rows[second]["wait"]["quoted_days"], rows[second]["wait"]["real_days"]), (14, 25))
         self.assertEqual(rows[first]["stock_outs"], {"n": 5, "median_days_out": 10})
 
+    def test_the_stock_share_counts_each_day_once_from_its_last_reading(self) -> None:
+        from app.services.supply import scorecard
+
+        first, second = self.seed_scorecard(1)
+        alone = self.insert_listing(self.watch_via_api("ALONE")["part_id"], first, "ALONE", stock=5)
+        today = self.now.date()
+        with self.store.connection() as conn:
+            listings = {row["sku"]: row["id"] for row in conn.execute("SELECT id, sku FROM supply_listings WHERE sku IN ('A0', 'B0')").fetchall()}
+            one, two = listings["A0"], listings["B0"]
+            def daily(listing: str, days_ago: int, stock: int, marketplace: bool = False) -> None:
+                conn.execute(
+                    "INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, marketplace, sample_count) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 1)", (listing, today - timedelta(days=days_ago), stock, stock, stock, marketplace))
+
+            def raw(listing: str, days_ago: int, hour: int, stock: int, marketplace: bool = False) -> None:
+                at = datetime.combine(today - timedelta(days=days_ago), datetime.min.time(), timezone.utc) + timedelta(hours=hour)
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, marketplace) VALUES (%s, %s, %s, %s)", (listing, at, stock, marketplace))
+
+            for days_ago, stock in ((10, 5), (11, 0), (12, 5)):
+                daily(one, days_ago, stock)
+            daily(one, scorecard.STOCK_DAYS + 5, 5)  # before the window
+            daily(one, 13, 5, marketplace=True)  # a marketplace's stock is not the distributor's
+            daily(two, 3, 0)
+            raw(two, 3, 8, 0)
+            raw(two, 3, 20, 7)  # the day's last reading speaks for it, not the rollup
+            daily(two, 4, 9)
+            raw(two, 4, 9, 9, marketplace=True)  # a raw day holding only marketplace readings counts for nothing
+            daily(alone, 10, 5)  # one distributor's part is not judged
+            share = scorecard._stock_share(conn, today)
+        self.assertEqual(share, {first: (2, 3), second: (1, 1)})
+
     def test_a_part_one_distributor_lists_is_not_judged(self) -> None:
         from app.services.supply import scorecard
 
