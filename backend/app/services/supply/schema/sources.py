@@ -1,6 +1,6 @@
 """Where supply data comes from and what it costs: accounts (the credentials a provider knows Prism by, with their call
-budget and its ledger), connectors and their credentials' grants, rate-limit marks and pacing, uploaded offer files,
-exchange rates, periodic task runs, settings and the audit trail.
+budget and its ledger), connectors and their credentials' grants, rate-limit marks and pacing, uploaded and pushed offers
+and the tokens a source pushes with, exchange rates, periodic task runs, settings and the audit trail.
 """
 
 from __future__ import annotations
@@ -118,6 +118,8 @@ TABLES: tuple[str, ...] = (
         price_breaks JSONB NOT NULL DEFAULT '[]'::jsonb,
         jlc_library TEXT NOT NULL DEFAULT '',
         jlc_preferred BOOLEAN NOT NULL DEFAULT FALSE,
+        -- When this row arrived: a push replaces some rows and keeps the rest, so each row carries its own age.
+        fetched_at TIMESTAMPTZ DEFAULT NOW(),
         PRIMARY KEY (connector_id, sku)
     );
     CREATE INDEX IF NOT EXISTS idx_supply_csv_offers_match ON supply_csv_offers (connector_id, match_key);
@@ -149,6 +151,18 @@ TABLES: tuple[str, ...] = (
         connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
         actor TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS supply_push_tokens (
+        target_kind TEXT NOT NULL CHECK (target_kind IN ('connector', 'inventory_source')),
+        target_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        prefix TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_used_at TIMESTAMPTZ,
+        PRIMARY KEY (target_kind, target_id)
     );
     """,
     """

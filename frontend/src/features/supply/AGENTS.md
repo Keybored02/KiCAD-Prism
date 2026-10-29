@@ -55,7 +55,7 @@ between.
 
 **Dashboard** — `dashboard-view.tsx` with `dashboard-tiles.tsx`,
 `dashboard-charts.tsx`, `dashboard-risk-cards.tsx`, `dashboard-forecast.tsx`,
-`dashboard-inbox.tsx` (the inbox, ranked by `backend/app/services/supply/inbox.py`), `dashboard-alerts.tsx`, `ending-notifications.tsx`,
+`dashboard-alerts.tsx`, `ending-notifications.tsx`,
 `recent-changes.tsx`.
 
 **Tracking and the part sheet** — `parts-view.tsx`, `parts-table.tsx`,
@@ -84,7 +84,8 @@ Tracking a project is the `track-*.tsx` dialog steps and
 `connectors-view.tsx` (connector cards, `create-connector-dialog.tsx`,
 `edit-connector-dialog.tsx`, `connector-signin.tsx`, `csv-upload-dialog.tsx`,
 `budget-view.tsx`), `inventory-sources.tsx` and `inventory-source-dialogs.tsx`
-(InvenTree-compatible stores), `settings-view.tsx` and `settings-*.tsx`
+(InvenTree-compatible stores and push sources), `push-token-dialog.tsx` and
+`push-api.ts` (a connector's or source's push token), `settings-view.tsx` and `settings-*.tsx`
 (Supply settings), `library-review-view.tsx` and `review-view.tsx` (Review), with
 `work-items-section.tsx` (Review's work items), `work-item-dialog.tsx` (the
 button that opens one) and `work-items-api.ts`.

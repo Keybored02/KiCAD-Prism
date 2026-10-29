@@ -114,6 +114,10 @@ a tracked project, someone's choice, or a watched component.
 - **New revisions:** a tracked project's BOM is read again every 15 minutes.
   Parts a revision adds are tracked at tier 1; parts it removes stop being
   tracked unless something else keeps them.
+- **Watched components:** a watched component follows its current part. When
+  the component's maker or part number changes, the new part is followed and
+  the old one is not. Stopping the watch drops the part to the tier of
+  whatever else follows it.
 
 ## Check whether a project can be built
 
@@ -192,6 +196,7 @@ decides:
 - **Retire**: the component is archived in the catalog, so KiCad users can no
   longer place it.
 - **Dismiss**: the component is hidden until its part gets a new reason.
+  A designer can choose **Ask QA to dismiss**; it waits in **To approve**.
 
 A QA reviewer or administrator can remove a mark with **Clear mark** on the
 component's **Supply** tab.
@@ -211,9 +216,8 @@ and administrators open items and add notes; QA and administrators accept,
 reject or reopen them; the owner, whoever opened it or QA marks one done. An
 item's sheet shows its evidence and its history. A work item changes nothing
 by itself: retiring or marking the component still happens where it always
-does.
-
-The Dashboard's inbox counts the items due a recheck and the ones you own.
+does. **Review → Work items** lists the ones due a recheck and the ones you
+own.
 
 ## Alerts
 
@@ -227,16 +231,14 @@ chat messages.
 
 The bell on a watched part opens its alert rules: which alerts it raises, its
 stock threshold (typed beside **At or below the threshold**), the price rise
-that counts and a target price. The Dashboard lists the open alerts, the ones the **Open alerts**
+that counts and a target price. Switching an alert off is for QA and
+administrators; a designer's request waits in **To approve** and the alert
+still rises until it is approved. The Dashboard lists the open alerts, the ones the **Open alerts**
 tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
-The Dashboard opens with an **Inbox**: up to eight lines of what needs a
-person, worst first, each opening where it is acted on. While the stores feed
-or a distributor connector can't be read, it heads the inbox with how long
-ago it last read (**Stores down · since 9 h ago**); the figures behind it may
-be out of date until it reads again, and the line opens Connectors. Ending
-components and the alert list sit below the tiles, folded; an inbox line
-opens them.
+Ending components and the alert list sit below the tiles, folded. While the
+stores feed or a distributor connector can't be read, the figures may be out
+of date until it reads again; **Library Manager → Connectors** shows which.
 
 Prices and stock from the Simulated market, a made-up distributor for demos
 and testing, carry a **Test data** chip wherever they show. **Ask DigiKey for
@@ -253,7 +255,8 @@ unchecked.
 **Library Manager → Review** lists what needs a person:
 
 - **Work items**: decisions people opened about components and parts.
-- **To approve**: alternates waiting for QA.
+- **To approve**: alternates, waivers, dismissals and alerts to switch off,
+  waiting for QA.
 - **Manufacturer spellings**: maker names the distributors don't settle.
 - **Listings waiting**: distributor listings filed under another number.
 - **Unmatched local stock**: inventory parts with stock that match no library

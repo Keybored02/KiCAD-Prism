@@ -100,11 +100,14 @@ describe("the outlook and health line", () => {
     expect(screen.queryByRole("list", { name: "Risk" })).toBeNull();
   });
 
-  it("offers no Waive, and puts the severity tag above each finding", async () => {
+  it("lets a designer ask QA to waive a finding with a reason, and puts the severity tag above each finding", async () => {
     renderIt("designer");
     await openDetails();
     const findings = await screen.findByRole("list", { name: "Findings" });
-    expect(within(findings).queryByRole("button", { name: /Waive|Ask QA/ })).toBeNull();
+    fireEvent.click(within(findings).getByRole("button", { name: "Waive" }));
+    fireEvent.change(within(findings).getByRole("textbox"), { target: { value: "We hold stock" } });
+    fireEvent.click(within(findings).getByRole("button", { name: "Ask QA" }));
+    await waitFor(() => expect(mocked.proposeWaiver).toHaveBeenCalledWith("p1", "nrnd", "We hold stock"));
     const tag = within(findings).getByText("Warning");
     const text = within(findings).getByText(/does not recommend this part/);
     expect(tag.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -147,7 +150,7 @@ describe("the outlook and health line", () => {
     renderIt("designer");
     await openDetails();
     expect(await screen.findByText(/Waived for an earlier condition/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Waive again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Waive again" })).toBeTruthy();
   });
 
   it("offers no waiver to a viewer and shows a failed action", async () => {

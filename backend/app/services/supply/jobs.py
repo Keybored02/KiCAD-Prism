@@ -15,8 +15,9 @@ from typing import Any, Callable, Mapping
 
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, schedule_settings, substitutes, tasks,
+    accounts, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, substitutes, tasks,
 )
+from app.services.supply import settings as supply_settings
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import Discoverer, pending_parts, pending_waiting
 from app.services.supply.poller import GROUP_LISTINGS, MAX_BATCHES_PER_RUN, Poller, due_listings, hold_back, spare_listings, with_siblings
@@ -227,7 +228,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         "WHERE c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %s) ORDER BY c.id",
         (now,),
     ).fetchall()
-    kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
+    kinds = supply_settings.load(conn).schedule.kinds()
     return [
         row["id"] for row in rows
         if _spec(row) is not None and any(source.due(conn, row, now, kinds) and source.funded(conn, row, now) for source in SOURCES)
@@ -300,7 +301,7 @@ def _spend_spare(
 
     try:
         with connectors.store.connection() as conn:
-            kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
+            kinds = supply_settings.load(conn).schedule.kinds()
         poller = poller or Poller(connectors)
         discoverer = discoverer or Discoverer(connectors)
         # Late committed reads come first, whatever the switches say: they are work the budget promised.

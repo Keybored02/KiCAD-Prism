@@ -202,10 +202,11 @@ def sync(
 
 
 def due(conn, now: datetime) -> list[str]:
-    """Enabled sources with a token whose last read is older than their interval."""
+    """Enabled sources Prism reads, with a token, whose last read is older than their interval."""
 
     rows = conn.execute(
-        "SELECT id, interval_hours, last_sync_at FROM inventory_sources WHERE enabled AND credential_envelope <> '' ORDER BY id"
+        "SELECT id, interval_hours, last_sync_at FROM inventory_sources WHERE enabled AND credential_envelope <> '' AND kind = ANY(%s) ORDER BY id",
+        ([spec.kind for spec in registry.list_specs() if spec.pulled],),
     ).fetchall()
     return [row["id"] for row in rows if row["last_sync_at"] is None or row["last_sync_at"] <= now - timedelta(hours=row["interval_hours"])]
 

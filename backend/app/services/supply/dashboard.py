@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import alerts, component_parts, ending_parts, inbox, part_insights, parts_view, risk_views, usage
+from app.services.supply import alerts, component_parts, ending_parts, part_insights, parts_view, risk_views, usage
 from app.services.supply.forecast import views
 from app.services.supply.vocabulary import Status
 
@@ -60,10 +60,10 @@ def _alerts_by_day(conn, today: date) -> list[dict[str, Any]]:
 
     rows = conn.execute(
         """
-        SELECT (opened_at AT TIME ZONE 'UTC')::date AS day, kind, COUNT(*) AS n FROM supply_alerts
-        WHERE opened_at IS NOT NULL AND opened_at >= %s GROUP BY 1, 2 ORDER BY 1
+        SELECT (opened_at AT TIME ZONE 'UTC')::date AS day, kind, COUNT(*) AS n FROM supply_attention
+        WHERE part_id IS NOT NULL AND kind = ANY(%s) AND opened_at IS NOT NULL AND opened_at >= %s GROUP BY 1, 2 ORDER BY 1
         """,
-        (datetime.combine(today - timedelta(days=ALERT_DAYS - 1), datetime.min.time(), tzinfo=timezone.utc),),
+        (list(alerts.KINDS), datetime.combine(today - timedelta(days=ALERT_DAYS - 1), datetime.min.time(), tzinfo=timezone.utc)),
     ).fetchall()
     by_day: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -124,7 +124,7 @@ def failing_feeds(conn) -> list[dict[str, Any]]:
     return found
 
 
-def build(conn, now: datetime | None = None, role: str | None = None, actor: str = "") -> dict[str, Any]:
+def build(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     """Everything the Dashboard page draws."""
 
     now = now or datetime.now(timezone.utc)
@@ -150,7 +150,7 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
             count = (facts or {}).get("holders") if facts else None
             holders["none" if item["stock"] == 0 else "one" if count == 1 else "two" if count == 2 else "three_plus" if count else "unknown"] += 1
     tracked_ids = [item["id"] for item in items]
-    built = {
+    return {
         "risk_grid": risk_views.risk_grid(items, kept),
         "deadlines": risk_views.deadlines(conn, tracked_ids, now.date()),
         "projects": parts_view.tracked_project_rows(conn, items, kept, role, visible=visible),
@@ -166,5 +166,3 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
         "insights_ready": len(kept),
         "failing_feeds": failing_feeds(conn),
     }
-    built["inbox"] = inbox.items(conn, built, role, now, actor)
-    return built

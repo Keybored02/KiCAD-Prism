@@ -344,3 +344,56 @@ def parse_offers_csv(content: bytes, *, default_currency: str = "") -> ParsedCsv
     if not rows and not total_errors:
         fail(reader.line_num, "", "The file has a header but no rows.")
     return result(rows if not total_errors else (), ignored)
+
+
+def _record_cell(value) -> str:
+    """A pushed value as a file's cell reads: nothing as blank, true and false as yes and no."""
+
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
+def parse_offer_records(records, *, default_currency: str = "") -> ParsedCsv:
+    """Offers pushed as records (``push.py``), checked as a file's rows are: the same columns, with ``prices`` as
+    ``{quantity, unit_price}`` pairs in place of ``price_<quantity>`` columns. A row's ``line`` is its position, from 1."""
+
+    errors: list[CsvRowError] = []
+    total_errors = 0
+
+    def fail(line: int, column: str, message: str) -> None:
+        nonlocal total_errors
+        total_errors += 1
+        if len(errors) < MAX_REPORTED_ERRORS:
+            errors.append(CsvRowError(line, column, message))
+
+    if len(records) > MAX_ROWS:
+        fail(0, "", f"More than {MAX_ROWS:,} rows.")
+        return ParsedCsv((), tuple(errors), total_errors)
+    rows: list[CsvOfferRow] = []
+    first_of: dict[str, int] = {}
+    for line, record in enumerate(records, start=1):
+        cells = {name: _record_cell(record.get(name)) for name in (*REQUIRED_COLUMNS, *OPTIONAL_COLUMNS)}
+        price_columns: list[tuple[int, str]] = []
+        for tier in record.get("prices") or []:
+            header = f"price_{tier.get('quantity')}"
+            if not _PRICE_COLUMN.match(header):
+                fail(line, "prices", "A price break needs a whole quantity.")
+                continue
+            cells[header] = str(tier.get("unit_price"))
+            price_columns.append((int(header[len("price_"):]), header))
+        try:
+            row = _parse_row(cells, price_columns, default_currency.upper())
+        except _Row as bad:
+            for column, message in bad.problems:
+                fail(line, column, message)
+            continue
+        key = row.sku.lower()
+        if key in first_of:
+            fail(line, "sku", f"Duplicate sku, first seen in row {first_of[key]}.")
+            continue
+        first_of[key] = line
+        rows.append(row)
+    return ParsedCsv(tuple(rows) if not total_errors else (), tuple(errors), total_errors)

@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.services.supply import part_insights
-from app.services.supply.assessment import settings_store
+from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import inputs, models, run, store
 
 COMING_UP = 10
@@ -164,7 +164,7 @@ def insights_page(conn, today: date | None = None) -> dict[str, Any]:
                            "median": price["median"], "high": price["high"], "change": price["median"] / price["now"] - 1, "flat": bool(price.get("flat"))})
     movers.sort(key=lambda item: -item["change"])
     return {
-        "currency": settings_store.load(conn).base_currency,
+        "currency": supply_settings.base_currency(conn),
         "coming_up": board["coming_up"], "likely_out_4w": board["likely_out_4w"],
         "lead_times": families["lead_times"], "warnings": families["warnings"],
         "prices": {"parts": len(movers), "flat": sum(1 for m in movers if m["flat"]), "likeliest_up": movers[:50]},

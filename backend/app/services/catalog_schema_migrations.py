@@ -549,7 +549,7 @@ def _inventory_sources(conn: Any) -> None:
         """
         CREATE TABLE IF NOT EXISTS inventory_sources (
             id TEXT PRIMARY KEY,
-            kind TEXT NOT NULL CHECK (kind IN ('inventree')),
+            kind TEXT NOT NULL CHECK (kind IN ('inventree', 'push')),
             display_name TEXT NOT NULL,
             base_url TEXT NOT NULL,
             category_id INTEGER,

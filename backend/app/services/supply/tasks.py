@@ -1,5 +1,5 @@
 """Periodic work that needs no distributor call: exchange rates, catalogues, snapshots, learned spellings, component
-watches, tracked projects' BOMs, tracking, packaging picks, insights, forecasts, rollups, retention, inventory sources,
+main parts, tracked projects' BOMs, tracking, packaging picks, insights, forecasts, rollups, retention, inventory sources,
 account keys and finished jobs.
 
 Each task is a row of ``supply_task_runs`` with when it last ran, last worked and last failed, and when it is due next. The
@@ -70,13 +70,14 @@ def _aliases(conn, now: datetime, store: SupplyStore) -> None:
     settle.learn_aliases(conn)
 
 
-def _component_watches(conn, now: datetime, store: SupplyStore) -> None:
-    """Each component's main part follows its current revision, then its watch is synced. Setting a watch syncs at once too."""
+def _component_mains(conn, now: datetime, store: SupplyStore) -> None:
+    """Keep each component's main part on its current revision, so a watched component whose maker or number changed follows
+    its new part (``component_watches``). Setting a component watch syncs its component at once too."""
 
-    from app.services.supply import catalog_read, component_parts, component_watches
+    from app.services.supply import component_parts, tracking
 
-    component_parts.sync_main(conn)
-    component_watches.sync_all(conn, catalog_read.identities)
+    if component_parts.sync_main(conn)["changed"]:
+        tracking.recompute(conn)
 
 
 def _project_boms(conn, now: datetime, store: SupplyStore) -> None:
@@ -128,7 +129,7 @@ def _retention(conn, now: datetime, store: SupplyStore) -> None:
     retention.compact_samples(conn, now)
     retention.drop_expired(conn, now)
     retention.drop_unused(conn, now)
-    retention.trim_summaries(conn)
+    retention.trim_summaries(conn, now)
     oneoff.expire(conn, now)
 
 
@@ -169,7 +170,7 @@ TASKS: tuple[Task, ...] = (
     Task("costs", _TEN_MINUTES, _costs),
     Task("figures", _TEN_MINUTES, _figures),
     Task("aliases", _TEN_MINUTES, _aliases),
-    Task("component_watches", timedelta(hours=1), _component_watches),
+    Task("component_mains", timedelta(hours=1), _component_mains),
     Task("project_boms", _TEN_MINUTES, _project_boms),
     Task("tracking", _TEN_MINUTES, _tracking),
     Task("packagings", _TEN_MINUTES, _packagings),

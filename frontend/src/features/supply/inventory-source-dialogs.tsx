@@ -22,20 +22,24 @@ export function InventorySourceDialog({ open, source, onClose, onSaved }: {
   onClose: () => void;
   onSaved: (source: InventorySource) => void;
 }) {
+  const [kind, setKind] = useState<"inventree" | "push">(source?.kind ?? "inventree");
+  const pushed = kind === "push";
   const [name, setName] = useState(source?.display_name ?? "");
   const [url, setUrl] = useState(source?.base_url ?? "https://");
   const [token, setToken] = useState("");
   const [hours, setHours] = useState(String(source?.interval_hours ?? 24));
   const [busy, setBusy] = useState(false);
   const interval = Number(hours);
-  const valid = name.trim() !== "" && url.trim().startsWith("https://") && Number.isInteger(interval) && interval >= 1 && interval <= 168
-    && (source !== null || token.trim() !== "");
+  const valid = name.trim() !== "" && (pushed || (url.trim().startsWith("https://") && Number.isInteger(interval) && interval >= 1 && interval <= 168
+    && (source !== null || token.trim() !== "")));
 
   const save = async () => {
     setBusy(true);
     try {
-      const fields = { display_name: name.trim(), base_url: url.trim(), interval_hours: interval, ...(token.trim() ? { token: token.trim() } : {}) };
-      const saved = source ? await updateInventorySource(source.id, fields) : await createInventorySource(fields);
+      const fields = pushed
+        ? { display_name: name.trim() }
+        : { display_name: name.trim(), base_url: url.trim(), interval_hours: interval, ...(token.trim() ? { token: token.trim() } : {}) };
+      const saved = source ? await updateInventorySource(source.id, fields) : await createInventorySource({ kind, ...fields });
       // Closed first: saving a new source opens the next step, which a later close would undo.
       onClose();
       onSaved(saved);
@@ -51,16 +55,32 @@ export function InventorySourceDialog({ open, source, onClose, onSaved }: {
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{source ? `Edit ${source.display_name}` : "Add inventory source"}</DialogTitle>
-          <DialogDescription className="sr-only">An InvenTree-compatible server and its API token</DialogDescription>
+          <DialogDescription className="sr-only">An InvenTree-compatible server and its API token, or a source that pushes its stock</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {source ? null : (
+            <div className="space-y-1.5">
+              <Label htmlFor="inventory-kind">Kind</Label>
+              <Select value={kind} onValueChange={(value) => setKind(value as "inventree" | "push")}>
+                <SelectTrigger id="inventory-kind"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="inventree">InvenTree server</SelectItem>
+                  <SelectItem value="push">Push</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5"><Label htmlFor="inventory-name">Name</Label><Input id="inventory-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Stores" /></div>
-          <div className="space-y-1.5"><Label htmlFor="inventory-url">Server</Label><Input id="inventory-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://inventory.example.com" /></div>
-          <div className="space-y-1.5">
-            <Label htmlFor="inventory-token">API token</Label>
-            <Input id="inventory-token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder={source?.has_token ? "Unchanged" : ""} />
-          </div>
-          <div className="space-y-1.5"><Label htmlFor="inventory-hours">Read every (hours)</Label><Input id="inventory-hours" type="number" min={1} max={168} value={hours} onChange={(event) => setHours(event.target.value)} /></div>
+          {pushed ? null : (
+            <>
+              <div className="space-y-1.5"><Label htmlFor="inventory-url">Server</Label><Input id="inventory-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://inventory.example.com" /></div>
+              <div className="space-y-1.5">
+                <Label htmlFor="inventory-token">API token</Label>
+                <Input id="inventory-token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder={source?.has_token ? "Unchanged" : ""} />
+              </div>
+              <div className="space-y-1.5"><Label htmlFor="inventory-hours">Read every (hours)</Label><Input id="inventory-hours" type="number" min={1} max={168} value={hours} onChange={(event) => setHours(event.target.value)} /></div>
+            </>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>

@@ -261,7 +261,7 @@ class Discoverer:
     def _service(self, provider: SupplyProvider, connector_id: str, spec) -> DiscoveryService:
         """The search service. For a provider whose search answer is also a read, the offers it brings are recorded as that read."""
 
-        service = DiscoveryService(lambda _id: provider, self._store)
+        service = DiscoveryService(lambda _id: provider, self._store, self._clock)
         if spec.search_reads_offers:
             from app.services.supply import poller
 

@@ -63,6 +63,7 @@ from app.api.supply_fill import router as supply_fill_router
 from app.api.supply_component_watch import router as supply_component_watch_router
 from app.api.supply_component_parts import router as supply_component_parts_router
 from app.api.supply_inventory import router as supply_inventory_router
+from app.api.supply_push import router as supply_push_router
 from app.api.supply_health import router as supply_health_router
 from app.api.supply_fx import router as supply_fx_router
 from app.api.supply_datasheets import router as supply_datasheets_router
@@ -455,6 +456,7 @@ app.include_router(supply_fill_router)
 app.include_router(supply_component_watch_router)
 app.include_router(supply_component_parts_router)
 app.include_router(supply_inventory_router)
+app.include_router(supply_push_router)
 app.include_router(supply_health_router)
 app.include_router(supply_fx_router)
 app.include_router(supply_datasheets_router)

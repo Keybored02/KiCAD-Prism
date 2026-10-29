@@ -1,7 +1,7 @@
 """The contract between Prism and a local inventory source, beside the distributor contract (``providers/base.py``).
 
 An ``InventorySourceSpec`` says what kind of source it is: one Prism reads on a schedule (an InvenTree-compatible server),
-or one that is fed (the catalog's CSV upload). A read source has a ``factory`` that turns its address and token into an
+one that pushes its stock to Prism (``push.py``), or one that is fed by the catalog's CSV upload. A read source has a ``factory`` that turns its address and token into an
 ``InventoryReader``; ``read`` returns every part with its numbers, the locations and the stock records in one
 ``InventoryRead``. Matching the parts to library components, and storing the stock, is Prism's (``sync.py``).
 
@@ -18,9 +18,13 @@ from typing import Callable, Mapping, Protocol, runtime_checkable
 _KIND = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 
 
+# A server's own id for a record: InvenTree's are numbers, a push names its parts as it likes.
+RemoteId = int | str
+
+
 @dataclass(frozen=True, slots=True)
 class Part:
-    pk: int
+    pk: RemoteId
     name: str
     ipn: str
     units: str
@@ -32,20 +36,20 @@ class Part:
 
 @dataclass(frozen=True, slots=True)
 class Location:
-    pk: int
+    pk: RemoteId
     pathstring: str
     external: bool
 
 
 @dataclass(frozen=True, slots=True)
 class StockRecord:
-    pk: int
-    part: int
+    pk: RemoteId
+    part: RemoteId
     quantity: float
     allocated: float
     status: int
     status_text: str
-    location: int | None
+    location: RemoteId | None
     batch: str
     updated: str
 
@@ -55,9 +59,9 @@ class InventoryRead:
     """What one read of a source returned: the whole inventory, or one category of it when the source follows one."""
 
     server: str
-    api_version: int
-    parts: Mapping[int, Part]
-    locations: Mapping[int, Location]
+    api_version: int | None
+    parts: Mapping[RemoteId, Part]
+    locations: Mapping[RemoteId, Location]
     stock: list[StockRecord]
 
 
@@ -79,6 +83,8 @@ class InventorySourceSpec:
     factory: Callable[[str, str], InventoryReader] | None = None
     # The source can be narrowed to one of its categories; without one it is read whole.
     categories: bool = False
+    # The source pushes its stock with a token of its own (``POST /api/supply/inventory-sources/{id}/levels``).
+    pushed: bool = False
 
     def __post_init__(self) -> None:
         if not _KIND.match(self.kind) or not _KIND.match(self.level_source):

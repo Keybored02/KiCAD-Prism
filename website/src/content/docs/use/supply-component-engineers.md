@@ -98,12 +98,6 @@ clock on a part's sheet shows its tier and why, and lets you change it.
 
 **Supply → Dashboard** shows what needs a person, top to bottom:
 
-- **Inbox**: up to eight lines, worst first, each opening where it is acted
-  on: a distributor or the stores feed that can't be read (until it reads
-  again the figures behind it may be old), components whose part is ending (step 6),
-  the nearest last-buy deadline in the next month, projects short of their
-  usual build or with unchecked lines, open alerts by kind, parts likely out
-  in four weeks, and, for QA and administrators, what waits for approval.
 - The tiles: **Tracked**, **At risk**, **Out of stock**, **End of life**,
   **Open alerts**, **Queued for calls**. Each opens the list of exactly those
   parts.
@@ -150,7 +144,8 @@ healthy. QA decides:
 - **Retire**: the component is archived and leaves the KiCad library.
   Symbols already placed stop resolving. Offered only when none of the
   component's other approved parts is healthy.
-- **Dismiss**: hide it until its part gains a new reason.
+- **Dismiss**: hide it until its part gains a new reason. A designer's
+  request to dismiss waits for QA in **Review → To approve**.
 
 Before retiring, give designers a way forward: propose an alternate (below) or
 a replacement component.
@@ -158,8 +153,8 @@ a replacement component.
 When the decision needs work first, open a **work item** from the clipboard
 button on the ending row: name the owner, attach the evidence (the notice, the
 distributor's answer) and set a recheck date. QA accepts or rejects it in
-**Library Manager → Review → Work items**, and the Dashboard's inbox reminds
-the owner when the recheck date comes.
+**Library Manager → Review → Work items**, which lists the items due a recheck
+and the ones you own.
 
 ## 7. Approve alternates
 

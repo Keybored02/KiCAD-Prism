@@ -93,7 +93,7 @@ class PcnDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("supply_pcn_parts", "supply_pcns", "supply_alerts", "supply_watches", "supply_parts", "supply_manufacturers", "supply_audit_events"):
+            for table in ("supply_pcn_parts", "supply_pcns", "supply_attention_decisions", "supply_attention", "supply_watches", "supply_parts", "supply_manufacturers", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
             record, _ = self.watches.add_watch(conn, "Acme", "ABC-1", "seed@example.com")

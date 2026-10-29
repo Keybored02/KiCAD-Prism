@@ -11,12 +11,14 @@ import { deleteInventorySource, listInventorySources, syncInventorySource, updat
 import { formatDateTime } from "./supply-format";
 import { invalidateSupply, useLoaded } from "./use-loaded";
 import { InventoryCategoryDialog, InventorySourceDialog } from "./inventory-source-dialogs";
+import { PushTokenDialog } from "./push-token-dialog";
 
-type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; source: InventorySource };
+type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete" | "push-token"; source: InventorySource };
 
 /** The state a source is in, worst first. */
 export function sourceState(source: InventorySource): { label: string; tone: "default" | "secondary" | "destructive" | "outline" } {
   if (!source.enabled) return { label: "Disabled", tone: "secondary" };
+  if (source.kind === "push") return source.last_sync_at ? { label: "Pushed", tone: "default" } : { label: "Not pushed yet", tone: "outline" };
   if (!source.has_token) return { label: "No token", tone: "destructive" };
   if (source.last_status === "error") return { label: "Read failed", tone: "destructive" };
   if (!source.last_sync_at) return { label: "Not read yet", tone: "outline" };
@@ -98,7 +100,11 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
           open
           source={dialog.kind === "edit" ? dialog.source : null}
           onClose={() => setDialog(null)}
-          onSaved={(source) => { void load(); toast.success("Source saved"); if (dialog.kind === "create") setDialog({ kind: "category", source }); }}
+          onSaved={(source) => {
+            void load();
+            toast.success("Source saved");
+            if (dialog.kind === "create") setDialog({ kind: source.kind === "push" ? "push-token" : "category", source });
+          }}
         />
       ) : null}
       <InventoryCategoryDialog
@@ -106,6 +112,13 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
         source={dialog?.kind === "category" ? dialog.source : null}
         onClose={() => setDialog(null)}
         onSaved={(source) => { void load(); toast.success(source.category_id === null ? "Reading the whole inventory" : `Following category ${source.category_id}`); }}
+      />
+      <PushTokenDialog
+        key={dialog?.kind === "push-token" ? dialog.source.id : "none"}
+        target="inventory_source"
+        id={dialog?.kind === "push-token" ? dialog.source.id : null}
+        name={dialog?.kind === "push-token" ? dialog.source.display_name : ""}
+        onClose={() => setDialog(null)}
       />
       <ConfirmDialog
         open={dialog?.kind === "delete"}
@@ -125,12 +138,13 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
   busy: boolean;
   onRead: () => void;
   onToggle: () => void;
-  onOpen: (kind: "edit" | "category" | "delete") => void;
+  onOpen: (kind: "edit" | "category" | "delete" | "push-token") => void;
 }) {
   const state = sourceState(source);
-  const host = source.base_url.replace(/^https:\/\//, "");
+  const pushed = source.kind === "push";
+  const host = pushed ? "Push" : source.base_url.replace(/^https:\/\//, "");
   const server = [source.server, source.api_version !== null ? `API ${source.api_version}` : ""].filter(Boolean).join(" · ");
-  const canRead = source.enabled && source.has_token;
+  const canRead = !pushed && source.enabled && source.has_token;
   return (
     <article className="border bg-card p-4" aria-label={source.display_name}>
       <div className="flex items-start justify-between gap-3">
@@ -147,8 +161,14 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
               <Button variant="ghost" size="icon" aria-label={`Actions for ${source.display_name}`}><MoreHorizontal className="h-4 w-4" /></Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem disabled={!canRead || busy} onSelect={onRead}>Read now</DropdownMenuItem>
-              <DropdownMenuItem disabled={!source.has_token} onSelect={() => onOpen("category")}>Category</DropdownMenuItem>
+              {pushed ? (
+                <DropdownMenuItem onSelect={() => onOpen("push-token")}>Push token</DropdownMenuItem>
+              ) : (
+                <>
+                  <DropdownMenuItem disabled={!canRead || busy} onSelect={onRead}>Read now</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!source.has_token} onSelect={() => onOpen("category")}>Category</DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem onSelect={() => onOpen("edit")}>Edit</DropdownMenuItem>
               <DropdownMenuItem onSelect={onToggle}>{source.enabled ? "Disable" : "Enable"}</DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -158,8 +178,9 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
         ) : null}
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "Whole inventory"}</dd>
-        <dt className="text-muted-foreground">Last read</dt><dd>{formatDateTime(source.last_sync_at) || "-"}{` · every ${source.interval_hours} h`}</dd>
+        {pushed ? null : <><dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "Whole inventory"}</dd></>}
+        <dt className="text-muted-foreground">{pushed ? "Last push" : "Last read"}</dt>
+        <dd>{formatDateTime(source.last_sync_at) || "-"}{pushed ? "" : ` · every ${source.interval_hours} h`}</dd>
         <dt className="text-muted-foreground">Parts</dt><dd>{`${source.matched.toLocaleString()} matched · ${source.unmatched.toLocaleString()} unmatched`}</dd>
       </dl>
       {source.last_status === "error" && source.last_error ? <p className="mt-2 truncate text-xs text-destructive" title={source.last_error}>{source.last_error}</p> : null}

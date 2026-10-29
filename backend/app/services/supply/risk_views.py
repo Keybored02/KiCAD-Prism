@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import compliance, facts, fx, part_insights, parts_view, price_quantity, pricing, trade
-from app.services.supply.assessment import settings_store
+from app.services.supply import settings as supply_settings
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
 AVAILABILITY = ("two_plus", "one", "out", "not_read")
@@ -112,7 +112,7 @@ def _coverage_sets(conn, items: Sequence[Mapping[str, Any]]):
     ids = [item["id"] for item in items]
     offers = parts_view.offers_by_part(conn, ids)
     quantities = price_quantity.of_parts(conn, ids)
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
     listed: dict[str, set[str]] = defaultdict(set)
     held: dict[str, set[str]] = defaultdict(set)

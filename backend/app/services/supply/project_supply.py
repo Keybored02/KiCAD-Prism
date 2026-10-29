@@ -12,8 +12,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import bom_comments, bom_lookup, cost_history, freshness, tracking, usage
-from app.services.supply.assessment import settings_store
+from app.services.supply import attention, bom_comments, bom_lookup, cost_history, freshness, tracking, usage
+from app.services.supply import settings as supply_settings
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
@@ -70,12 +70,7 @@ def _parts(
     sizes = sorted({*CURVE_SIZES, build_quantity})
     curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
-    alerts = {
-        row["part_id"]: int(row["n"])
-        for row in conn.execute(
-            "SELECT part_id, COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (part_ids,)
-        ).fetchall()
-    } if part_ids else {}
+    alerts = attention.open_counts(conn, datetime.now(timezone.utc), attention.PART, part_ids) if part_ids else {}
     converted = bool(result["rollup"]["converted"])
     parts = []
     for row in rows:
@@ -201,7 +196,7 @@ def usual_attrition(conn, tracked: dict[str, Any] | None) -> float | None:
     """The spares a project is costed with when nothing asks for others: its own when it is tracked and has them, else the workspace's."""
 
     chosen = attrition_of((tracked or {}).get("spares") or "")
-    return settings_store.load(conn).default_attrition() if chosen == DEFAULT else chosen
+    return supply_settings.load(conn).spares.default_attrition() if chosen == DEFAULT else chosen
 
 
 # A kept rollup older than this is worked out again even with no mark: "read is late" and other findings move with the clock.

@@ -52,7 +52,7 @@ export function OutlookSection({ outlook, partId = null, role, below = null }: {
               ))}
             </ul>
           ) : null}
-          {data && scored && partId ? <HealthBody data={data} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
+          {data && scored && partId ? <HealthBody partId={partId} data={data} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         </HoverDetails>
       </div>
