@@ -1,12 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectSupplyPart } from "@/types/supply";
+import type { ProjectPartsPage, ProjectSupplyPart } from "@/types/supply";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
-  listSupplyParts: vi.fn(),
+  getProjectParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
 }));
 
@@ -17,54 +17,62 @@ const mocked = vi.mocked(api);
 
 afterEach(cleanup);
 
-const line = (key: string, mpn: string, part_id: string | null): ProjectSupplyPart => ({
-  key, manufacturer: "Acme", mpn, quantity: 1, references: "R1", part_id, state: "tracked", status: "ok", stock: key === "ka" ? 0 : 100, lifecycle: "active",
-  short: false, unit_price: "0.1", notes: 0, need: 10, line_cost: "1.00",
+const line = (key: string, mpn: string, part_id: string | null, extra: Partial<ProjectSupplyPart> = {}): ProjectSupplyPart => ({
+  key, manufacturer: "Acme", mpn, quantity: 2, references: "R1", part_id, state: "tracked", status: "ok", stock: 100, lifecycle: "active",
+  short: false, unit_price: "0.1", notes: 0, need: 200, line_cost: "1.00", ...extra,
 } as ProjectSupplyPart);
 
-const row = (id: string, mpn: string) => ({
+const row = (id: string, mpn: string, of: ProjectSupplyPart) => ({
   id, mpn, manufacturer: "Acme", status: "ok", problem: null, stock: 100, listings: 1, lifecycle: "active", dropped: false, unit_price: "0.1",
-  price_quantity: 100, currency: "EUR", fetched_at: null, tier: 1, used_in: 1, watch: null, flags: [], distributors: [],
+  price_quantity: 100, currency: "EUR", fetched_at: null, tier: 1, used_in: 1, watch: null, flags: [], distributors: [], line: of,
 });
 
+const page = (overrides: Partial<ProjectPartsPage> = {}): ProjectPartsPage => ({
+  items: [row("a", "RISKY-1", line("ka", "RISKY-1", "a", { stock: 0, short: true })), row("b", "SAFE-1", line("kb", "SAFE-1", "b"))],
+  total: 2, limit: 100, offset: 0, next_offset: null, unmatched: [line("kc", "NOPN", null)], chips: [{ key: "out", count: 1 }],
+  forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
+  ...overrides,
+} as ProjectPartsPage);
+
 beforeEach(() => {
+  vi.clearAllMocks();
   mocked.listSupplyConnectors.mockResolvedValue([]);
-  mocked.listSupplyParts.mockResolvedValue({
-    items: [row("a", "RISKY-1"), row("b", "SAFE-1")], total: 2, limit: 200, offset: 0, next_offset: null,
-    forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
-  } as never);
+  mocked.getProjectParts.mockResolvedValue(page());
 });
 
 const show = () => render(
   <MemoryRouter>
-    <ProjectPartsList
-      projectId="prj" currency="EUR" selectedId={null} onOpen={() => undefined}
-      parts={[line("ka", "RISKY-1", "a"), line("kb", "SAFE-1", "b"), line("kc", "NOPN", null)]}
-    />
+    <ProjectPartsList projectId="prj" variant="" boards={100} currency="EUR" selectedId={null} onOpen={() => undefined} />
   </MemoryRouter>,
 );
 
 describe("a project's parts list", () => {
-  it("finds the lines that carry a reference on the board, exactly, whatever the case", async () => {
+  it("shows per board, need and stock side by side, also in the detailed layout", async () => {
     show();
-    await screen.findByText("RISKY-1");
-    const search = async (text: string) => {
-      fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: text } });
-      fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    };
-    await search("r1");
-    expect(screen.getAllByText("RISKY-1").length).toBeGreaterThan(0);
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "");
-    await search("R");
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "R", expect.anything(), "", 0, 200, "prj", "");
+    const risky = (await screen.findByText("RISKY-1")).closest("tr")!;
+    expect(within(risky).getByText("2")).toBeTruthy();
+    expect(within(risky).getByText("200")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Detailed, a row for each vendor" }));
+    expect(screen.getByRole("columnheader", { name: /In stock/ }).textContent).toContain("In stock");
   });
 
-  it("lists a line that matches no part after the parts, until something narrows the list", async () => {
+  it("asks the server for a chip, the count it gives, and starts again at the first page", async () => {
+    mocked.getProjectParts.mockResolvedValue(page({ total: 250, next_offset: 100 }));
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ offset: 100 }), expect.anything()));
+    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ chip: "out", offset: 0 }), expect.anything()));
+    expect(screen.getByRole("button", { name: /Out of stock/ }).textContent).toContain("1");
+  });
+
+  it("lists the lines no part matches after the parts", async () => {
     show();
     expect(await screen.findByText("NOPN")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
-    expect(screen.queryByText("NOPN")).toBeNull();
-    expect(screen.queryByText("SAFE-1")).toBeNull();
-    expect(screen.getByText("RISKY-1")).toBeTruthy();
+    mocked.getProjectParts.mockResolvedValue(page({ unmatched: [] }));
+    fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: "R1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ q: "R1" }), expect.anything()));
+    await waitFor(() => expect(screen.queryByText("NOPN")).toBeNull());
   });
 });

@@ -752,6 +752,14 @@ export interface SupplyPartGroups {
   total: number;
 }
 
+/** A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project. */
+export interface ProjectPartsPage extends SupplyPartsPage {
+  items: Array<SupplyPartRow & { line: ProjectSupplyPart | null }>;
+  /** Lines no part matches; on the first page only. */
+  unmatched: ProjectSupplyPart[];
+  chips: Array<{ key: "unchecked" | "out" | "short" | "limiting" | "not_priced" | "end_of_life" | "alerts"; count: number }>;
+}
+
 export interface SupplyPartsPage {
   items: SupplyPartRow[];
   total: number;

@@ -18,6 +18,7 @@ import type {
   SupplyAlert,
   SupplyAssessment,
   CrossReference,
+  ProjectPartsPage,
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
@@ -531,6 +532,26 @@ function saveAssessmentSettingsRequest(settings: AssessmentSettings): Promise<As
 }
 
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
+export interface ProjectPartsQuery {
+  variant?: string;
+  boards?: number;
+  chip?: string;
+  q?: string;
+  only?: string;
+  vendor?: string;
+  sort?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export function getProjectParts(projectId: string, asked: ProjectPartsQuery, signal?: AbortSignal): Promise<ProjectPartsPage> {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries({ ...asked, build_quantity: asked.boards, boards: undefined })) {
+    if (value !== undefined && value !== "") query.set(name, String(value));
+  }
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/parts?${query.toString()}`, { signal }, "Could not load the parts");
+}
+
 export function getProjectSupply(projectId: string, variant = "", boards?: number, spares = "", signal?: AbortSignal): Promise<ProjectSupply> {
   const query = new URLSearchParams();
   if (boards !== undefined) query.set("build_quantity", String(boards));
