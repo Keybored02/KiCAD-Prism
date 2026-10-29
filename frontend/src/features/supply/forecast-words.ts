@@ -7,7 +7,7 @@ const WORDS: ReadonlyArray<readonly [number, string]> = [
   [0.1, "Unlikely"],
 ];
 
-/** The one scale of words for a chance, the same as the server's (`forecasting.chance_word`). */
+/** The one scale of words for a chance, the same as the server's (`forecast.store.chance_word`). */
 export function forecastWord(probability: number): ForecastChance {
   const word = WORDS.find(([floor]) => probability >= floor)?.[1] ?? "Very unlikely";
   return { probability, percent: Math.round(probability * 100), word };

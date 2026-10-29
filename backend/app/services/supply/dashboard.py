@@ -10,7 +10,8 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import alerts, component_parts, ending_parts, forecast_overview, inbox, part_insights, parts_view, risk_views, usage
+from app.services.supply import alerts, component_parts, ending_parts, inbox, part_insights, parts_view, risk_views, usage
+from app.services.supply.forecast import views
 from app.services.supply.vocabulary import Status
 
 FIGURE_DAYS = 30
@@ -155,7 +156,7 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
         "projects": parts_view.tracked_project_rows(conn, items, kept, role, visible=visible),
         "figures": figures,
         "ending_components": ending_parts.undecided_count(conn, items),
-        "forecast": forecast_overview.dashboard(conn, now.date()),
+        "forecast": views.dashboard(conn, now.date()),
         "figure_history": series,
         "statuses": [{"status": status, "count": statuses.get(status, 0)} for status in STATUS_ORDER],
         "runway": {name: runway.get(name, 0) for name in ("out_now", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings")},

@@ -1,30 +1,26 @@
-"""Stock forecasts: when a part runs out (P1), when a distributor is back (P2), the chance it can be bought on a day (P3) and how
-long a distributor's quote really lasts (P4).
+"""The pure forecast models: stock, price, lifecycle and market maths, with no database.
 
-The models are small on purpose and say what they rest on:
-
-* **Drain.** The observed net decrease of a distributor's counted stock since its last restock, as the spread of the pairwise
-  slopes (Theil-Sen takes their median; here the 10% and 90% slopes give the range). It is not consumption.
-* **Time out of stock.** A Kaplan-Meier survival curve of the stock-outs seen (still-out ones are censored), pooled for the
-  distributor when it has five or more and for all distributors otherwise. With a quote and too few stock-outs, a log-normal
-  around the quote times the distributor's real-to-quoted ratio.
-* **Restock size.** The sizes of the restocks seen on that listing, or its peak.
-* **A path** is simulated 2,000 times per distributor: it drains, may run out, comes back after a time out, and drains again.
-  The part can be bought on a day when some distributor holds the quantity.
-
-The simulation is pure (arrays in, arrays out) so a backtest can replay a past day from a slice of history.
+Stock is a simulation of 2,000 futures per distributor (a drain from the slopes since the last restock, time out from
+Kaplan-Meier, restock sizes seen). Price is repricing events (a Poisson rate shrunk to the pooled rate, sizes seen).
+Lifecycle is a pooled monthly rate of changes into an ending lifecycle, then the chance over the months. Market is a
+family's lead-time trend and the early warnings in its series. Each takes arrays in and returns what is said, so a
+backtest can replay a past day from a slice of history.
 """
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass, field
-from datetime import date, timedelta
-from typing import Any, Mapping, Sequence
+from datetime import date
+from decimal import Decimal
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
 from app.services.supply import insights
+
+# --- stock -----------------------------------------------------------------
 
 DRAWS = 2000
 HORIZON_DAYS = 84
@@ -239,7 +235,7 @@ def _widen(low: float, high: float, weekly: bool) -> tuple[float, float]:
     return low, high
 
 
-def forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None], ratios: Mapping[str, float], quantity: int, *, weekly: bool = False) -> dict[str, Any]:
+def stock_forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None], ratios: Mapping[str, float], quantity: int, *, weekly: bool = False) -> dict[str, Any]:
     """Everything stock-related that is said about a part: runout, back-in, the chance of buying by week, and what it rests on."""
 
     live = [holder for holder in holders if holder.series]
@@ -291,3 +287,218 @@ def forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None]
             "weekly": weekly,
         },
     }
+
+
+# --- price -----------------------------------------------------------------
+
+# Days of readings a horizon needs before it is forecast: a month for the month ahead, two for the quarter.
+MIN_SPAN_DAYS = {30: 30, 90: 60}
+# A part's rate of repricing is pulled towards one in 90 days, as strongly as 90 days of its own history.
+PRIOR_RATE = 1 / 90
+SHRINK_DAYS = 90.0
+MIN_OWN_MOVES = 3
+# A change under this share is rounding or noise, not a repricing; one over BIG_MOVE counts only when the next reading holds the new price.
+NOISE_MOVE = 0.01
+BIG_MOVE = 0.25
+# Moves are believed to drift one way only when the part's own history has this many the same way over at least this many days.
+DRIFT_MOVES = 3
+DRIFT_DAYS = 60
+# No single repricing is believed to be bigger than a doubling or a halving: a bigger jump is a listing that changed, not a price.
+MAX_MOVE = math.log(2)
+PRICE_SEED = 20261018
+
+
+class Moves:
+    """The moves of a price series: how many, over how long, and their sizes as log ratios."""
+
+    __slots__ = ("count", "span", "sizes")
+
+    def __init__(self, count: int, span: float, sizes: list[float]) -> None:
+        self.count, self.span, self.sizes = count, span, sizes
+
+
+def moves_of(series: Sequence[tuple[date, float]]) -> Moves:
+    sizes = [math.log(b / a) for (_, a), (_, b) in zip(series, series[1:]) if a > 0 and b > 0 and a != b]
+    span = (series[-1][0] - series[0][0]).days if len(series) > 1 else 0
+    return Moves(len(sizes), float(span), sizes)
+
+
+def _repricings(series: Sequence[tuple[date, Any]]) -> list[tuple[date, float]]:
+    """The real repricings in one listing's series: (day, log ratio). Changes under ``NOISE_MOVE`` are dropped, and so is a big one the
+    next reading does not confirm (a spike that reverts, or a last reading nothing follows)."""
+
+    found: list[tuple[date, float]] = []
+    level = float(series[0][1]) if series else 0.0
+    for index in range(1, len(series)):
+        after = float(series[index][1])
+        if level <= 0 or after <= 0:
+            level = after
+            continue
+        change = after / level - 1
+        if abs(change) > BIG_MOVE:
+            following = float(series[index + 1][1]) if index + 1 < len(series) else None
+            if following is None or abs(following / after - 1) >= NOISE_MOVE:
+                continue  # a reading nothing confirms: the level stays what it was
+        if abs(change) >= NOISE_MOVE:
+            found.append((series[index][0], math.log(after / level)))
+        level = after
+    return found
+
+
+def _moves_of(listings: Iterable[Sequence[tuple[date, Decimal]]]) -> Moves:
+    """The repricings of a part as its own listings made them: one event for each day a listing's price differed from its last reading,
+    sized by the median change among the listings that moved that day."""
+
+    events: dict[date, list[float]] = {}
+    first: date | None = None
+    last: date | None = None
+    for series in listings:
+        first = series[0][0] if first is None else min(first, series[0][0])
+        last = series[-1][0] if last is None else max(last, series[-1][0])
+        for day, size in _repricings(series):
+            events.setdefault(day, []).append(size)
+    sizes = [max(-MAX_MOVE, min(MAX_MOVE, float(np.median(changes)))) for _day, changes in sorted(events.items())]
+    span = float((last - first).days) if first is not None and last is not None else 0.0
+    return Moves(len(sizes), span, sizes)
+
+
+def _centred(sizes: Sequence[float]) -> list[float]:
+    """Sizes with their mean taken out: how big a move is, not which way prices happen to have gone."""
+
+    if not sizes:
+        return []
+    mean = sum(sizes) / len(sizes)
+    return [size - mean for size in sizes]
+
+
+def drifts(own: Moves) -> bool:
+    """Whether a part's own history is evidence for a trend: at least ``DRIFT_MOVES`` moves the same way over ``DRIFT_DAYS`` days."""
+
+    if own.span < DRIFT_DAYS:
+        return False
+    return max(sum(1 for size in own.sizes if size > 0), sum(1 for size in own.sizes if size < 0)) >= DRIFT_MOVES
+
+
+def draw_prices(
+    series: Sequence[tuple[date, float]], pool: Moves, horizon: int, draws: int = DRAWS, seed: int = PRICE_SEED, own: Moves | None = None,
+) -> np.ndarray | None:
+    """Possible prices ``horizon`` days ahead, or None when the series is too short to say anything.
+
+    ``own`` is the part's repricings from its listings (``inputs.own_moves``); without it they are read from the series itself.
+    The median is today's price unless the part's own history shows a trend: the sizes are centred, so a pool that went mostly one
+    way is a spread, not a drift.
+    """
+
+    if len(series) < 2 or (series[-1][0] - series[0][0]).days < MIN_SPAN_DAYS.get(horizon, max(MIN_SPAN_DAYS.values())):
+        return None
+    own = own or moves_of(series)
+    rate = (own.count + SHRINK_DAYS * PRIOR_RATE) / (own.span + SHRINK_DAYS)
+    rng = np.random.default_rng(seed)
+    counts = rng.poisson(rate * horizon, draws)
+    if own.count >= MIN_OWN_MOVES:
+        own_sizes = own.sizes if drifts(own) else _centred(own.sizes)
+        sizes = np.asarray(own_sizes + _centred(pool.sizes)[: len(own.sizes)], dtype=float)
+    else:
+        sizes = np.asarray(_centred(pool.sizes) or [0.0], dtype=float)
+    total = np.zeros(draws)
+    for index, moves in enumerate(counts):
+        if moves:
+            total[index] = rng.choice(sizes, moves).sum()
+    return series[-1][1] * np.exp(total)
+
+
+def price_forecast(series: Sequence[tuple[date, float]], pool: Moves, own: Moves | None = None) -> dict[str, Any]:
+    """The cheapest price in 30 and 90 days as ranges, with what they rest on."""
+
+    now = series[-1][1] if series else None
+    out: dict[str, Any] = {"available": False, "now": now}
+    for horizon in (30, 90):
+        draw = draw_prices(series, pool, horizon, own=own)
+        if draw is None:
+            out["reason"] = "too_few_readings"
+            return out
+        low, mid, high = (float(v) for v in np.percentile(draw, [10, 50, 90]))
+        out[f"h{horizon}"] = {"low": low, "median": mid, "high": high, "flat": bool(np.isclose(low, high, rtol=1e-4) or (high - low) / max(now or 1, 1e-12) < 0.005)}
+    own = own or moves_of(series)
+    out["available"] = True
+    out["inputs"] = {"readings": len(series), "span_days": own.span, "own_moves": own.count, "pooled_moves": pool.count}
+    return out
+
+
+# --- lifecycle -------------------------------------------------------------
+
+MAKER_SHRINK_MONTHS = 60.0
+PRIOR_EVENTS = 0.5
+MIN_CASES = 5
+MIN_CHANGES_TO_SHOW = 30
+# What each sign multiplies the rate by when the data cannot say: an open notice, and every distributor that lists the part having dropped it.
+NOTICE_FACTOR = 3.0
+DROPPED_FACTOR = 2.0
+# A year's chance never reaches this.
+MAX_P12 = 0.95
+
+
+def chance(rate_per_month: float, months: int) -> float:
+    return 1.0 - math.exp(-max(rate_per_month, 0.0) * months)
+
+
+def factor(found: dict[str, Any]) -> float:
+    """What the part's own signs multiply the maker's rate by."""
+
+    return (NOTICE_FACTOR if found["notice"] else 1.0) * (1.0 + (DROPPED_FACTOR - 1.0) * found["dropped_share"])
+
+
+# --- market ----------------------------------------------------------------
+
+HISTORY_DAYS = 120
+MIN_POINTS = 14
+MARKET_MIN_SPAN_DAYS = 21
+MAX_PAIRWISE = 60
+LEAD_HORIZON = 90
+EASING_STRETCHING_SHARE = 0.10
+SHIFT_RECENT, SHIFT_PRIOR = 14, 14
+SHIFT_SIGMAS = 3.0
+# A share must move by at least this to be a warning, however calm the family was.
+FLOORS = {"out_of_stock": 0.05, "dropped": 0.05, "lifecycle_risk": 0.05, "median_lead_time_days": 7.0}
+
+
+def lead_trend(points: Sequence[tuple[date, float]]) -> dict[str, Any] | None:
+    """Where a family's median quoted lead time is heading in ``LEAD_HORIZON`` days, as a range from the spread of pairwise slopes."""
+
+    sample = list(points)[-MAX_PAIRWISE:]
+    if len(sample) < MIN_POINTS or (sample[-1][0] - sample[0][0]).days < MARKET_MIN_SPAN_DAYS:
+        return None
+    slopes = np.asarray([
+        (b[1] - a[1]) / (b[0] - a[0]).days for index, a in enumerate(sample) for b in sample[index + 1:] if (b[0] - a[0]).days > 0
+    ])
+    now = float(statistics.median(value for _, value in sample[-5:]))
+    low, mid, high = (float(v) for v in np.percentile(slopes, [10, 50, 90]))
+    ahead = [max(now + slope * LEAD_HORIZON, 0.0) for slope in (low, mid, high)]
+    base = max(now, 1.0)
+    if ahead[0] > now and (ahead[1] - now) / base >= EASING_STRETCHING_SHARE:
+        direction = "stretching"
+    elif ahead[2] < now and (now - ahead[1]) / base >= EASING_STRETCHING_SHARE:
+        direction = "easing"
+    else:
+        direction = "flat"
+    return {"now": now, "low": ahead[0], "median": ahead[1], "high": ahead[2], "direction": direction, "points": len(sample)}
+
+
+def shift(metric: str, points: Sequence[tuple[date, float]]) -> dict[str, Any] | None:
+    """A family's figure that moved and stayed moved for two weeks: the last 14 days against the 14 before, beyond what that family's own
+    day-to-day wobble explains and beyond the metric's floor."""
+
+    values = [value for _, value in points]
+    if len(values) < SHIFT_RECENT + SHIFT_PRIOR:
+        return None
+    recent, prior = values[-SHIFT_RECENT:], values[-(SHIFT_RECENT + SHIFT_PRIOR):-SHIFT_RECENT]
+    before, after = statistics.fmean(prior), statistics.fmean(recent)
+    wobble = statistics.pstdev(prior)
+    change = after - before
+    if abs(change) < max(SHIFT_SIGMAS * wobble, FLOORS.get(metric, 0.05)):
+        return None
+    # It has to stay: every one of the last seven days is on the new side of the old mean.
+    side = 1 if change > 0 else -1
+    if not all((value - before) * side > 0 for value in values[-7:]):
+        return None
+    return {"metric": metric, "before": before, "after": after, "direction": "up" if change > 0 else "down", "since": points[-SHIFT_RECENT][0].isoformat()}

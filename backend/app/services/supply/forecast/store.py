@@ -121,14 +121,6 @@ def record_check(conn, forecast_id: int, today: date, *, observed: float | None,
     )
 
 
-def judge_range(row: Mapping[str, Any], observed: float | None) -> tuple[bool | None, bool]:
-    """(inside, void) for a range forecast and what was seen. ``None`` observed means the event never happened in the window."""
-
-    if observed is None:
-        return False, False
-    return bool(row["low"] <= observed <= row["high"]), False
-
-
 # --- the track record ------------------------------------------------------
 
 
