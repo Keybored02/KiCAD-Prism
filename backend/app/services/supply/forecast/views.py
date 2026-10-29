@@ -14,7 +14,6 @@ from app.services.supply import part_insights
 from app.services.supply.assessment import settings_store
 from app.services.supply.forecast import inputs, models, run, store
 
-LIKELY = 0.5
 COMING_UP = 10
 
 
@@ -113,7 +112,8 @@ def dashboard(conn, today: date | None = None) -> dict[str, Any]:
     today = today or datetime.now(timezone.utc).date()
     states = store.model_states(conn)
     rows = _rows(conn)
-    likely_4w = [row for row in rows if (row["forecast"].get("p_out_4w") or 0) >= LIKELY and not row["forecast"].get("out_now")]
+    # Likely out by the one rule the likely_out check and the Insights lists use (the part's or the workspace's chance).
+    likely_4w = [row for row in rows if part_insights.KINDS["likely_out_4w"](row)]
     events = []
     for row in rows:
         forecast = row["forecast"]
@@ -148,13 +148,6 @@ def panel_line(conn, part_id: str) -> dict[str, str] | None:
     if can_8w >= 0.7:
         return {"tone": "ok", "text": f"Likely in stock for the next 8 weeks ({store.chance_percent(can_8w)}%)"}
     return None
-
-
-def likely_out_ids(conn, weeks: int) -> set[str]:
-    """Parts likely (half or more) to be out everywhere within 4 or 8 weeks, for the Parts list filters."""
-
-    key = "p_out_4w" if weeks <= 4 else "p_out_8w"
-    return {row["part_id"] for row in _rows(conn) if (row["forecast"].get(key) or 0) >= LIKELY and not row["forecast"].get("out_now")}
 
 
 def insights_page(conn, today: date | None = None) -> dict[str, Any]:

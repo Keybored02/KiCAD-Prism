@@ -16,7 +16,6 @@ from app.services.supply.forecast import inputs, models, store
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 CHECK_DAYS = 200
-_FAMILY = ("runout", "back_in", "can_buy_4w", "can_buy_8w", "price_30", "price_90")
 
 
 def stock_forecast(conn, part_id: str, now: datetime, quantity: int | None = None) -> dict[str, Any]:

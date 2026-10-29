@@ -145,16 +145,6 @@ def default_quantity(conn, part_id: str) -> int:
     return int(price_quantity.of_part(conn, part_id)["quantity"])
 
 
-def listing_context(conn, part_id: str) -> dict[str, Any]:
-    """How many followed listings and distributors the forecast stands on."""
-
-    row = conn.execute(
-        "SELECT COUNT(*) AS listings, COUNT(DISTINCT connector_id) AS connectors FROM supply_listings WHERE part_id = %s AND match_state = ANY(%s)",
-        (part_id, list(counted.STATES)),
-    ).fetchone()
-    return {"listings": int(row["listings"]), "connectors": int(row["connectors"])}
-
-
 # --- price -----------------------------------------------------------------
 
 POOL_CACHE_FOR = 6 * 3600.0
