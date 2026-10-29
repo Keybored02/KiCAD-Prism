@@ -11,11 +11,10 @@ supply data, and a component Prism does not track simply has no summary.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode
 
-from app.services.supply import bom_lookup, forecast_overview, insights, parts_view, pricing
+from app.services.supply import bom_lookup, forecast_overview, insights, parts_view, price_quantity, pricing
 from app.services.supply.assessment import service as assessment
 from app.services.supply.bom_lookup import BomLine
 
@@ -72,18 +71,19 @@ def summaries(conn, components: Sequence[Mapping[str, Any]], role: str | None = 
     }
 
 
-def _source_rows(offers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _source_rows(offers: Sequence[Mapping[str, Any]], wanted: int) -> list[dict[str, Any]]:
+    """Each offer at the part's price quantity, in its own currency."""
+
     rows = []
     for offer in offers:
-        breaks = [(int(q), Decimal(p)) for q, p in offer["price_breaks"]]
-        price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"], up_to=offer.get("price_up_to")) if offer["currency"] else None
+        price, _currency, _quantity = pricing.native_price(offer, wanted)
         rows.append({
             "connector": offer["connector_name"],
             "provider": offer["provider"],
             "sku": offer["sku"],
             "stock": offer["stock"],
             "marketplace": bool(offer["marketplace"]),
-            "unit_price": format(price.normalize(), "f") if price is not None else None,
+            "unit_price": price,
             "currency": offer["currency"],
             "moq": offer["moq"],
             "lead_time_days": offer["lead_time_days"],
@@ -136,7 +136,7 @@ def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, no
     assessed = assessment.assess_summaries(conn, items, offers, {}, now)[part_id]
     return {
         "summary": _summary(items[0], here),
-        "offers": _source_rows(here),
+        "offers": _source_rows(here, price_quantity.of_parts(conn, [part_id])[part_id]),
         "insight": insight,
         "outlook": detail_view["outlook"]["label"],
         "health": {"score": assessed["health"], "status": assessed["status"]},

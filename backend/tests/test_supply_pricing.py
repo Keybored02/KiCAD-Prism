@@ -66,9 +66,48 @@ class QuotedQuantityTests(unittest.TestCase):
         offer = {"marketplace": False, "currency": "EUR", "price_breaks": [[1, "0.50"]], "moq": 1, "order_multiple": 1, "price_up_to": 1,
                  "stock": 5000, "connector_id": "c1", "connector_name": "Avnet", "provider": "avnet", "sku": "S", "product_url": ""}
         rates = Rates(None, {})
-        self.assertIsNotNone(headline_price.quote(offer, 1, "EUR", rates))
-        self.assertIsNone(headline_price.quote(offer, 100, "EUR", rates))
+        self.assertIsNotNone(pricing.quote(offer, 1, "EUR", rates))
+        self.assertIsNone(pricing.quote(offer, 100, "EUR", rates))
         self.assertIsNone(bom_lookup._best_purchase([offer], 100, rates, "EUR"), "no price for 100 from a quote for one")  # noqa: SLF001
+
+
+class BestOfferTests(unittest.TestCase):
+    @staticmethod
+    def offer(connector, price, *, stock=1000, moq=1, multiple=1, lead=None, currency="EUR") -> dict:
+        return {"marketplace": False, "currency": currency, "price_breaks": [[moq, price]], "moq": moq, "order_multiple": multiple, "price_up_to": None,
+                "stock": stock, "connector_id": connector, "lead_time_days": lead}
+
+    def best(self, offers, wanted=100, preferred=()):
+        from app.services.supply.fx import Rates
+
+        rates = Rates(None, {"USD": D("1.25")})
+        chosen, kind = pricing.best_offer([q for q in (pricing.quote(o, wanted, "EUR", rates) for o in offers) if q], preferred)
+        return (chosen.connector_id if chosen else None, kind)
+
+    def test_stock_that_covers_the_order_wins_then_any_stock_then_a_lead_time_then_the_list(self) -> None:
+        self.assertEqual(self.best([self.offer("short", "0.10", stock=50), self.offer("full", "0.20")]), ("full", "orderable"))
+        self.assertEqual(self.best([self.offer("short", "0.10", stock=50), self.offer("none", "0.05", stock=0)]), ("short", "orderable"))
+        self.assertEqual(self.best([self.offer("wait", "0.30", stock=0, lead=30), self.offer("none", "0.05", stock=0)]), ("wait", "backorder"))
+        self.assertEqual(self.best([self.offer("a", "0.30", stock=0), self.offer("b", "0.20", stock=0)]), ("b", "listed"))
+        self.assertEqual(self.best([]), (None, None))
+
+    def test_the_cost_of_what_must_be_ordered_decides_so_a_reel_wins_only_when_it_costs_less(self) -> None:
+        self.assertEqual(self.best([self.offer("tape", "0.10"), self.offer("reel", "0.02", moq=3000, stock=5000)]), ("tape", "orderable"))
+        self.assertEqual(self.best([self.offer("tape", "1.00"), self.offer("reel", "0.02", moq=3000, stock=5000)]), ("reel", "orderable"))
+        self.assertEqual(self.best([self.offer("tens", "0.09", multiple=250), self.offer("ones", "0.10")]), ("ones", "orderable"))
+        self.assertEqual(self.best([self.offer("usd", "0.10", currency="USD"), self.offer("eur", "0.09")]), ("usd", "orderable"))
+
+    def test_a_preferred_distributor_covering_the_order_wins_before_price(self) -> None:
+        offers = [self.offer("cheap", "0.10"), self.offer("mine", "0.20"), self.offer("short", "0.01", stock=5)]
+        self.assertEqual(self.best(offers, preferred=("mine",)), ("mine", "orderable"))
+        self.assertEqual(self.best(offers, preferred=("short",)), ("cheap", "orderable"))
+
+    def test_only_currencies_the_rates_cannot_convert_are_unrated(self) -> None:
+        from app.services.supply.fx import Rates
+
+        offers = [self.offer("a", "0.10", currency="USD"), self.offer("b", "0.10", currency="GBP"), self.offer("c", "0.10")]
+        self.assertEqual(pricing.unrated(offers, "EUR", Rates(None, {"USD": D("1.25")})), ["GBP"])
+        self.assertEqual(pricing.unrated(offers, "EUR", None), ["GBP", "USD"])
 
 
 class StatusProblemTests(unittest.TestCase):

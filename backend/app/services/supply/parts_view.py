@@ -742,7 +742,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         for offer in here:
             entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0, "price": None, "currency": ""})
             held[offer["connector_id"]].append(offer)
-            price, currency, _quantity = headline_price.native_price(offer, quantities[item["id"]])
+            price, currency, _quantity = pricing.native_price(offer, quantities[item["id"]])
             if price is not None and (entry["price"] is None or Decimal(price) < Decimal(entry["price"])):
                 entry["price"], entry["currency"] = price, currency
         for connector_id, entry in by_connector.items():

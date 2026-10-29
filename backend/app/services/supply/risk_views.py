@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import compliance, facts, fx, headline_price, part_insights, parts_view, price_quantity, trade
+from app.services.supply import compliance, facts, fx, part_insights, parts_view, price_quantity, pricing, trade
 from app.services.supply.assessment import settings_store
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
@@ -125,7 +125,7 @@ def _coverage_sets(conn, items: Sequence[Mapping[str, Any]]):
             names[offer["connector_id"]] = (offer["connector_name"], offer["provider"])
             entry = by_connector.setdefault(offer["connector_id"], {"stock": 0, "price": None})
             entry["stock"] += int(offer["stock"] or 0)
-            found = headline_price.quote(offer, quantities[part_id], base, rates)
+            found = pricing.quote(offer, quantities[part_id], base, rates)
             if found is not None and (entry["price"] is None or found.price < entry["price"]):
                 entry["price"] = found.price
         for connector_id, entry in by_connector.items():

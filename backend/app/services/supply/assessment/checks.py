@@ -38,7 +38,7 @@ class Facts:
     distributors: int | None = None
     # Names of substances declared for the part that are on the ECHA Candidate List.
     svhc_listed: Sequence[str] = ()
-    # What each distributor quotes per piece at the reference quantity, in the base currency: (distributor name, price).
+    # What each distributor quotes per piece at the part's price quantity, in the base currency: (distributor name, price).
     prices: Sequence[tuple[str, Decimal]] = ()
     # Where the part stands on the way to its end (``outlook.py``): "ended", "under_2_years", "2_to_5_years", "no_signs", "unknown", or "" when not known.
     outlook: str = ""
