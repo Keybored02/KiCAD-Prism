@@ -118,15 +118,18 @@ def lines_from_csv(text: str, identities: Identities | None = None) -> ReadBom:
             continue
         key = f"{alias_key(manufacturer)}|{number}"
         line = found.setdefault(key, {"manufacturer": manufacturer, "mpn": mpn, "alias": alias_key(manufacturer), "number": number,
-                                      "quantity": 0, "refs": [], "lcsc": "", "prism_id": ""})
+                                      "quantity": 0, "refs": [], "lcsc": "", "prism_id": "", "value": "", "footprint": ""})
         line["quantity"] += _quantity(row)
         line["refs"] += [ref for ref in re.split(r"[\s,;]+", _first(row, REFERENCE_FIELDS)) if ref]
         line["lcsc"] = line["lcsc"] or lcsc_of(row)
         line["prism_id"] = line["prism_id"] or (prism_id_of(row) if placed else "")
+        line["value"] = line["value"] or _first(row, ("value",))[:200]
+        line["footprint"] = line["footprint"] or _first(row, ("footprint",))[:200]
     return ReadBom(
         [
             UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], line["quantity"],
-                      " ".join(sorted(line["refs"]))[:MAX_REFERENCES_TEXT], line["lcsc"], prism_id=line["prism_id"])
+                      " ".join(sorted(line["refs"]))[:MAX_REFERENCES_TEXT], line["lcsc"], prism_id=line["prism_id"],
+                      value=line["value"], footprint=line["footprint"])
             for key, line in found.items()
         ],
         rows=len(fitted),

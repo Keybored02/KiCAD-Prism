@@ -4,8 +4,8 @@ This is the whole schema, not a history of steps: nothing has been released with
 them were folded into these modules before the first release. From the first release on, a change is a new catalog
 ledger step (:mod:`app.services.catalog_schema_migrations`), never an edit here.
 
-The catalog ledger runs :func:`create_supply_tables` as its ``supply_tables`` step and :func:`create_catalog_triggers`
-once the catalog tables the rollups read exist; tests run :func:`create_supply_tables` in a disposable schema. Table
+The catalog ledger runs :func:`create_supply_tables` as its ``supply_tables`` step and :func:`create_catalog_links`
+once the catalog tables supply refers to exist; tests run :func:`create_supply_tables` in a disposable schema. Table
 names are unqualified: the caller has set the search path. Every statement is idempotent, so running it twice changes
 nothing.
 """
@@ -30,10 +30,11 @@ def create_supply_tables(conn) -> None:
     seed(conn)
 
 
-def create_catalog_triggers(conn) -> None:
-    """The rollups' change marks on catalog tables (components, their parts, local stock)."""
+def create_catalog_links(conn) -> None:
+    """What ties supply to catalog tables: foreign keys to components, and the rollups' change marks on components,
+    their parts and local stock."""
 
-    for statement in derived.CATALOG_TRIGGERS:
+    for statement in (*work.CATALOG_LINKS, *derived.CATALOG_TRIGGERS):
         conn.execute(statement, prepare=False)
 
 

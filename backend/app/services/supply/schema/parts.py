@@ -21,7 +21,6 @@ TABLES: tuple[str, ...] = (
         manufacturer_id TEXT NOT NULL REFERENCES supply_manufacturers(id),
         mpn TEXT NOT NULL,
         match_key TEXT NOT NULL,
-        lifecycle TEXT NOT NULL DEFAULT 'unknown',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         datasheet_url TEXT NOT NULL DEFAULT '',
         ask_maker BOOLEAN NOT NULL DEFAULT FALSE,
@@ -108,6 +107,7 @@ TABLES: tuple[str, ...] = (
         source TEXT NOT NULL DEFAULT 'person',
         CONSTRAINT supply_manufacturer_aliases_check CHECK ((status = 'confirmed') = (manufacturer_id IS NOT NULL))
     );
+    CREATE INDEX IF NOT EXISTS idx_supply_manufacturer_aliases_maker ON supply_manufacturer_aliases (manufacturer_id);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_number_suffixes (
@@ -127,6 +127,7 @@ TABLES: tuple[str, ...] = (
         note TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (part_id, connector_id)
     );
+    CREATE INDEX IF NOT EXISTS idx_supply_packaging_picks_listing ON supply_packaging_picks (listing_id);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_part_numbers (
@@ -147,6 +148,7 @@ TABLES: tuple[str, ...] = (
         set_by TEXT NOT NULL DEFAULT '',
         set_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE INDEX IF NOT EXISTS idx_supply_part_preferences_connector ON supply_part_preferences (connector_id);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_part_price_quantity (
@@ -221,5 +223,6 @@ TABLES: tuple[str, ...] = (
         PRIMARY KEY (request_id, part_id, connector_id)
     );
     CREATE INDEX IF NOT EXISTS idx_supply_read_request_work_connector ON supply_read_request_work (connector_id, state);
+    CREATE INDEX IF NOT EXISTS idx_supply_read_request_work_part ON supply_read_request_work (part_id);
     """,
 )

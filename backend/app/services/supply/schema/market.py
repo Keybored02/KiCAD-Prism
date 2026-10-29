@@ -29,6 +29,8 @@ TABLES: tuple[str, ...] = (
         payload JSONB NOT NULL DEFAULT '{}'::jsonb
     );
     CREATE INDEX IF NOT EXISTS idx_supply_events_part ON supply_events (part_id, at);
+    CREATE INDEX IF NOT EXISTS idx_supply_events_kind ON supply_events (kind, at);
+    CREATE INDEX IF NOT EXISTS idx_supply_events_listing ON supply_events (listing_id);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_figure_history (

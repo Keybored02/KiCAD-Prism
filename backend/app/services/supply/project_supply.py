@@ -52,7 +52,10 @@ def attrition_of(spares: str) -> float | None | str:
 def bom_line(row: dict[str, Any]) -> bom_lookup.BomLine:
     """A stored BOM row as a line to look up, with the component its symbol places."""
 
-    return bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], prism_id=row.get("prism_id") or "", lcsc=row["lcsc"])
+    return bom_lookup.BomLine(
+        row["key"], row["manufacturer"], row["mpn"], row["quantity"], prism_id=row.get("prism_id") or "", lcsc=row["lcsc"],
+        value=row.get("value") or "", footprint=row.get("footprint") or "",
+    )
 
 
 def _parts(

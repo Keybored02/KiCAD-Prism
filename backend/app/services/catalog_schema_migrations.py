@@ -612,11 +612,12 @@ def _inventory_sources(conn: Any) -> None:
     )
 
 
-def _supply_catalog_triggers(conn: Any) -> None:
-    """The supply rollups' change marks on the catalog tables they read, which exist only from the steps before."""
-    from app.services.supply.schema import create_catalog_triggers
+def _supply_catalog_links(conn: Any) -> None:
+    """Supply's foreign keys to components and its rollups' change marks on catalog tables, which exist only from the steps
+    before."""
+    from app.services.supply.schema import create_catalog_links
 
-    create_catalog_triggers(getattr(conn, "_connection", conn))
+    create_catalog_links(getattr(conn, "_connection", conn))
 
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
@@ -640,7 +641,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (17, "supply_tables", _supply_tables),
     (18, "component_parts", _component_parts),
     (19, "inventory_sources", _inventory_sources),
-    (20, "supply_catalog_triggers", _supply_catalog_triggers),
+    (20, "supply_catalog_links", _supply_catalog_links),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

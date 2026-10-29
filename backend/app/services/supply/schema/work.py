@@ -36,6 +36,7 @@ TABLES: tuple[str, ...] = (
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_alerts_one_live ON supply_alerts (part_id, kind) WHERE state <> 'resolved';
     CREATE INDEX IF NOT EXISTS idx_supply_alerts_state ON supply_alerts (state, last_event_at);
+    CREATE INDEX IF NOT EXISTS idx_supply_alerts_part ON supply_alerts (part_id);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_assessment_marks (
@@ -83,6 +84,8 @@ TABLES: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS supply_bom_usage (
         project_id TEXT NOT NULL REFERENCES supply_bom_usage_projects(project_id) ON DELETE CASCADE,
+        -- The base design is ''; a named design variant has its own lines.
+        variant TEXT NOT NULL DEFAULT '',
         line_key TEXT NOT NULL,
         manufacturer TEXT NOT NULL DEFAULT '',
         mpn TEXT NOT NULL,
@@ -93,27 +96,12 @@ TABLES: tuple[str, ...] = (
         lcsc TEXT NOT NULL DEFAULT '',
         datasheet TEXT NOT NULL DEFAULT '',
         prism_id TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY (project_id, line_key)
-    );
-    CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_match ON supply_bom_usage (match_key);
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS supply_bom_usage_variants (
-        project_id TEXT NOT NULL REFERENCES supply_bom_usage_projects(project_id) ON DELETE CASCADE,
-        variant TEXT NOT NULL,
-        line_key TEXT NOT NULL,
-        manufacturer TEXT NOT NULL DEFAULT '',
-        mpn TEXT NOT NULL,
-        quantity INTEGER NOT NULL CHECK (quantity >= 1),
-        refs TEXT NOT NULL DEFAULT '',
-        lcsc TEXT NOT NULL DEFAULT '',
-        alias_key TEXT NOT NULL DEFAULT '',
-        match_key TEXT NOT NULL DEFAULT '',
-        datasheet TEXT NOT NULL DEFAULT '',
-        prism_id TEXT NOT NULL DEFAULT '',
+        -- The symbol's value and footprint, checked against the distributor's.
+        value TEXT NOT NULL DEFAULT '',
+        footprint TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (project_id, variant, line_key)
     );
-    CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_variants_match_key ON supply_bom_usage_variants (match_key);
+    CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_match ON supply_bom_usage (match_key);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_component_restrictions (
@@ -252,3 +240,21 @@ TRIGGERS: tuple[str, ...] = (
     "CREATE OR REPLACE TRIGGER trg_supply_release_snapshots_frozen BEFORE DELETE OR UPDATE ON supply_release_snapshots "
     "FOR EACH ROW EXECUTE FUNCTION supply_release_snapshots_frozen()",
 )
+
+# Supply rows about one catalog component must name a real one (and go if it is ever deleted). Made with the catalog's own steps
+# (``create_catalog_links``), since a test's disposable schema has no ``components``.
+COMPONENT_LINKS = ("supply_component_watches", "supply_component_restrictions", "supply_ending_dismissals")
+
+
+def _component_link(table: str) -> str:
+    name = f"{table}_component_id_fkey"
+    return f"""
+    DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '{name}' AND conrelid = '{table}'::regclass) THEN
+            ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+    """
+
+
+CATALOG_LINKS: tuple[str, ...] = tuple(_component_link(table) for table in COMPONENT_LINKS)

@@ -76,7 +76,7 @@ class SupplyDatabaseTests(unittest.TestCase):
 
         versions = {step.name: step.version for step in CATALOG_LEDGER.steps}
         self.assertLess(versions["supply_tables"], versions["component_parts"], "component_parts refers to supply_parts, so it comes after")
-        self.assertLess(versions["inventory_sources"], versions["supply_catalog_triggers"], "the rollup triggers need the catalog tables they watch")
+        self.assertLess(versions["inventory_sources"], versions["supply_catalog_links"], "the links need the catalog tables they refer to")
         count = "SELECT (SELECT count(*) FROM pg_tables WHERE schemaname = current_schema()) + (SELECT count(*) FROM supply_maker_seeds) AS n"
         with self.store.connection() as conn:
             before = conn.execute(count).fetchone()["n"]

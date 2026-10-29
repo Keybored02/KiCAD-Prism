@@ -88,7 +88,7 @@ class FakeConnection:
 class CatalogSchemaMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
         # The fake runs the ladder, not real SQL: the supply step's tables are checked against PostgreSQL elsewhere.
-        for target in ("app.services.supply.schema.create_supply_tables", "app.services.supply.schema.create_catalog_triggers"):
+        for target in ("app.services.supply.schema.create_supply_tables", "app.services.supply.schema.create_catalog_links"):
             patcher = mock.patch(target)
             patcher.start()
             self.addCleanup(patcher.stop)

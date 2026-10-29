@@ -151,7 +151,7 @@ root first.
 | `credentials.py` | The one adapter over the credential keyring. |
 | `connectors.py` | Connector setup, credentials, pause, state. |
 | `backend/app/api/supply_connectors.py` | HTTP API for connectors. Readers are admin, designer and qa; only admin changes anything. Strips request bodies from 422 errors. |
-| `schema/`, `store.py` | Supply tables live in the catalog's schema, each prefixed `supply_`. `schema/` is the whole schema as it stands, one module per area (`sources`, `parts`, `market`, `work`, `derived`: tables, then functions and triggers), plus the seeded spellings and suffixes; the catalog ledger runs `create_supply_tables` as its `supply_tables` step and `create_catalog_triggers` as `supply_catalog_triggers`. `store.py` hands out connections on the catalog schema (or a test's disposable schema). |
+| `schema/`, `store.py` | Supply tables live in the catalog's schema, each prefixed `supply_`. `schema/` is the whole schema as it stands, one module per area (`sources`, `parts`, `market`, `work`, `derived`: tables, then functions and triggers), plus the seeded spellings and suffixes; the catalog ledger runs `create_supply_tables` as its `supply_tables` step and `create_catalog_links` (foreign keys to components, rollup triggers on catalog tables) as `supply_catalog_links`. `store.py` hands out connections on the catalog schema (or a test's disposable schema). |
 
 ## Rules
 

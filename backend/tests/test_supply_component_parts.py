@@ -340,6 +340,23 @@ class ComponentPartsTests(unittest.TestCase):
             self.assertEqual(count(lifecycle="obsolete"), 0, "dismissed for this reason")
             self.assertEqual(count(lifecycle="obsolete", dropped=True), 1, "a new reason brings it back")
 
+    def test_supply_rows_about_a_component_must_name_a_real_one(self) -> None:
+        import psycopg
+
+        component_id = str(self._component()["id"])
+        rows = (
+            "INSERT INTO supply_component_watches (component_id, owner, created_by) VALUES (%s, 'a', 'a')",
+            "INSERT INTO supply_component_restrictions (component_id, level) VALUES (%s, 'retired')",
+            "INSERT INTO supply_ending_dismissals (component_id, reasons, dismissed_by) VALUES (%s, 'obsolete', 'a')",
+        )
+        for insert in rows:
+            with self.assertRaises(psycopg.errors.ForeignKeyViolation), self.store.connection() as conn:
+                conn.execute(insert, ("no-such-component",))
+        with self.store.connection() as conn:
+            for insert in rows:
+                conn.execute(insert, (component_id,))
+            conn.rollback()
+
     def test_a_dismissal_holds_only_for_the_reasons_it_was_made_for(self) -> None:
         from app.services.supply import ending_parts
 
