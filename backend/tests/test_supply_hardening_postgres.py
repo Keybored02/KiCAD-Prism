@@ -302,6 +302,24 @@ class HardeningTests(unittest.TestCase):
             alone = stock.part_stock(conn, part).total
         self.assertEqual((listed, sheet, alone), (40, 40, 40), "a disabled connector's stock counts nowhere")
 
+    def test_the_part_sheet_and_the_bom_read_the_summary_the_list_keeps(self) -> None:
+        from app.services.supply import parts_view
+
+        part = self.watch().part_id
+        listing = self.add_listing(part, self.connector(), "SKU-1")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, currency) VALUES (%s, %s, 40, 'EUR')", (listing, START))
+        with self.store.connection() as conn:
+            self.assertEqual(parts_view.summaries_for(conn, [part])[0]["stock"], 40)
+        with self.store.connection() as conn:
+            # Change the kept row behind the triggers' back: whoever reads it shows the change, whoever works it out does not.
+            conn.execute("UPDATE supply_part_summaries SET stock = 7, price = price || '{\"unit_price\": \"9.9\"}' WHERE part_id = %s", (part,))
+        with self.store.connection() as conn:
+            sheet = parts_view.part_detail(conn, part, now=START)
+            items, _offers = parts_view.summaries_with_offers(conn, [part])
+        self.assertEqual((sheet["stock"]["total"], sheet["price"]["headline"]["unit_price"]), (7, "9.9"))
+        self.assertEqual((items[0]["stock"], items[0]["unit_price"]), (7, "9.9"))
+
     def test_a_connector_can_keep_raw_samples_for_fewer_days(self) -> None:
         short = self.connector("fake", storefront="")
         self.connectors.update(short, actor="a@example.com", retention_days=10)

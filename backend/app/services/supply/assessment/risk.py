@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from app.services.supply import stock as stock_rules
 from app.services.supply.assessment.checks import Facts, stock_of
-from app.services.supply.offer_rules import lead_time_of
+from app.services.supply.offer_rules import lead_time_of, rohs_verdict
 from app.services.supply.vocabulary import Lifecycle
 
 
@@ -94,10 +94,10 @@ def market(facts: Facts) -> SubScore:
 
 
 def compliance(facts: Facts) -> SubScore:
-    known = [o["rohs"] for o in facts.offers if o.get("rohs") is not None]
-    if known and not any(known):
+    rohs = rohs_verdict(facts.offers, facts.rohs_stated)
+    if rohs == "not_compliant":
         return SubScore("compliance", 5, ("Listed as not RoHS compliant.",))
-    if known and not all(known):
+    if rohs == "disputed":
         return SubScore("compliance", 3, ("Distributors disagree on RoHS.",))
     if facts.svhc_listed or any(o.get("reach_affected") for o in facts.offers):
         return SubScore("compliance", 3, ("Affected by REACH.",))

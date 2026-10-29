@@ -32,6 +32,15 @@ class RohsTests(unittest.TestCase):
         self.assertEqual(offer_rules.rohs_verdict([offer(rohs=True), offer(rohs=False)]), "disputed")
         self.assertEqual(offer_rules.rohs_verdict([offer()]), "unknown")
 
+    def test_the_stated_status_decides_only_when_no_offer_says(self) -> None:
+        self.assertEqual(offer_rules.rohs_verdict([offer(rohs=True)], ["not_compliant"]), "compliant")
+        self.assertEqual(offer_rules.rohs_verdict([offer()], ["not_compliant", "unknown"]), "not_compliant")
+        self.assertEqual(offer_rules.rohs_verdict([], ["compliant_exemption"]), "compliant")
+        self.assertEqual(offer_rules.rohs_verdict([], ["compliant", "not_compliant"]), "disputed")
+        self.assertEqual(offer_rules.rohs_verdict([], ["not_applicable"]), "not_applicable")
+        self.assertEqual(offer_rules.rohs_verdict([], ["not_applicable", "compliant"]), "compliant")
+        self.assertEqual(offer_rules.rohs_verdict([], ["unknown"]), "unknown")
+
 
 class HolderTests(unittest.TestCase):
     def test_storefronts_on_one_account_hold_once_and_an_empty_or_marketplace_offer_holds_nothing(self) -> None:

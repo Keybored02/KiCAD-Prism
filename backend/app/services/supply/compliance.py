@@ -15,7 +15,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import parts, spreadsheet
+from app.services.supply import counted, facts, offer_rules, parts, spreadsheet
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_LIST_BYTES = 5 * 1024 * 1024
@@ -275,6 +275,27 @@ def standing(offers: Iterable[Mapping[str, Any]], listed: Sequence[str]) -> dict
     return {"state": "unknown", "reason": "No distributor or declaration says either way."}
 
 
+_ROHS_REASONS = {
+    "compliant": "Distributors list the part as RoHS compliant.",
+    "not_compliant": "Distributors list the part as not RoHS compliant.",
+    "disputed": "Distributors disagree.",
+    "not_applicable": "Distributors state RoHS does not apply to the part.",
+    "unknown": "No distributor says either way.",
+}
+
+
+def rohs_standing(offers: Sequence[Mapping[str, Any]], stated: Sequence[str]) -> dict[str, str]:
+    """What is known about RoHS for a part (``offer_rules.rohs_verdict``) and why."""
+
+    state = offer_rules.rohs_verdict(offers, stated)
+    from_offers = any(offer.get("rohs") is not None for offer in offers)
+    reason = _ROHS_REASONS[state]
+    if not from_offers and state in ("compliant", "not_compliant", "disputed"):
+        reason = {"compliant": "The part's stated RoHS status is compliant.", "not_compliant": "The part's stated RoHS status is not compliant.",
+                  "disputed": "The RoHS statuses stated for the part disagree."}[state]
+    return {"state": state, "reason": reason}
+
+
 MAX_EXEMPTIONS = 20
 _EXEMPTION = re.compile(r"^[0-9]{1,2}(?:\([a-z]{1,2}\))?(?:-[IVX]{1,4})?(?:\([a-z]{1,2}\))?$|^[A-Za-z0-9 ./()\-]{2,24}$")
 
@@ -317,3 +338,26 @@ def exemptions(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, str]]]
     ).fetchall():
         found.setdefault(row["part_id"], []).append({"code": row["code"], "note": row["note"], "declared_by": row["declared_by"]})
     return found
+
+
+def rohs_flags(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
+    """Per part, the RoHS and REACH flags of its counted offers, with the distributor that gives them."""
+
+    found: dict[str, list[dict[str, Any]]] = {part_id: [] for part_id in part_ids}
+    if part_ids:
+        for row in conn.execute(
+            "SELECT l.part_id, o.rohs, o.reach_affected, c.display_name AS connector_name FROM supply_offers o "
+            "JOIN supply_listings l ON l.id = o.listing_id JOIN supply_connectors c ON c.id = l.connector_id "
+            f"WHERE l.part_id = ANY(%s) AND {counted.listing_sql()}",
+            (list(part_ids),),
+        ).fetchall():
+            found[row["part_id"]].append(dict(row))
+    return found
+
+
+def rohs_verdicts(conn, part_ids: Sequence[str]) -> dict[str, str]:
+    """Each part's RoHS verdict (``offer_rules.rohs_verdict``): its counted offers first, the RoHS status stated for it when none says."""
+
+    offers = rohs_flags(conn, part_ids)
+    stated = facts.rohs_stated(conn, part_ids)
+    return {part_id: offer_rules.rohs_verdict(offers[part_id], stated.get(part_id, ())) for part_id in part_ids}

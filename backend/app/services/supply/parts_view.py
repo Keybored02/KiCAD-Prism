@@ -12,9 +12,9 @@ import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Mapping
 
-from app.services.supply import budget, counted, facts, forecasting, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import budget, counted, facts, forecasting, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 from app.services.supply.providers import registry
@@ -34,7 +34,7 @@ Filter = Literal[
     "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown",
     "outlook_ended", "outlook_under_2_years", "outlook_2_to_5_years", "outlook_no_signs", "outlook_unknown",
     "lead_under_2w", "lead_2_to_8w", "lead_8_to_16w", "lead_16_to_26w", "lead_over_26w", "lead_none",
-    "rohs_compliant", "rohs_not_compliant", "rohs_not_applicable", "rohs_unknown",
+    "rohs_compliant", "rohs_not_compliant", "rohs_disputed", "rohs_not_applicable", "rohs_unknown",
     "reach_compliant", "reach_affected", "reach_not_applicable", "reach_unknown",
     "control_controlled", "control_disputed", "control_none", "control_unknown",
 ]
@@ -299,8 +299,9 @@ def _keep(conn, found: dict[str, dict[str, Any]]) -> None:
         )
 
 
-def _cached(conn, rows, money: tuple[str, fx.Rates, str] | None = None) -> dict[str, dict[str, Any]]:
-    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept."""
+def _cached(conn, rows, money: tuple[str, fx.Rates, str] | None = None, offers: dict[str, list[dict]] | None = None) -> dict[str, dict[str, Any]]:
+    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out (from ``offers`` when the caller
+    has read them) and kept."""
 
     money = money or _money(conn)
     fresh = {
@@ -310,7 +311,7 @@ def _cached(conn, rows, money: tuple[str, fx.Rates, str] | None = None) -> dict[
     }
     todo = [r for r in rows if r["id"] not in fresh]
     if todo:
-        found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]), money)
+        found = _computed(conn, todo, offers if offers is not None else offers_by_part(conn, [r["id"] for r in todo]), money)
         _keep(conn, found)
         fresh.update(found)
     return fresh
@@ -338,11 +339,11 @@ def _bring_up_to_date(conn, where: str, params: list[Any]) -> str:
 def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None, *, role: str | None = None) -> list[dict[str, Any]]:
     """The list-row summary of each part row: status, stock, price, lifecycle, tier, and how many projects ``role`` may see use it.
 
-    With ``offers`` given they are used as they are. Without, the offer summaries are read from ``part_summaries``.
+    The offer summaries are the kept ones (``part_summaries``); a stale or missing one is worked out from ``offers`` when given.
     """
 
     ids = [r["id"] for r in rows]
-    sums = _computed(conn, rows, offers) if offers is not None else _cached(conn, rows)
+    sums = _cached(conn, rows, offers=offers)
     jlc = facts.jlc_classes(conn, ids)
     used = usage.projects_of_parts(conn, ids, role)
 
@@ -376,7 +377,7 @@ def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
 
 
 def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:
-    """Summaries of the given parts and the counted offers behind them, for callers that price.
+    """Summaries of the given parts (the kept ones, as the list shows) and the counted offers behind them, for callers that price.
 
     A watch counts one packaging when it says so (cut tape for prototypes), and the offers returned follow it, so a
     purchase suggestion and the checks never use a packaging the watch leaves out.
@@ -733,6 +734,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         "SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
     ).fetchall():
         stated.setdefault(row["part_id"], {}).setdefault(row["name"], set()).add(row["value"].strip().lower())
+    rohs_said = facts.rohs_stated(conn, ids)
     extras = {}
     for item in page:
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
@@ -741,7 +743,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         for offer in here:
             entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0, "price": None, "currency": ""})
             held[offer["connector_id"]].append(offer)
-            price, currency, _quantity = headline_price.native_price(offer, quantities[item["id"]])
+            price, currency, _quantity = pricing.native_price(offer, quantities[item["id"]])
             if price is not None and (entry["price"] is None or Decimal(price) < Decimal(entry["price"])):
                 entry["price"], entry["currency"] = price, currency
         for connector_id, entry in by_connector.items():
@@ -750,7 +752,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         flags = []
         if item["id"] in waiting:
             flags.append("waiting")
-        if any(offer["rohs"] is False for offer in here):
+        if offer_rules.rohs_verdict(offers.get(item["id"], []), rohs_said.get(item["id"], ())) in ("not_compliant", "disputed"):
             flags.append("rohs")
         if any(offer["reach_affected"] for offer in here):
             flags.append("reach")
@@ -962,18 +964,15 @@ def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     }
 
 
-def _price_block(conn, part_id: str, now: datetime, offers: list[dict]) -> dict[str, Any]:
-    """The part sheet's price: the daily series and move, the quantity it is priced at, and the list price with its range."""
+def _price_block(conn, part_id: str, now: datetime, kept: Mapping[str, Any]) -> dict[str, Any]:
+    """The part sheet's price: the daily series and move, the quantity it is priced at, and the list price with its range (the
+    kept summary's, as the list shows it)."""
 
     series, meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
     block = prices.view(series, now.date())
     chosen = price_quantity.of_part(conn, part_id)
     base = settings_store.load(conn).base_currency
-    rates = fx.latest(conn)
-    headline = headline_price.headline(
-        offers, chosen["quantity"], base, rates, lambda: prices.last_in_stock(conn, part_id, base, rates, chosen["quantity"]),
-    )
-    return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": headline}
+    return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": {key: kept[key] for key in _PRICE_KEYS}}
 
 
 # Distributors whose product page is known from the number alone, for a listing not read yet.
@@ -1017,13 +1016,15 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     ).fetchall()
 
     policy = watch_row["watch_packaging"] or "any"
-    # The listings the list's summary counts (``counted.listing_sql``), so the sheet and the list agree.
-    counting = [dict(r) for r in rows if r["counts"] and r["fetched_at"] is not None]
+    # Status, stock, lifecycle, problem and price are the kept summary's, so the sheet and the list agree; the stock by distributor
+    # is worked out from the same listings (``counted.listing_sql`` and the watch's packaging).
+    kept = _cached(conn, conn.execute(_ROW_SELECT + "WHERE p.id = %s", [part_id]).fetchall())[part_id]
+    counting = [dict(r) for r in rows if r["counts"] and r["fetched_at"] is not None and stock.counts(r["packaging"], policy)]
     combined = stock.aggregate(counting, policy) if counting else None
-    lifecycle = worst_lifecycle(Lifecycle(r["lifecycle"]) for r in counting)
+    lifecycle = Lifecycle(kept["lifecycle"])
     names = {r["connector_id"]: r["connector_name"] for r in rows}
     providers = {r["connector_id"]: r["provider"] for r in rows}
-    problem = _problems(conn, [part_id])[part_id] if combined is None else None
+    problem = kept["problem"]
 
     def iso(value: datetime | None) -> str | None:
         return value.isoformat() if value else None
@@ -1073,7 +1074,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         })
 
     days = history(conn, part_id, now)
-    price_view = _price_block(conn, part_id, now, [r for r in counting if not r["marketplace"]])
+    price_view = _price_block(conn, part_id, now, kept)
     ahead = outlook.outlook(
         lifecycle,
         [item["offer"] for item in listings if item["counted"] and item["offer"]],
@@ -1093,11 +1094,11 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "packaging": _packaging_state(conn, part_id),
         "preferred_connector_id": preferences.get(conn, part_id),
         "trade": trade_marks.state(conn, part_id),
-        "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
+        "status": part_status(kept["stock"], watch_row["threshold"], lifecycle, problem).value,
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),
         "stock": {
-            "total": combined.total if combined else None,
+            "total": kept["stock"],
             "by_connector": [
                 {"connector_id": cid, "connector_name": names.get(cid, ""), "provider": providers.get(cid, ""), "stock": value}
                 for cid, value in (combined.by_connector.items() if combined else [])

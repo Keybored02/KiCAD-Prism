@@ -565,7 +565,7 @@ export type PartsFilter =
   | "lifecycle_active" | "lifecycle_nrnd" | "lifecycle_last_time_buy" | "lifecycle_obsolete" | "lifecycle_unknown"
   | "outlook_ended" | "outlook_under_2_years" | "outlook_2_to_5_years" | "outlook_no_signs" | "outlook_unknown"
   | "lead_under_2w" | "lead_2_to_8w" | "lead_8_to_16w" | "lead_16_to_26w" | "lead_over_26w" | "lead_none"
-  | "rohs_compliant" | "rohs_not_compliant" | "rohs_not_applicable" | "rohs_unknown"
+  | "rohs_compliant" | "rohs_not_compliant" | "rohs_disputed" | "rohs_not_applicable" | "rohs_unknown"
   | "reach_compliant" | "reach_affected" | "reach_not_applicable" | "reach_unknown"
   | "control_controlled" | "control_disputed" | "control_none" | "control_unknown"
   | `${"origin" | "listed" | "stocked" | "cheapest" | "repricing" | "leader" | "restock_first" | "risk"}:${string}`;
@@ -1715,7 +1715,7 @@ export interface SupplyInsightsPage {
   lifecycle: {
     mix: Record<"active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown", number>;
     outlook: Record<"ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown", number>;
-    compliance: { rohs: Record<"compliant" | "not_compliant" | "not_applicable" | "unknown", number>; reach: Record<"compliant" | "affected" | "not_applicable" | "unknown", number> };
+    compliance: { rohs: Record<"compliant" | "not_compliant" | "disputed" | "not_applicable" | "unknown", number>; reach: Record<"compliant" | "affected" | "not_applicable" | "unknown", number> };
   };
   lead_times: Array<{ bucket: "under_2w" | "2_to_8w" | "8_to_16w" | "16_to_26w" | "over_26w" | "none"; parts: number }>;
   price_movers: { up: Array<{ part_id: string; mpn: string; manufacturer: string; percent: number }>; down: Array<{ part_id: string; mpn: string; manufacturer: string; percent: number }> };

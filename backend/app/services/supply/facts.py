@@ -212,6 +212,19 @@ def summary(conn, part_ids: Sequence[str]) -> dict[str, dict[str, str]]:
     return {part_id: {key: "; ".join(values) for key, values in kinds.items()} for part_id, kinds in found.items()}
 
 
+def rohs_stated(conn, part_ids: Sequence[str]) -> dict[str, list[str]]:
+    """Per part, the ``rohs_class`` of each RoHS status a provider states."""
+
+    if not part_ids:
+        return {}
+    found: dict[str, list[str]] = {}
+    for row in conn.execute(
+        "SELECT part_id, value FROM supply_part_facts WHERE name = 'rohs_status' AND part_id = ANY(%s) ORDER BY part_id, provider", (list(part_ids),)
+    ).fetchall():
+        found.setdefault(row["part_id"], []).append(rohs_class(row["value"]))
+    return found
+
+
 def jlc_classes(conn, part_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
     """Per part JLCPCB lists, its class (``Basic`` or ``Extended``) and whether it is preferred. Parts JLCPCB has not answered for are left out."""
 

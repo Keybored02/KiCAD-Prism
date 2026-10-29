@@ -55,7 +55,7 @@ function page(overrides: Partial<SupplyInsightsPage> = {}): SupplyInsightsPage {
     lifecycle: {
       mix: { active: 4, nrnd: 1, last_time_buy: 0, obsolete: 0, unknown: 1 },
       outlook: { ended: 0, under_2_years: 1, "2_to_5_years": 0, no_signs: 4, unknown: 1 },
-      compliance: { rohs: { compliant: 4, not_compliant: 1, not_applicable: 0, unknown: 1 }, reach: { compliant: 3, affected: 0, not_applicable: 0, unknown: 3 } },
+      compliance: { rohs: { compliant: 4, not_compliant: 1, disputed: 0, not_applicable: 0, unknown: 1 }, reach: { compliant: 3, affected: 0, not_applicable: 0, unknown: 3 } },
     },
     lead_times: [
       { bucket: "under_2w", parts: 1 }, { bucket: "2_to_8w", parts: 2 }, { bucket: "8_to_16w", parts: 1 }, { bucket: "16_to_26w", parts: 1 },
@@ -105,7 +105,7 @@ describe("the insights page", () => {
       lead_times: empty.lead_times.map((item) => ({ ...item, parts: item.bucket === "none" ? 6 : 0 })),
       market: { ...empty.market, compared_with: null, signals: [], scopes: [{ scope: "All followed parts", kind: "all", sample: 6, metrics: { out_of_stock: { value: 0, before: null }, price_index: { value: 100, before: null } } }] },
       trade: { ...empty.trade, origins: [{ country: "Unknown", parts: 6 }], control: { controlled: 0, none: 0, disputed: 0, unknown: 6 }, controlled: [] },
-      lifecycle: { ...empty.lifecycle, compliance: { rohs: { compliant: 0, not_compliant: 0, not_applicable: 0, unknown: 6 }, reach: { compliant: 0, affected: 0, not_applicable: 0, unknown: 6 } } },
+      lifecycle: { ...empty.lifecycle, compliance: { rohs: { compliant: 0, not_compliant: 0, disputed: 0, not_applicable: 0, unknown: 6 }, reach: { compliant: 0, affected: 0, not_applicable: 0, unknown: 6 } } },
     });
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });

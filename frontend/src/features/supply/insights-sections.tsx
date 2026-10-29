@@ -108,6 +108,7 @@ export function LifecycleSection({ page, panels, onOpen }: { page: SupplyInsight
             <BarList rows={[
               { key: "ok", label: "Compliant", value: compliance.rohs.compliant, tone: "bg-success", onClick: () => onOpen("rohs_compliant") },
               { key: "bad", label: "Not compliant", value: compliance.rohs.not_compliant, tone: "bg-destructive", onClick: () => onOpen("rohs_not_compliant") },
+              { key: "disputed", label: "Disputed", value: compliance.rohs.disputed, tone: "bg-warning", onClick: () => onOpen("rohs_disputed") },
               { key: "na", label: "Not applicable", value: compliance.rohs.not_applicable, tone: GREY, onClick: () => onOpen("rohs_not_applicable") },
               { key: "unknown", label: "Unknown", value: compliance.rohs.unknown, tone: GREY, onClick: () => onOpen("rohs_unknown") },
             ]} />

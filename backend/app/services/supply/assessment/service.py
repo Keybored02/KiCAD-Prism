@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import compliance, fx, part_insights, parts_view, pricing
+from app.services.supply import compliance, facts as stated_facts, fx, part_insights, parts_view, price_quantity, pricing
 from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
@@ -24,23 +24,18 @@ def distributor_count(conn) -> int:
     ).fetchone()["n"]
 
 
-def _quotes(offers: Sequence[Mapping[str, Any]], base: str, rates: fx.Rates | None) -> list[tuple[str, Decimal]]:
-    """Each distributor's cheapest unit price at the reference quantity, in the base currency. A distributor with no price, or in
-    a currency without a rate, is left out."""
+def _quotes(offers: Sequence[Mapping[str, Any]], wanted: int, base: str, rates: fx.Rates | None) -> list[tuple[str, Decimal]]:
+    """Each distributor's cheapest unit price at the part's quantity (``pricing.quote``), in the base currency. A distributor with
+    no price there, or in a currency without a rate, is left out."""
 
     cheapest: dict[str, tuple[str, Decimal]] = {}
     for offer in offers:
-        if offer["marketplace"] or not offer.get("price_breaks") or not offer.get("currency"):
-            continue
-        price = pricing.unit_price_at([(int(q), Decimal(str(p))) for q, p in offer["price_breaks"]], moq=offer["moq"], order_multiple=offer["order_multiple"], up_to=offer.get("price_up_to"))
-        if price is None:
-            continue
-        converted = price if offer["currency"] == base else (rates.convert(price, offer["currency"], base) if rates else None)
-        if converted is None:
+        found = pricing.quote(offer, wanted, base, rates)
+        if found is None:
             continue
         name = str(offer.get("connector_name") or offer["connector_id"])
-        if name not in cheapest or converted < cheapest[name][1]:
-            cheapest[name] = (name, converted)
+        if name not in cheapest or found.price < cheapest[name][1]:
+            cheapest[name] = (name, found.price)
     return list(cheapest.values())
 
 
@@ -57,12 +52,14 @@ def assess_one(
     rates: fx.Rates | None = None,
     outlook: str = "",
     last_buy: date | None = None,
+    rohs_stated: Sequence[str] = (),
+    wanted: int = pricing.REFERENCE_QUANTITY,
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
-        svhc_listed=svhc_listed, prices=_quotes(offers, settings.base_currency, rates), outlook=outlook,
-        last_buy=last_buy, rate=str((item.get("tracking") or {}).get("rate") or ""),
+        svhc_listed=svhc_listed, prices=_quotes(offers, wanted, settings.base_currency, rates), outlook=outlook,
+        last_buy=last_buy, rate=str((item.get("tracking") or {}).get("rate") or ""), rohs_stated=rohs_stated,
     )
     # Findings from outside the part (a component's) are waived like the part's own.
     findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
@@ -126,10 +123,13 @@ def assess_summaries(
     # The outlook band is kept by housekeeping with the part's other insights, so a read here costs one query.
     bands = {part_id: data.get("outlook_band") or "" for part_id, data in part_insights.of_parts(conn, [item["id"] for item in items]).items()}
     last_buys = last_buy_dates(conn, [item["id"] for item in items])
+    rohs_said = stated_facts.rohs_stated(conn, [item["id"] for item in items])
+    quantities = price_quantity.of_parts(conn, [item["id"] for item in items])
     return {
         item["id"]: assess_one(
             item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors,
             (extras or {}).get(item["id"], ()), listed.get(item["id"], ()), rates, bands.get(item["id"], ""), last_buys.get(item["id"]),
+            rohs_said.get(item["id"], ()), quantities[item["id"]],
         )
         for item in items
     }

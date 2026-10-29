@@ -172,49 +172,23 @@ def _preferred_standing(offers: Sequence[Mapping[str, Any]], connector_id: str |
 def _best_purchase(
     offers: Sequence[Mapping[str, Any]], need: int, rates: fx.Rates | None = None, base: str = "EUR", preferred: Sequence[str] = ()
 ) -> dict[str, Any] | None:
-    """The cheapest single offer for ``need`` pieces.
+    """The single offer to buy ``need`` pieces from: ``pricing.best_offer``, the list price's rule too. An offer whose stock covers
+    the order wins over a cheaper one that does not; with ``preferred`` (connector ids, most preferred first) the first of them
+    covering it wins over a cheaper offer elsewhere. Marketplace stock is not offered. Offers in one currency are compared in it;
+    offers in several are compared in ``base``, and not at all when a rate is missing. ``in_base`` is the chosen offer's extended
+    price in ``base``, if it can be told."""
 
-    Offers that hold enough stock win over cheaper ones that do not. With ``preferred`` (connector ids, most preferred first)
-    the first of them holding enough stock wins over a cheaper offer elsewhere. Marketplace stock is not offered.
-    Offers in different currencies are compared in ``base`` when the rates allow it, and not at all
-    when they do not. ``in_base`` is the chosen offer's extended price in ``base``, if it can be told.
-    """
-
-    candidates = []
-    for offer in offers:
-        if offer["marketplace"] or not offer["currency"]:
-            continue
-        breaks = [(int(quantity), Decimal(price)) for quantity, price in offer["price_breaks"]]
-        unit = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=need, up_to=offer.get("price_up_to"))
-        if unit is None:
-            continue
-        order = pricing.order_quantity(need, offer["moq"], offer["order_multiple"])
-        candidates.append((offer["stock"] >= order, unit * order, unit, order, offer))
-    if not candidates:
+    currencies = {offer["currency"] for offer in offers if offer["currency"] and not offer["marketplace"] and offer["price_breaks"]}
+    compared_in = next(iter(currencies)) if len(currencies) == 1 else base
+    if pricing.unrated(offers, compared_in, rates):
         return None
-
-    def in_base(extended: Decimal, currency: str) -> Decimal | None:
-        return rates.convert(extended, currency, base) if rates is not None else (extended if currency == base else None)
-
-    mixed = len({entry[4]["currency"] for entry in candidates}) != 1
-    if mixed:
-        priced = [(entry, in_base(entry[1], entry[4]["currency"])) for entry in candidates]
-        if any(value is None for _, value in priced):
-            return None  # a rate is missing, so the offers cannot be compared
-        candidates = [entry for entry, _ in sorted(priced, key=lambda pair: pair[1])]
-        sort_key = lambda entry: in_base(entry[1], entry[4]["currency"])  # noqa: E731
-    else:
-        sort_key = lambda entry: entry[1]  # noqa: E731
-    covered = [entry for entry in candidates if entry[0]]
-    pool = covered or candidates
-    for connector_id in preferred:
-        mine = [entry for entry in covered if entry[4].get("connector_id") == connector_id]
-        if mine:
-            pool = mine
-            break
-    covers, extended, unit, order, offer = min(pool, key=sort_key)
-    converted = in_base(extended, offer["currency"])
-    spare = order - need
+    quotes = [found for found in (pricing.quote(offer, need, compared_in, rates) for offer in offers) if found is not None]
+    chosen, _kind = pricing.best_offer(quotes, preferred)
+    if chosen is None:
+        return None
+    converted = chosen.cost if compared_in == base else (rates.convert(chosen.cost, compared_in, base) if rates is not None else None)
+    offer, order, unit = chosen.offer, chosen.quantity, chosen.native
+    extended, spare = unit * order, order - need
     return {
         # Pieces bought beyond the need because of the smallest order and its multiples, and what they cost.
         "waste": spare,
@@ -225,7 +199,7 @@ def _best_purchase(
         "unit_price": format(unit.normalize(), "f"),
         "currency": offer["currency"],
         "extended": format(extended.quantize(Decimal("0.0001")).normalize(), "f"),
-        "covers": covers,
+        "covers": chosen.covers,
         "connector_name": offer["connector_name"],
         "provider": offer["provider"],
         "test_data": registry.is_simulated(offer["provider"]),
