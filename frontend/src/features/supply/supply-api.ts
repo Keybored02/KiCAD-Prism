@@ -18,6 +18,7 @@ import type {
   SupplyAlert,
   SupplyAssessment,
   CrossReference,
+  ProjectPartsPage,
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
@@ -26,7 +27,6 @@ import type {
   SupplyManufacturer,
   SupplyDashboard,
   SupplyInsightsPage,
-  SupplyOverview,
   SupplyPartGroups,
   PartHistory,
   SupplyPartDetail,
@@ -34,15 +34,12 @@ import type {
   SupplyProvider,
   SupplyMakerGroup,
   SupplyReviewQueue,
-  SupplyBomRollup,
   SupplyCompliance,
   SupplyBomComment,
   SupplyComponentWatch,
-  SupplyMarket,
   SupplyMarketHistory,
   SupplyNotice,
   SupplyNoticeKind,
-  SupplySignin,
   SupplySvhcList,
   SupplyWatch,
   UpdateSupplyConnectorInput,
@@ -120,18 +117,23 @@ function buildSupplyUsageIndexesRequest(): Promise<SupplyIndexBuild> {
   return post(`${BASE}/bom/usage/build`, undefined, "Could not queue the project BOMs");
 }
 
+/**
+ * Stock, price and status of a BOM's lines for a build. Left out, the build and spares are the project's usual ones (one board and
+ * the workspace's spares without a tracked project); the answer says which it priced for.
+ */
 export function lookupSupplyBom(
   lines: BomLineInput[],
-  buildQuantity: number,
-  options: { signal?: AbortSignal; attritionPercent?: number | null } = {},
+  options: { signal?: AbortSignal; buildQuantity?: number; attritionPercent?: number | null; projectId?: string } = {},
 ): Promise<SupplyBomLookup> {
+  const body = {
+    lines,
+    ...(options.projectId ? { project_id: options.projectId } : {}),
+    ...(options.buildQuantity === undefined ? {} : { build_quantity: options.buildQuantity }),
+    ...(options.attritionPercent === undefined ? {} : { attrition_percent: options.attritionPercent }),
+  };
   return fetchJson<SupplyBomLookup>(
     `${BASE}/bom/lookup`,
-    {
-      method: "POST",
-      body: JSON.stringify({ build_quantity: buildQuantity, attrition_percent: options.attritionPercent === undefined ? 0 : options.attritionPercent, lines }),
-      signal: options.signal,
-    },
+    { method: "POST", body: JSON.stringify(body), signal: options.signal },
     "Could not look the BOM up",
   );
 }
@@ -154,10 +156,6 @@ async function deleteSupplyConnectorRequest(id: string): Promise<void> {
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not delete the connector"));
   }
-}
-
-export function getSupplySignin(id: string, signal?: AbortSignal): Promise<SupplySignin> {
-  return fetchJson<SupplySignin>(connectorPath(id, "signin"), { signal }, "Could not load the sign-in");
 }
 
 /** Where to send the browser to sign in at DigiKey. */
@@ -365,9 +363,6 @@ export function getRiskCsv(): Promise<string> {
   return fetchText(`${BASE}/insights/risk.csv`, undefined, "Could not export the risk by part");
 }
 
-export function getSupplyOverview(signal?: AbortSignal): Promise<SupplyOverview> {
-  return fetchJson<SupplyOverview>(`${BASE}/overview`, { signal }, "Could not load the overview");
-}
 
 export function listSupplyAlerts(includeResolved: boolean, signal?: AbortSignal): Promise<{ items: SupplyAlert[] }> {
   const query = includeResolved ? "?include_resolved=true" : "";
@@ -535,6 +530,26 @@ function saveAssessmentSettingsRequest(settings: AssessmentSettings): Promise<As
 }
 
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
+export interface ProjectPartsQuery {
+  variant?: string;
+  boards?: number;
+  chip?: string;
+  q?: string;
+  only?: string;
+  vendor?: string;
+  sort?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export function getProjectParts(projectId: string, asked: ProjectPartsQuery, signal?: AbortSignal): Promise<ProjectPartsPage> {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries({ ...asked, build_quantity: asked.boards, boards: undefined })) {
+    if (value !== undefined && value !== "") query.set(name, String(value));
+  }
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/parts?${query.toString()}`, { signal }, "Could not load the parts");
+}
+
 export function getProjectSupply(projectId: string, variant = "", boards?: number, spares = "", signal?: AbortSignal): Promise<ProjectSupply> {
   const query = new URLSearchParams();
   if (boards !== undefined) query.set("build_quantity", String(boards));
@@ -543,27 +558,8 @@ export function getProjectSupply(projectId: string, variant = "", boards?: numbe
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply?${query.toString()}`, { signal }, "Could not load the project's supply");
 }
 
-export function getProjectBomHealth(
-  projectId: string,
-  signal?: AbortSignal,
-  variant = "",
-): Promise<{ available: boolean; rollup?: SupplyBomRollup; variants?: string[] }> {
-  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
-  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health${query}`, { signal }, "Could not load the supply health");
-}
-
 export function getPartDatasheet(partId: string, signal?: AbortSignal): Promise<{ url: string }> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet`, { signal }, "Could not load the datasheet address");
-}
-
-async function setDatasheetUrlRequest(partId: string, url: string): Promise<void> {
-  const response = await fetchApi(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet-url`, {
-    method: "PUT",
-    body: JSON.stringify({ url }),
-  });
-  if (!response.ok) {
-    throw new ApiHttpError(response.status, await readApiError(response, "Could not save the datasheet address"));
-  }
 }
 
 export function getPartCompliance(partId: string, signal?: AbortSignal): Promise<SupplyCompliance> {
@@ -605,10 +601,6 @@ export async function readBomSheet(xlsxBase64: string): Promise<string[][]> {
   return sheet.rows;
 }
 
-export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
-  return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
-}
-
 export function getSupplyMarketHistory(metric: string, signal?: AbortSignal): Promise<SupplyMarketHistory> {
   return fetchJson(`${BASE}/market/history?metric=${encodeURIComponent(metric)}`, { signal }, "Could not load the market history");
 }
@@ -628,10 +620,6 @@ function addNoticeRequest(notice: {
   notes: string;
 }): Promise<{ id: string }> {
   return post(`${BASE}/notices`, notice, "Could not add the notice");
-}
-
-function closeNoticeRequest(noticeId: string): Promise<void> {
-  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
 }
 
 export interface SupplyReadNow {
@@ -709,7 +697,6 @@ export const proposeWaiver = changesSupply(proposeWaiverRequest);
 export const decideWaiver = changesSupply(decideWaiverRequest);
 export const revokeWaiver = changesSupply(revokeWaiverRequest);
 export const saveAssessmentSettings = changesSupply(saveAssessmentSettingsRequest);
-export const setDatasheetUrl = changesSupply(setDatasheetUrlRequest);
 export const declareSubstance = changesSupply(declareSubstanceRequest);
 export const addRohsExemption = changesSupply(addRohsExemptionRequest);
 export const removeRohsExemption = changesSupply(removeRohsExemptionRequest);
@@ -717,6 +704,5 @@ export const undeclareSubstance = changesSupply(undeclareSubstanceRequest);
 export const loadSvhcList = changesSupply(loadSvhcListRequest);
 export const loadSvhcListXlsx = changesSupply(loadSvhcListXlsxRequest);
 export const addNotice = changesSupply(addNoticeRequest);
-export const closeNotice = changesSupply(closeNoticeRequest);
 export const checkPartNotices = changesSupply(checkPartNoticesRequest);
 export const readSupplyPartNow = changesSupply(readSupplyPartNowRequest);

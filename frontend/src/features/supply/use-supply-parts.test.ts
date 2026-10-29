@@ -8,7 +8,6 @@ vi.mock("./supply-api", () => ({
   listSupplyParts: vi.fn(),
   getSupplyPart: vi.fn(),
   listSupplyManufacturers: vi.fn(),
-  getSupplyOverview: vi.fn(),
   listSupplyAlerts: vi.fn(),
 }));
 

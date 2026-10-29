@@ -72,7 +72,6 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
   if (!supply) return <Skeleton className="h-48 w-full" aria-label="Loading the project's supply" />;
   // A part opens its sheet over the page, with `part` in the address so Back closes it.
   const open = (partId: string) => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("part", partId); return next; });
-  const everyPart = supply.parts ?? [];
   // The buttons sit on the page's title row when the page gives a place for them, else at the end of this row.
   const actions = (
     <>
@@ -113,7 +112,7 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
         <section aria-label="Parts" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
           <ProjectPartsList
-            projectId={projectId} parts={everyPart} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
+            projectId={projectId} variant={variant} boards={boardsChoice ?? undefined} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
             onAddToLibrary={canWriteCatalog(user?.role) ? setAdding : undefined}
           />
         </section>

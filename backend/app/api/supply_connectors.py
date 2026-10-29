@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
-from app.services.supply import capacity, connector_check
+from app.services.supply import capacity, connector_check, oauth
 from app.services.supply.connectors import ConnectorError, ConnectorNotFound, ConnectorService
 from app.services.supply.csv_format import MAX_BYTES, TEMPLATE
 from app.services.supply.csv_import_service import CsvImportService, CsvRejected
@@ -159,8 +159,21 @@ async def list_providers(_user: AuthenticatedUser = Depends(require_supply_reade
 
 
 @router.get("/connectors")
-async def list_supply_connectors(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    return await _run(service.list)
+async def list_supply_connectors(user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+    """Every connector. An administrator also sees, on a connector whose change notices need a person's sign-in, that sign-in
+    (who, until when, and the callback address the distributor's app must list)."""
+
+    def read() -> list[dict[str, Any]]:
+        items = service.list()
+        if user.role != "admin":
+            return items
+        with service.store.connection() as conn:
+            return [
+                item | {"signin": oauth.status(conn, item["id"]) | {"redirect_uri": oauth.redirect_uri()}} if item["provider"] in oauth.SUPPORTED else item
+                for item in items
+            ]
+
+    return await _run(read)
 
 
 @router.post("/connectors", status_code=201)

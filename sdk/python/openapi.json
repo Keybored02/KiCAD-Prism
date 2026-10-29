@@ -8143,19 +8143,6 @@
         "title": "DatabasePoolMetrics",
         "type": "object"
       },
-      "DatasheetAddress": {
-        "additionalProperties": false,
-        "properties": {
-          "url": {
-            "default": "",
-            "maxLength": 500,
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "title": "DatasheetAddress",
-        "type": "object"
-      },
       "DebugLoggingCleared": {
         "description": "Confirmation that the debug window was removed.",
         "properties": {
@@ -14332,11 +14319,17 @@
             "title": "Attrition Percent"
           },
           "build_quantity": {
-            "default": 1,
-            "maximum": 1000000.0,
-            "minimum": 1.0,
-            "title": "Build Quantity",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Quantity"
           },
           "lines": {
             "items": {
@@ -14345,6 +14338,12 @@
             "maxItems": 2000,
             "title": "Lines",
             "type": "array"
+          },
+          "project_id": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Project Id",
+            "type": "string"
           }
         },
         "required": [
@@ -43513,6 +43512,7 @@
     },
     "/api/v1/supply/bom/lookup": {
       "post": {
+        "description": "Stock, price and status of the BOM's lines for a build, with the build and spares it was priced for.",
         "operationId": "lookup",
         "requestBody": {
           "content": {
@@ -44315,6 +44315,7 @@
     },
     "/api/v1/supply/connectors": {
       "get": {
+        "description": "Every connector. An administrator also sees, on a connector whose change notices need a person's sign-in, that sign-in\n(who, until when, and the callback address the distributor's app must list).",
         "operationId": "list_supply_connectors",
         "responses": {
           "200": {
@@ -44790,49 +44791,6 @@
           }
         },
         "summary": "Forget Signin",
-        "tags": [
-          "supply"
-        ]
-      },
-      "get": {
-        "description": "Whether someone is signed in for the connector, and the callback address the DigiKey app must list.",
-        "operationId": "signin_status",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "connector_id",
-            "required": true,
-            "schema": {
-              "title": "Connector Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Signin Status",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Signin Status",
         "tags": [
           "supply"
         ]
@@ -45412,29 +45370,6 @@
           }
         },
         "summary": "Forecasts Insights",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/forecasts/track-record": {
-      "get": {
-        "operationId": "track_record",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Track Record",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Track Record",
         "tags": [
           "supply"
         ]
@@ -46290,29 +46225,6 @@
         ]
       }
     },
-    "/api/v1/supply/market": {
-      "get": {
-        "operationId": "market_overview",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Market Overview",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Market Overview",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
     "/api/v1/supply/market/history": {
       "get": {
         "operationId": "market_history",
@@ -46450,64 +46362,6 @@
           }
         },
         "summary": "Add Notice",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/notices/{notice_id}/close": {
-      "post": {
-        "operationId": "close_notice",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "notice_id",
-            "required": true,
-            "schema": {
-              "title": "Notice Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Close Notice",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/overview": {
-      "get": {
-        "operationId": "get_overview",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Overview",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Overview",
         "tags": [
           "supply"
         ]
@@ -46666,29 +46520,6 @@
           }
         },
         "summary": "Apply Similar",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/packaging/waiting": {
-      "get": {
-        "operationId": "waiting",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Waiting",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Waiting",
         "tags": [
           "supply"
         ]
@@ -47556,51 +47387,6 @@
           }
         },
         "summary": "Get Datasheet",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/parts/{part_id}/datasheet-url": {
-      "put": {
-        "operationId": "set_datasheet_url",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "part_id",
-            "required": true,
-            "schema": {
-              "title": "Part Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasheetAddress"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Datasheet Url",
         "tags": [
           "supply"
         ]
@@ -48490,74 +48276,6 @@
         ]
       }
     },
-    "/api/v1/supply/projects/{project_id}/bom-health": {
-      "get": {
-        "description": "The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor.\n\n``variant`` names a design variant; empty is the base design. ``variants`` lists the names stored.",
-        "operationId": "bom_health",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "build_quantity",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "maximum": 1000000,
-              "minimum": 1,
-              "title": "Build Quantity",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "variant",
-            "required": false,
-            "schema": {
-              "default": "",
-              "maxLength": 120,
-              "title": "Variant",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Bom Health",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Bom Health",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
     "/api/v1/supply/projects/{project_id}/costing.zip": {
       "get": {
         "description": "The costing as a zip: the whole costing, the costing by distributor, the draft RoHS and REACH declaration and the trade classification.",
@@ -48618,6 +48336,169 @@
           }
         },
         "summary": "Costing Zip",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/projects/{project_id}/parts": {
+      "get": {
+        "description": "One page of the project's parts with their BOM lines for the build, the \"needs a look\" chips counted over the whole project\n(``chip`` keeps one), and the lines no part matches. ``q`` that is a board reference finds the lines that carry it.",
+        "operationId": "project_parts_page",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "build_quantity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Build Quantity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "variant",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 120,
+              "title": "Variant",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "spares",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 12,
+              "title": "Spares",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "chip",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 20,
+              "title": "Chip",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "only",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 60,
+              "title": "Only",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vendor",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 80,
+              "title": "Vendor",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 40,
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Project Parts Page",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Parts Page",
         "tags": [
           "supply"
         ]
@@ -49824,29 +49705,6 @@
           }
         },
         "summary": "Remove Number Ending",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/tracking": {
-      "get": {
-        "operationId": "overview",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Overview",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Overview",
         "tags": [
           "supply"
         ]

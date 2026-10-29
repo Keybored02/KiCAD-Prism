@@ -1,6 +1,6 @@
 """Product change notices API: entered by people, read by everyone who reads supply data.
 
-Admin and designer enter and close notices. Every part a notice names must be in the Component Database (decision D12).
+Admin and designer enter notices. Every part a notice names must be in the Component Database (decision D12).
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import asyncio
 from datetime import date
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
@@ -97,13 +97,3 @@ async def add_notice(body: NoticeIn, writer: AuthenticatedUser = Depends(require
             )
 
     return await _run(run)
-
-
-@router.post("/notices/{notice_id}/close", status_code=204)
-async def close_notice(notice_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
-    def run() -> None:
-        with _store().connection() as conn:
-            pcn.close(conn, notice_id, writer.email)
-
-    await _run(run)
-    return Response(status_code=204)

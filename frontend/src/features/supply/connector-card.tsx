@@ -97,7 +97,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
           </div>
         ) : null}
       </dl>
-      {isAdmin && connector.provider === "digikey" ? <ConnectorSignin connectorId={connector.id} notices={budget?.notices} /> : null}
+      {isAdmin && connector.provider === "digikey" ? <ConnectorSignin connectorId={connector.id} status={connector.signin} notices={budget?.notices} /> : null}
     </article>
   );
 }

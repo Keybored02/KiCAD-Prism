@@ -39,6 +39,8 @@ export interface SupplyCsvResult extends SupplyCsvImport {
 }
 
 export interface SupplyConnector {
+  /** For an administrator, on a connector whose change notices need a person's sign-in: that sign-in. */
+  signin?: SupplySignin;
   id: string;
   provider: string;
   provider_label: string;
@@ -455,6 +457,8 @@ export interface SupplyBomRollup {
 
 export interface SupplyBomLookup {
   build_quantity: number;
+  /** The spares it priced with, a percent; null is by kind of part. */
+  attrition_percent?: number | null;
   lines: Record<string, SupplyBomLineResult>;
   rollup: SupplyBomRollup;
 }
@@ -758,6 +762,14 @@ export interface SupplyPartGroups {
   total: number;
 }
 
+/** A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project. */
+export interface ProjectPartsPage extends SupplyPartsPage {
+  items: Array<SupplyPartRow & { line: ProjectSupplyPart | null }>;
+  /** Lines no part matches; on the first page only. */
+  unmatched: ProjectSupplyPart[];
+  chips: Array<{ key: "unchecked" | "out" | "short" | "limiting" | "not_priced" | "end_of_life" | "alerts"; count: number }>;
+}
+
 export interface SupplyPartsPage {
   items: SupplyPartRow[];
   total: number;
@@ -947,6 +959,8 @@ export interface SupplyPartDetail {
   listings: SupplyListing[];
   /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
   history: Array<{ day: string; stock: number; listings: number }>;
+  /** Stock and price a line per distributor over the last 90 days: what the sheet's charts draw. */
+  distributor_history?: PartHistory;
   /** The cheapest counted unit price per day. `trend` is the move over the last 30 days, or null when there is not enough to read one. */
   price: {
     currency: string;
@@ -1071,15 +1085,6 @@ export interface SupplyRecentChange {
   alert: SupplyAlert | null;
   /** The distributor number of a listing that went. */
   sku: string;
-}
-
-export interface SupplyOverview {
-  figures: { watched: number; at_risk: number; out_of_stock: number; lifecycle: number; no_data: number };
-  open_alerts: number;
-  recent_changes: SupplyRecentChange[];
-  data_age: { oldest: string | null; newest: string | null };
-  /** Enabled connectors. */
-  connectors: number;
 }
 
 export interface AddWatchInput {
@@ -1670,6 +1675,11 @@ export interface SupplyDashboard {
   insights_ready: number;
   /** Enabled feeds whose last read failed, with their last good read: stores sources first, then connectors. */
   failing_feeds: Array<{ kind: "stores" | "connector"; name: string; since: string | null }>;
+  /** Enabled connectors. */
+  connectors: number;
+  /** Tracked parts with no reading yet. */
+  no_data: number;
+  recent_changes: SupplyRecentChange[];
   /** Lifecycle against availability, a row per lifecycle. */
   risk_grid: Array<{ lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown"; two_plus: number; one: number; out: number; not_read: number }>;
   /** Last-time-buy and last-ship dates in the next year, soonest first. */

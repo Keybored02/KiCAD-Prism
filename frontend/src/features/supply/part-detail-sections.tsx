@@ -17,7 +17,6 @@ import { usePartForecast } from "./use-part-forecast";
 import { ComplianceSection } from "./compliance-section";
 import { ListingGroups } from "./listing-groups";
 import { PartHistoryPanel } from "./part-history";
-import { usePartHistory } from "./use-part-history";
 import { useReadOnView } from "./use-read-on-view";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
@@ -37,7 +36,7 @@ interface PartDetailSectionsProps {
 export function PartDetailSections({ detail, canEdit, role, onChanged, wide = false }: PartDetailSectionsProps) {
   // The forecast is made at the part's price quantity.
   const forecast = usePartForecast(detail.part.id, null, detail.price.quantity);
-  const history = usePartHistory(detail.part.id);
+  const history = detail.distributor_history ?? null;
   useReadOnView(detail.part.id, onChanged);
   const trend = insightLines(detail.insight).length > 0;
   const restock = restockItems(detail.restock_record ?? []).length > 0;
@@ -63,14 +62,14 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
           {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
-        <PartHistoryPanel kind="stock" partId={detail.part.id} history={history.data} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
+        <PartHistoryPanel kind="stock" partId={detail.part.id} history={history} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
       </section>
 
       <PriceTrend
         price={detail.price} partId={detail.part.id} canEdit={canEdit} onChanged={onChanged}
         details={compared.length > 0 ? <ul aria-label="Distributors compared" className="space-y-1 text-sm">{compared.map((line) => <li key={line}>{line}</li>)}</ul> : null}
       >
-        <PartHistoryPanel kind="price" partId={detail.part.id} history={history.data} forecast={forecast.data} />
+        <PartHistoryPanel kind="price" partId={detail.part.id} history={history} forecast={forecast.data} />
       </PriceTrend>
       </div>
 

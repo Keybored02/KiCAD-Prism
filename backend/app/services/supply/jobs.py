@@ -9,17 +9,18 @@ provider cannot pile up jobs.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from app.services.supply import clock
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, budget, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, substitutes, tasks,
+    accounts, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, substitutes, tasks,
 )
 from app.services.supply import settings as supply_settings
 from app.services.supply.connectors import ConnectorService
-from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs, pending_waiting
+from app.services.supply.discoverer import Discoverer, pending_parts, pending_waiting
 from app.services.supply.poller import GROUP_LISTINGS, MAX_BATCHES_PER_RUN, Poller, due_listings, hold_back, spare_listings, with_siblings
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SEARCH, CAP_SUBSTANCES
@@ -139,136 +140,100 @@ def _warn_unknown_provider(provider: str) -> None:
         )
 
 
-def connectors_with_work(conn, now: datetime) -> list[str]:
-    """Active connectors with a listing due or a watched part to search for, and a call to spend.
-
-    A connector whose budget for this stretch of the day is used up is left out, so
-    a quiet budget does not queue a job a minute that can only find it empty.
-    """
-
-    active = """
-        c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %(now)s)
-    """
-    due = conn.execute(
-        f"""
-        SELECT DISTINCT l.connector_id AS id FROM supply_listings l
-        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
-        JOIN supply_connectors c ON c.id = l.connector_id
-        LEFT JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
-        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
-        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE supply_counted(l.match_state) AND {active}
-          AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
-          AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
-          AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)
-        """,
-        {"now": now, "limited": budget.providers_limited_by_picks(), **cutoffs(now)},
-    ).fetchall()
-    unsearched = conn.execute(
-        f"""
-        SELECT DISTINCT c.id, c.provider FROM supply_connectors c
-        CROSS JOIN supply_part_tiers pt
-        LEFT JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
-        LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
-        WHERE {active} AND ({DUE_SEARCH})
-        """,
-        {"now": now, **cutoffs(now)},
-    ).fetchall()
-
-    ids = [row["id"] for row in due if not _all_held(conn, row["id"], now)]
-    for row in unsearched:
-        try:
-            searchable = CAP_SEARCH in registry.get_spec(row["provider"]).capabilities
-        except registry.UnknownProvider:
-            # The worker runs code that does not know this provider (usually: started before it was added).
-            _warn_unknown_provider(row["provider"])
-            searchable = False
-        if searchable and row["id"] not in ids:
-            ids.append(row["id"])
-    funded = conn.execute(
-        "SELECT id, provider FROM supply_connectors WHERE id = ANY(%s)", (ids,)
-    ).fetchall()
-    result = {row["id"] for row in funded if _has_budget(conn, row, now)}
-    # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget: a connector is queued for it only
-    # when some of it is due and free calls are open.
-    kinds = supply_settings.load(conn).schedule.kinds()
-    spare = conn.execute(
-        f"""
-        SELECT c.id, c.provider FROM supply_connectors c
-        WHERE {active} AND c.id <> ALL(%(known)s)
-        """,
-        {"now": now, "known": sorted(result)},
-    ).fetchall() if kinds else []
-    result |= {row["id"] for row in spare if _spare_work_due(conn, row, now, kinds) and _has_spare(conn, row, now)}
-    # Notices and substances come due on their own: a connector with some is work whatever its reads are doing.
-    result |= _connectors_with_details(conn, now, result)
-    # Checks someone asked for once: served from the pool, then from spare budget.
-    wanted = [cid for cid in oneoff.pending_connectors(conn) if cid not in result]
-    if wanted:
-        for row in conn.execute(
-            f"SELECT c.id, c.provider FROM supply_connectors c WHERE {active} AND c.id = ANY(%(ids)s)",
-            {"now": now, "ids": wanted},
-        ).fetchall():
-            if _has_pool_or_spare(conn, row, now):
-                result.add(row["id"])
-    return sorted(result)
-
-
-def _all_held(conn, connector_id: str, now: datetime) -> bool:
-    """Whether everything due at a connector is kept back to fill a batch, so a job would only report "nothing due". Asks the poller's
-    own rule (``poller.hold_back``) over the listings it would read, for a provider that batches."""
-
-    row = conn.execute(
-        "SELECT c.provider, a.reset_time, a.reset_tz FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id WHERE c.id = %s",
-        (connector_id,),
-    ).fetchone()
-    if row is None:
-        return False
+def _spec(row: Mapping[str, Any]):
     try:
-        spec = registry.get_spec(row["provider"])
+        return registry.get_spec(row["provider"])
     except registry.UnknownProvider:
-        return False
-    if spec.max_batch <= 1:
-        return False
+        # The worker runs code that does not know this provider (usually: started before it was added).
+        _warn_unknown_provider(row["provider"])
+        return None
+
+
+def _reads_due(conn, row, now: datetime, kinds: list[str]) -> bool:
+    """Listings the poller would read now: its own due rule (``due_listings``), less what it keeps back to fill a batch."""
+
+    spec = _spec(row)
     limit = (GROUP_LISTINGS * spec.max_batch if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN
-    due = due_listings(conn, connector_id, now, limit, metered=spec.metered)
-    if not due:
-        return False
+    due = due_listings(conn, row["id"], now, limit, metered=spec.metered)
+    if not due or spec.max_batch <= 1:
+        return bool(due)
     if spec.groups_by_part:
-        due = with_siblings(conn, connector_id, due)
+        due = with_siblings(conn, row["id"], due)
     batches, _held = hold_back(due, spec, now, (row["reset_time"], row["reset_tz"]))
-    return not batches
+    return bool(batches)
 
 
-def _connectors_with_details(conn, now: datetime, known: set[str]) -> set[str]:
-    """Active connectors not already queued that have notices or substances due. A provider with a quota of its own for notices
-    (DigiKey) is gated by that quota and a person's sign-in; one without is gated by the product budget."""
+def _searches_due(conn, row, now: datetime, kinds: list[str]) -> bool:
+    """Followed parts the discoverer would search for now (``pending_parts``)."""
 
-    found: set[str] = set()
+    return CAP_SEARCH in _spec(row).capabilities and bool(pending_parts(conn, row["id"], now, 1))
+
+
+def _details_due(conn, row, now: datetime, kinds: list[str]) -> bool:
+    """Notices or substance lists due at a provider that reads them."""
+
+    spec = _spec(row)
+    return any(
+        details.due(conn, row["id"], kind, now, 1)
+        for capability, kind in ((CAP_PCN, "notices"), (CAP_SUBSTANCES, "substances")) if capability in spec.capabilities
+    )
+
+
+def _details_funded(conn, row, now: datetime) -> bool:
+    """A provider with a quota of its own for notices (DigiKey) is gated by that quota and a person's sign-in; one without, by
+    the product budget."""
+
+    spec = _spec(row)
+    if spec.notice_daily_limit and spec.metered:
+        return oauth.status(conn, row["id"], now)["signed_in"] and notice_budget.allowed(
+            conn, row["id"], spec.notice_daily_limit, now, interactive=False, spare=False, news=False
+        )
+    return _has_budget(conn, row, now)
+
+
+def _checks_due(conn, row, now: datetime, kinds: list[str]) -> bool:
+    """Checks someone asked for once with a part still to read here."""
+
+    return row["id"] in oneoff.pending_connectors(conn)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkSource:
+    """One kind of distributor work: whether some is waiting at a connector (asked of the code that does it, so the scanner and
+    the job never disagree), and whether the connector has a call it may spend on it now."""
+
+    name: str
+    due: Callable[[Any, Mapping[str, Any], datetime, list[str]], bool]
+    funded: Callable[[Any, Mapping[str, Any], datetime], bool]
+
+
+# In the order the poll job does them.
+SOURCES: tuple[WorkSource, ...] = (
+    WorkSource("reads", _reads_due, _has_budget),
+    WorkSource("searches", _searches_due, _has_budget),
+    WorkSource("checks", _checks_due, _has_pool_or_spare),
+    WorkSource("spare", lambda conn, row, now, kinds: bool(kinds) and _spare_work_due(conn, row, now, kinds), _has_spare),
+    WorkSource("details", _details_due, _details_funded),
+)
+
+
+def connectors_with_work(conn, now: datetime) -> list[str]:
+    """Active connectors with some work due (``SOURCES``) and a call to spend on it.
+
+    A connector whose budget for this stretch of the day is used up is left out, so a quiet budget does not queue a job a
+    minute that can only find it empty.
+    """
+
     rows = conn.execute(
-        "SELECT id, provider FROM supply_connectors c "
-        "WHERE c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %s)", (now,)
+        "SELECT c.id, c.provider, a.reset_time, a.reset_tz FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id "
+        "WHERE c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %s) ORDER BY c.id",
+        (now,),
     ).fetchall()
-    for row in rows:
-        if row["id"] in known:
-            continue
-        try:
-            spec = registry.get_spec(row["provider"])
-        except registry.UnknownProvider:
-            continue
-        kinds = [kind for capability, kind in ((CAP_PCN, "notices"), (CAP_SUBSTANCES, "substances")) if capability in spec.capabilities]
-        if not kinds:
-            continue
-        if spec.notice_daily_limit and spec.metered:
-            if not oauth.status(conn, row["id"], now)["signed_in"]:
-                continue
-            if not notice_budget.allowed(conn, row["id"], spec.notice_daily_limit, now, interactive=False, spare=False, news=False):
-                continue
-        elif not _has_budget(conn, row, now):
-            continue
-        if any(details.due(conn, row["id"], kind, now, 1) for kind in kinds):
-            found.add(row["id"])
-    return found
+    kinds = supply_settings.load(conn).schedule.kinds()
+    return [
+        row["id"] for row in rows
+        if _spec(row) is not None and any(source.due(conn, row, now, kinds) and source.funded(conn, row, now) for source in SOURCES)
+    ]
 
 
 def schedule_due_supply_jobs(

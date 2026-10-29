@@ -1,4 +1,4 @@
-import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyOverview, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
+import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
   return {
@@ -76,6 +76,10 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
 export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): SupplyPartDetail {
   return {
     part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
+    distributor_history: {
+      days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
+      connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [] }],
+    },
     watch: { id: "w1", threshold: 500, pinned: false, owner: "ana@example.com", packaging: "any" },
     status: "ok",
     problem: null,
@@ -141,20 +145,12 @@ export function alertFixture(overrides: Partial<SupplyAlert> = {}): SupplyAlert 
   };
 }
 
-export function overviewFixture(overrides: Partial<SupplyOverview> = {}): SupplyOverview {
-  return {
-    figures: { watched: 4, at_risk: 2, out_of_stock: 1, lifecycle: 1, no_data: 0 },
-    open_alerts: 2,
-    recent_changes: [],
-    data_age: { oldest: new Date(Date.now() - 26 * 3600 * 1000).toISOString(), newest: new Date(Date.now() - 600 * 1000).toISOString() },
-    connectors: 1,
-    ...overrides,
-  };
-}
-
 export function dashboardFixture(overrides: Partial<SupplyDashboard> = {}): SupplyDashboard {
   return {
     figures: { watched: 4, at_risk: 2, out_of_stock: 1, lifecycle: 1, open_alerts: 2, waiting: 3 },
+    connectors: 1,
+    no_data: 0,
+    recent_changes: [],
     figure_history: { at_risk: [1, 1, 2], watched: [4, 4, 4] },
     statuses: [{ status: "ok", count: 2 }, { status: "warning", count: 1 }, { status: "error", count: 1 }, { status: "fatal", count: 0 }, { status: "unknown", count: 0 }],
     runway: { out_now: 1, runs_out_2w: 1, runs_out_8w: 0, runs_out_later: 1, steady: 1, few_readings: 0 },

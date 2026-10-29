@@ -142,13 +142,13 @@ class PcnDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             (alert,) = [a for a in self.alerts.list_alerts(conn, NOW + timedelta(hours=2)) if a["kind"] == "pcn"]
         self.assertEqual((alert["severity"], alert["detail"]["kind"], alert["state"]), ("error", "end_of_life", "open"), "a notice opens on the first look")
-        self.assertEqual(self.call("POST", f"/api/supply/notices/{notice_id}/close").status, 204)
+        with self.store.connection() as conn:
+            pcn.close(conn, notice_id, "admin@example.com")
         with self.store.connection() as conn:
             self.alerts.evaluate_parts(conn, [self.part], NOW + timedelta(hours=3))
             self.assertEqual([a for a in self.alerts.list_alerts(conn, NOW + timedelta(hours=4)) if a["kind"] == "pcn"], [])
         closed = self.call("GET", f"/api/supply/parts/{self.part}/notices").json["items"]
         self.assertEqual(closed[0]["state"], "closed")
-        self.assertEqual(self.call("POST", "/api/supply/notices/nope/close").status, 404)
 
 
 if __name__ == "__main__":

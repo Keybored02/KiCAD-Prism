@@ -35,12 +35,14 @@ interface PartsTableProps {
 }
 
 export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHead = false, layout = "compact", showProjects = true, sort = "", onSort, lines, unmatched = [] }: PartsTableProps) {
-  // The detailed layout gives stock, price and vendors a row each below the part.
+  // The detailed layout gives each vendor a row below the part. On a project's list the stock, price and vendors columns stay, so
+  // what the build needs can be read against what is in stock.
   const detailed = layout === "detailed";
+  const columnsBelow = detailed && !lines;
   const on = columnOf(sort);
   const header = (column: SortColumn | ProjectColumn, label: string, right = true) => {
-    // The detailed layout moves stock, price and vendors to the rows below each part, so their column names have nothing under them.
-    if (detailed && (column === "stock" || column === "price")) return <th className="px-3 py-2"><span className="sr-only">{label}</span></th>;
+    // Where stock, price and vendors move to the rows below each part, their column names have nothing under them.
+    if (columnsBelow && (column === "stock" || column === "price")) return <th className="px-3 py-2"><span className="sr-only">{label}</span></th>;
     const direction = on?.column === column ? on.direction : null;
     const aria = onSort ? { "aria-sort": ariaSort(direction) } : {};
     return (
@@ -65,7 +67,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             {header("stock", "In stock")}
             {header("price", "Price")}
             {lines ? header("cost", "Line cost") : null}
-            <th className="px-3 py-2 text-right">{detailed ? <span className="sr-only">Vendors</span> : "Vendors"}</th>
+            <th className="px-3 py-2 text-right">{columnsBelow ? <span className="sr-only">Vendors</span> : "Vendors"}</th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
             <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>
           </tr>
@@ -97,15 +99,15 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
                 </td>
                 {lines ? <BoardCells line={line} /> : null}
                 <td className={cn("px-3 py-2 text-right tabular-nums", line?.short && "text-destructive")}>
-                  {detailed ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
-                  {!detailed && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
+                  {columnsBelow ? null : part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
+                  {!columnsBelow && part.spark && part.spark.length > 1 ? <div className="flex justify-end"><Sparkline values={part.spark} label="Stock over the last 30 days" width={64} height={18} /></div> : null}
                   {forecastState?.runout === "shown" && part.forecast?.runout && !part.forecast.out_now
                     ? <RowRunout part={part} state={forecastState.runout} />
                     : part.runs_out_days ? <div className="text-xs text-muted-foreground">runs out in about {part.runs_out_days.toLocaleString()} {part.runs_out_days === 1 ? "day" : "days"}</div> : null}
                 </td>
-                {lines && !detailed ? <LinePriceCell line={line} lines={lines} /> : <td className="px-3 py-2 text-right tabular-nums">{detailed ? null : <PriceCell part={part} />}</td>}
+                {lines ? <LinePriceCell line={line} lines={lines} /> : <td className="px-3 py-2 text-right tabular-nums">{columnsBelow ? null : <PriceCell part={part} />}</td>}
                 {lines ? <CostCell line={line} lines={lines} /> : null}
-                <td className="px-3 py-2"><div className="flex justify-end">{detailed ? null : <DistributorSquares part={part} />}</div></td>
+                <td className="px-3 py-2"><div className="flex justify-end">{columnsBelow ? null : <DistributorSquares part={part} />}</div></td>
                 <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
                 <td className="px-3 py-2">
                   <span className="flex items-center gap-2"><RowFlags flags={part.flags} /></span>
