@@ -76,7 +76,7 @@ def _source_rows(offers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for offer in offers:
         breaks = [(int(q), Decimal(p)) for q, p in offer["price_breaks"]]
-        price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"]) if offer["currency"] else None
+        price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"], up_to=offer.get("price_up_to")) if offer["currency"] else None
         rows.append({
             "connector": offer["connector_name"],
             "provider": offer["provider"],
