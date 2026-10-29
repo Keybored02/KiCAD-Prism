@@ -151,7 +151,7 @@ class DashboardTests(unittest.TestCase):
             ordered = [item["mpn"] for item in self.parts_view.list_parts(conn, sort="runout")["items"]]
         self.assertEqual([mpn.lower() for mpn in ordered], ["out", "sure", "sooner", "slow", "none"])
 
-    def test_the_inbox_groups_open_alerts_by_kind_at_their_worst(self) -> None:
+    def test_what_waits_is_open_alerts_by_kind_at_their_worst(self) -> None:
         first, second = self.follow("A-1", [10, 0]), self.follow("B-1", [10, 5])
         with self.store.connection() as conn:
             for part_id, kind, severity, state in ((first, "out_of_stock", "error", "open"), (second, "out_of_stock", "warning", "open"),
@@ -162,8 +162,8 @@ class DashboardTests(unittest.TestCase):
                 ).fetchone()
                 if state == "acknowledged":
                     self.attention.decide_row(conn, row["id"], self.attention.ACKNOWLEDGE, "qa@example.com")
-            found = self.dashboard.build(conn, NOW, role="qa")["inbox"]["items"]
-        alerts = [(item["alert_kind"], item["severity"], item["count"]) for item in found if item["kind"] == "alerts"]
+            found = self.attention.summary(conn, NOW)
+        alerts = [(item["kind"], item["severity"], item["count"]) for item in found]
         self.assertEqual(alerts, [("out_of_stock", "error", 2), ("price_up", "warning", 1)], "acknowledged ones wait for nobody")
 
     def test_the_dashboard_counts_the_runway_the_holders_and_each_figure_once_a_day(self) -> None:

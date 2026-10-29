@@ -158,30 +158,7 @@ describe("the dashboard", () => {
     expect(within(projects).getByText("× 10")).toBeTruthy();
   });
 
-  it("puts what needs a person first in the inbox, worst first, each opening where it is acted on", async () => {
-    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ inbox: { more: 2, items: [
-      { kind: "feed", severity: "error", count: 2, name: "Stores", since: null, feed: "stores" },
-      { kind: "feed", severity: "error", count: 1, name: "DigiKey EU", since: null, feed: "connector" },
-      { kind: "alerts", severity: "error", count: 12, alert_kind: "out_of_stock" },
-      { kind: "approvals", severity: "warning", count: 3 },
-    ] } }));
-    renderView();
-    const inbox = await screen.findByRole("region", { name: "Inbox" });
-    expect([...inbox.querySelectorAll("li")].map((row) => row.textContent)).toEqual(["Stores down", "DigiKey EU down", "Out of stock12", "To approve3"]);
-    expect(inbox.textContent).toContain("+2");
-    fireEvent.click(within(inbox).getByRole("button", { name: /To approve/ }));
-    expect(search()).toContain("libraryView=review");
-  });
-
-  it("opens the alerts of the kind an inbox line names", async () => {
-    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ inbox: { more: 0, items: [{ kind: "alerts", severity: "error", count: 1, alert_kind: "out_of_stock" }] } }));
-    renderView();
-    const inbox = await screen.findByRole("region", { name: "Inbox" });
-    fireEvent.click(within(inbox).getByRole("button", { name: /Out of stock/ }));
-    expect((document.getElementById("dashboard-alerts") as HTMLDetailsElement).open).toBe(true);
-  });
-
-  it("has no inbox while nothing needs a person", async () => {
+  it("has no inbox: the tiles, cards and alerts below say the same", async () => {
     renderView();
     await atRiskTile();
     expect(screen.queryByRole("region", { name: "Inbox" })).toBeNull();
