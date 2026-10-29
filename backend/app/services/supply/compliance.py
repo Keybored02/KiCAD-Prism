@@ -209,6 +209,14 @@ def sync_distributor(conn, part_id: str, provider: str, entries: Sequence[str]) 
     return removed + added
 
 
+def record_distributor(conn, part_id: str, provider: str, entries: Sequence[str], now: datetime) -> int:
+    """Keep what a distributor states about a part's substances: its ``reach_svhc`` fact and its declarations
+    (``sync_distributor``). Returns how many declarations changed."""
+
+    facts.set_one(conn, part_id, provider, "reach_svhc", "; ".join(entries) or "None listed", now)
+    return sync_distributor(conn, part_id, provider, entries)
+
+
 def source_label(declared_by: str) -> str:
     """Who declared a substance, in words: a person's address, or the distributor."""
 

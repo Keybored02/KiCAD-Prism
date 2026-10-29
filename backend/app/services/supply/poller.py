@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import accounts, alerts, budget, alternates, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
+from app.services.supply import accounts, alerts, budget, alternates, compliance, facts, insights, ledger, parts_view, price_breaks, pricing, promises, stock, stock_events, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -566,6 +566,8 @@ class Poller:
             "SELECT value FROM supply_part_facts WHERE part_id = %s AND provider = %s AND name = 'normally_stocking'", (row.part_id, offer.provider)
         ).fetchone()
         facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
+        if offer.substances is not None:
+            compliance.record_distributor(conn, row.part_id, offer.provider, offer.substances, now)
         if offer.alternates is not None:
             alternates.replace(conn, row.part_id, offer.provider, offer.alternates, now)
         self._note_changes(conn, row, offer, previous, stocked_before["value"] if stocked_before else None)

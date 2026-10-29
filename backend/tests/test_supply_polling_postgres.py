@@ -366,6 +366,32 @@ class PollingTests(unittest.TestCase):
         (sample,) = self.rows("SELECT moq, order_multiple FROM supply_samples ORDER BY sampled_at DESC LIMIT 1")
         self.assertEqual(sample["moq"], 1000)
 
+    def test_substances_listed_with_an_offer_become_the_distributors_declarations(self) -> None:
+        import dataclasses
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        listed = {"now": ("Lead (CAS 7439-92-1)",)}
+
+        class Lists:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus):
+                return [dataclasses.replace(o, substances=listed["now"]) for o in self.inner.get_offers(skus)]
+
+        self.provider_behaviour = Lists
+        self.poller().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT cas, declared_by FROM supply_part_substances"), [{"cas": "7439-92-1", "declared_by": "distributor:fake"}])
+        listed["now"] = None
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        self.assertEqual(len(self.rows("SELECT cas FROM supply_part_substances")), 1, "an answer that states nothing changes nothing")
+        listed["now"] = ()
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT cas FROM supply_part_substances"), [])
+        self.assertEqual(self.rows("SELECT value FROM supply_part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])
+
     def test_a_change_is_seen_when_the_samples_before_it_were_deleted(self) -> None:
         import dataclasses
 

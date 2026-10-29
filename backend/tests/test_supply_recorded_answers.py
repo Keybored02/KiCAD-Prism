@@ -85,10 +85,8 @@ class RecordedAnswerTests(unittest.TestCase):
         self.assertTrue(matches)
         offers = provider.get_offers([matches[0].sku])
         self.check_offers(offers, "mouser")
-        # Mouser's version 2 lists no REACH-SVHC entry for this part: nothing is stated, which is not "none listed".
-        found = provider.substances(matches[0].sku, matches[0].manufacturer)
-        self.assertFalse(found.stated)
-        self.assertEqual(found.entries, ())
+        # Mouser lists no REACH-SVHC entry for this part: nothing is stated, which is not "none listed".
+        self.assertTrue(all(offer.substances is None for offer in offers))
 
     def test_farnell(self) -> None:
         client = Replay("farnell_live_calls_lm358dr.json")

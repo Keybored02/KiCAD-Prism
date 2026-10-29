@@ -85,6 +85,9 @@ class Offer:
     rohs: bool | None = None
     # True when the distributor says the part is affected by REACH (it may hold a substance of very high concern).
     reach_affected: bool | None = None
+    # The substances of very high concern the answer lists, as written. None: the answer says nothing about them, which
+    # is not the same as an empty list.
+    substances: tuple[str, ...] | None = None
     marketplace: bool = False
     product_url: str = ""
     # The datasheet address the distributor gives. Part of the answer, so it costs no call to keep.
