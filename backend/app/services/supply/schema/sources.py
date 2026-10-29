@@ -1,5 +1,6 @@
-"""Where supply data comes from and what it costs: connectors and their credentials' grants, the call budget and its
-ledger, rate-limit marks and pacing, uploaded offer files, exchange rates, settings and the audit trail.
+"""Where supply data comes from and what it costs: accounts (the credentials a provider knows Prism by, with their call
+budget and its ledger), connectors and their credentials' grants, rate-limit marks and pacing, uploaded offer files,
+exchange rates, settings and the audit trail.
 """
 
 from __future__ import annotations
@@ -18,6 +19,19 @@ TABLES: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_supply_audit_subject ON supply_audit_events (subject_kind, subject_id, at);
     """,
     """
+    CREATE TABLE IF NOT EXISTS supply_accounts (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        account_key TEXT NOT NULL DEFAULT '',
+        daily_budget INTEGER NOT NULL DEFAULT 0 CHECK (daily_budget >= 0),
+        interactive_reserve_pct INTEGER NOT NULL DEFAULT 10 CHECK ((interactive_reserve_pct >= 0) AND (interactive_reserve_pct <= 50)),
+        reset_time TEXT NOT NULL DEFAULT '00:00',
+        reset_tz TEXT NOT NULL DEFAULT 'UTC',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_accounts_key ON supply_accounts (provider, account_key) WHERE account_key <> '';
+    """,
+    """
     CREATE TABLE IF NOT EXISTS supply_connectors (
         id TEXT PRIMARY KEY,
         provider TEXT NOT NULL,
@@ -28,8 +42,7 @@ TABLES: tuple[str, ...] = (
         credential_names JSONB NOT NULL DEFAULT '[]'::jsonb,
         enabled BOOLEAN NOT NULL DEFAULT TRUE,
         paused_reason TEXT NOT NULL DEFAULT '',
-        daily_budget INTEGER NOT NULL DEFAULT 0 CHECK (daily_budget >= 0),
-        interactive_reserve_pct INTEGER NOT NULL DEFAULT 10 CHECK ((interactive_reserve_pct >= 0) AND (interactive_reserve_pct <= 50)),
+        account_id TEXT NOT NULL REFERENCES supply_accounts(id),
         terms_reviewed_by TEXT NOT NULL DEFAULT '',
         terms_reviewed_at TIMESTAMPTZ,
         last_ok_at TIMESTAMPTZ,
@@ -43,9 +56,6 @@ TABLES: tuple[str, ...] = (
         keep_days INTEGER CHECK ((keep_days >= 1) AND (keep_days <= 3650)),
         keep_unused BOOLEAN NOT NULL DEFAULT FALSE,
         catalogue BOOLEAN NOT NULL DEFAULT FALSE,
-        account_key TEXT NOT NULL DEFAULT '',
-        reset_time TEXT NOT NULL DEFAULT '00:00',
-        reset_tz TEXT NOT NULL DEFAULT 'UTC',
         error_streak INTEGER NOT NULL DEFAULT 0,
         rate_limits JSONB NOT NULL DEFAULT '{}'::jsonb,
         rate_limits_at TIMESTAMPTZ,
@@ -53,7 +63,7 @@ TABLES: tuple[str, ...] = (
         block_streak INTEGER NOT NULL DEFAULT 0,
         UNIQUE (provider, storefront)
     );
-    CREATE INDEX IF NOT EXISTS idx_supply_connectors_account ON supply_connectors (account_key) WHERE account_key <> '';
+    CREATE INDEX IF NOT EXISTS idx_supply_connectors_account ON supply_connectors (account_id);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_call_counts (
@@ -150,7 +160,7 @@ TABLES: tuple[str, ...] = (
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_quota_ledger (
-        connector_id TEXT NOT NULL REFERENCES supply_connectors(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES supply_accounts(id) ON DELETE CASCADE,
         day DATE NOT NULL,
         spent INTEGER NOT NULL DEFAULT 0 CHECK (spent >= 0),
         interactive_spent INTEGER NOT NULL DEFAULT 0,
@@ -159,7 +169,7 @@ TABLES: tuple[str, ...] = (
         scheduled_at TIMESTAMPTZ,
         spare_hour INTEGER,
         spare_hour_spent INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (connector_id, day),
+        PRIMARY KEY (account_id, day),
         CONSTRAINT supply_quota_ledger_check CHECK ((interactive_spent >= 0) AND (interactive_spent <= spent))
     );
     """,
@@ -171,4 +181,33 @@ TABLES: tuple[str, ...] = (
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     """,
+)
+
+FUNCTIONS: tuple[str, ...] = (
+    # A connector inserted without an account is an account of its own (``accounts.py``).
+    """
+    CREATE OR REPLACE FUNCTION supply_connector_account() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+        IF NEW.account_id IS NULL THEN
+            INSERT INTO supply_accounts (id, provider) VALUES (NEW.id, NEW.provider) ON CONFLICT (id) DO NOTHING;
+            NEW.account_id := NEW.id;
+        END IF;
+        RETURN NEW;
+    END $$
+    """,
+    # An account goes with its last connector, and its ledger with it.
+    """
+    CREATE OR REPLACE FUNCTION supply_account_left() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+        DELETE FROM supply_accounts a WHERE a.id = OLD.account_id
+            AND NOT EXISTS (SELECT 1 FROM supply_connectors c WHERE c.account_id = a.id);
+        RETURN NULL;
+    END $$
+    """,
+)
+TRIGGERS: tuple[str, ...] = (
+    "CREATE OR REPLACE TRIGGER trg_supply_connector_account BEFORE INSERT ON supply_connectors "
+    "FOR EACH ROW EXECUTE FUNCTION supply_connector_account()",
+    "CREATE OR REPLACE TRIGGER trg_supply_account_left AFTER DELETE OR UPDATE OF account_id ON supply_connectors "
+    "FOR EACH ROW EXECUTE FUNCTION supply_account_left()",
 )

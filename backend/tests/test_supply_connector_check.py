@@ -113,7 +113,7 @@ class ConnectorCheckTests(unittest.TestCase):
         self.assertEqual((result.json["ok"], result.json["code"]), (True, "ok"))
         self.assertIsInstance(result.json["took_ms"], int)
         self.assertEqual(type(self).behaviour["calls"], 1)
-        (ledger,) = self.rows("SELECT spent, interactive_spent FROM supply_quota_ledger WHERE connector_id = %s", cid)
+        (ledger,) = self.rows("SELECT spent, interactive_spent FROM supply_quota_ledger WHERE account_id = %s", cid)
         self.assertEqual((ledger["spent"], ledger["interactive_spent"]), (1, 1))
         (connector,) = self.rows("SELECT last_ok_at, last_error_code FROM supply_connectors WHERE id = %s", cid)
         self.assertIsNotNone(connector["last_ok_at"])

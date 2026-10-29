@@ -205,7 +205,7 @@ class SupplyJobTests(unittest.TestCase):
         for n in range(4):
             self.watch(f"P{n}")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO supply_quota_ledger (connector_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
+            conn.execute("INSERT INTO supply_quota_ledger (account_id, day, spent) VALUES (%s, %s, 18)", (cid, quota.provider_day(self.clock.now)))
         summary = self.discoverer_().run(cid)
         self.assertEqual((summary.searched, summary.stopped), (1, "budget"))
         self.assertEqual(len(self.rows("SELECT * FROM supply_discovery_runs")), 1)
