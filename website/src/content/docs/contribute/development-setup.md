@@ -151,7 +151,9 @@ listens.
 2. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
 The KiCad panel for the Remote Symbol Provider is a separate app:
-`npm run dev:panel`.
+`npm run dev:panel`. KiCad opens the panel the API serves, not the dev
+server's; with the backend on your host, build it as in step 7 of
+[Run the backend on your host](#run-the-backend-on-your-host).
 
 ## Run the backend on your host
 
@@ -216,7 +218,31 @@ own key.
    venv/bin/python -m app.prism_worker --pool catalog
    ```
 
-7. Start the frontend dev server as in
+7. Build the Remote Symbols panel the API serves to KiCad, from `frontend/`:
+
+   ```bash
+   npm run build:panel
+   ```
+
+   Then copy the build to where the API serves it from:
+
+   ```bash
+   mkdir -p ../backend/app/static
+   ```
+
+   ```bash
+   rm -rf ../backend/app/static/remote_provider
+   ```
+
+   ```bash
+   cp -R dist/remote_provider ../backend/app/static/remote_provider
+   ```
+
+   The Docker image does this when it is built; a host run doesn't, and
+   `/remote-provider/panel` answers 500 until the folder is there. Git ignores
+   it. Build and copy again after changing the panel.
+
+8. Start the frontend dev server as in
    [Work on the frontend with hot reload](#work-on-the-frontend-with-hot-reload).
 
 On Windows the interpreter is `venv\Scripts\python.exe`.
