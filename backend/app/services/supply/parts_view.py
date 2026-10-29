@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping
 
-from app.services.supply import budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import attention, budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import store
@@ -604,8 +604,7 @@ def _row_facts(conn, groups: list[dict[str, Any]]) -> dict[str, Any]:
     costed = [(project_id, variants[project_id]) for project_id, rollup in rollups.items()
               if rollup and rollup["cost_per_board"] is not None and rollup["currency"]]
     members = list({item["id"] for group in groups for item in group["members"]})
-    alerts = {row["part_id"]: int(row["n"]) for row in conn.execute(
-        "SELECT part_id, COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (members,)).fetchall()}
+    alerts = attention.open_counts(conn, datetime.now(timezone.utc), attention.PART, members)
     return {"read_at": read_at, "tracked": tracked, "variants": variants, "rollups": rollups,
             "series": cost_history.series_of(conn, costed, 120), "alerts": alerts}
 

@@ -68,7 +68,7 @@ class SupplyAlertsTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("supply_alerts", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
+            for table in ("supply_attention_decisions", "supply_attention", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.now = START
         self.cid = self.connectors.create(
@@ -144,7 +144,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(watch["part_id"])
         self.set_offer(listing, stock=900)
         self.evaluate(watch["part_id"], after=timedelta(hours=2))
-        self.assertEqual(self.rows("SELECT 1 FROM supply_alerts"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_attention"), [])
 
     def test_a_condition_that_clears_resolves_its_alert(self) -> None:
         watch = self.watch(threshold=100)
@@ -219,9 +219,9 @@ class SupplyAlertsTests(unittest.TestCase):
         watch = self.watch(threshold=10)
         self.listing(watch["part_id"], "A", stock=40)
         self.evaluate(watch["part_id"])
-        self.assertEqual(self.rows("SELECT 1 FROM supply_alerts"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_attention"), [])
         self.assertEqual(self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": 100}).status, 200)
-        (pending,) = self.rows("SELECT state, kind FROM supply_alerts")
+        (pending,) = self.rows("SELECT state, kind FROM supply_attention")
         self.assertEqual((pending["state"], pending["kind"]), ("pending", "below_threshold"), "seen once; it opens on the next look")
 
     def test_the_poller_looks_after_every_read(self) -> None:
@@ -299,7 +299,7 @@ class SupplyAlertsTests(unittest.TestCase):
         path = f"/api/supply/parts/{rising['part_id']}/alert-rules"
         self.assertEqual(self.call("PUT", path, body={"muted": [], "price_rise_percent": 25}).status, 200)
         # Saving the rule looks at the part at the wall clock, months after these readings: start from the test's own clock.
-        self.rows("DELETE FROM supply_alerts RETURNING id")
+        self.rows("DELETE FROM supply_attention RETURNING id")
         for later in (timedelta(hours=2), timedelta(hours=3)):
             self.evaluate(rising["part_id"], after=later)
         self.assertEqual([item["kind"] for item in self.listed()], ["price_up"], "the part asked for 25%")
@@ -393,7 +393,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.priced(listing, "0.80")
         self.call("PUT", f"/api/supply/parts/{watch['part_id']}/alert-rules", body={"target_price": "0.50", "target_currency": "eur"})
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM supply_alerts")  # saving the rules looked once, at the real time; the test keeps its own clock
+            conn.execute("DELETE FROM supply_attention")  # saving the rules looked once, at the real time; the test keeps its own clock
         (alert,) = self.open_after_two_looks(watch["part_id"])
         self.assertEqual((alert["kind"], alert["detail"]["target"], alert["detail"]["price"]), ("target_price_missed", "0.5", "0.8"))
         self.priced(listing, "0.45")
@@ -424,6 +424,29 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(watch["part_id"], after=timedelta(hours=3))
         self.assertEqual(sorted(item["kind"] for item in self.listed()), ["lifecycle"])
 
+    def test_a_row_is_quieted_by_its_own_decisions_a_worse_severity_wakes_it_and_standing_decisions_replace_each_other(self) -> None:
+        from app.services.supply import attention
+
+        part_id = self.watch("ROW-1")["part_id"]
+        later = START + timedelta(hours=2)
+        with self.store.connection() as conn:
+            row_id = attention.begin(conn, attention.PART, part_id, "out_of_stock", "warning", {}, START, at_once=True)
+            attention.decide_row(conn, row_id, attention.ACKNOWLEDGE, "designer@example.com")
+            self.assertEqual(attention.summary(conn, START), [], "acknowledged waits for nobody")
+            row = attention.live(conn, attention.PART, [part_id], ["out_of_stock"])[(part_id, "out_of_stock")]
+            attention.hold(conn, row, "error", {}, START, opens=False)
+            self.assertEqual(attention.summary(conn, START), [{"kind": "out_of_stock", "count": 1, "severity": "error"}], "worse wakes it")
+            attention.decide_row(conn, row_id, attention.SNOOZE, "designer@example.com", until=START + timedelta(hours=1))
+            self.assertEqual((attention.open_counts(conn, START, attention.PART, [part_id]), attention.open_counts(conn, later, attention.PART, [part_id])),
+                             ({}, {part_id: 1}), "a snooze runs out")
+            attention.clear(conn, attention.live(conn, attention.PART, [part_id], ["out_of_stock"])[(part_id, "out_of_stock")], later)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_attention_decisions WHERE attention_id = %s", (row_id,)).fetchone()["n"], 0)
+            attention.stand(conn, attention.PART, part_id, "price_up", attention.MUTE, "a@example.com")
+            attention.stand(conn, attention.PART, part_id, "price_up", attention.MUTE, "b@example.com")
+            self.assertEqual([item["made_by"] for item in attention.standing(conn, attention.PART, [part_id], attention.MUTE)[part_id]], ["b@example.com"])
+            self.assertTrue(attention.withdraw(conn, attention.PART, part_id, "price_up", attention.MUTE))
+            self.assertEqual(attention.standing(conn, attention.PART, [part_id], attention.MUTE), {})
+
     def test_snoozing_hides_quietly_and_wakes_when_the_time_is_up(self) -> None:
         alert = self.open_alert()
         self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/snooze", body={"hours": 4}).status, 204)
@@ -431,7 +454,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(snoozed["state"], "snoozed")
         self.assertIsNotNone(snoozed["snoozed_until"])
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_alerts SET snoozed_until = NOW() - INTERVAL '1 minute' WHERE id = %s", (alert["id"],))
+            conn.execute("UPDATE supply_attention_decisions SET until = NOW() - INTERVAL '1 minute' WHERE attention_id = %s", (alert["id"],))
         self.assertEqual(self.listed()[0]["state"], "open", "an expired snooze reads as open without waiting for a poll")
 
     def test_actions_are_audited_and_checked(self) -> None:

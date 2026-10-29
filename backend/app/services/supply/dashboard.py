@@ -60,10 +60,10 @@ def _alerts_by_day(conn, today: date) -> list[dict[str, Any]]:
 
     rows = conn.execute(
         """
-        SELECT (opened_at AT TIME ZONE 'UTC')::date AS day, kind, COUNT(*) AS n FROM supply_alerts
-        WHERE opened_at IS NOT NULL AND opened_at >= %s GROUP BY 1, 2 ORDER BY 1
+        SELECT (opened_at AT TIME ZONE 'UTC')::date AS day, kind, COUNT(*) AS n FROM supply_attention
+        WHERE part_id IS NOT NULL AND kind = ANY(%s) AND opened_at IS NOT NULL AND opened_at >= %s GROUP BY 1, 2 ORDER BY 1
         """,
-        (datetime.combine(today - timedelta(days=ALERT_DAYS - 1), datetime.min.time(), tzinfo=timezone.utc),),
+        (list(alerts.KINDS), datetime.combine(today - timedelta(days=ALERT_DAYS - 1), datetime.min.time(), tzinfo=timezone.utc)),
     ).fetchall()
     by_day: dict[str, dict[str, Any]] = {}
     for row in rows:
