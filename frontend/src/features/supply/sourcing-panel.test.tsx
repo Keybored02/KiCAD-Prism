@@ -51,15 +51,14 @@ describe("the Supply tab", () => {
     expect(link.getAttribute("href")).toBe("/?section=supply&supplyView=tracking&part=p1");
   });
 
-  it("offers to watch the component's part only while nobody follows it", async () => {
+  it("keeps the component's own watch in reach whether or not something else already follows its part", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: null }));
     renderPanel();
     expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
     cleanup();
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: { tier: 1, rate: "daily" } }));
     renderPanel();
-    await screen.findByRole("region", { name: "Stock" });
-    expect(screen.queryByLabelText("Watch this component")).toBeNull();
+    expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
   });
 
   it("offers to watch a part Prism does not know yet, then shows it", async () => {

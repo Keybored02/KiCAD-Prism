@@ -310,6 +310,12 @@ class ConnectorService:
                 write_audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
                 if fields.keys() & {"daily_budget", "interactive_reserve_pct", "enabled"}:
                     admission.sync(conn)
+                if "enabled" in fields:
+                    # A disabled connector's offers stop counting: the kept summaries of the parts it lists are stale.
+                    conn.execute(
+                        "INSERT INTO supply_summary_dirty (part_id) SELECT DISTINCT part_id FROM supply_listings WHERE connector_id = %s AND part_id IS NOT NULL",
+                        (connector_id,),
+                    )
                 return self._dto_from(conn, _fetch(conn, connector_id))
         except UniqueViolation:
             raise ConnectorError("duplicate", "A connector for this provider and storefront already exists.") from None

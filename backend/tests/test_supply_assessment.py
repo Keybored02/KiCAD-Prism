@@ -102,11 +102,19 @@ class CheckTests(unittest.TestCase):
         one = [offer(discontinued=True), offer(connector_id="c2")]
         self.assertNotIn("distributor_discontinued", ids(checks.evaluate(facts(one), DEFAULTS)))
 
+    def test_old_stock_behind_a_fresh_zero_is_late_and_one_account_is_one_holder(self) -> None:
+        stale = [offer(fetched_at=NOW - timedelta(days=180)), offer(connector_id="c2", stock=0, fetched_at=NOW - timedelta(hours=1))]
+        self.assertIn("data_stale", ids(checks.evaluate(facts(stale), DEFAULTS)))
+        shared = [offer(pool="acct"), offer(connector_id="c2", pool="acct")]
+        self.assertIn("single_source", ids(checks.evaluate(facts(shared, distributors=2), DEFAULTS)), "two storefronts, one account")
+
     def test_lead_time_rohs_and_age(self) -> None:
         self.assertEqual(ids(checks.evaluate(facts([offer(lead_time_days=120)]), DEFAULTS)), ["lead_time_over_threshold"])
         self.assertEqual(checks.evaluate(facts([offer(lead_time_days=84)]), DEFAULTS), [])
         self.assertEqual(ids(checks.evaluate(facts([offer(rohs=False)]), DEFAULTS)), ["rohs_noncompliant"])
-        self.assertEqual(checks.evaluate(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)]), DEFAULTS), [])
+        (disputed,) = checks.evaluate(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)]), DEFAULTS)
+        self.assertEqual((disputed.check, disputed.text), ("rohs_disputed", "Distributors disagree on RoHS: c2 says compliant; c1 says not."))
+        self.assertEqual(risk.compliance(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)])).score, 3, "not the best score")
         self.assertEqual(ids(checks.evaluate(facts([offer(fetched_at=NOW - timedelta(hours=100))]), DEFAULTS)), ["data_stale"])
 
     def test_a_read_is_late_by_the_parts_own_schedule(self) -> None:

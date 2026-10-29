@@ -74,9 +74,9 @@ export function CrossReferenceSection({ partId, canEdit }: { partId: string; can
                 <li key={item.part_id} className="flex flex-wrap items-center justify-between gap-2 p-2">
                   <span className="min-w-0">
                     <span className="font-medium">{item.mpn}</span>, {item.manufacturer}{" "}
-                    <Badge variant={item.grade === "direct" ? "outline" : "secondary"}>{item.grade_label}</Badge>
+                    <Badge variant={item.grade === "fails" ? "destructive" : item.grade === "ratings_met" ? "outline" : "secondary"}>{item.grade_label}</Badge>
                     <span className="block text-xs text-muted-foreground">
-                      Same: {item.same.map(label).join(", ")}.{item.differs.length > 0 ? ` Differs: ${item.differs.map(label).join(", ")}.` : ""}{" "}
+                      Same: {item.same.map(label).join(", ")}.{item.differs.length > 0 ? ` Differs: ${item.differs.map(label).join(", ")}.` : ""}{item.unknown?.length ? ` Unknown: ${item.unknown.map(label).join(", ")}.` : ""}{" "}
                       {item.stock === null ? "Not read yet." : `${formatStock(item.stock)} in stock.`}
                     </span>
                   </span>
