@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import bom_comments, bom_lookup, cost_history, tracking, usage
+from app.services.supply import bom_comments, bom_lookup, cost_history, freshness, tracking, usage
 from app.services.supply.assessment import settings_store
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
@@ -223,11 +223,8 @@ def _kept_rollups(conn, wanted: Sequence[tuple[str, str]]) -> dict[tuple[str, st
         SELECT r.project_id, r.variant, r.data FROM supply_project_rollups r
         JOIN unnest(%s::text[], %s::text[]) AS w(project_id, variant) ON r.project_id = w.project_id AND r.variant = w.variant
         WHERE r.computed_at > NOW() - %s
-          AND NOT EXISTS (SELECT 1 FROM supply_rollup_dirty d WHERE d.scope IN (r.project_id, '*') AND d.xid >= r.snap
-                          AND (d.xid = r.own OR NOT pg_visible_in_snapshot(d.xid::text::xid8, r.seen::pg_snapshot)))
-          AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = ANY(r.part_ids) AND d.xid >= r.snap
-                          AND (d.xid = r.own OR NOT pg_visible_in_snapshot(d.xid::text::xid8, r.seen::pg_snapshot)))
-        """,
+          AND NOT {stale}
+        """.replace("{stale}", freshness.stale_sql("rollup", "(ARRAY[r.project_id] || r.part_ids)", "r")),
         ([project_id for project_id, _ in wanted], [variant for _, variant in wanted], ROLLUP_MAX_AGE),
     ).fetchall()
     return {(row["project_id"], row["variant"]): row["data"].get("rollup") for row in rows}
@@ -244,11 +241,10 @@ def _keep_rollup(conn, project_id: str, variant: str, seen: str, rollup: dict[st
     conn.execute(
         """
         INSERT INTO supply_project_rollups (project_id, variant, data, part_ids, seen, snap, own, computed_at)
-        VALUES (%s, %s, %s::jsonb, %s, %s, pg_snapshot_xmin(%s::pg_snapshot)::text::bigint,
-                COALESCE(pg_current_xact_id_if_assigned()::text::bigint, 0), NOW())
+        VALUES (%s, %s, %s::jsonb, %s, %s, pg_snapshot_xmin(%s::pg_snapshot)::text::bigint, {own}, NOW())
         ON CONFLICT (project_id, variant) DO UPDATE SET data = EXCLUDED.data, part_ids = EXCLUDED.part_ids, seen = EXCLUDED.seen,
             snap = EXCLUDED.snap, own = EXCLUDED.own, computed_at = EXCLUDED.computed_at
-        """,
+        """.replace("{own}", freshness.OWN_SQL),
         (project_id, variant, json.dumps({"rollup": rollup}), sorted(set(part_ids)), seen, seen),
     )
 
@@ -256,14 +252,14 @@ def _keep_rollup(conn, project_id: str, variant: str, seen: str, rollup: dict[st
 def usual_rollup(conn, project: dict[str, Any], variant: str) -> dict[str, Any] | None:
     """A tracked project's rollup at its usual build and spares, as its page shows it when nothing else is asked for. None without a BOM.
 
-    Kept per project and design: worked out again only after something it is made from changed (see ``_m096_project_rollups``).
+    Kept per project and design: worked out again only after something it is made from changed (``schema.derived.SOURCES``, ``freshness``).
     """
 
     project_id = project["project_id"]
     found, rollup = _kept_rollup(conn, project_id, variant)
     if found:
         return rollup
-    seen = str(conn.execute("SELECT pg_current_snapshot()::text AS s").fetchone()["s"])
+    seen = freshness.seen(conn)[0]
     rows = usage.project_rows(conn, project_id, variant)
     part_ids: list[str] = []
     if rows:

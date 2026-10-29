@@ -272,17 +272,16 @@ def housekeeping(store: SupplyStore) -> int:
     and retention. Returns the samples compacted."""
 
     with store.connection() as conn:
-        _refresh_rates(conn)
-        _snapshot_market(conn)
-        _snapshot_costs(conn)
-        _snapshot_figures(conn)
-        _sync_component_watches(conn)
-        _refresh_project_boms(conn)
-        _sync_tracking(conn)
-        _pick_packagings(conn)
-        _renew_insights(conn)
-        refresh_rollups(conn)
+        # Each step commits: a step's change marks are then seen by what the next one keeps (``freshness``), and no step holds the
+        # others' rows.
+        for step in (
+            _refresh_rates, _snapshot_market, _snapshot_costs, _snapshot_figures, _sync_component_watches, _refresh_project_boms,
+            _sync_tracking, _pick_packagings, _renew_insights, refresh_rollups,
+        ):
+            step(conn)
+            conn.commit()
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
+        conn.commit()
         retention.drop_expired(conn, datetime.now(timezone.utc))
         retention.trim_summaries(conn)
         oneoff.expire(conn, datetime.now(timezone.utc))

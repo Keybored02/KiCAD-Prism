@@ -57,7 +57,7 @@ class SummaryCacheTests(unittest.TestCase):
         # starts from a log with no entry for the part.
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM supply_summary_dirty WHERE part_id = %s", (self.watch.part_id,))
+            conn.execute("DELETE FROM supply_dirty WHERE key = %s", (self.watch.part_id,))
         with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
             self.assertEqual(self.stock(), 100)
 
@@ -67,7 +67,7 @@ class SummaryCacheTests(unittest.TestCase):
             conn.execute("DELETE FROM supply_fx_rates")
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM supply_summary_dirty WHERE part_id = %s", (self.watch.part_id,))
+            conn.execute("DELETE FROM supply_dirty WHERE key = %s", (self.watch.part_id,))
         with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
             self.assertEqual(self.stock(), 100, "kept while the rates stay")
         with self.store.connection() as conn:
@@ -183,10 +183,10 @@ class SummaryCacheTests(unittest.TestCase):
         # than any open transaction goes, one from the far future stays.
         with self.store.connection() as conn:
             conn.execute("DELETE FROM supply_part_summaries")
-            conn.execute("INSERT INTO supply_summary_dirty (part_id, xid) VALUES ('old', 1), ('future', 9000000000000000000)")
+            conn.execute("INSERT INTO supply_dirty (kind, key, xid) VALUES ('summary', 'old', 1), ('summary', 'future', 9000000000000000000)")
             retention.trim_summaries(conn)
-            kept = [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_summary_dirty WHERE part_id IN ('old', 'future')").fetchall()]
-            conn.execute("DELETE FROM supply_summary_dirty WHERE part_id IN ('old', 'future')")
+            kept = [row["key"] for row in conn.execute("SELECT key FROM supply_dirty WHERE key IN ('old', 'future')").fetchall()]
+            conn.execute("DELETE FROM supply_dirty WHERE key IN ('old', 'future')")
         self.assertEqual(kept, ["future"])
         self.assertEqual(self.stock(), 100, "worked out again when asked")
 
@@ -206,17 +206,16 @@ class SummaryCacheTests(unittest.TestCase):
                 "('prj_old', '', '{}'::jsonb, ARRAY['rolled'], '1:1:', 1, NOW() - INTERVAL '2 hours')"
             )
             for scope, xid in marks:
-                conn.execute("INSERT INTO supply_summary_dirty (part_id, xid) VALUES (%s, %s)", (scope, xid))
-            conn.execute("INSERT INTO supply_rollup_dirty (scope, xid) VALUES ('prj_trim', 20), ('prj_trim', 40), ('*', 20), ('*', 40)")
+                conn.execute("INSERT INTO supply_dirty (kind, key, xid) VALUES ('summary', %s, %s)", (scope, xid))
+            conn.execute("INSERT INTO supply_dirty (kind, key, xid) VALUES ('rollup', 'prj_trim', 20), ('rollup', 'prj_trim', 40), ('rollup', '*', 20), ('rollup', '*', 40)")
             retention.trim_summaries(conn)
             summary = conn.execute(
-                "SELECT part_id, xid FROM supply_summary_dirty WHERE xid < 1000 ORDER BY part_id, xid"
+                "SELECT key AS part_id, xid FROM supply_dirty WHERE kind = 'summary' AND xid < 1000 ORDER BY key, xid"
             ).fetchall()
-            rollup = conn.execute("SELECT scope, xid FROM supply_rollup_dirty WHERE xid < 1000 ORDER BY scope, xid").fetchall()
+            rollup = conn.execute("SELECT key AS scope, xid FROM supply_dirty WHERE kind = 'rollup' AND xid < 1000 ORDER BY key, xid").fetchall()
             projects = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_project_rollups WHERE project_id LIKE 'prj_%'").fetchall()]
             conn.execute("DELETE FROM supply_project_rollups WHERE project_id LIKE 'prj_%'")
-            conn.execute("DELETE FROM supply_summary_dirty WHERE xid < 1000")
-            conn.execute("DELETE FROM supply_rollup_dirty WHERE xid < 1000")
+            conn.execute("DELETE FROM supply_dirty WHERE xid < 1000")
         self.assertEqual([(row["part_id"], row["xid"]) for row in summary], [(part_id, 4), ("rolled", 40)])
         self.assertEqual([(row["scope"], row["xid"]) for row in rollup], [("*", 40), ("prj_trim", 40)])
         self.assertEqual(projects, ["prj_trim"], "a rollup older than a reader accepts is dropped")
@@ -226,6 +225,49 @@ class SummaryCacheTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("DELETE FROM supply_parts")
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_summaries").fetchone()["n"], 0)
+
+
+    def marks(self, conn) -> set[tuple[str, str]]:
+        """The marks this transaction wrote."""
+
+        return {(row["kind"], row["key"]) for row in conn.execute(
+            "SELECT kind, key FROM supply_dirty WHERE xid = pg_current_xact_id()::text::bigint").fetchall()}
+
+    def test_every_source_has_its_triggers_and_a_write_that_changes_nothing_marks_nothing(self) -> None:
+        from app.services.supply import freshness
+        from app.services.supply.schema import derived
+
+        with self.store.connection() as conn:
+            made = {row["tgname"] for row in conn.execute(
+                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = current_schema() AND NOT t.tgisinternal").fetchall()}
+        for source in derived.SOURCES:
+            self.assertIn(f"trg_supply_mark_{source.kind}_{source.table.removeprefix('supply_')}", made, source)
+            self.assertIn(source.kind, {kind for reads in freshness.READS.values() for kind in reads}, "every kind marked is read")
+        part = self.watch.part_id
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_parts SET mpn = mpn WHERE id = %s", (part,))
+            conn.execute("UPDATE supply_parts SET mpn = mpn WHERE id = 'none'")
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = NOW()")
+            self.assertEqual(self.marks(conn), set(), "the same values, no row or a column the summary does not read: no mark")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_parts SET mpn = 'P-1B' WHERE id = %s", (part,))
+            conn.execute("UPDATE supply_offers SET stock = 90 WHERE listing_id = 'l1'")
+            self.assertEqual(self.marks(conn), {("rollup", part), ("summary", part)}, "a part's own key, never every project's")
+
+    def test_a_long_transaction_does_not_make_what_was_worked_out_meanwhile_stale(self) -> None:
+        self.assertEqual(self.stock(), 100)
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_dirty WHERE key = %s", (self.watch.part_id,))
+        with self.store.connection() as long:
+            long.execute("INSERT INTO supply_dirty (kind, key) VALUES ('summary', 'another part')")  # it now holds a transaction id
+            with self.store.connection() as conn:
+                conn.execute("UPDATE supply_offers SET stock = 80 WHERE listing_id = 'l1'")
+            self.assertEqual(self.stock(), 80, "worked out while the long one runs")
+            with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
+                self.assertEqual(self.stock(), 80, "and kept: the long transaction's marks are for another part")
+            long.execute("UPDATE supply_offers SET stock = 70 WHERE listing_id = 'l1'")
+        self.assertEqual(self.stock(), 70, "a change the summary did not see makes it stale, however old its transaction")
 
 
 if __name__ == "__main__":

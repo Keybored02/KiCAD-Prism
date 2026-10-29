@@ -76,16 +76,31 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.part_insights.matching(conn, "one_distributor"), {falling})
             self.assertEqual(self.part_insights.matching(conn, "steady"), {steady})
 
-    def test_new_exchange_rates_leave_the_kept_facts_readable_and_first_to_be_renewed(self) -> None:
-        from app.services.supply import price_quantity
+    def test_new_exchange_rates_leave_the_kept_facts_readable_and_marked_first_to_be_renewed(self) -> None:
+        from datetime import date
+        from decimal import Decimal
 
-        part = self.follow("RATE-1", [500] * 3)
+        from app.services.supply import fx
+
+        stale = self.follow("RATE-1", [500] * 3)
+        later = self.follow("RATE-2", [500] * 3)
         with self.store.connection() as conn:
             self.part_insights.renew(conn, NOW)
-            price_quantity.forget(conn)  # what saving new rates does
-            self.assertEqual([row["part_id"] for row in self.part_insights.read_all(conn)], [part], "still readable")
+        with self.store.connection() as conn:
+            self.assertEqual(self.part_insights.renew(conn, NOW), 0, "fresh")
+            conn.execute("UPDATE supply_offers SET stock = 400 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (stale,))
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_part_insights SET computed_at = %s WHERE part_id = %s", (NOW - timedelta(days=2), later))
+        with self.store.connection() as conn, unittest.mock.patch.object(self.part_insights, "refresh", wraps=self.part_insights.refresh) as refresh:
+            self.assertEqual(self.part_insights.renew(conn, NOW), 2, "a marked part and one older than a day")
+            self.assertEqual([call.args[1] for call in refresh.call_args_list], [stale, later], "marked first")
+        with self.store.connection() as conn:
+            fx.store(conn, date(2026, 3, 1), {"USD": Decimal("1.08")}, "manual")
+        with self.store.connection() as conn:
+            self.assertEqual(sorted(row["part_id"] for row in self.part_insights.read_all(conn)), sorted([stale, later]), "still readable")
             self.dashboard.build(conn)
-            self.assertEqual(self.part_insights.renew(conn, NOW), 1, "and renewed first")
+            self.assertEqual(self.part_insights.renew(conn, NOW), 2, "new rates mark every part")
+            self.assertEqual(self.part_insights.renew(conn, NOW, seconds=0), 0, "a run stops when its time is up")
 
     def test_the_parts_list_narrows_to_a_finding_and_carries_the_trend_line(self) -> None:
         falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])

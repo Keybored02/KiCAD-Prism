@@ -727,7 +727,7 @@ class KeptRollupTests(unittest.TestCase):
         self.rollup(project, fresh=True)
         self.rollup(project, fresh=False)
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO supply_rollup_dirty (scope) VALUES ('*')")
+            conn.execute("INSERT INTO supply_dirty (kind, key) VALUES ('rollup', '*')")
         self.rollup(project, fresh=True)
 
     def test_a_kept_rollup_reads_as_a_fresh_one_and_the_dashboard_row_matches_it(self) -> None:
