@@ -21,7 +21,7 @@ from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import DiscoveryService
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
+from app.services.supply.providers.base import CAP_SEARCH, BatchSearch, CallCounting, FamilySearch, ProviderError, SupplyProvider, calls_made
 from app.services.supply.store import SupplyStore, supply_store
 
 # How long after a search a part is searched again, by tracking tier: where it was found, and where nothing was (``budget.py`` has the days).
@@ -203,7 +203,7 @@ class Discoverer:
                             (part_id, connector_id, now, result.total),
                         )
         searched_ids = [part_id for part_id in {item.part_id for item in pending} if part_id]
-        if hasattr(type(provider), "lookup_family") and searched_ids:
+        if isinstance(provider, FamilySearch) and searched_ids:
             self._follow_up(service, connector_id, searched_ids)
         if searched:
             # What the searches found replaces the estimate admission was made on.
@@ -315,23 +315,36 @@ class Discoverer:
         """One search call for ``group``; the result for each part, keyed by part id. A group that asks more numbers than one call
         takes (a part with several numbers, alone) makes more calls, which ``charge`` counts."""
 
+        before, paid = calls_made(provider), [1]
+
+        def spend() -> bool:
+            granted = self._spend_extra(connector_id)
+            paid[0] += granted
+            return granted
+
         if not batched:
             try:
-                return {group[0]: service.discover(group[0], connector_id, spend=lambda: self._spend_extra(connector_id))}
+                return {group[0]: service.discover(group[0], connector_id, spend=spend)}
             finally:
-                # A request the provider repeated (a retry after a refusal) is a call it counts too, answered or not.
-                repeated = getattr(provider, "extra_calls", 0)
-                repeated = repeated if isinstance(repeated, int) else 0
-                if charge and repeated > 0:
-                    charge(repeated)
+                # What the search made beyond what it paid for (a new token, a repeat after a refusal) is a call too, answered or not.
+                extra = calls_made(provider) - before - paid[0]
+                if charge and extra > 0:
+                    charge(extra)
         with self._store.connection() as conn:
             found = [parts.get_part(conn, part_id) for part_id in group]
             extra = {part.id: parts.searched_numbers(conn, part.id) for part in found}
         asked = list(dict.fromkeys([part.mpn for part in found] + [number for numbers in extra.values() for number in numbers]))
-        answers = provider.lookup_mpns(asked)  # type: ignore[attr-defined]
-        calls = -(-len(asked) // max(registry.get_spec(self._connectors.get(connector_id)["provider"]).search_batch, 1))
-        if charge and calls > 1:
-            charge(calls - 1)
+        if not isinstance(provider, BatchSearch):
+            raise ProviderError("this provider cannot search several numbers in one call")
+        try:
+            answers = provider.lookup_mpns(asked)
+        finally:
+            # More numbers than one call takes, a new token or a repeat: each call beyond the one paid for is charged.
+            calls = calls_made(provider) - before
+            if not isinstance(provider, CallCounting):
+                calls = -(-len(asked) // max(registry.get_spec(self._connectors.get(connector_id)["provider"]).search_batch, 1))
+            if charge and calls > 1:
+                charge(calls - 1)
         results = {}
         for part in found:
             matches = list(answers.get(match_key(part.mpn), []))

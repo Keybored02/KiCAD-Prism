@@ -27,7 +27,7 @@ from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
 from app.services.supply.models import Offer
 from app.services.supply.providers import packaging_hints, registry
-from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited, SupplyProvider
+from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited, SupplyProvider, calls_made
 from app.services.supply import quota
 from app.services.supply.store import SupplyStore, supply_store
 from app.services.supply.vocabulary import Lifecycle, Packaging
@@ -375,25 +375,19 @@ class Poller:
                 stopped = STOPPED_BUDGET
                 break
             calls += 1
+            before = calls_made(provider)
             try:
                 try:
                     offers = provider.get_offers([row.sku for row in batch])
                 finally:
-                    # A request the provider repeated (a retry after a refusal) is a call it counts too, answered or not.
-                    repeated = getattr(provider, "extra_calls", 0)
-                    repeated = repeated if isinstance(repeated, int) else 0
-                    if repeated > 0 and spec.metered:
+                    # What the batch made beyond what it paid for (a group of two products, a new token, a repeat after a
+                    # refusal) is a call too, answered or not.
+                    extra = calls_made(provider) - before - spec.calls_per_offers_batch
+                    if extra > 0 and spec.metered:
                         ledger.record_calls(
-                            self._store, connector_id, repeated, now=now, interactive=interactive, kind=ledger.KIND_OFFERS, purpose=purpose
+                            self._store, connector_id, extra, now=now, interactive=interactive, kind=ledger.KIND_OFFERS, purpose=purpose
                         )
-                        calls += repeated
-                # A group that needed more calls than the one it paid for (two products) pays the rest now.
-                extra = getattr(provider, "last_batch_calls", 1) - spec.calls_per_offers_batch if spec.groups_by_part else 0
-                if extra > 0:
-                    ledger.record_calls(
-                        self._store, connector_id, extra, now=now, interactive=interactive, kind=ledger.KIND_OFFERS, purpose=purpose
-                    )
-                    calls += extra
+                        calls += extra
             except ProviderError as exc:
                 if not isinstance(exc, (RateLimited, AuthError, Blocked)):
                     # Only a failure of this batch is the batch's fault; a rate limit or

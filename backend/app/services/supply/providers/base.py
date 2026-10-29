@@ -108,6 +108,8 @@ class ProviderConfig:
     # The account the connector belongs to (see ``accounts.py``); connectors of one account share their pacing.
     account: str = ""
     credentials: Mapping[str, str] = field(default_factory=dict, repr=False)
+    # Told the limit headers of every answer that states any, and the address that answered (``limits.note``). Set by Prism.
+    on_limits: Callable[[dict[str, str], str], None] | None = field(default=None, repr=False, compare=False)
 
 
 @runtime_checkable
@@ -128,6 +130,14 @@ class SupplyProvider(Protocol):
 
 
 # What an adapter can do beyond the three lookups, each checked with ``isinstance``. An adapter has the methods it can serve.
+
+
+@runtime_checkable
+class CallCounting(Protocol):
+    """Counts every request it makes, token requests and repeats included (``providers.http.HttpProvider`` does): what is
+    charged beyond the calls an operation paid for up front."""
+
+    calls: int
 
 
 @runtime_checkable
@@ -189,11 +199,10 @@ class ProviderSpec:
     metered: bool = True
     # The provider's offers come from a file an administrator uploads, not from calls to the distributor.
     csv_fed: bool = False
-    # Calls one get_offers batch makes, so the budget is charged what is really spent.
+    # Calls one get_offers batch usually makes, charged before it; what it really made beyond them is charged after (``CallCounting``).
     calls_per_offers_batch: int = 1
     # One answer serves every listing of a part at this provider (DigiKey: a product lists all its packagings), so
-    # the poller reads a part's listings together and asks once per group. The provider reports the calls it made
-    # in ``last_batch_calls``.
+    # the poller reads a part's listings together and asks once per group.
     groups_by_part: bool = False
     # Manufacturer part numbers one search call can look up (``lookup_mpns``). 1 means one number per call.
     search_batch: int = 1
@@ -231,3 +240,9 @@ class ProviderSpec:
     @property
     def required_credentials(self) -> tuple[str, ...]:
         return tuple(item.name for item in self.credential_fields)
+
+
+def calls_made(provider: object) -> int:
+    """The requests a provider has made so far, or 0 for one that does not count them (it is charged what it paid for)."""
+
+    return provider.calls if isinstance(provider, CallCounting) else 0

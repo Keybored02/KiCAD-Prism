@@ -240,11 +240,18 @@ class SupplyJobTests(unittest.TestCase):
 
     def test_a_request_the_provider_repeated_is_charged_to_the_search_and_to_the_read(self) -> None:
         class Retrying:
-            extra_calls = 1  # as the JLCPCB provider says after one retry
+            # Counts its requests as ``HttpProvider`` does: each lookup here was refused once and asked again.
+            calls = 0
 
             def __init__(self, inner): self.inner = inner
-            def lookup_mpn(self, mpn, manufacturer=None): return self.inner.lookup_mpn(mpn, manufacturer)
-            def get_offers(self, skus): return self.inner.get_offers(skus)
+
+            def lookup_mpn(self, mpn, manufacturer=None):
+                self.calls += 2
+                return self.inner.lookup_mpn(mpn, manufacturer)
+
+            def get_offers(self, skus):
+                self.calls += 2
+                return self.inner.get_offers(skus)
 
         self.behaviour = Retrying
         cid = self.connector()

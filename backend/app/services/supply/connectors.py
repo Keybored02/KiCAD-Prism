@@ -436,10 +436,8 @@ class ConnectorService:
             # Connectors on one account share their pacing; one with no credentials shares it with its provider's others.
             account=accounts.pace_key(row["account_key"], row["provider"]),
             credentials=creds,
+            on_limits=lambda found, url: limits.note(self._store, connector_id, found, datetime.now(timezone.utc), url=url),
         ))
-        client = getattr(provider, "_client", None)
-        if client is not None and hasattr(client, "on_limits"):
-            client.on_limits = lambda found, url: limits.note(self._store, connector_id, found, datetime.now(timezone.utc), url=url)
         return provider
 
     def _set_paused(self, connector_id: str, actor: str, reason: str, action: str) -> dict[str, Any]:

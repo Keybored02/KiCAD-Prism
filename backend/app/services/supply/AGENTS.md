@@ -10,7 +10,8 @@ root first.
 | --- | --- |
 | `vocabulary.py` | `Status`, `Lifecycle`, `Packaging`. The only wording any surface uses. |
 | `models.py` | Provider-neutral `Offer`, `PriceBreak`, `Incoming`, `PartMatch`, `PartData`. Validate on construction. |
-| `providers/base.py` | `ProviderSpec`, the `SupplyProvider` protocol, `ProviderError` subclasses. |
+| `providers/base.py` | The provider contract: `ProviderSpec` (with `hosts`, the only hosts its HTTP client reaches), `ProviderConfig` (with `on_limits`, which Prism sets), the `SupplyProvider` protocol, the capability protocols checked with `isinstance` (`BatchSearch`, `FamilySearch`, `ConnectionCheck`, `ChangeNoticeReader`, `SubstanceReader`, `SubstituteReader`, `CallCounting`), `ProviderError` subclasses. Adding a distributor is one adapter module on `providers/http.py` and a `register` line. |
+| `providers/http.py` | `HttpProvider`, the base every web-API adapter uses: the HTTP client limited to the spec's hosts, the pacer the account's connectors share, the clocks, `request` (paced and counted) and `authorised` (one new token when the service refuses the one it had); `ClientCredentials` is the OAuth client-credentials token. `calls` counts every request, token requests and repeats included: the poller and the discoverer charge what an operation made beyond what it paid for up front. |
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
 | `providers/tme.py` | TME API v2: OAuth client-credentials token (kept until shortly before it expires), `/products?mpns[]` to find listings, `/products` plus `/products/data` for offers (two calls a batch of 50). The storefront is the country. Gross prices are turned net. |
 | `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
