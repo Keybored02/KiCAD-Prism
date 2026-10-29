@@ -136,6 +136,20 @@ class SummaryCacheTests(unittest.TestCase):
             conn.execute("DELETE FROM supply_listings WHERE id = 'l1'")
         self.assertIsNone(self.stock())
 
+    def test_a_disabled_connectors_offers_stop_counting(self) -> None:
+        import os
+
+        from app.services.supply.connectors import ConnectorService
+        from app.services.trackers.secrets import CredentialKeyring
+
+        ring = CredentialKeyring({"t": os.urandom(32)}, "t")
+        connectors = ConnectorService(self.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
+        self.assertEqual(self.stock(), 100)
+        connectors.update("c1", actor=ACTOR, enabled=False)
+        self.assertIsNone(self.stock(), "kept summary worked out again without it")
+        connectors.update("c1", actor=ACTOR, enabled=True)
+        self.assertEqual(self.stock(), 100)
+
     def test_a_threshold_is_not_kept_so_it_needs_no_invalidation(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:

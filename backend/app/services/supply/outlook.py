@@ -1,8 +1,9 @@
 """A rule-based lifecycle outlook: what the signals Prism holds say about whether a part is heading for its end.
 
-This is not a forecast of years. It lists the signals found, each with where it came from, and puts the
-part in one of five bands. Absence of signals is never read as a long life: the best band is *no signs of an
-end of life*. Every signal is shown, so a person can disagree with the band.
+This is not a forecast of years, and its bands claim none: *ended*, *ending* (an end is announced or every
+distributor has dropped it), *warning signs*, *no signs of an end* and *not enough to say*. Each signal is listed
+with where it came from and any date it gives, so a person can disagree with the band. Absence of signals is never
+read as a long life. (The band keys keep their old spellings, which stored facts, filters and links use.)
 """
 
 from __future__ import annotations
@@ -18,16 +19,16 @@ TWO_TO_FIVE = "2_to_5_years"
 NO_SIGNS = "no_signs"
 UNKNOWN = "unknown"
 
-# How many soft signals together move a part from "no signs" to "two to five years".
+# How many soft signals together move a part from "no signs" to "warning signs".
 SOFT_SIGNALS_FOR_WATCH = 2
 ZERO_STOCK_DAYS = 30
 PRICE_RISE_PERCENT = 20
 
 LABELS = {
     ENDED: "Ended",
-    UNDER_TWO: "Under 2 years",
-    TWO_TO_FIVE: "2 to 5 years",
-    NO_SIGNS: "No signs of an end of life",
+    UNDER_TWO: "Ending",
+    TWO_TO_FIVE: "Warning signs",
+    NO_SIGNS: "No signs of an end",
     UNKNOWN: "Not enough to say",
 }
 
@@ -36,7 +37,7 @@ LABELS = {
 class Signal:
     text: str
     source: str
-    # "hard" decides the band by itself; "watch" points to two to five years; "soft" only counts together.
+    # "hard" decides the band by itself (ending); "watch" points to warning signs; "soft" only counts together.
     weight: str
 
 

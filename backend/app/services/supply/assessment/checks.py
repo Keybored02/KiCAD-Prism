@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import stock
+from app.services.supply.stock import as_of
 from app.services.supply.assessment import settings as ids
 from app.services.supply.assessment.settings import AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle, Status
@@ -57,6 +58,18 @@ class Finding:
     # Set by waivers.apply.
     waiver: Mapping[str, Any] | None = field(default=None, compare=False)
 
+
+
+def rohs_sides(offers) -> str:
+    """Who says compliant and who says not, as one phrase: "Mouser says compliant; DigiKey says not"."""
+
+    said: dict[bool, list[str]] = {True: [], False: []}
+    for offer in offers:
+        if offer.get("rohs") is not None:
+            name = str(offer.get("connector_name") or offer.get("connector_id") or "")
+            if name not in said[bool(offer["rohs"])]:
+                said[bool(offer["rohs"])].append(name)
+    return f"{', '.join(said[True])} {'says' if len(said[True]) == 1 else 'say'} compliant; {', '.join(said[False])} {'says' if len(said[False]) == 1 else 'say'} not"
 
 def stock_of(offers: Sequence[Mapping[str, Any]]) -> int | None:
     """Units on hand across counted, non-marketplace offers, by pile at each distributor (``stock.aggregate``); None when none was read."""
@@ -145,7 +158,7 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     # A lifecycle word or every distributor dropping the part already says it; the outlook adds what notices and last dates to buy say. An "ended" outlook is only ever an obsolete part, which is already said.
     said = facts.lifecycle in (Lifecycle.OBSOLETE, Lifecycle.LAST_TIME_BUY) or (bool(offers) and all(o["discontinued"] for o in offers))
     if facts.outlook == "under_2_years" and not said:
-        add(ids.ENDING_WITHIN_2_YEARS, "A notice or a last date to buy says this part ends within 2 years.", "ending_within_2_years")
+        add(ids.ENDING_WITHIN_2_YEARS, "A notice or a last date to buy says this part is ending.", "ending_within_2_years")
     if not offers:
         return found
     stock = stock_of(offers) or 0
@@ -155,7 +168,8 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
         add(ids.NO_DISTRIBUTOR_STOCK, "No distributor has this part in stock.", "no_stock")
     elif facts.need is not None and stock < facts.need:
         add(ids.INSUFFICIENT_STOCK, f"Distributors hold {stock:,} and the build needs {facts.need:,}.", "short")
-    holders = {o["connector_id"] for o in offers if o["stock"] > 0 and not o["marketplace"]}
+    # Connectors on one account (shared credentials) are one holder: they list the same stock.
+    holders = {o.get("pool") or o["connector_id"] for o in offers if o["stock"] > 0 and not o["marketplace"]}
     if len(holders) == 1 and (facts.distributors or 0) > 1:
         add(ids.SINGLE_SOURCE, "Only one distributor has this part in stock.", "single_source")
     lead = lead_time_of(offers)
@@ -164,6 +178,8 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     known = [o["rohs"] for o in offers if o.get("rohs") is not None]
     if known and not any(known):
         add(ids.ROHS_NONCOMPLIANT, "Distributors list this part as not RoHS compliant.", "rohs_false")
+    elif known and not all(known):
+        add(ids.ROHS_DISPUTED, f"Distributors disagree on RoHS: {rohs_sides(offers)}.", "rohs_disputed")
     if facts.svhc_listed:
         add(ids.REACH_SVHC, f"A declared substance is on the REACH Candidate List: {', '.join(facts.svhc_listed)}.", "svhc_declared")
     elif any(o.get("reach_affected") for o in offers):
@@ -176,9 +192,10 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
         if far:
             name, price = max(far, key=lambda item: abs(item[1] - middle))
             add(ids.PRICE_OUTLIER, f"{name} quotes {price:.4f} a piece against a median of {middle:.4f} across {len(quoted)} distributors.", "price_outlier")
-    newest = max((o["fetched_at"] for o in offers if o["fetched_at"] is not None), default=None)
+    # The figures are as old as the oldest read they rest on: a fresh zero from one distributor doesn't make another's old stock current.
+    oldest = as_of(o for o in offers if not o["marketplace"])
     # Late is judged from when the part's schedule wanted the read, not from a flat age: a weekly part read on its day is not late.
     due = READ_EVERY_HOURS.get(facts.rate, READ_EVERY_HOURS["daily"])
-    if newest is not None and facts.now - newest > timedelta(hours=due + settings.late_hours):
-        add(ids.DATA_STALE, f"The newest read is {int((facts.now - newest).total_seconds() // 3600)} hours old and this part is read {facts.rate or 'daily'}, so it is late.", "stale")
+    if oldest is not None and facts.now - oldest > timedelta(hours=due + settings.late_hours):
+        add(ids.DATA_STALE, f"A read the figures rest on is {int((facts.now - oldest).total_seconds() // 3600)} hours old and this part is read {facts.rate or 'daily'}, so it is late.", "stale")
     return found

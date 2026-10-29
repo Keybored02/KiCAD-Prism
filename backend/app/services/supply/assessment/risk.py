@@ -26,7 +26,7 @@ _LIFECYCLE_SCORE = {
 
 
 # What the outlook band adds to the lifecycle score: a notice or last date to buy is as serious as a last time buy.
-_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "under_2_years": (4, "Signals say it ends within 2 years."), "2_to_5_years": (2, "Signals say it may end within 5 years.")}
+_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "under_2_years": (4, "Signals say its end is announced."), "2_to_5_years": (2, "There are warning signs of an end.")}
 
 
 def lifecycle(facts: Facts) -> SubScore:
@@ -95,6 +95,8 @@ def compliance(facts: Facts) -> SubScore:
     known = [o["rohs"] for o in facts.offers if o.get("rohs") is not None]
     if known and not any(known):
         return SubScore("compliance", 5, ("Listed as not RoHS compliant.",))
+    if known and not all(known):
+        return SubScore("compliance", 3, ("Distributors disagree on RoHS.",))
     if facts.svhc_listed or any(o.get("reach_affected") for o in facts.offers):
         return SubScore("compliance", 3, ("Affected by REACH.",))
     return SubScore("compliance", 1)

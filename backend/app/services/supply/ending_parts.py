@@ -1,7 +1,7 @@
 """Library components whose part is ending, and what a person decided about each.
 
 Supply knows a part is ending (not recommended for new designs, last time buy, obsolete, dropped by every distributor, or an
-outlook under two years). The library decides what that means for a component. This module only proposes: it lists the
+an outlook of ending). The library decides what that means for a component. This module only proposes: it lists the
 components, the reason and its source, the last-time-buy date, stock and the projects that use the part. Nothing here changes
 the catalog.
 
@@ -35,7 +35,7 @@ _ENDING = {
     Lifecycle.LAST_TIME_BUY.value: "Last time buy",
     Lifecycle.OBSOLETE.value: "Obsolete",
 }
-_OUTLOOK = {outlook.ENDED: "Outlook: ended", outlook.UNDER_TWO: "Outlook: under two years"}
+_OUTLOOK = {outlook.ENDED: "Outlook: ended", outlook.UNDER_TWO: "Outlook: ending"}
 
 
 def reasons_of(item: Mapping[str, Any], band: str | None) -> list[dict[str, str]]:

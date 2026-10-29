@@ -38,14 +38,15 @@ Health checks**; the line takes the worst finding nobody has waived.
 | Obsolete | a distributor says obsolete | Critical |
 | Not found, no stock, not enough stock, not RoHS compliant | as named | Error |
 | Lead time | the shortest quoted lead time is over **Longest lead time (days)** (84) | Warning |
-| Read is late | the newest reading is older than the part's reading interval plus **Read is late after (hours)** (48) | Warning |
-| Single source | only one distributor has stock, and you have more than one connected | Warning |
+| Read is late | a reading the stock figures rest on is older than the part's reading interval plus **Read is late after (hours)** (48) | Warning |
+| Single source | only one distributor (one account) has stock, and you have more than one connected | Warning |
+| RoHS disputed | distributors disagree on whether the part is RoHS compliant; the finding names who says what | Warning |
 | Last time buy | the part is at last time buy; an Error within **Last buy date is an error within (days)** (180) of the last date to buy | Warning |
 | Price outlier | one of at least three quotes is more than twice, or less than half, the median | Note |
 
 The others (NRND, distributor dropped it, maker missing, not in library,
-REACH substance, parameter or package mismatch, lifecycle disagreement, ending
-within two years) are Warnings by default.
+REACH substance, parameter or package mismatch, lifecycle disagreement, and a
+notice or last date to buy saying the part is ending) are Warnings by default.
 
 The health score runs from 0 to 10 and sits inside its status's band: OK is
 7 to 10, Warning 4 to 6.9, Error 0.1 to 3.9 and Fatal 0. Each finding after
@@ -57,13 +58,20 @@ Only listings Prism has matched to the part, or a person has confirmed,
 count. Marketplace offers (third-party sellers on a distributor's site) never
 count.
 
-- **Across distributors**, stock adds up.
+- **Across distributors**, stock adds up. Connectors on one account (the same
+  credentials, such as two storefronts of one distributor) are one stock: a
+  product both list counts once, and they count as one holder.
 - **Within one distributor**, cut tape, custom reels (such as Digi-Reel) and
   listings of unknown packaging usually draw on one pile, so only the largest
   of them counts. Full reels, trays, tubes and bulk are separate piles and add.
   Where a distributor says all its packagings share one pile, only the largest
   figure counts.
 - A watch set to count one packaging counts only that packaging.
+- A disabled connector's offers don't count.
+
+A total is as old as the oldest reading it rests on: when one distributor has
+stock read months ago and another reads zero today, the part shows the old
+date, and the **Read is late** check can fire.
 
 Stock history uses the same rules day by day, carrying each listing's last
 reading forward. A listing that disappeared stops counting after its last
@@ -172,25 +180,29 @@ distributor call is made for this.
 
 ## When a part may end
 
-The part sheet's **Outlook** sorts each part into a band. It is not a forecast
-of years.
+The part sheet's **Outlook** sorts each part into a band from the signals Prism
+holds, and lists each signal with where it came from and any date it gives,
+such as a last date to buy. The bands describe evidence, not time: Prism does
+not predict how many years a part has left.
 
 | Band | When |
 | --- | --- |
 | **Ended** | a distributor says obsolete |
-| **Under 2 years** | last time buy, every distributor dropped it, an open end-of-life or last-time-buy notice, or a stated last date to buy |
-| **2 to 5 years** | NRND or an NRND notice, or two of: some distributors dropped it, out of stock for the last 30 days, cheapest price up 20% or more |
-| **No signs of an end of life** | none of the above |
+| **Ending** | last time buy, every distributor dropped it, an open end-of-life or last-time-buy notice, or a stated last date to buy |
+| **Warning signs** | NRND or an NRND notice, or two of: some distributors dropped it, out of stock for the last 30 days, cheapest price up 20% or more |
+| **No signs of an end** | none of the above |
+| **Not enough to say** | nothing is known about the part's lifecycle yet |
 
 **Library components' parts are ending** on the Dashboard lists the
 components whose part is NRND, at last time buy, obsolete, dropped by every
-distributor, or in the Ended or Under 2 years band.
+distributor, or in the Ended or Ending band.
 
 ## Forecasts
 
-Forecasts estimate what happens next: when stock runs out, whether a part can
-be bought in four or eight weeks, its price in 30 and 90 days, and the chance
-of an end-of-life change within a year. Each kind of forecast earns its place:
+Forecasts estimate what happens next: when stock runs out, the chance it is out
+everywhere on any day of the next four or eight weeks (even if restocked after),
+whether a part can be bought in four or eight weeks, its price in 30 and 90
+days, and the chance of an end-of-life change within a year. Each kind of forecast earns its place:
 
 - **Learning** until it has enough checked forecasts (30 to 60, by kind).
   Shown greyed and never used for alerts.
