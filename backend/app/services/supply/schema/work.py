@@ -84,6 +84,8 @@ TABLES: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS supply_bom_usage (
         project_id TEXT NOT NULL REFERENCES supply_bom_usage_projects(project_id) ON DELETE CASCADE,
+        -- The base design is ''; a named design variant has its own lines.
+        variant TEXT NOT NULL DEFAULT '',
         line_key TEXT NOT NULL,
         manufacturer TEXT NOT NULL DEFAULT '',
         mpn TEXT NOT NULL,
@@ -94,27 +96,12 @@ TABLES: tuple[str, ...] = (
         lcsc TEXT NOT NULL DEFAULT '',
         datasheet TEXT NOT NULL DEFAULT '',
         prism_id TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY (project_id, line_key)
-    );
-    CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_match ON supply_bom_usage (match_key);
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS supply_bom_usage_variants (
-        project_id TEXT NOT NULL REFERENCES supply_bom_usage_projects(project_id) ON DELETE CASCADE,
-        variant TEXT NOT NULL,
-        line_key TEXT NOT NULL,
-        manufacturer TEXT NOT NULL DEFAULT '',
-        mpn TEXT NOT NULL,
-        quantity INTEGER NOT NULL CHECK (quantity >= 1),
-        refs TEXT NOT NULL DEFAULT '',
-        lcsc TEXT NOT NULL DEFAULT '',
-        alias_key TEXT NOT NULL DEFAULT '',
-        match_key TEXT NOT NULL DEFAULT '',
-        datasheet TEXT NOT NULL DEFAULT '',
-        prism_id TEXT NOT NULL DEFAULT '',
+        -- The symbol's value and footprint, checked against the distributor's.
+        value TEXT NOT NULL DEFAULT '',
+        footprint TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (project_id, variant, line_key)
     );
-    CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_variants_match_key ON supply_bom_usage_variants (match_key);
+    CREATE INDEX IF NOT EXISTS idx_supply_bom_usage_match ON supply_bom_usage (match_key);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_component_restrictions (

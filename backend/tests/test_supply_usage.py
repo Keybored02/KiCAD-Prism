@@ -242,6 +242,15 @@ class UsageDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertEqual([row["lcsc"] for row in usage_module.project_rows(conn, "p1")], ["C25804"])
 
+    def test_a_stored_line_keeps_its_symbols_value_and_footprint_for_the_package_checks(self) -> None:
+        from app.services.supply import project_supply
+
+        self.store_project("p1", "Board A", [component("R1", "Acme", "R-1", Value="10k", Footprint="Resistor_SMD:R_0603_1608Metric")])
+        with self.store.connection() as conn:
+            (row,) = usage.project_rows(conn, "p1")
+        line = project_supply.bom_line(row)
+        self.assertEqual((line.value, line.footprint), ("10k", "Resistor_SMD:R_0603_1608Metric"))
+
     def test_refresh_reads_existing_indexes_and_drops_projects_that_are_gone(self) -> None:
         self.store_project("gone", "Removed board", [component("R1", "Acme", "R-1")])
         projects = [SimpleNamespace(id="p1", name="Board A"), SimpleNamespace(id="p2", name="Never opened"), SimpleNamespace(id="p3", name="Broken")]

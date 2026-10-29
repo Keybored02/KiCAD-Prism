@@ -114,7 +114,7 @@ def project_parts(conn, project_id: str, variants: Sequence[str]) -> list[dict[s
 
 def _stored_variants(conn, project_id: str) -> set[str]:
     return {row["variant"] for row in conn.execute(
-        "SELECT DISTINCT variant FROM supply_bom_usage_variants WHERE project_id = %s", (project_id,)
+        "SELECT DISTINCT variant FROM supply_bom_usage WHERE project_id = %s AND variant <> ''", (project_id,)
     ).fetchall()} | {BASE_VARIANT}
 
 

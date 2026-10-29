@@ -119,12 +119,12 @@ class ProjectBomTests(unittest.TestCase):
     def test_a_project_that_follows_every_design_takes_in_one_added_later(self) -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_1', 'lite', 'k1', 'Acme', 'A-9', 1)"
+                "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, match_key, quantity) VALUES ('prj_1', 'lite', 'k1', 'Acme', 'A-9', '', 1)"
             )
             self.tracking.track_project(conn, "prj_1", [""], ACTOR, all_variants=True)
             self.assertEqual(self.tracking.tracked_project(conn, "prj_1")["variants"], ["", "lite"])
             conn.execute(
-                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_1', 'full', 'k2', 'Acme', 'A-8', 1)"
+                "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, match_key, quantity) VALUES ('prj_1', 'full', 'k2', 'Acme', 'A-8', '', 1)"
             )
             self.read(conn)
             self.assertEqual(self.tracking.tracked_project(conn, "prj_1")["variants"], ["", "full", "lite"])

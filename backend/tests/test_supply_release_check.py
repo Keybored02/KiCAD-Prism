@@ -217,7 +217,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(rollup["health_status"], "ok")
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_9', 'Lite', 'k', 'Acme', 'GOOD-1', 1)")
+                "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, match_key, quantity) VALUES ('prj_9', 'Lite', 'k', 'Acme', 'GOOD-1', '', 1)")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             lite = self.request("prj_9/bom-health", query="variant=Lite").json
             nothing = self.request("prj_9/bom-health", query="variant=Nope").json

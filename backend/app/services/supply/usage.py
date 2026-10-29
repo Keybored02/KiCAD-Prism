@@ -20,11 +20,8 @@ from app.services.supply.identity import alias_key, match_key
 
 MAX_REFERENCES_TEXT = 500
 
-# Every stored line of every design, the base design (variant '') and the named variants, as one table.
-ALL_USES = (
-    "(SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, '' AS variant FROM supply_bom_usage "
-    "UNION ALL SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, variant FROM supply_bom_usage_variants)"
-)
+# Every stored line of every design: the base design (variant '') and the named variants.
+ALL_USES = "supply_bom_usage"
 
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the
 # manufacturer is blank, is the part's own name, or is a spelling of it (confirmed, or one the part has been seen under).
@@ -102,13 +99,15 @@ class UsageLine:
     lcsc: str = ""
     datasheet: str = ""
     prism_id: str = ""
+    value: str = ""
+    footprint: str = ""
 
 
 Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
 # Part of the stored revision key. Raise it when what is stored from an index changes (a new kind of row), so every project
 # is read again once. With the index's own revision key it is the fingerprint of what the rows were made from.
-USAGE_VERSION = 5
+USAGE_VERSION = 6
 MAX_VARIANTS = 30
 
 
@@ -175,16 +174,18 @@ def lines_from_components(components: Iterable[Mapping[str, Any]], identities: I
             key = f"none:{str(fields.get('Value') or '').strip()}|{str(fields.get('Footprint') or '').strip()}"
         line = found.setdefault(key, {
             "manufacturer": manufacturer, "mpn": mpn if number else "", "alias": alias_key(manufacturer), "number": number, "refs": [],
-            "lcsc": "", "datasheet": "", "prism_id": "",
+            "lcsc": "", "datasheet": "", "prism_id": "", "value": "", "footprint": "",
         })
         line["refs"].append(str(component.get("reference") or ""))
         line["lcsc"] = line["lcsc"] or lcsc
         line["datasheet"] = line["datasheet"] or _datasheet_of(fields)
         line["prism_id"] = line["prism_id"] or prism_id_of(fields)
+        line["value"] = line["value"] or str(fields.get("Value") or "").strip()[:200]
+        line["footprint"] = line["footprint"] or str(fields.get("Footprint") or "").strip()[:200]
     return [
         UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], len(line["refs"]),
                   " ".join(sorted(ref for ref in line["refs"] if ref))[:MAX_REFERENCES_TEXT], line["lcsc"], line["datasheet"][:500],
-                  line["prism_id"][:100])
+                  line["prism_id"][:100], line["value"], line["footprint"])
         for key, line in found.items()
     ]
 
@@ -219,7 +220,6 @@ def store_project(
         )
         return False
     conn.execute("DELETE FROM supply_bom_usage WHERE project_id = %s", (project_id,))
-    conn.execute("DELETE FROM supply_bom_usage_variants WHERE project_id = %s", (project_id,))
     conn.execute(
         """
         INSERT INTO supply_bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at, visible_roles)
@@ -229,20 +229,13 @@ def store_project(
         """,
         (project_id, project_name, revision_key, len(lines), now, list(visible_roles)),
     )
-    for line in lines:
-        conn.execute(
-            "INSERT INTO supply_bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, datasheet, prism_id) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references,
-             line.lcsc, line.datasheet, line.prism_id),
-        )
-    for name, named in (variant_lines or {}).items():
-        for line in named:
+    for variant, designed in (("", lines), *(variant_lines or {}).items()):
+        for line in designed:
             conn.execute(
-                "INSERT INTO supply_bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
-                "datasheet, prism_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (project_id, name, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
-                 line.references, line.lcsc, line.datasheet, line.prism_id),
+                "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
+                "datasheet, prism_id, value, footprint) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (project_id, variant, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
+                 line.references, line.lcsc, line.datasheet, line.prism_id, line.value, line.footprint),
             )
     return True
 
@@ -317,7 +310,7 @@ def project_variants(conn, project_id: str) -> list[str]:
 
     return [
         row["variant"] for row in conn.execute(
-            "SELECT DISTINCT variant FROM supply_bom_usage_variants WHERE project_id = %s ORDER BY variant", (project_id,)
+            "SELECT DISTINCT variant FROM supply_bom_usage WHERE project_id = %s AND variant <> '' ORDER BY variant", (project_id,)
         ).fetchall()
     ]
 
@@ -328,19 +321,14 @@ def project_rows(conn, project_id: str, variant: str = "") -> list[dict[str, Any
     ``variant`` names a design variant; empty is the base design.
     """
 
-    if variant:
-        rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM supply_bom_usage_variants WHERE project_id = %s AND variant = %s "
-            "ORDER BY line_key", (project_id, variant),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM supply_bom_usage WHERE project_id = %s ORDER BY line_key",
-            (project_id,)
-        ).fetchall()
+    rows = conn.execute(
+        "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id, value, footprint FROM supply_bom_usage "
+        "WHERE project_id = %s AND variant = %s ORDER BY line_key", (project_id, variant),
+    ).fetchall()
     return [
         {"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"]),
-         "references": row["refs"], "lcsc": row["lcsc"], "datasheet": row["datasheet"], "prism_id": row["prism_id"]}
+         "references": row["refs"], "lcsc": row["lcsc"], "datasheet": row["datasheet"], "prism_id": row["prism_id"],
+         "value": row["value"], "footprint": row["footprint"]}
         for row in rows
     ]
 
