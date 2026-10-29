@@ -228,3 +228,47 @@ def withdraw(conn, subject_kind: str, subject_id: str, kind: str, decision: str)
         f"DELETE FROM supply_attention_decisions WHERE {col} = %s AND kind = %s AND decision = %s AND attention_id IS NULL AND state <> 'rejected' RETURNING id",
         (subject_id, kind, decision),
     ).fetchone() is not None
+
+
+# --- proposals ----------------------------------------------------------------------------------------------------------------
+
+# The one rule for putting something aside. Acknowledging, snoozing and muting quiet it, for anyone who writes supply data.
+# Dismissing and waiving settle it: an approver's stands at once, and anyone else's is a proposal an approver accepts or rejects.
+SETTLING = (DISMISS, WAIVE)
+
+
+def state_for(decision: str, *, approver: bool) -> str:
+    """The state a decision starts in for this person (``supply_access.is_approver``)."""
+
+    return APPROVED if approver or decision not in SETTLING else PROPOSED
+
+
+def proposal(conn, decision_id: str, decision: str) -> dict[str, Any]:
+    """A standing decision of this kind, locked. LookupError when there is none."""
+
+    row = conn.execute(
+        "SELECT * FROM supply_attention_decisions WHERE id = %s AND decision = %s AND attention_id IS NULL FOR UPDATE", (decision_id, decision)
+    ).fetchone()
+    if row is None:
+        raise LookupError(decision_id)
+    return dict(row)
+
+
+def settle(conn, row: Mapping[str, Any], actor: str, *, approve: bool) -> None:
+    """An approver accepts or rejects a proposal."""
+
+    if row["state"] != PROPOSED:
+        raise ValueError("Only a proposal that is waiting can be decided.")
+    conn.execute(
+        "UPDATE supply_attention_decisions SET state = %s, decided_by = %s, decided_at = NOW() WHERE id = %s",
+        (APPROVED if approve else REJECTED, actor, row["id"]),
+    )
+
+
+def waiting(conn, decision: str, *, limit: int = 200) -> list[dict[str, Any]]:
+    """Proposals of this kind, oldest first."""
+
+    return [dict(row) for row in conn.execute(
+        "SELECT * FROM supply_attention_decisions WHERE decision = %s AND state = 'proposed' AND attention_id IS NULL ORDER BY made_at, id LIMIT %s",
+        (decision, limit),
+    ).fetchall()]

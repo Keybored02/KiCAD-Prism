@@ -160,13 +160,14 @@ class SupplyReviewApiTests(unittest.TestCase):
     def test_proposed_waivers_wait_in_the_queue_until_decided(self) -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO supply_waivers (id, part_id, check_id, scope, reason, state, proposed_by) VALUES ('w1', %s, 'single_source', 's', 'ok', 'proposed', 'dee@example.com')", (self.part.id,)
+                "INSERT INTO supply_attention_decisions (id, part_id, kind, scope, reason, decision, state, made_by) "
+                "VALUES ('w1', %s, 'single_source', 's', 'ok', 'waive', 'proposed', 'dee@example.com')", (self.part.id,)
             )
         waiting = self.call("GET", "/api/supply/review", role="designer").json["to_approve"]
         self.assertEqual([w["id"] for w in waiting["waivers"]], ["w1"])
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_waivers SET state = 'approved'")
-        self.assertEqual(self.call("GET", "/api/supply/review").json["to_approve"], {"waivers": [], "alternates": []})
+            conn.execute("UPDATE supply_attention_decisions SET state = 'approved'")
+        self.assertEqual(self.call("GET", "/api/supply/review").json["to_approve"], {"waivers": [], "alternates": [], "dismissals": []})
 
     def test_pinning_a_listing_with_another_number_can_add_that_number_to_the_part(self) -> None:
         body = {"add_number": True}

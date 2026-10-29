@@ -336,7 +336,7 @@ class ComponentPartsTests(unittest.TestCase):
             ending_parts.set_restriction(conn, component_id, "not_for_new_designs", "", "", "qa@example.com")
             self.assertEqual(count(lifecycle="obsolete"), 0, "decided")
             ending_parts.clear_restriction(conn, component_id, "qa@example.com")
-            ending_parts.dismiss(conn, component_id, ["obsolete"], "qa@example.com")
+            ending_parts.dismiss(conn, component_id, ["obsolete"], "qa@example.com", approver=True)
             self.assertEqual(count(lifecycle="obsolete"), 0, "dismissed for this reason")
             self.assertEqual(count(lifecycle="obsolete", dropped=True), 1, "a new reason brings it back")
 
@@ -347,7 +347,8 @@ class ComponentPartsTests(unittest.TestCase):
         rows = (
             "INSERT INTO supply_component_watches (component_id, owner, created_by) VALUES (%s, 'a', 'a')",
             "INSERT INTO supply_component_restrictions (component_id, level) VALUES (%s, 'retired')",
-            "INSERT INTO supply_ending_dismissals (component_id, reasons, dismissed_by) VALUES (%s, 'obsolete', 'a')",
+            "INSERT INTO supply_attention_decisions (id, component_id, kind, decision, made_by) VALUES (md5(random()::text), %s, 'ending', 'dismiss', 'a')",
+            "INSERT INTO supply_attention (component_id, kind, severity, state, first_seen_at, last_event_at) VALUES (%s, 'work', 'info', 'open', NOW(), NOW())",
         )
         for insert in rows:
             with self.assertRaises(psycopg.errors.ForeignKeyViolation), self.store.connection() as conn:
@@ -403,13 +404,29 @@ class ComponentPartsTests(unittest.TestCase):
 
         component_id = str(self._component()["id"])
         with self.store.connection() as conn:
-            ending_parts.dismiss(conn, component_id, ["nrnd"], AUTHOR)
+            ending_parts.dismiss(conn, component_id, ["nrnd"], AUTHOR, approver=True)
             stored = ending_parts.dismissals_of(conn, [component_id])[component_id]
             self.assertEqual(stored, ending_parts.reasons_key([{"kind": "nrnd"}]))
             self.assertNotEqual(stored, ending_parts.reasons_key([{"kind": "nrnd"}, {"kind": "last_time_buy"}]), "a new reason brings it back")
             with self.assertRaises(ValueError):
-                ending_parts.dismiss(conn, component_id, [], AUTHOR)
-            conn.execute("DELETE FROM supply_ending_dismissals WHERE component_id = %s", (component_id,))
+                ending_parts.dismiss(conn, component_id, [], AUTHOR, approver=True)
+            conn.execute("DELETE FROM supply_attention_decisions WHERE component_id = %s", (component_id,))
+
+    def test_a_writer_s_dismissal_waits_for_an_approver(self) -> None:
+        from app.services.supply import ending_parts, review
+
+        component_id = str(self._component()["id"])
+        with self.store.connection() as conn:
+            asked = ending_parts.dismiss(conn, component_id, ["obsolete"], "designer@example.com", approver=False)
+            self.assertEqual(asked["state"], "proposed")
+            self.assertEqual(ending_parts.dismissals_of(conn, [component_id]), {}, "not dismissed until QA says so")
+            waiting = [item for item in review.to_approve(conn)["dismissals"] if item["component_id"] == component_id]
+            self.assertEqual([(item["id"], item["reasons"], item["proposed_by"]) for item in waiting], [(asked["id"], ["obsolete"], "designer@example.com")])
+            ending_parts.decide_dismissal(conn, asked["id"], "qa@example.com", approve=True)
+            self.assertEqual(ending_parts.dismissals_of(conn, [component_id]), {component_id: "obsolete"})
+            with self.assertRaises(ValueError):
+                ending_parts.decide_dismissal(conn, asked["id"], "qa@example.com", approve=False)
+            conn.execute("DELETE FROM supply_attention_decisions WHERE component_id = %s", (component_id,))
 
     def test_a_part_link_opens_the_component_the_part_counts_for(self) -> None:
         from app.api import supply_parts

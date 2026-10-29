@@ -5395,6 +5395,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def decide_dismissal(self, decision_id: str, verdict: str) -> None:
+        """Decide Dismissal"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/ending/dismissals/{decision_id}/{verdict}",
+            path_params={"decision_id": decision_id, "verdict": verdict},
+        )
+
     def decide_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Decide Work Item"""
         return self._request(
@@ -5599,7 +5607,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def dismiss_ending(self, component_id: str, *, body: dict[str, Any] | None = None) -> None:
+    def dismiss_ending(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
         """Dismiss Ending"""
         return self._request(
             "PUT",

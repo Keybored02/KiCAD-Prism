@@ -6,8 +6,10 @@ import type { SupplyToApprove } from "@/types/supply";
 
 vi.mock("./supply-api", () => ({ decideWaiver: vi.fn(), decideSource: vi.fn() }));
 vi.mock("./component-supply-api", () => ({ decideAlternate: vi.fn() }));
+vi.mock("./ending-api", () => ({ decideDismissal: vi.fn() }));
 
 import * as componentApi from "./component-supply-api";
+import * as endingApi from "./ending-api";
 import * as api from "./supply-api";
 import { ToApprove } from "./to-approve";
 
@@ -20,6 +22,21 @@ beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); });
 afterEach(cleanup);
 
 describe("waiting for approval", () => {
+  it("lists dismissals someone asked for with their reasons and decides them", async () => {
+    vi.mocked(endingApi.decideDismissal).mockResolvedValue(undefined);
+    const decided = vi.fn().mockResolvedValue(undefined);
+    const asked: SupplyToApprove = {
+      waivers: [],
+      dismissals: [{ id: "d1", component_id: "cmp-2", component_name: "Op amp", component_mpn: "LM358", reasons: ["last_time_buy"],
+        proposed_by: "dee@example.com", proposed_at: "2026-10-16T10:00:00Z" }],
+    };
+    render(<MemoryRouter><ToApprove items={asked} canDecide onDecided={decided} /></MemoryRouter>);
+    expect(screen.getByText(/last time buy \(dee@example.com/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(endingApi.decideDismissal).toHaveBeenCalledWith("d1", false));
+    expect(screen.getByRole("link", { name: "Op amp" }).getAttribute("href")).toContain("component=cmp-2");
+  });
+
   it("lists waivers and decides in one click", async () => {
     mocked.decideWaiver.mockResolvedValue(undefined);
     const decided = vi.fn().mockResolvedValue(undefined);

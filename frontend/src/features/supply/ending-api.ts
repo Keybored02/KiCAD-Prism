@@ -28,6 +28,11 @@ export async function retireComponent(componentId: string, reason: string): Prom
 }
 
 /** Nothing to do about this component for these reasons; a new reason brings it back. */
-export async function dismissEnding(componentId: string, reasons: string[]): Promise<void> {
-  await fetchJson(`${BASE}/${encodeURIComponent(componentId)}/dismissal`, { method: "PUT", body: JSON.stringify({ reasons }) }, "Could not dismiss it");
+export async function dismissEnding(componentId: string, reasons: string[]): Promise<{ id: string; state: "approved" | "proposed" }> {
+  return fetchJson(`${BASE}/${encodeURIComponent(componentId)}/dismissal`, { method: "PUT", body: JSON.stringify({ reasons }) }, "Could not dismiss it");
+}
+
+/** QA accepts or rejects a dismissal someone asked for. */
+export async function decideDismissal(id: string, approve: boolean): Promise<void> {
+  await fetchJson(`${BASE}/dismissals/${encodeURIComponent(id)}/${approve ? "approve" : "reject"}`, { method: "POST" }, "Could not save the decision");
 }

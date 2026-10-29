@@ -248,6 +248,8 @@ export interface EndingPart {
   restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
   /** Someone dismissed it for the reasons it has now. */
   dismissed: boolean;
+  /** Someone asked QA to dismiss it for the reasons it has now. */
+  dismissal_waiting?: boolean;
   /** Whether the ending part is the component's main part or an approved alternate. */
   role?: "main" | "alternate";
   /** The component's other approved parts that are not ending; retiring is offered only when none is left. */
@@ -527,6 +529,8 @@ export interface SupplyToApprove {
   alternates?: Array<{
     component_id: string; component_name: string; component_mpn: string; part_id: string; mpn: string; manufacturer: string; proposed_by: string; proposed_at: string;
   }>;
+  /** Ending components someone asked QA to dismiss, with the reasons they were dismissed for. */
+  dismissals?: Array<{ id: string; component_id: string; component_name: string; component_mpn: string; reasons: string[]; proposed_by: string; proposed_at: string }>;
 }
 
 export interface SupplyMakerGroup {

@@ -1,4 +1,4 @@
-"""What people follow and decide: watches, what needs a person and what they decided (attention), alert rules, waivers, ending components and
+"""What people follow and decide: watches, what needs a person and what they decided (attention), alert rules, ending components and
 work items, tracked projects and their BOM usage, BOM notes and cost history, and release snapshots.
 """
 
@@ -155,14 +155,6 @@ TABLES: tuple[str, ...] = (
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS supply_ending_dismissals (
-        component_id TEXT PRIMARY KEY,
-        reasons TEXT NOT NULL,
-        dismissed_by TEXT NOT NULL,
-        dismissed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    """,
-    """
     CREATE TABLE IF NOT EXISTS supply_release_snapshot_jobs (
         build_id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -202,21 +194,6 @@ TABLES: tuple[str, ...] = (
         build_quantity INTEGER NOT NULL DEFAULT 100 CHECK ((build_quantity >= 1) AND (build_quantity <= 1000000)),
         spares TEXT
     );
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS supply_waivers (
-        id TEXT PRIMARY KEY,
-        part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
-        check_id TEXT NOT NULL,
-        scope TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('proposed', 'approved', 'rejected')),
-        proposed_by TEXT NOT NULL,
-        proposed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        decided_by TEXT NOT NULL DEFAULT '',
-        decided_at TIMESTAMPTZ
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_waivers_open ON supply_waivers (part_id, check_id) WHERE state <> 'rejected';
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_watches (
@@ -273,7 +250,7 @@ TRIGGERS: tuple[str, ...] = (
 
 # Supply rows about one catalog component must name a real one (and go if it is ever deleted). Made with the catalog's own steps
 # (``create_catalog_links``), since a test's disposable schema has no ``components``.
-COMPONENT_LINKS = ("supply_component_watches", "supply_component_restrictions", "supply_ending_dismissals", "supply_attention", "supply_attention_decisions")
+COMPONENT_LINKS = ("supply_component_watches", "supply_component_restrictions", "supply_attention", "supply_attention_decisions")
 
 
 def _component_link(table: str) -> str:

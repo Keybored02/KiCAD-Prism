@@ -5,6 +5,7 @@ import type { SupplyToApprove } from "@/types/supply";
 import { partHref } from "./supply-views";
 import { CollapsibleSection } from "./collapsible-section";
 import { decideAlternate } from "./component-supply-api";
+import { decideDismissal } from "./ending-api";
 import { decideWaiver } from "./supply-api";
 import { formatAgo } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -36,13 +37,15 @@ function componentHref(componentId: string): string {
   return `/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`;
 }
 
-/** Waivers and alternates people proposed and QA decides on, with a link to where each lives. */
+/** Waivers, alternates and dismissals people proposed and QA decides on, with a link to where each lives. */
 export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToApprove | undefined; canDecide: boolean; onDecided: () => Promise<void> }) {
   const waivers = items?.waivers ?? [];
   const alternates = items?.alternates ?? [];
-  if (waivers.length + alternates.length === 0) return null;
+  const dismissals = items?.dismissals ?? [];
+  const count = waivers.length + alternates.length + dismissals.length;
+  if (count === 0) return null;
   return (
-    <CollapsibleSection id="review-to-approve" title="To approve" count={waivers.length + alternates.length}>
+    <CollapsibleSection id="review-to-approve" title="To approve" count={count}>
       <ul className="divide-y">
         {alternates.map((item) => (
           <Row
@@ -51,6 +54,14 @@ export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToAppr
             detail={`${item.proposed_by}, ${formatAgo(item.proposed_at)}`}
             to={componentHref(item.component_id)}
             decide={async (approve) => { await decideAlternate(item.component_id, item.part_id, approve); }} canDecide={canDecide} onDecided={onDecided}
+          />
+        ))}
+        {dismissals.map((item) => (
+          <Row
+            key={item.id} kind="Dismissal" title={item.component_name || item.component_mpn}
+            detail={`${item.reasons.map((reason) => reason.replace(/_/g, " ")).join(", ")} (${item.proposed_by}, ${formatAgo(item.proposed_at)})`}
+            to={componentHref(item.component_id)}
+            decide={(approve) => decideDismissal(item.id, approve)} canDecide={canDecide} onDecided={onDecided}
           />
         ))}
         {waivers.map((item) => (
