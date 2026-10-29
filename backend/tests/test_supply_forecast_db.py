@@ -55,10 +55,11 @@ class ForecastDbTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
-        from app.services.supply import forecast_load, forecast_price, parts, watches
+        from app.services.supply import forecast_lifecycle, forecast_load, forecast_price, parts, watches
 
         forecast_load.forget()
         forecast_price.forget()
+        forecast_lifecycle.forget()
         with self.store.connection() as conn:
             for table in ("supply_forecast_checks", "supply_forecasts", "supply_forecast_models", "supply_events", "supply_stock_events", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers",
                           "supply_part_insights", "supply_part_summaries", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_bom_usage", "supply_bom_usage_projects"):
