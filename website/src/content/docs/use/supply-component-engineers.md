@@ -155,6 +155,12 @@ healthy. QA decides:
 Before retiring, give designers a way forward: propose an alternate (below) or
 a replacement component.
 
+When the decision needs work first, open a **work item** from the clipboard
+button on the ending row: name the owner, attach the evidence (the notice, the
+distributor's answer) and set a recheck date. QA accepts or rejects it in
+**Library Manager → Review → Work items**, and the Dashboard's inbox reminds
+the owner when the recheck date comes.
+
 ## 7. Approve alternates
 
 An alternate is another manufacturer part a component may be built with. Its

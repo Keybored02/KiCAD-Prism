@@ -71,7 +71,9 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
       case "project_unconfirmed": navigate(`/project/${encodeURIComponent(item.project_id)}?section=supply`); return;
       case "alerts": setAlertKind(item.alert_kind); showAlerts(); return;
       case "likely_out": parts("likely_out_4w")(); return;
-      case "approvals": navigate(REVIEW_PLACE); return;
+      case "approvals":
+      case "work_due":
+      case "work_mine": navigate(REVIEW_PLACE); return;
     }
   };
 

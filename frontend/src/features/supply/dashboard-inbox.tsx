@@ -39,6 +39,10 @@ export function inboxText(item: SupplyInboxItem): { title: string; figure: strin
       return { title: "Likely out in 4 weeks", figure: item.count.toLocaleString() };
     case "approvals":
       return { title: "To approve", figure: item.count.toLocaleString() };
+    case "work_due":
+      return { title: "Work items to recheck", figure: item.count.toLocaleString() };
+    case "work_mine":
+      return { title: "Your work items", figure: item.count.toLocaleString() };
   }
 }
 

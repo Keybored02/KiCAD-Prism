@@ -14,14 +14,15 @@ from app.core.roles import SUPPLY_APPROVE_ROLES
 
 # Worst first; within a severity, in this order.
 SEVERITY = ("fatal", "error", "warning", "info")
-KIND_ORDER = ("feed", "ending", "deadline", "project_short", "alerts", "likely_out", "approvals", "project_unconfirmed")
+KIND_ORDER = ("feed", "ending", "deadline", "project_short", "alerts", "work_due", "likely_out", "approvals", "work_mine", "project_unconfirmed")
 SHOWN = 8
 # A deadline this close is in the inbox; the Deadlines card lists the rest of the year.
 DEADLINE_DAYS = 30
 
 
-def items(conn, built: Mapping[str, Any], role: str | None, now: datetime) -> dict[str, Any]:
-    """The inbox for the Dashboard ``built``: up to ``SHOWN`` items, worst first, and how many more there are."""
+def items(conn, built: Mapping[str, Any], role: str | None, now: datetime, actor: str = "") -> dict[str, Any]:
+    """The inbox for the Dashboard ``built``: up to ``SHOWN`` items, worst first, and how many more there are. ``actor`` is the
+    person asking, for the work items they own."""
 
     found: list[dict[str, Any]] = []
     feeds = built.get("failing_feeds") or []
@@ -49,6 +50,11 @@ def items(conn, built: Mapping[str, Any], role: str | None, now: datetime) -> di
     forecast = built.get("forecast") or {}
     if forecast.get("likely_out_4w") and (forecast.get("state") or {}).get("state") == "shown":
         found.append({"kind": "likely_out", "severity": "warning", "count": int(forecast["likely_out_4w"])})
+    work = _work(conn, actor, now.date())
+    if work["due"]:
+        found.append({"kind": "work_due", "severity": "warning", "count": work["due"]})
+    if work["mine"]:
+        found.append({"kind": "work_mine", "severity": "info", "count": work["mine"]})
     if role in SUPPLY_APPROVE_ROLES:
         waiting = _awaiting_approval(conn)
         if waiting:
@@ -81,6 +87,12 @@ def _alerts(conn, now: datetime) -> list[dict[str, Any]]:
         (now,),
     ).fetchall()
     return [{"kind": "alerts", "severity": SEVERITY[int(row["worst"])], "count": int(row["n"]), "alert_kind": row["kind"]} for row in rows]
+
+
+def _work(conn, actor: str, today: date) -> dict[str, int]:
+    from app.services.supply import work_items
+
+    return work_items.counts(conn, actor, today)
 
 
 def _awaiting_approval(conn) -> int:

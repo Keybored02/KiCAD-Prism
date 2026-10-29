@@ -196,6 +196,25 @@ decides:
 A QA reviewer or administrator can remove a mark with **Clear mark** on the
 component's **Supply** tab.
 
+## Work items
+
+A work item records a decision about a component or a part before anyone acts
+on it: what is proposed (investigate, find an alternate, not for new designs,
+retire, replace, last time buy), who owns it, the evidence, and when to look
+again. Open one with the clipboard button on an ending component or on a
+part's sheet. Prism keeps the projects that used the part when the item was
+opened, so the record still names them after the BOMs change.
+
+**Library Manager → Review → Work items** lists them: **Open**, **Mine**,
+**Due** (the recheck date has come), **Done** and **Rejected**. Designers, QA
+and administrators open items and add notes; QA and administrators accept,
+reject or reopen them; the owner, whoever opened it or QA marks one done. An
+item's sheet shows its evidence and its history. A work item changes nothing
+by itself: retiring or marking the component still happens where it always
+does.
+
+The Dashboard's inbox counts the items due a recheck and the ones you own.
+
 ## Alerts
 
 A watched part raises an alert on the Dashboard when it runs out, falls to its
@@ -233,6 +252,7 @@ unchecked.
 
 **Library Manager → Review** lists what needs a person:
 
+- **Work items**: decisions people opened about components and parts.
 - **To approve**: alternates waiting for QA.
 - **Manufacturer spellings**: maker names the distributors don't settle.
 - **Listings waiting**: distributor listings filed under another number.

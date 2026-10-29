@@ -647,3 +647,31 @@ def _m098_price_up_to(conn) -> None:
         """,
         prepare=False,
     )
+
+
+def _m099_work_items(conn) -> None:
+    """A record of an engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it
+    touches, QA's disposition and when to look again. Its history is the audit trail (``subject_kind = 'work_item'``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_work_items (
+            id TEXT PRIMARY KEY,
+            subject_kind TEXT NOT NULL CHECK (subject_kind IN ('component', 'part')),
+            subject_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            action TEXT NOT NULL,
+            owner TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'accepted', 'rejected', 'done')),
+            evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+            project_ids TEXT[] NOT NULL DEFAULT '{}',
+            recheck_on DATE,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_supply_work_items_subject ON supply_work_items (subject_kind, subject_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_work_items_open ON supply_work_items (state, recheck_on);
+        """,
+        prepare=False,
+    )

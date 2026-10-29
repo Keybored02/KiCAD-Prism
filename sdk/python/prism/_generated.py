@@ -1332,6 +1332,16 @@ class CreateFolderRequest(TypedDict, total=False):
     parent_id: str | None
 
 
+class CreateIn(TypedDict, total=False):
+    action: str
+    note: str
+    owner: str
+    recheck_on: str | None
+    subject_id: str
+    subject_kind: str
+    title: str
+
+
 class CreateManualComponentRequest(TypedDict, total=False):
     category: str
     change_summary: str
@@ -1458,6 +1468,11 @@ class DebugLoggingWindow(TypedDict, total=True):
     """The DEBUG window currently in force."""
     loggers: list[str]
     until: str
+
+
+class DecideIn(TypedDict, total=False):
+    note: str
+    state: str
 
 
 class DecisionRequest(TypedDict, total=True):
@@ -4228,6 +4243,15 @@ class UpdateFolderRequest(TypedDict, total=False):
     parent_id: str | None
 
 
+class UpdateIn(TypedDict, total=False):
+    action: str | None
+    clear_recheck: bool
+    note: str
+    owner: str | None
+    recheck_on: str | None
+    title: str | None
+
+
 class UpdateProjectTrackerRequest(TypedDict, total=False):
     autoMinSeverity: str | None
     autoTaskClass: bool | None
@@ -5330,6 +5354,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_work_item(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Create Work Item"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/work-items",
+            body=body,
+        )
+
     def cross_reference_of(self, part_id: str) -> dict[str, Any]:
         """Cross Reference Of"""
         return self._request(
@@ -5365,6 +5397,15 @@ class GeneratedClient:
             "POST",
             "/api/v1/supply/components/{component_id}/alternates/{part_id}/decision",
             path_params={"component_id": component_id, "part_id": part_id},
+            body=body,
+        )
+
+    def decide_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Decide Work Item"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/work-items/{item_id}/state",
+            path_params={"item_id": item_id},
             body=body,
         )
 
@@ -7180,6 +7221,14 @@ class GeneratedClient:
             "/api/v1/settings/webhooks",
         )
 
+    def list_work_items(self, *, state: str = 'live', subject_kind: str = '', subject_id: str = '') -> list[dict[str, Any]]:
+        """List Work Items"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/work-items",
+            query={"state": state, "subject_kind": subject_kind, "subject_id": subject_id},
+        )
+
     def live(self) -> dict[str, Any]:
         """Live"""
         return self._request(
@@ -8753,6 +8802,15 @@ class GeneratedClient:
             body=body,
         )
 
+    def update_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Update Work Item"""
+        return self._request(
+            "PATCH",
+            "/api/v1/supply/work-items/{item_id}",
+            path_params={"item_id": item_id},
+            body=body,
+        )
+
     def upload_comment_attachment(self, project_id: str) -> CommentAttachmentUploadView:
         """Upload a file for a comment that will reference it"""
         return self._request(
@@ -8857,6 +8915,14 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals/withdraw",
             path_params={"project_id": project_id, "build_id": build_id},
             body=body,
+        )
+
+    def work_item_history(self, item_id: str) -> list[dict[str, Any]]:
+        """Work Item History"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/work-items/{item_id}/history",
+            path_params={"item_id": item_id},
         )
 
     def workflow_summary(self) -> WorkflowSummary:
