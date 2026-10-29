@@ -37,6 +37,7 @@ class DashboardTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
+        self.insights_page.forget()
         with self.store.connection() as conn:
             for table in ("supply_part_insights", "supply_figure_history", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_alerts"):
                 conn.execute(f"DELETE FROM {table}")

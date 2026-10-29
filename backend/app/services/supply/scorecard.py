@@ -28,19 +28,19 @@ def _median(values: Sequence[int]) -> int | None:
     return round(statistics.median(values)) if values else None
 
 
+# Listings of the parts two or more distributors list (exact or a person's match), as SQL both readers share.
+_SHARED_LISTINGS = """
+    SELECT l.part_id, l.id AS listing_id, l.connector_id FROM supply_listings l
+    WHERE l.match_state = ANY(%(counted)s) AND l.part_id IN (
+        SELECT part_id FROM supply_listings WHERE match_state = ANY(%(counted)s) GROUP BY part_id HAVING COUNT(DISTINCT connector_id) >= 2)
+"""
+
+
 def _shared(conn) -> dict[str, dict[str, str]]:
     """Parts two or more distributors list: part id to {listing id: connector id}."""
 
-    rows = conn.execute(
-        """
-        SELECT l.part_id, l.id AS listing_id, l.connector_id FROM supply_listings l
-        WHERE l.match_state = ANY(%s) AND l.part_id IN (
-            SELECT part_id FROM supply_listings WHERE match_state = ANY(%s) GROUP BY part_id HAVING COUNT(DISTINCT connector_id) >= 2)
-        """,
-        (list(_COUNTED), list(_COUNTED)),
-    ).fetchall()
     found: dict[str, dict[str, str]] = defaultdict(dict)
-    for row in rows:
+    for row in conn.execute(_SHARED_LISTINGS, {"counted": list(_COUNTED)}).fetchall():
         found[row["part_id"]][row["listing_id"]] = row["connector_id"]
     return found
 
@@ -73,35 +73,43 @@ def _rounds(restocks: dict[str, dict[str, list[date]]]) -> tuple[dict[str, int],
     return first, took_part
 
 
-def _stock_share(conn, shared: dict[str, dict[str, str]], today: date) -> dict[str, tuple[int, int]]:
-    """Per connector: days with stock and days observed, over the last ``STOCK_DAYS``, on the shared parts."""
+def _stock_share(conn, today: date) -> dict[str, tuple[int, int]]:
+    """Per connector: days with stock and days observed, over the last ``STOCK_DAYS``, on the shared parts.
 
-    listing_ids = [listing for listings in shared.values() for listing in listings]
-    owner = {listing: connector for listings in shared.values() for listing, connector in listings.items()}
-    if not listing_ids:
-        return {}
+    A day's figure is its last raw reading where raw readings are still kept, else the day's rollup. Counted in the database: the
+    days run to millions on a large library, and the shared set is joined there rather than sent as a list of listings."""
+
     since = today - timedelta(days=STOCK_DAYS)
     rows = conn.execute(
-        """
-        SELECT listing_id, day, stock FROM (
-            SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-                   s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock
-            FROM supply_samples s WHERE s.listing_id = ANY(%(ids)s) AND s.sampled_at >= %(since)s AND NOT s.marketplace
-            ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        ) raw
-        UNION ALL
-        SELECT d.listing_id, d.day, d.last_stock FROM supply_samples_daily d
-        WHERE d.listing_id = ANY(%(ids)s) AND d.day >= %(since_day)s AND NOT d.marketplace
-          AND NOT EXISTS (SELECT 1 FROM supply_samples s WHERE s.listing_id = d.listing_id AND (s.sampled_at AT TIME ZONE 'UTC')::date = d.day)
+        f"""
+        WITH shared AS MATERIALIZED ({_SHARED_LISTINGS}),
+        -- Each UTC day with a raw reading, and that day's last reading off the marketplace within the window (none if it has none).
+        raw_days AS MATERIALIZED (
+            SELECT s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day,
+                   (array_agg(s.stock ORDER BY s.sampled_at DESC) FILTER (WHERE NOT s.marketplace AND s.sampled_at >= %(since)s))[1] AS stock
+            FROM supply_samples s WHERE s.listing_id IN (SELECT listing_id FROM shared)
+            GROUP BY 1, 2
+        ),
+        counted AS (
+            -- Every rollup day in the window, per listing...
+            SELECT listing_id, COUNT(*) AS seen, COUNT(*) FILTER (WHERE last_stock > 0) AS held
+            FROM supply_samples_daily WHERE day >= %(since_day)s AND NOT marketplace GROUP BY listing_id
+            UNION ALL
+            -- ...less the rollup days a raw reading speaks for...
+            SELECT d.listing_id, -COUNT(*), -COUNT(*) FILTER (WHERE d.last_stock > 0)
+            FROM raw_days r JOIN supply_samples_daily d ON d.listing_id = r.listing_id AND d.day = r.day
+            WHERE r.day >= %(since_day)s AND NOT d.marketplace GROUP BY d.listing_id
+            UNION ALL
+            -- ...plus each raw day's last reading.
+            SELECT listing_id, COUNT(*), COUNT(*) FILTER (WHERE stock > 0) FROM raw_days WHERE stock IS NOT NULL GROUP BY listing_id
+        )
+        SELECT shared.connector_id, SUM(counted.seen) AS seen, SUM(counted.held) AS held
+        FROM counted JOIN shared ON shared.listing_id = counted.listing_id
+        GROUP BY shared.connector_id
         """,
-        {"ids": listing_ids, "since": since, "since_day": since},
+        {"counted": list(_COUNTED), "since": since, "since_day": since},
     ).fetchall()
-    counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    for row in rows:
-        entry = counts[owner[row["listing_id"]]]
-        entry[1] += 1
-        entry[0] += 1 if row["stock"] > 0 else 0
-    return {connector: (held, seen) for connector, (held, seen) in counts.items()}
+    return {row["connector_id"]: (int(row["held"]), int(row["seen"])) for row in rows}
 
 
 def build(conn, today: date) -> dict[str, Any]:
@@ -153,7 +161,7 @@ def build(conn, today: date) -> dict[str, Any]:
         elif arrival["delay_days"] is not None and arrival["delay_days"] > ON_TIME_DAYS:
             late[connector].append(int(arrival["delay_days"]))
     first, took_part = _rounds(restocks)
-    share = _stock_share(conn, shared, today)
+    share = _stock_share(conn, today)
 
     connectors = {connector for _part, connector in owner.values()}
     names = {row["id"]: (row["display_name"], row["provider"]) for row in conn.execute(
