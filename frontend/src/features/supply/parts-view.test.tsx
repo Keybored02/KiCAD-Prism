@@ -6,6 +6,7 @@ import { ApiHttpError } from "@/lib/api";
 import type { User, UserRole } from "@/types/auth";
 import { partForecastFixture } from "./forecast-test-fixtures";
 import { connectorFixture, partDetailFixture, partRowFixture } from "./supply-test-fixtures";
+import { forgetServerState } from "@/lib/server-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -164,6 +165,7 @@ describe("the parts list", () => {
     await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "lm358", expect.anything(), "", 0, 50, "", ""));
     expect(search()).toContain("partsQ=lm358");
     cleanup();
+    forgetServerState([]);
 
     renderView("designer", "/?section=supply&partsScope=tier1&partsQ=tps");
     await screen.findByRole("button", { name: "LM358D" });
@@ -178,13 +180,16 @@ describe("the parts list", () => {
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Track a part" })).toHaveLength(2);
     cleanup();
+    forgetServerState([]);
     renderView("qa");
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Track a part" })).toHaveLength(1);
     cleanup();
+    forgetServerState([]);
     renderView("designer", "/?partsQ=zzz");
     expect(await screen.findByText("No parts match")).toBeTruthy();
     cleanup();
+    forgetServerState([]);
     // All known left for the catalog: its old address shows the tracked parts.
     renderView("designer", "/?partsScope=all");
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
@@ -339,6 +344,7 @@ describe("a part", () => {
     expect(alternatives.getAttribute("data-state")).toBe("closed");
     expect(within(alternatives as HTMLElement).getByRole("button", { name: "Find alternatives" })).toBeTruthy();
     cleanup();
+    forgetServerState([]);
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ watch: null }));
     renderView("designer", "/?part=p1");
     await screen.findByRole("dialog");
@@ -588,6 +594,7 @@ describe("the watch settings", () => {
     renderView("designer", "/?part=p1");
     expect(await screen.findByRole("button", { name: /Read now/ })).toBeTruthy();
     cleanup();
+    forgetServerState([]);
     renderView("qa", "/?part=p1");
     await screen.findByRole("region", { name: "Stock" });
     expect(screen.queryByRole("button", { name: /Read now/ })).toBeNull();

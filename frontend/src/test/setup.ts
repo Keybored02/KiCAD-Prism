@@ -1,7 +1,7 @@
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { clearLoadedCache } from "@/features/supply/loaded-cache";
+
 import { forgetServerState } from "@/lib/server-state";
 
 /**
@@ -47,7 +47,7 @@ afterEach(async () => {
   // store lets a key go a microtask after its last observer leaves.
   await Promise.resolve();
   forgetServerState([]);
-  clearLoadedCache();
+
 });
 
 /**

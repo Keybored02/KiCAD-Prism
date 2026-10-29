@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable
 
-from app.services.supply import counted, number_suffixes, parts, settle
+from app.services.supply import clock, counted, number_suffixes, parts, settle
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.makers import same_maker
@@ -80,9 +81,11 @@ class DiscoveryService:
         self,
         provider_for: Callable[[str], SupplyProvider],
         store: SupplyStore = supply_store,
+        clock: Callable[[], datetime] = clock.now,
     ) -> None:
         self._provider_for = provider_for
         self._store = store
+        self._clock = clock
         # Set for a provider whose search answer is also a read: called with the listing ids and offers of the exact matches.
         self.record_offers: Callable[[str, list[tuple[str, Offer]]], None] | None = None
 
@@ -122,7 +125,7 @@ class DiscoveryService:
             for match in matches:
                 resolution = parts.resolve_manufacturer(conn, match.manufacturer, provider=match.provider)
                 state, reason = classify(part, match, resolution, known, numbers)
-                state = self._upsert(conn, connector_id, part.id, match, state, reason)
+                state = self._upsert(conn, connector_id, part.id, match, state, reason, self._clock())
                 if state == EXACT and reason == "same maker as the part":
                     parts.record_spelling(conn, part.id, match.manufacturer, "learned")
                 if state == EXACT and match.datasheet_url:
@@ -134,7 +137,6 @@ class DiscoveryService:
             if part.provisional:
                 # The answers may settle who makes it; the listings are sorted again by what they say.
                 settle.settle_part(conn, part.id)
-            settle.learn_aliases(conn)
             read = [
                 (row["id"], match.offer)
                 for match, row in (
@@ -169,7 +171,7 @@ class DiscoveryService:
         return added
 
     @staticmethod
-    def _upsert(conn, connector_id: str, part_id: str, match: PartMatch, state: str, reason: str) -> str:
+    def _upsert(conn, connector_id: str, part_id: str, match: PartMatch, state: str, reason: str, now: datetime) -> str:
         """Record one listing. Returns the state it ends up in."""
 
         existing = conn.execute(
@@ -179,11 +181,11 @@ class DiscoveryService:
         if existing is None:
             conn.execute(
                 """
-                INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, last_seen_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (connector_id, sku) DO NOTHING
                 """,
-                (uuid.uuid4().hex, connector_id, match.sku, part_id, match.mpn, match.manufacturer, state, reason),
+                (uuid.uuid4().hex, connector_id, match.sku, part_id, match.mpn, match.manufacturer, state, reason, now),
             )
             # A sibling number that turns up in a later search, once the part has been searched here before, is news; the first
             # search finds every sibling at once and says nothing.
@@ -203,14 +205,14 @@ class DiscoveryService:
             keep = True
         if keep:
             conn.execute(
-                "UPDATE supply_listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s WHERE id = %s",
-                (match.mpn, match.manufacturer, existing["id"]),
+                "UPDATE supply_listings SET last_seen_at = %s, raw_mpn = %s, raw_manufacturer = %s WHERE id = %s",
+                (now, match.mpn, match.manufacturer, existing["id"]),
             )
             return current
         conn.execute(
-            "UPDATE supply_listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s, part_id = %s, "
+            "UPDATE supply_listings SET last_seen_at = %s, raw_mpn = %s, raw_manufacturer = %s, part_id = %s, "
             "match_state = %s, match_reason = %s, matched_by = 'discovery' WHERE id = %s",
-            (match.mpn, match.manufacturer, part_id, state, reason, existing["id"]),
+            (now, match.mpn, match.manufacturer, part_id, state, reason, existing["id"]),
         )
         return state
 

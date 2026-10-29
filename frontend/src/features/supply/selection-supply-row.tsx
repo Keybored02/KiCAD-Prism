@@ -18,7 +18,7 @@ export function SelectionSupplyRow({ component, user }: { component: SemanticCom
   const { manufacturer, mpn } = identityOf(component);
   const allowed = canOpenSupply(user?.role) && mpn !== "";
   const fetcher = useCallback((signal: AbortSignal) => (allowed ? lookupSupplyPart(manufacturer, mpn, signal) : Promise.resolve(null)), [allowed, manufacturer, mpn]);
-  const found = useLoaded<{ partId: string; followed: boolean } | null>(`${manufacturer}|${mpn}`, fetcher, "Could not look the part up in Supply");
+  const found = useLoaded<{ partId: string; followed: boolean } | null>(`parts/found/${manufacturer}|${mpn}`, fetcher, "Could not look the part up in Supply");
   const [open, setOpen] = useState(false);
   if (!allowed || found.status === "error") return null;
   return (

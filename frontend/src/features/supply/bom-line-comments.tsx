@@ -12,7 +12,7 @@ import { useLoaded } from "./use-loaded";
 /** Notes on one BOM line, shared by everyone who can open the project. */
 export function BomLineComments({ projectId, lineKey, user }: { projectId: string; lineKey: string; user: User | null }) {
   const fetcher = useCallback((signal: AbortSignal) => listBomComments(projectId, signal), [projectId]);
-  const loaded = useLoaded<SupplyBomComment[]>(`${projectId}:comments`, fetcher, "Could not load the comments");
+  const loaded = useLoaded<SupplyBomComment[]>(`projects/${projectId}/comments`, fetcher, "Could not load the comments");
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const mine = (loaded.data ?? []).filter((comment) => comment.line_key === lineKey);

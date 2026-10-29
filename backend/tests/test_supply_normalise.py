@@ -32,6 +32,12 @@ class NormaliseTests(unittest.TestCase):
                                 ("Bag", Packaging.BULK), ("Ammo Pack", Packaging.UNKNOWN), ("", Packaging.UNKNOWN), ("1000", Packaging.UNKNOWN)):
             self.assertEqual(normalise.packaging_word(text), packaging, text)
 
+    def test_links_are_made_absolute_and_anything_else_dropped(self) -> None:
+        self.assertEqual(normalise.link("//mm.digikey.com/a.pdf"), "https://mm.digikey.com/a.pdf")
+        self.assertEqual(normalise.link(" https://x.example/a "), "https://x.example/a")
+        self.assertEqual(normalise.link("javascript:void(0)"), "")
+        self.assertEqual(normalise.link(None), "")
+
 
 if __name__ == "__main__":
     unittest.main()

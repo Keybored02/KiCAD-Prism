@@ -11,7 +11,7 @@ import { useLoaded } from "./use-loaded";
 /** The exchange rates behind every converted price: the day they are from, a refresh from the ECB, and entry by hand when it cannot be reached. */
 export function ExchangeRates({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => getFxRates(signal), []);
-  const loaded = useLoaded("fx-rates", fetcher, "Could not load the exchange rates");
+  const loaded = useLoaded("settings/fx-rates", fetcher, "Could not load the exchange rates");
   const { busy, error, run } = useConnectorSubmit();
   const [text, setText] = useState("");
   const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));

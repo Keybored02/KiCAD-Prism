@@ -1,5 +1,6 @@
 import { fetchJson } from "@/lib/api";
 import type { SupplyComponentStanding, TrackingPreview } from "@/types/supply";
+import { changesSupply } from "./supply-writes";
 
 /** Kept out of supply-api so the catalog table pulls in only this call, not the whole supply client. */
 export async function getComponentsStatus(
@@ -36,7 +37,7 @@ export function previewTrackComponents(components: Component[], choice: TrackCho
 }
 
 /** Track these components' parts where there is room. Returns how many were newly tracked and how many were left out. Each part is on one row, so the batches can go together. */
-export async function watchCatalogComponents(
+async function watchCatalogComponentsRequest(
   components: Component[], choice: TrackChoice = { tier: 2, rate: "weekly" },
 ): Promise<{ watched: number; skipped: number }> {
   const results = await Promise.all(batches(components).map((batch) => fetchJson<{ watched: number; skipped?: unknown[] }>(
@@ -47,3 +48,5 @@ export async function watchCatalogComponents(
     skipped: results.reduce((sum, result) => sum + (result.skipped?.length ?? 0), 0),
   };
 }
+
+export const watchCatalogComponents = changesSupply(watchCatalogComponentsRequest);

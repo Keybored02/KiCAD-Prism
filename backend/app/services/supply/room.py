@@ -105,7 +105,7 @@ def view(conn, now: datetime) -> dict[str, Any]:
     typical = _typical(conn)
     rows = []
     for group in groups:
-        owner = accounts.resolve(conn, group.ledger_id)
+        owner = accounts.resolve(conn, group.connector_ids[0])
         members = group.connector_ids
         status = standing[members[0]]
         specs = {connector_id: connectors[connector_id][1] for connector_id in members}

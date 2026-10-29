@@ -59,7 +59,8 @@ class SupplyHealthTests(unittest.TestCase):
             for table in ("supply_poll_state", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO supply_connectors (id, provider, display_name, daily_budget, last_error_code) VALUES ('c1', 'tme', 'TME', 1000, 'rate_limited')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, display_name, last_error_code) VALUES ('c1', 'tme', 'TME', 'rate_limited')")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 1000 WHERE id = 'c1'")
             part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com").id
             for index, (due, errors) in enumerate(((NOW - timedelta(hours=5), 2), (NOW + timedelta(hours=3), 0))):
                 conn.execute(
@@ -83,6 +84,7 @@ class SupplyHealthTests(unittest.TestCase):
             self.assertEqual(_request(self.app, "GET", "/api/supply/health", user=self.users[role]).status, 403, role)
         response = _request(self.app, "GET", "/api/supply/health", user=self.users["admin"])
         self.assertEqual((response.status, len(response.json["connectors"])), (200, 1))
+        self.assertIn("inventory", [task["name"] for task in response.json["tasks"]])
 
 
 if __name__ == "__main__":

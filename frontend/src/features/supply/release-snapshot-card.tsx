@@ -1,34 +1,29 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
 import type { ReleaseSnapshot } from "@/types/supply";
 import { getReleaseSnapshot, getReleaseSnapshotState, releaseComplianceCsvUrl, type ReleaseSnapshotState } from "./release-check-api";
 import { StatusDot } from "./status-dot";
 import { formatDateTime, STATUS_LABEL } from "./supply-format";
-import { useLoaded } from "./use-loaded";
+import { isRunning, useLoaded } from "./use-loaded";
 
 /** How often a queued snapshot is asked about while the card is open. */
 export const QUEUED_POLL_MS = 5000;
 
 const WAITING: Record<string, string> = {
-  queued: "The supply snapshot is being taken.",
+  running: "The supply snapshot is being taken.",
   none: "No supply snapshot was asked for when this release was published.",
 };
 
 /** What supply data said when a release was published: its health then, the parts that needed a look, and the compliance draft. */
 export function ReleaseSnapshotCard({ projectId, buildId }: { projectId: string; buildId: string }) {
   const stateFetcher = useCallback((signal: AbortSignal) => getReleaseSnapshotState(projectId, buildId, signal), [projectId, buildId]);
-  const state = useLoaded<ReleaseSnapshotState>(`${projectId}@${buildId}:state`, stateFetcher, "Could not read the supply snapshot");
-  const taken = state.status === "ready" && state.data?.state === "taken";
-  const queued = state.status === "ready" && state.data?.state === "queued";
-  const { refresh } = state;
   // A queued snapshot is taken by a worker: ask again until it is taken or has failed, and stop when the card goes.
-  useEffect(() => {
-    if (!queued) return undefined;
-    const timer = window.setInterval(() => void refresh(), QUEUED_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [queued, refresh]);
+  const state = useLoaded<ReleaseSnapshotState>(
+    `releases/${projectId}/${buildId}/state`, stateFetcher, "Could not read the supply snapshot", { refreshEvery: QUEUED_POLL_MS, refreshWhile: isRunning },
+  );
+  const taken = state.status === "ready" && state.data?.state === "done";
   const snapshotFetcher = useCallback((signal: AbortSignal) => getReleaseSnapshot(projectId, buildId, signal), [projectId, buildId]);
-  const snapshot = useLoaded<ReleaseSnapshot>(taken ? `${projectId}@${buildId}:snapshot` : null, snapshotFetcher, "Could not read the supply snapshot");
+  const snapshot = useLoaded<ReleaseSnapshot>(taken ? `releases/${projectId}/${buildId}/snapshot` : null, snapshotFetcher, "Could not read the supply snapshot");
 
   if (state.status !== "ready" || !state.data) return null;
   if (state.data.state === "failed") {
