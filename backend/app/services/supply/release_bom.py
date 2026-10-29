@@ -48,14 +48,22 @@ def _table(text: str) -> list[dict[str, str]]:
     except csv.Error:
         dialect = csv.excel
     reader = csv.reader(io.StringIO(text), dialect)
-    rows = [row for row in reader if any(cell.strip() for cell in row)]
-    if len(rows) < 2:
+    header: list[str] | None = None
+    rows: list[dict[str, str]] = []
+    data_rows = 0
+    for row in reader:
+        if not any(cell.strip() for cell in row):
+            continue
+        if header is None:
+            header = [name.strip() for name in row]
+            continue
+        data_rows += 1
+        if data_rows > MAX_ROWS:
+            raise BomReadError(f"The BOM file has more than {MAX_ROWS:,} rows.")
+        rows.append({header[index]: cell.strip() for index, cell in enumerate(row) if index < len(header) and header[index]})
+    if data_rows == 0:
         raise BomReadError("The BOM file has no rows.")
-    header = [name.strip() for name in rows[0]]
-    return [
-        {header[index]: cell.strip() for index, cell in enumerate(row) if index < len(header) and header[index]}
-        for row in rows[1: MAX_ROWS + 1]
-    ]
+    return rows
 
 
 def _first(row: Mapping[str, str], names: tuple[str, ...]) -> str:

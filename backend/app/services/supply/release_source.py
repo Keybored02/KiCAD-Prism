@@ -8,9 +8,10 @@ is not read.
 from __future__ import annotations
 
 import hashlib
-import io
 import tarfile
 from pathlib import Path
+
+from app.services.supply import release_bom
 
 
 class NoBuildBom(LookupError):
@@ -34,8 +35,11 @@ def build_bom_text(build_id: str) -> str:
     if not path.is_file():
         raise NoBuildBom("This build's files are no longer stored.")
     try:
-        with tarfile.open(fileobj=io.BytesIO(path.read_bytes()), mode="r:gz") as archive:
-            extracted = archive.extractfile(member["path"])
+        with tarfile.open(path, mode="r:gz") as archive:
+            entry = archive.getmember(member["path"])
+            if entry.size > release_bom.MAX_BYTES:
+                raise NoBuildBom("This build's BOM is larger than 8 MB.")
+            extracted = archive.extractfile(entry)
             data = extracted.read() if extracted is not None else b""
     except (tarfile.TarError, KeyError):
         raise NoBuildBom("This build's BOM could not be read from its files.") from None

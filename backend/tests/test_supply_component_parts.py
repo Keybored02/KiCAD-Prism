@@ -251,6 +251,58 @@ class ComponentPartsTests(unittest.TestCase):
             self.cp.decide(conn, component_id, proposed["part_id"], True, "qa@example.com")
             self.assertEqual(waiting(), [], "decided")
 
+    def test_a_new_main_part_sends_approved_alternates_back_to_qa(self) -> None:
+        component = self._component()
+        component_id = str(component["id"])
+        other, replacement = self._component(), self._component()
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id, str(other["id"]), str(replacement["id"])])
+            alternate = self.cp.propose_alternate(conn, component_id, other["manufacturer"], other["mpn"], AUTHOR)["part_id"]
+            self.cp.decide(conn, component_id, alternate, True, "qa@example.com")
+            new_main = self.cp.parts_of(conn, str(replacement["id"]))[0]["part_id"]
+            self.cp._set_main(conn, component_id, new_main)  # noqa: SLF001 - what a library edit of the MPN does through sync_main
+            approval = {row["part_id"]: row["approval"] for row in self.cp.parts_of(conn, component_id)}
+            audit = conn.execute(
+                "SELECT detail FROM supply_audit_events WHERE action = 'component.alternates_reopened' AND subject_id = %s", (component_id,)
+            ).fetchone()
+        self.assertEqual((approval[new_main], approval[alternate]), ("approved", "pending"), "approved against the old part, asked again")
+        self.assertEqual(audit["detail"]["alternates"], 1)
+
+    def test_lines_naming_two_components_on_one_part_share_only_alternates_both_approved(self) -> None:
+        first, second, alt_a, alt_b = self._component(), self._component(), self._component(), self._component()
+        ids = [str(item["id"]) for item in (first, second, alt_a, alt_b)]
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, ids)
+            part = self.cp.parts_of(conn, ids[0])[0]["part_id"]
+            for component, alternate in ((first, alt_a), (first, alt_b), (second, alt_b)):
+                found = self.cp.propose_alternate(conn, str(component["id"]), alternate["manufacturer"], alternate["mpn"], AUTHOR)["part_id"]
+                self.cp.decide(conn, str(component["id"]), found, True, "qa@example.com")
+            only_b = self.cp.parts_of(conn, ids[3])[0]["part_id"]
+            shared = self.cp.alternates_for(conn, {part: {ids[0], ids[1]}})
+            alone = self.cp.alternates_for(conn, {part: {ids[0]}})
+        self.assertEqual(shared, {part: [only_b]}, "the second component never approved the first one's other alternate")
+        self.assertEqual(len(alone[part]), 2)
+
+    def test_an_ending_alternate_is_listed_as_one_with_the_healthy_parts_left(self) -> None:
+        from unittest import mock
+
+        from app.services.supply import ending_parts, facts, parts_view, usage
+
+        component, other = self._component(), self._component()
+        component_id = str(component["id"])
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id, str(other["id"])])
+            main = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            alternate = self.cp.propose_alternate(conn, component_id, other["manufacturer"], other["mpn"], AUTHOR)["part_id"]
+            self.cp.decide(conn, component_id, alternate, True, "qa@example.com")
+            ending = {"id": alternate, "lifecycle": "obsolete", "dropped": False, "status": "fatal", "stock": 0}
+            with mock.patch.object(parts_view, "tracked_states", return_value=[ending, {**ending, "id": main, "lifecycle": "active"}]), \
+                    mock.patch.object(parts_view, "summaries_for", return_value=[{**ending, "mpn": other["mpn"]}]), \
+                    mock.patch.object(facts, "for_part", return_value=[]), mock.patch.object(usage, "used_in", return_value=[]):
+                rows = [row for row in ending_parts.queue(conn)["items"] if row["component"]["id"] == component_id]
+        (row,) = rows
+        self.assertEqual((row["part_id"], row["role"], row["healthy"]), (alternate, "alternate", 1), "its main part is fine")
+
     def test_an_ending_part_names_the_components_it_counts_for(self) -> None:
         component = self._component()
         component_id = str(component["id"])
