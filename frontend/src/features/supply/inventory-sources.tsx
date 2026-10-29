@@ -17,13 +17,12 @@ type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; sourc
 export function sourceState(source: InventorySource): { label: string; tone: "default" | "secondary" | "destructive" | "outline" } {
   if (!source.enabled) return { label: "Disabled", tone: "secondary" };
   if (!source.has_token) return { label: "No token", tone: "destructive" };
-  if (source.category_id === null) return { label: "No category", tone: "outline" };
   if (source.last_status === "error") return { label: "Read failed", tone: "destructive" };
   if (!source.last_sync_at) return { label: "Not read yet", tone: "outline" };
   return { label: "Reading", tone: "default" };
 }
 
-/** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock fills the catalog. */
+/** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock (all of it, or one category) fills the catalog. */
 export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
   const [sources, setSources] = useState<InventorySource[] | null>(null);
   const [failed, setFailed] = useState("");
@@ -116,7 +115,7 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
         key={dialog?.kind === "category" ? dialog.source.id : "none"}
         source={dialog?.kind === "category" ? dialog.source : null}
         onClose={() => setDialog(null)}
-        onSaved={(source) => { put(source); toast.success(`Following category ${source.category_id}`); }}
+        onSaved={(source) => { put(source); toast.success(source.category_id === null ? "Reading the whole inventory" : `Following category ${source.category_id}`); }}
       />
       <ConfirmDialog
         open={dialog?.kind === "delete"}
@@ -141,7 +140,7 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
   const state = sourceState(source);
   const host = source.base_url.replace(/^https:\/\//, "");
   const server = [source.server, source.api_version !== null ? `API ${source.api_version}` : ""].filter(Boolean).join(" · ");
-  const canRead = source.enabled && source.has_token && source.category_id !== null;
+  const canRead = source.enabled && source.has_token;
   return (
     <article className="border bg-card p-4" aria-label={source.display_name}>
       <div className="flex items-start justify-between gap-3">
@@ -169,7 +168,7 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
         ) : null}
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "-"}</dd>
+        <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "Whole inventory"}</dd>
         <dt className="text-muted-foreground">Last read</dt><dd>{formatDateTime(source.last_sync_at) || "-"}{` · every ${source.interval_hours} h`}</dd>
         <dt className="text-muted-foreground">Parts</dt><dd>{`${source.matched.toLocaleString()} matched · ${source.unmatched.toLocaleString()} unmatched`}</dd>
       </dl>

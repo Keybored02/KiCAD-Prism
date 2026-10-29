@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { InventoryServerCheck, InventorySource } from "@/types/supply";
 import { checkInventorySource, createInventorySource, updateInventorySource } from "./inventory-api";
 
+const WHOLE = "whole";
+
 const message = (caught: unknown) => (caught instanceof Error ? caught.message : String(caught));
 
 /** Add a source (``source`` null) or change one. A blank token on an existing source keeps the one it has. */
@@ -68,7 +70,7 @@ export function InventorySourceDialog({ open, source, onClose, onSaved }: {
   );
 }
 
-/** Ask the server for its categories and choose the one whose stock Prism follows. */
+/** Ask the server for its categories and choose what Prism reads: the whole inventory, or one category. */
 export function InventoryCategoryDialog({ source, onClose, onSaved }: {
   source: InventorySource | null;
   onClose: () => void;
@@ -76,7 +78,7 @@ export function InventoryCategoryDialog({ source, onClose, onSaved }: {
 }) {
   const [check, setCheck] = useState<InventoryServerCheck | null>(null);
   const [failed, setFailed] = useState("");
-  const [chosen, setChosen] = useState(source?.category_id !== null && source?.category_id !== undefined ? String(source.category_id) : "");
+  const [chosen, setChosen] = useState(source?.category_id !== null && source?.category_id !== undefined ? String(source.category_id) : WHOLE);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -90,7 +92,7 @@ export function InventoryCategoryDialog({ source, onClose, onSaved }: {
     if (!source) return;
     setBusy(true);
     try {
-      onSaved(await updateInventorySource(source.id, { category_id: Number(chosen) }));
+      onSaved(await updateInventorySource(source.id, { category_id: chosen === WHOLE ? null : Number(chosen) }));
       onClose();
     } catch (caught) {
       toast.error(message(caught));
@@ -103,8 +105,8 @@ export function InventoryCategoryDialog({ source, onClose, onSaved }: {
     <Dialog open={source !== null} onOpenChange={(next) => { if (!next && !busy) onClose(); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Category to follow</DialogTitle>
-          <DialogDescription className="sr-only">The server category whose parts and stock Prism reads</DialogDescription>
+          <DialogTitle>What to read</DialogTitle>
+          <DialogDescription className="sr-only">The whole inventory, or one server category whose parts and stock Prism reads</DialogDescription>
         </DialogHeader>
         {failed ? <p className="text-sm text-destructive">{failed}</p> : null}
         {!check && !failed ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Asking {source?.base_url}</p> : null}
@@ -114,8 +116,9 @@ export function InventoryCategoryDialog({ source, onClose, onSaved }: {
               {[check.server, check.instance, `API ${check.api_version}`].filter(Boolean).join(" · ")}
             </p>
             <Select value={chosen} onValueChange={setChosen}>
-              <SelectTrigger aria-label="Category"><SelectValue placeholder="Choose a category" /></SelectTrigger>
+              <SelectTrigger aria-label="Category"><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value={WHOLE}>Whole inventory</SelectItem>
                 {check.categories.map((category) => (
                   <SelectItem key={category.pk} value={String(category.pk)}>{category.pathstring || category.name}</SelectItem>
                 ))}
@@ -125,7 +128,7 @@ export function InventoryCategoryDialog({ source, onClose, onSaved }: {
         ) : null}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>
-          <Button disabled={busy || !chosen} onClick={() => void save()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Follow</Button>
+          <Button disabled={busy || !check} onClick={() => void save()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Read</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
