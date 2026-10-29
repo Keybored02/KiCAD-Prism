@@ -41,8 +41,7 @@ build**, **Out of stock**, **Not priced**, **End of life**, **Unchecked**,
 **Open alerts**. Sort with **Runs out first**.
 
 The **Projects** page in Supply lists every tracked project with the same
-answer, and each project card under **Projects** carries it as a chip:
-**Buildable 247**, **Short · 2 parts** or **Unconfirmed**.
+answer.
 
 ## What does it cost?
 

@@ -464,36 +464,6 @@ class ReleaseCheckTests(unittest.TestCase):
             tracking.set_usual_build(conn, "prj_46", 100, "a@example.com")
             self.assertEqual((row()["cost_per_board"], row()["build_quantity"]), ("0.2500", 100), "a new usual build shows at once")
 
-    def test_project_cards_get_each_visible_tracked_project_s_build_answer(self) -> None:
-        from fastapi import HTTPException
-
-        from app.services.supply import usage
-
-        self.part("GOOD-1", stock=5000)
-
-        def clear() -> None:
-            with self.store.connection() as conn:
-                for table in ("supply_tracked_projects", "supply_bom_usage_projects"):
-                    conn.execute(f"DELETE FROM {table}")
-
-        clear()
-        self.addCleanup(clear)
-        with self.store.connection() as conn:
-            for project_id in ("prj_47", "prj_48"):
-                usage.store_project(conn, project_id, project_id, "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1"), component("J1", "", "")]), NOW)
-                conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES (%s, '{\"\"}', 'a@example.com', 10)", (project_id,))
-
-        def visible(project_id, _role):
-            if project_id == "prj_48":
-                raise HTTPException(status_code=404, detail="Project not found")
-            return SimpleNamespace(id=project_id)
-
-        with mock.patch("app.api.supply_release.get_project_for_role_or_404", side_effect=visible):
-            answers = self.request("build-answers").json["projects"]
-        self.assertEqual(list(answers), ["prj_47"], "a project the caller can't see is left out")
-        self.assertEqual((answers["prj_47"]["build_quantity"], answers["prj_47"]["unchecked"], answers["prj_47"]["short"]), (10, 1, 0))
-        self.assertEqual(answers["prj_47"]["boards"], 5000, "one per board, 5000 in stock")
-
     def test_a_changed_usual_build_works_today_out_again_and_a_project_keeps_its_own_spares(self) -> None:
         from app.services.supply import project_supply, tracking, usage
 

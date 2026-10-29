@@ -27,7 +27,6 @@ import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-p
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
 import { SupplyWorkspace } from "@/features/supply/supply-workspace";
-import { useBuildAnswers } from "@/features/supply/project-supply-chip";
 import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
 
 const WORKSPACE_PAGE_SIZE = 25;
@@ -122,7 +121,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [pageState, setPageState] = useState({ scope: "", page: 1 });
   const watchJob = useJobWatcher();
   const canManageProjects = roleCanManageProjects(user?.role);
-  const supplyAnswers = useBuildAnswers(canOpenSupply(user?.role));
   // Everyone has personal settings (connected accounts, password); the
   // dialog itself hides workspace pages from non-admins.
   const canOpenSettings = Boolean(user);
@@ -710,7 +708,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                         <WorkspaceGalleryView
                           projectsToolbar={projectsToolbar}
                           projectCount={allListProjects.length}
-                          supplyAnswers={supplyAnswers}
                           searchQuery={searchQuery}
                           isSearching={isSearching}
                           searchResults={listProjects}

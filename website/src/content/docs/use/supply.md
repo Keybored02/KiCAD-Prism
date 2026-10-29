@@ -150,10 +150,6 @@ prices without VAT or shipping.
 The page reads the BOM Prism stored for the project's default branch, never a
 checked-out commit.
 
-A tracked project's card under **Projects** carries the same answer for its
-usual build: **Buildable 247**, **Short · 2 parts** or **Unconfirmed** while a
-line is unchecked.
-
 ## Supply columns in the BOM
 
 The Visualizer's **BOM** tab adds **Supply**, **Stock**, **Stores**, **Unit price**,
