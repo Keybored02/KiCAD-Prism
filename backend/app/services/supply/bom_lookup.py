@@ -185,7 +185,7 @@ def _best_purchase(
         if offer["marketplace"] or not offer["currency"]:
             continue
         breaks = [(int(quantity), Decimal(price)) for quantity, price in offer["price_breaks"]]
-        unit = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=need)
+        unit = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=need, up_to=offer.get("price_up_to"))
         if unit is None:
             continue
         order = pricing.order_quantity(need, offer["moq"], offer["order_multiple"])

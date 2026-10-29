@@ -95,6 +95,9 @@ class Offer:
     # Alternates the distributor lists with the answer. None: this distributor's answer does not carry any (nothing is
     # changed); an empty tuple: it does, and names none (what it named before is dropped).
     alternates: tuple[Alternate, ...] | None = None
+    # The largest quantity the price breaks hold for, when the distributor quoted one quantity and said nothing beyond it.
+    # None: the last break holds for any larger order, as distributors' price tables do.
+    price_up_to: int | None = None
 
     def __post_init__(self) -> None:
         if not self.provider or not self.sku:
@@ -112,6 +115,8 @@ class Offer:
         quantities = [brk.quantity for brk in self.price_breaks]
         if quantities != sorted(set(quantities)):
             raise ValueError("price breaks must be unique and ascending by quantity")
+        if self.price_up_to is not None and (not quantities or self.price_up_to < quantities[-1]):
+            raise ValueError("price_up_to needs price breaks and must not be below the last one")
         _check_utc(self.fetched_at, "fetched_at")
 
 

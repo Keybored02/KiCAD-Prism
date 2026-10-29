@@ -145,8 +145,8 @@ def _ratio_at_quantity(history: Sequence[dict], quantity: int, since_day: date) 
     then, now = price_breaks.in_force(history, since_day), history[-1]
     if then is None:
         return None
-    before = pricing.unit_price_at(then["breaks"], moq=then["moq"], order_multiple=then["order_multiple"], wanted=quantity)
-    after = pricing.unit_price_at(now["breaks"], moq=now["moq"], order_multiple=now["order_multiple"], wanted=quantity)
+    before = pricing.unit_price_at(then["breaks"], moq=then["moq"], order_multiple=then["order_multiple"], wanted=quantity, up_to=then.get("up_to"))
+    after = pricing.unit_price_at(now["breaks"], moq=now["moq"], order_multiple=now["order_multiple"], wanted=quantity, up_to=now.get("up_to"))
     if not before or not after or then["currency"] != now["currency"]:
         return None
     return after / before

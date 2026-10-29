@@ -80,6 +80,7 @@ class AvnetTests(unittest.TestCase):
         (offer,) = provider(client).get_offers(["CR0402-FX-1003GLF"])
         self.assertEqual((offer.sku, offer.stock, offer.moq, offer.packaging, offer.currency), ("CR0402-FX-1003GLF", 25000, 100, Packaging.TAPE_REEL, "EUR"))
         self.assertEqual([(b.quantity, b.unit_price) for b in offer.price_breaks], [(100, Decimal("0.0123"))])
+        self.assertEqual(offer.price_up_to, 100, "the quote holds for the quantity asked, not beyond")
         self.assertEqual((offer.lifecycle, offer.rohs, offer.order_multiple), (Lifecycle.ACTIVE, True, 1))
         self.assertIsNone(offer.lead_time_days, "stock covers the minimum order")
         self.assertEqual(dict(offer.facts), {"rohs_status": "RoHS Compliant", "eccn": "EAR99"})

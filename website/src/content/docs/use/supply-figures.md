@@ -123,7 +123,9 @@ For each part, Prism prices the whole quantity the build needs (with spares):
 1. The order quantity is the need raised to the offer's minimum order, then
    to a whole number of its order multiple.
 2. The unit price is the price break at or below the order quantity.
-3. Offers that have enough stock win over cheaper offers that don't. Among
+3. An offer whose distributor quoted a single quantity (Avnet names one) has
+   no price for a larger order: Prism doesn't stretch a quote.
+4. Offers that have enough stock win over cheaper offers that don't. Among
    those, the cheapest wins, unless **Use a preferred distributor when it has
    the stock** is on: then a part's own preferred distributor, then the
    workspace's order, wins when it has the stock.
