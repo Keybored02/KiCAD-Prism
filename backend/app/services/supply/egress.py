@@ -1,10 +1,11 @@
 """Outbound URL checks for supply fetches.
 
 Prism calls addresses a provider's configuration names, so every
-outbound request is validated first: HTTPS only, no credentials in the URL,
-no literal IP hosts, a host on the allowlist when one applies, and every
-address the name resolves to must be public. Callers re-run the check on each
-redirect.
+outbound request is validated first: HTTPS only, port 443, no credentials in
+the URL, no literal IP hosts, a host on the allowlist when one applies, and
+every address the name resolves to must be public. A host an administrator
+lists as private (an inventory server on their own network) may also use any
+port and a private address. Callers re-run the check on each redirect.
 
 ``validate_url`` returns the addresses it checked. The HTTP client must
 connect to one of those addresses rather than resolving the name again, or a
@@ -31,6 +32,8 @@ class ValidatedTarget:
     url: str
     host: str
     addresses: tuple[str, ...]
+    # The URL's port when it names one other than 443 (only a listed private host may).
+    port: int | None = None
 
 
 def system_resolver(host: str) -> list[str]:
@@ -87,7 +90,7 @@ def validate_url(
     the proxy resolves the name, so there are no addresses to check here.
 
     A host in ``private_hosts`` (an operator's own inventory server) may also
-    resolve to a private network address.
+    resolve to a private network address and use any port.
     """
 
     parts = urlsplit(url.strip())
@@ -99,11 +102,13 @@ def validate_url(
         port = parts.port
     except ValueError as exc:
         raise EgressDenied("invalid port") from exc
-    if port not in (None, 443):
-        raise EgressDenied("only port 443 is allowed")
     host = (parts.hostname or "").lower().rstrip(".")
     if not host:
         raise EgressDenied("URL has no host")
+    private_ok = bool(private_hosts) and host_allowed(host, private_hosts)
+    if port not in (None, 443) and not private_ok:
+        raise EgressDenied("only port 443 is allowed")
+    port = None if port == 443 else port
     try:
         ipaddress.ip_address(host)
     except ValueError:
@@ -114,12 +119,11 @@ def validate_url(
         raise EgressDenied(f"host is not on the allowlist: {host}")
 
     if not check_addresses:
-        return ValidatedTarget(url=url.strip(), host=host, addresses=())
+        return ValidatedTarget(url=url.strip(), host=host, addresses=(), port=port)
     addresses = resolve(host)
     if not addresses:
         raise EgressDenied(f"cannot resolve {host}")
-    private_ok = bool(private_hosts) and host_allowed(host, private_hosts)
     for address in addresses:
         if not (_is_public(address) or (private_ok and _is_private_network(address))):
             raise EgressDenied(f"{host} resolves to a non-public address")
-    return ValidatedTarget(url=url.strip(), host=host, addresses=tuple(addresses))
+    return ValidatedTarget(url=url.strip(), host=host, addresses=tuple(addresses), port=port)

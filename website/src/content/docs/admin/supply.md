@@ -132,14 +132,13 @@ InvenTree itself. It only reads; it never changes your inventory.
 
 ### Prepare the server
 
-1. Create a user for Prism that can read parts, stock, stock locations and
-   manufacturer parts. It needs no write access.
+1. Create a user for Prism that can read parts, stock, stock locations,
+   manufacturer parts and supplier parts. It needs no write access.
 2. Create an API token for that user (in InvenTree, under the user's account
    settings). Prism sends it as `Authorization: Token …`.
-3. Keep the electronic parts Prism should follow under one part category.
-   Subcategories are included.
-4. Give each part the numbers Prism matches on: its **IPN** set to the library
-   component's SAP code, or its manufacturer parts (maker and MPN) filled in.
+3. Give each part the numbers Prism matches on: its **IPN** set to the library
+   component's Prism id or SAP code, its manufacturer parts (maker and MPN),
+   or its supplier parts with the distributor's part number (**SKU**).
 5. Mark locations that hold stock outside your premises, such as at a
    contract manufacturer, as **external**.
 
@@ -150,15 +149,17 @@ InvenTree itself. It only reads; it never changes your inventory.
 2. Enter a **Name**, the **Server** address (`https://…`, without `/api`), the
    **API token**, and how often to read it in **Read every (hours)** (1 to
    168, 24 unless changed). Choose **Add**.
-3. In **Category to follow**, which opens next, check that Prism shows your
-   server's name and API version, choose the category, and choose **Follow**.
+3. In **What to read**, which opens next, check that Prism shows your
+   server's name and API version. Keep **Whole inventory**, or choose one
+   category (its subcategories are included), and choose **Read**.
 4. Choose **Read now** on the source's card for the first read. It reports how
    many stock records it read and how many parts matched.
 
 :::note
 The server must be reachable over HTTPS. Prism refuses private and local
-addresses unless the server's host name is listed in
-`SUPPLY_INVENTORY_PRIVATE_HOSTS_STR`, for an inventory on your own network. See
+addresses, and any port but 443, unless the server's host name is listed in
+`SUPPLY_INVENTORY_PRIVATE_HOSTS_STR`, for an inventory on your own network.
+A listed server may use its own port, as in `https://inventory.example.internal:8443`. See
 the [Configuration reference](/KiCAD-Prism/admin/configuration/#supply).
 :::
 
@@ -168,10 +169,14 @@ Each part on the server is matched to one library component, first match
 wins:
 
 1. a link a person made in **Review**;
-2. the part's IPN equals a component's SAP code;
-3. one of its manufacturer part numbers is a component's part number.
+2. the part's IPN is a component's Prism id;
+3. the part's IPN equals a component's SAP code;
+4. one of its manufacturer part numbers is a component's part number;
+5. one of its supplier part numbers is a distributor listing Prism found for
+   a component's approved parts.
 
-A SAP code or part number that several components share matches none of them.
+A SAP code, part number or supplier part number that several components share
+matches none of them.
 Parts with stock that match nothing appear under **Unmatched local stock** in
 **Library Manager → Review**, where a QA reviewer or administrator links them
 or adds the component. Stock that will never be a library component
