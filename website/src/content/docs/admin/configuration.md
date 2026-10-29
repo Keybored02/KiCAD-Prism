@@ -428,7 +428,7 @@ follow redirects while it sends a token.
 ## Supply
 
 Distributor connectors, inventory sources and the workspace's supply settings
-are managed in the app, in **Library Manager → Connectors** (see
+are managed in the app, in **Supply → Sources** (see
 [Connect distributors and inventory](/KiCAD-Prism/admin/supply/)). Their
 credentials are encrypted with `TRACKER_CREDENTIAL_ROOT_KEY`
 ([Issue trackers](#issue-trackers)), so set that key before adding any.

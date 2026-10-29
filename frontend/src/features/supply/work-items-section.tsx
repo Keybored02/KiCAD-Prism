@@ -17,7 +17,7 @@ const LISTS: Array<{ key: WorkItemList; label: string }> = [
 ];
 const STATE_LABEL: Record<WorkItemState, string> = { open: "Open", accepted: "Accepted", rejected: "Rejected", done: "Done" };
 
-/** Library Manager > Review: the work items people opened about components and parts, by list. QA accepts or rejects them; the owner,
+/** Supply > Review: the work items people opened about components and parts, by list. QA accepts or rejects them; the owner,
  * whoever opened one, or QA marks it done. */
 export function WorkItemsSection({ email, canFollow, canDecide }: { email: string; canFollow: boolean; canDecide: boolean }) {
   const [list, setList] = useState<WorkItemList>("live");

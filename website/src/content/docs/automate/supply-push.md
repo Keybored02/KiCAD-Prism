@@ -14,7 +14,7 @@ them as it stores what it reads itself.
 A push token can push to one connector or one inventory source, and nothing
 else. It reads nothing.
 
-1. In **Library Manager → Connectors**, open the menu of a CSV, LCSC or JLCPCB
+1. In **Supply → Sources**, open the menu of a CSV, LCSC or JLCPCB
    connector, or of a push inventory source, and choose **Push token**.
 2. Choose **Create token** and copy it. It starts with `prism_push_` and is
    shown only once.

@@ -8,7 +8,7 @@ describe("the Supply entries of the command palette", () => {
     const goTo = vi.fn((params: string) => () => params);
     const commands = supplyCommands("designer", goTo);
     const labels = commands.map((command) => command.label);
-    expect(labels.slice(0, 5)).toEqual(["Supply: Dashboard", "Supply: Tracking", "Supply: Review", "Supply: Insights", "Supply: Connectors"]);
+    expect(labels.slice(0, 5)).toEqual(["Supply: Dashboard", "Supply: Tracking", "Supply: Review", "Supply: Insights", "Supply: Sources"]);
     expect(goTo).toHaveBeenCalledWith("?section=supply&supplyView=tracking");
   });
 

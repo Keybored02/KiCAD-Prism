@@ -1817,7 +1817,7 @@ export interface InventorySyncResult {
   records: number;
 }
 
-/** A server part with stock that no catalog component matched. It waits in Library Manager > Review for a person to link it. */
+/** A server part with stock that no catalog component matched. It waits in Supply > Review for a person to link it. */
 export interface InventoryUnmatchedPart {
   remote_part: string;
   ipn: string;

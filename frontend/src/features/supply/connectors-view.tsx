@@ -29,7 +29,7 @@ const SettingsDialog = lazy(() => import("./settings-view").then((module) => ({ 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
 
-/** Distributor accounts, budgets and state, in Library Manager > Connectors. Admins change them. `after` follows the distributors. */
+/** Distributor accounts, budgets and state, in Supply > Sources. Admins change them. `after` follows the distributors. */
 export function SupplyConnectorsView({ user, headerSlot, after }: { user: User | null; headerSlot?: HTMLElement | null; after?: ReactNode }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();

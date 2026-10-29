@@ -38,6 +38,8 @@ behind every figure are in
 | **Supply → Tracking** | Every part Prism follows, by tier, with the tools to track a part or check a BOM file. |
 | **Supply → Projects** | The parts of each project, a project at a time. |
 | **Supply → Insights** | Runway, sourcing, lifecycle, lead times, prices, market and trade, across all your parts. A panel shows once it has data. **Export** downloads every tracked part with its risk figures as a CSV. |
+| **Supply → Review** | What Prism could not settle alone: alternates and matches to approve, work items, and inventory stock that matches no component. |
+| **Supply → Sources** | The distributor accounts and local inventory servers Prism reads. Everyone who opens Supply sees them; only administrators change them. |
 | A component's **Supply** tab | How one component stands: its parts, your local stock and each distributor. |
 | **Library Manager → Catalog** | A **Supply** column and filters for every component. |
 | A project's **Supply** tab | Whether a project can be built, what it costs and what stops it. |
@@ -212,7 +214,7 @@ again. Open one with the clipboard button on an ending component or on a
 part's sheet. Prism keeps the projects that used the part when the item was
 opened, so the record still names them after the BOMs change.
 
-**Library Manager → Review → Work items** lists them: **Open**, **Mine**,
+**Supply → Review → Work items** lists them: **Open**, **Mine**,
 **Due** (the recheck date has come), **Done** and **Rejected**. Designers, QA
 and administrators open items and add notes; QA and administrators accept,
 reject or reopen them; the owner, whoever opened it or QA marks one done. An
@@ -240,7 +242,7 @@ tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
 Ending components and the alert list sit below the tiles, folded. While the
 stores feed or a distributor connector can't be read, the figures may be out
-of date until it reads again; **Library Manager → Connectors** shows which.
+of date until it reads again; **Supply → Sources** shows which.
 
 Prices and stock from the Simulated market, a made-up distributor for demos
 and testing, carry a **Test data** chip wherever they show. **Ask DigiKey for
@@ -254,7 +256,7 @@ unchecked.
 
 ## Review what Prism could not settle
 
-**Library Manager → Review** lists what needs a person:
+**Supply → Review** lists what needs a person:
 
 - **Work items**: decisions people opened about components and parts.
 - **To approve**: alternates, waivers, dismissals and alerts to switch off,

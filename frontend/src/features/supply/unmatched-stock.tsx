@@ -130,7 +130,7 @@ function useUnmatched(query: string, shown: number, group: UnmatchedGroup) {
 
 const keyOf = (item: Waiting) => `${item.source.id}/${item.part.remote_part}`;
 
-/** Library Manager > Review: stock a local inventory server holds for parts no component matched, by group. QA and admins link
+/** Supply > Review: stock a local inventory server holds for parts no component matched, by group. QA and admins link
  * them one at a time, or set many aside at once (and bring them back from Ignored). */
 export function UnmatchedStockSection({ canDecide, onDecided }: { canDecide: boolean; onDecided?: () => void }) {
   const [query, setQuery] = useState("");

@@ -10,6 +10,8 @@ vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 const getLibraryComponentOf = vi.fn();
 vi.mock("./supply-api", () => ({ getLibraryComponentOf: (id: string) => getLibraryComponentOf(id) }));
 vi.mock("./projects-view", () => ({ ProjectsView: () => <div>Projects content</div> }));
+vi.mock("./review-page", () => ({ ReviewPage: () => <div>Review content</div>, useReviewWaiting: () => 3 }));
+vi.mock("./sources-view", () => ({ SourcesView: () => <div>Sources content</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
 
@@ -37,9 +39,9 @@ describe("the Supply section", () => {
     expect(screen.getByRole("tab", { name: "Dashboard" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("has four tabs", async () => {
+  it("has six tabs, Review with what waits", async () => {
     renderAt("qa");
-    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Tracking", "Projects", "Insights"]);
+    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Tracking", "Projects", "Insights", "Review3", "Sources"]);
   });
 
   it("keeps old addresses working", async () => {
@@ -56,14 +58,16 @@ describe("the Supply section", () => {
     expect(await screen.findByText("Parts content")).toBeTruthy();
   });
 
-  it("sends an old Connectors address to Library Manager, with a sign-in result", async () => {
+  it("opens Sources for an old Connectors address, keeping a sign-in result", async () => {
     renderAt("admin", "/?section=supply&supplyView=connectors&signin=ok");
-    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=library-manager&signin=ok&libraryView=connectors"));
+    expect(await screen.findByText("Sources content")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Sources" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByLabelText("location").textContent).toContain("signin=ok");
   });
 
-  it("sends an old Review address to Library Manager", async () => {
+  it("opens Review", async () => {
     renderAt("qa", "/?section=supply&supplyView=review");
-    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=library-manager&libraryView=review"));
+    expect(await screen.findByText("Review content")).toBeTruthy();
   });
 
   it("opens a linked part's component on its Supply tab, or the part on Tracking when the library has none", async () => {

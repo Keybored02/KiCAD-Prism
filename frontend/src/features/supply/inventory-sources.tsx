@@ -35,7 +35,7 @@ async function toggle(source: InventorySource) {
   }
 }
 
-/** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock (all of it, or one category) fills the catalog. */
+/** Supply > Sources, local inventory: InvenTree-compatible servers whose stock (all of it, or one category) fills the catalog. */
 export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => listInventorySources(signal), []);
   const loaded = useLoaded("inventory/sources", fetcher, "Could not load inventory sources");
@@ -108,13 +108,13 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
         />
       ) : null}
       <InventoryCategoryDialog
-        key={dialog?.kind === "category" ? dialog.source.id : "none"}
+        key={dialog?.kind === "category" ? `category:${dialog.source.id}` : "category"}
         source={dialog?.kind === "category" ? dialog.source : null}
         onClose={() => setDialog(null)}
         onSaved={(source) => { void load(); toast.success(source.category_id === null ? "Reading the whole inventory" : `Following category ${source.category_id}`); }}
       />
       <PushTokenDialog
-        key={dialog?.kind === "push-token" ? dialog.source.id : "none"}
+        key={dialog?.kind === "push-token" ? `push-token:${dialog.source.id}` : "push-token"}
         target="inventory_source"
         id={dialog?.kind === "push-token" ? dialog.source.id : null}
         name={dialog?.kind === "push-token" ? dialog.source.display_name : ""}
