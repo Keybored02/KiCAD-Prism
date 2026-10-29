@@ -61,6 +61,10 @@ prices in columns named for their quantity (`price_1`, `price_10`,
 limit is 5 MB. Each upload replaces the previous one, and if any row is wrong
 nothing is imported: the dialog lists each problem by line and column.
 
+A script, an ERP export or a scraper can send the same offers itself instead:
+choose **Push token** in the connector's menu, then **Create token**, and see
+[Push offers and stock](/KiCAD-Prism/automate/supply-push/).
+
 ### Read JLCPCB from the jlcparts catalogue
 
 Instead of uploading a file, a JLCPCB connector can read
@@ -148,14 +152,20 @@ InvenTree itself. It only reads; it never changes your inventory.
 
 1. In **Library Manager → Connectors**, under **Local inventory**, choose
    **Add source**.
-2. Enter a **Name**, the **Server** address (`https://…`, without `/api`), the
-   **API token**, and how often to read it in **Read every (hours)** (1 to
-   168, 24 unless changed). Choose **Add**.
+2. Keep **Kind** at **InvenTree server**. Enter a **Name**, the **Server**
+   address (`https://…`, without `/api`), the **API token**, and how often to
+   read it in **Read every (hours)** (1 to 168, 24 unless changed). Choose
+   **Add**.
 3. In **What to read**, which opens next, check that Prism shows your
    server's name and API version. Keep **Whole inventory**, or choose one
    category (its subcategories are included), and choose **Read**.
 4. Choose **Read now** on the source's card for the first read. It reports how
    many stock records it read and how many parts matched.
+
+For an inventory Prism cannot read, choose **Push** as the **Kind**, enter a
+**Name** and choose **Add**. **Push token** opens next: choose
+**Create token** and give the token to whatever sends the stock. See
+[Push offers and stock](/KiCAD-Prism/automate/supply-push/).
 
 :::note
 The server must be reachable over HTTPS. Prism refuses private and local

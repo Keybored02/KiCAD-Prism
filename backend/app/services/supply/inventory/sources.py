@@ -52,8 +52,8 @@ def _kind(value: Any) -> str:
         spec = registry.get_spec(str(value or ""))
     except registry.UnknownKind:
         raise SourceError("Prism does not know that kind of inventory source.") from None
-    if not spec.pulled:
-        raise SourceError(f"{spec.label} is not a source Prism reads.")
+    if not (spec.pulled or spec.pushed):
+        raise SourceError(f"{spec.label} is not a source Prism reads or takes pushes from.")
     return spec.kind
 
 
@@ -92,17 +92,20 @@ def create(
     conn, keyring: sealed.CredentialKeyring, actor: str, *, display_name: str, url: str, token: str,
     category_id: int | None = None, interval_hours: int = 24, kind: str = KIND_INVENTREE,
 ) -> dict[str, Any]:
-    """A new source. Without a category it reads the whole inventory."""
+    """A new source. Without a category it reads the whole inventory. A push source has no server, token or schedule."""
 
     actor = actor_text(actor)
     source_id = uuid.uuid4().hex
-    envelope = sealed.seal(keyring, source_id, {"token": token.strip()}, TOKEN_FIELD) if token.strip() else ""
+    kind = _kind(kind)
+    pushed = registry.get_spec(kind).pushed
+    envelope = sealed.seal(keyring, source_id, {"token": token.strip()}, TOKEN_FIELD) if token.strip() and not pushed else ""
     conn.execute(
         "INSERT INTO inventory_sources (id, kind, display_name, base_url, category_id, credential_envelope, interval_hours, created_by) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (source_id, _kind(kind), _name(display_name), _url(url), _category(category_id), envelope, _interval(interval_hours), actor),
+        (source_id, kind, _name(display_name), "" if pushed else _url(url), None if pushed else _category(category_id), envelope,
+         _interval(interval_hours), actor),
     )
-    write_audit(conn, actor, "inventory_source.create", source_id, {"base_url": _url(url)}, subject_kind="inventory_source")
+    write_audit(conn, actor, "inventory_source.create", source_id, {"kind": kind, "base_url": "" if pushed else _url(url)}, subject_kind="inventory_source")
     return get(conn, source_id)
 
 
@@ -143,6 +146,7 @@ def delete(conn, source_id: str, actor: str) -> None:
 
     actor = actor_text(actor)
     get(conn, source_id)
+    conn.execute("DELETE FROM supply_push_tokens WHERE target_kind = 'inventory_source' AND target_id = %s", (source_id,))
     conn.execute("DELETE FROM inventory_levels WHERE source_id = %s", (source_id,))
     conn.execute("DELETE FROM inventory_sources WHERE id = %s", (source_id,))
     write_audit(conn, actor, "inventory_source.delete", source_id, subject_kind="inventory_source")

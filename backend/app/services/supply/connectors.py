@@ -358,6 +358,7 @@ class ConnectorService:
         with self._store.connection() as conn:
             row = _fetch(conn, connector_id)
             # The account stays while another connector is on it, with today's spending; the last one takes it along.
+            conn.execute("DELETE FROM supply_push_tokens WHERE target_kind = 'connector' AND target_id = %s", (connector_id,))
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector_id,))
             write_audit(conn, actor, "connector.delete", connector_id,
                    {"provider": row["provider"], "storefront": row["storefront"]})
