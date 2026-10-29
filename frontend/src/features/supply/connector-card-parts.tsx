@@ -2,7 +2,7 @@ import { ChevronRight, FileSpreadsheet } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { BudgetConnector, BudgetNotices, SupplyConnector } from "@/types/supply";
+import type { BudgetConnector, BudgetLibrary, BudgetNotices, SupplyConnector } from "@/types/supply";
 import { DayBar } from "./call-day-bar";
 import { budgetUsedPercent } from "./connector-status";
 import { formatDateTime } from "./supply-format";
@@ -30,6 +30,30 @@ export function NoticeBar({ notices }: { notices: BudgetNotices }) {
         <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
       </div>
       <p className="text-[11px] text-muted-foreground">{pace}</p>
+    </div>
+  );
+}
+
+/** How much of the library this distributor has been searched for, and how long the rest should take. */
+export function LibraryBar({ library }: { library: BudgetLibrary }) {
+  const done = library.found + library.not_found;
+  const share = library.total > 0 ? Math.min(100, Math.round((done / library.total) * 100)) : 0;
+  const left = library.waiting === 0 ? "" : library.days_left === null ? "—" : `${library.days_left.toLocaleString()} d`;
+  return (
+    <div className="space-y-1 pt-2">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-medium uppercase tracking-wider text-muted-foreground">Library</span>
+        <span className="tabular-nums">{done.toLocaleString()} / {library.total.toLocaleString()}</span>
+      </div>
+      <div role="progressbar" aria-label="Share of the library searched here" aria-valuemin={0} aria-valuemax={100} aria-valuenow={share} className="h-1.5 overflow-hidden bg-muted">
+        <div className="h-full bg-primary" style={{ width: `${share}%` }} />
+      </div>
+      <dl className="flex flex-wrap gap-x-3 text-[11px] tabular-nums text-muted-foreground">
+        <div className="flex gap-1"><dt>Found</dt><dd className="text-foreground">{library.found.toLocaleString()}</dd></div>
+        <div className="flex gap-1"><dt>Not carried</dt><dd className="text-foreground">{library.not_found.toLocaleString()}</dd></div>
+        <div className="flex gap-1"><dt>Waiting</dt><dd className="text-foreground">{library.waiting.toLocaleString()}</dd></div>
+        {left ? <div className="flex gap-1"><dt>Left</dt><dd className="text-foreground">{left}</dd></div> : null}
+      </dl>
     </div>
   );
 }

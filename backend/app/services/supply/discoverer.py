@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import admission, budget, ledger, parts, trouble
+from app.services.supply import admission, budget, ledger, library_match, parts, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import DiscoveryService
 from app.services.supply.identity import match_key
@@ -144,8 +144,9 @@ class Discoverer:
         self._provider_for = provider_for or connectors.load_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def run(self, connector_id: str, *, limit: int = MAX_PER_RUN, waiting: bool = False) -> DiscoverySummary:
-        """Search for the parts due one. With ``waiting``, search for the parts that wait for room, from spare budget only."""
+    def run(self, connector_id: str, *, limit: int = MAX_PER_RUN, waiting: bool = False, library: bool = False) -> DiscoverySummary:
+        """Search for the parts due one. With ``waiting``, search for the parts that wait for room; with ``library``, the library
+        parts nothing follows (``library_match``). Both from spare budget only."""
 
         now = self._clock()
         connector = self._connectors.get(connector_id)
@@ -158,10 +159,13 @@ class Discoverer:
             return DiscoverySummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         group_size = max(spec.search_batch, 1)
         with self._store.connection() as conn:
-            pending = (
-                pending_waiting(conn, connector_id, now, limit * group_size) if waiting
-                else pending_parts(conn, connector_id, now, limit * group_size)
-            )
+            if library:
+                # Searched at the slowest tier's terms; spare budget pays, so the tier only names the work.
+                pending = [PendingPart(part_id, 2, True) for part_id in library_match.pending(conn, connector_id, spec.key, now, limit * group_size)]
+            elif waiting:
+                pending = pending_waiting(conn, connector_id, now, limit * group_size)
+            else:
+                pending = pending_parts(conn, connector_id, now, limit * group_size)
         if not pending:
             return DiscoverySummary(connector_id)
 
@@ -180,7 +184,7 @@ class Discoverer:
             for group in groups:
                 paid = (ledger.PURPOSE_ONE_OFF, True)
                 if spec.metered:
-                    paid = self._spend(connector, first, min(item.tier for item in group), reads_due=reads_due, spare_only=waiting)
+                    paid = self._spend(connector, first, min(item.tier for item in group), reads_due=reads_due, spare_only=waiting or library)
                     if paid is None:
                         stopped = STOPPED_BUDGET
                         break

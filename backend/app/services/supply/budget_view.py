@@ -16,8 +16,9 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.services.supply import accounts, admission, budget, demand, ledger, notice_budget, quota
+from app.services.supply import accounts, admission, budget, demand, ledger, library_match, notice_budget, quota
 from app.services.supply.providers import registry
+from app.services.supply.providers.base import CAP_SEARCH
 
 DAYS = 14
 TOP = 10
@@ -86,6 +87,18 @@ def owners(conn, connector_id: str, spec, data: dict[str, Any], visible: set[str
     return {"projects": top_projects, "parts": parts[:TOP]}
 
 
+def _library(conn, connector_id: str, spec, account, committed: int, standing: dict[str, Any] | None, now: datetime) -> dict[str, Any] | None:
+    """The library pass at this connector (``library_match``), its days left reckoned on the calls a day nothing else is
+    expected to take: the budget less what tracking commits and the half of the pool kept for people."""
+
+    if CAP_SEARCH not in spec.capabilities:
+        return None
+    used = int(standing["committed"]) if standing else 0
+    kept = (account.daily_budget - committed) * ledger.POOL_KEPT_FOR_PEOPLE_PCT // 100
+    found = library_match.progress(conn, connector_id, spec.key, now, account.daily_budget - used - kept)
+    return found.dto() if found else None
+
+
 def view(conn, now: datetime, visible: set[str] | None = None) -> list[dict[str, Any]]:
     data = admission._inputs(conn)  # noqa: SLF001 - the cost inputs are read once for every connector
     standing = {item["connector_id"]: item for item in admission.status(conn)}
@@ -132,5 +145,6 @@ def view(conn, now: datetime, visible: set[str] | None = None) -> list[dict[str,
             "owners": owners(conn, row["id"], spec, data, visible),
             # The provider's change-notice quota, apart from the products budget; absent for providers without one.
             "notices": notice_budget.plan(conn, row["id"], spec.notice_daily_limit, now).dto() if spec.notice_daily_limit else None,
+            "library": _library(conn, row["id"], spec, account, committed, standing.get(row["id"]), now),
         })
     return result
