@@ -6,7 +6,10 @@ The roll-up is idempotent, so a run that is interrupted or repeated changes
 nothing it should not.
 
 A connector can also say how long any history may be kept (``keep_days``, for a provider whose terms limit
-storage): past that, raw samples and daily rows are deleted. Without it, daily rows stay for good.
+storage): past that, every history of its listings is deleted (samples, daily rows, price breaks, stock-outs and restocks,
+arrival promises, change events), except what still describes today. Without it, that history stays for good.
+
+Call counts are operational: they are kept ``CALL_COUNT_DAYS``, well past the four weeks any view reads.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from app.services.supply.project_supply import ROLLUP_MAX_AGE
 
 RAW_DAYS = 60
 BATCH_DAYS = 30
+CALL_COUNT_DAYS = 90
 
 
 def _midnight(day) -> datetime:
@@ -39,20 +43,39 @@ def compact_samples(conn, now: datetime) -> int:
     return removed
 
 
+_CUT = "%(now)s - (c.keep_days * INTERVAL '1 day')"
+_CUT_DAY = f"({_CUT})::date"
+
+# Each listing history and which of its rows are past the cut. A row that still describes today stays: the price breaks
+# held now (no later row ends them), a stock-out not yet over, a promise not yet resolved.
+_LISTING_HISTORY = (
+    ("supply_samples", f"h.sampled_at < {_CUT}"),
+    ("supply_samples_daily", f"h.day < {_CUT_DAY}"),
+    (
+        "supply_price_breaks_history",
+        f"EXISTS (SELECT 1 FROM supply_price_breaks_history n WHERE n.listing_id = h.listing_id AND n.since > h.since AND n.since < {_CUT})",
+    ),
+    ("supply_stock_events", f"h.day < {_CUT_DAY} AND (h.kind <> 'stock_out' OR h.resolved_on < {_CUT_DAY})"),
+    ("supply_arrival_promises", f"h.resolved_at < {_CUT}"),
+    ("supply_events", f"h.at < {_CUT}"),
+)
+
+
 def drop_expired(conn, now: datetime) -> int:
-    """Delete history past its connector's ``keep_days``. Returns how many rows were removed."""
+    """Delete history past its connector's ``keep_days``, and call counts past ``CALL_COUNT_DAYS``. Returns how many rows
+    were removed."""
 
     removed = 0
-    for table, column in (("supply_samples", "sampled_at"), ("supply_samples_daily", "day")):
-        cut = "%s - (c.keep_days * INTERVAL '1 day')" if table == "supply_samples" else "(%s - (c.keep_days * INTERVAL '1 day'))::date"
+    for table, past in _LISTING_HISTORY:
         # A join, not a subquery naming the row's date: that form was evaluated again for every row of the table.
         result = conn.execute(
             f"DELETE FROM {table} h USING supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
-            f"WHERE h.listing_id = l.id AND c.keep_days IS NOT NULL AND h.{column} < {cut}",
-            (now,),
+            f"WHERE h.listing_id = l.id AND c.keep_days IS NOT NULL AND {past}",
+            {"now": now},
         )
         removed += int(result.rowcount or 0)
-    return removed
+    result = conn.execute("DELETE FROM supply_call_counts WHERE day < %s", ((now - timedelta(days=CALL_COUNT_DAYS)).date(),))
+    return removed + int(result.rowcount or 0)
 
 
 def _compact(conn, now: datetime, days: int) -> int:

@@ -188,6 +188,10 @@ stale on each component. See
 - Readings older than 60 days are rolled into one row per listing per day.
   Set **Keep raw samples (days)** in a connector's **Edit settings** to change
   that (1 to 365 days). For a provider whose terms limit how long its data may
-  be kept, set **Delete all history after (days)**.
+  be kept, set **Delete all history after (days)**: past it, that connector's
+  readings, price breaks, stock-outs and restocks, arrival dates and change
+  events are deleted. What still holds today stays: the current prices, a
+  stock-out not yet over, an arrival date not yet reached.
+- Call counts are kept 90 days.
 - Providers Prism doesn't know can be added as plugins through the
   `prism.supply_providers` entry point.
