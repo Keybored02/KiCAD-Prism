@@ -123,6 +123,6 @@ export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capaci
 /** Every metered connector's budget, for the cards. Empty when it cannot be read. */
 export function useBudget(): BudgetConnector[] {
   const fetcher = useCallback((signal: AbortSignal) => getBudget(signal), []);
-  const { data } = useLoaded<BudgetConnector[]>("budget", fetcher, "Could not load the call budget", "supply");
+  const { data } = useLoaded<BudgetConnector[]>("connectors/budget", fetcher, "Could not load the call budget");
   return data ?? [];
 }

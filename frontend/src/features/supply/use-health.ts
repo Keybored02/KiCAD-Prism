@@ -9,7 +9,7 @@ import { useLoaded } from "./use-loaded";
 /** A part's health: the assessment, what the viewer may do with its findings, and a way to act on one and reload. */
 export function useHealth(partId: string | null, role: UserRole | null | undefined) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyAssessment(partId ?? "", undefined, signal), [partId]);
-  const assessment = useLoaded<SupplyAssessment>(partId, fetcher, "Could not load the assessment");
+  const assessment = useLoaded<SupplyAssessment>(partId === null ? null : `parts/${partId}/assessment`, fetcher, "Could not load the assessment");
   const [error, setError] = useState("");
   const canApprove = canReviewSupply(role);
   const canPropose = canEditSupply(role) || canApprove;

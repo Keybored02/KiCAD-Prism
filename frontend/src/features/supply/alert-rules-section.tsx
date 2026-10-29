@@ -103,7 +103,7 @@ export function AlertRulesSection({ partId, canEdit, watch, onChanged }: {
   partId: string; canEdit: boolean; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
 }) {
   const fetcher = useCallback((signal: AbortSignal) => getAlertRules(partId, signal), [partId]);
-  const { data, status } = useLoaded<AlertRules & { mutable: string[] }>(`rules:${partId}`, fetcher, "Could not load the alert rules");
+  const { data, status } = useLoaded<AlertRules & { mutable: string[] }>(`parts/${partId}/rules`, fetcher, "Could not load the alert rules");
   if (!canEdit || status !== "ready" || !data) return null;
   return (
     <section aria-label="Alert rules" className="space-y-2">

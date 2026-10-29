@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -10,6 +10,7 @@ import { PackagingChip } from "./packaging-chip";
 import { applySimilarPicks, clearPackagingPick, getPackagingOptions, pickPackaging } from "./packaging-api";
 import { PriceAtQuantity } from "./price-at-quantity";
 import { formatLeadTime } from "./supply-format";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 
 const money = (item: PackagingListing, quantity: string) => (item.prices[quantity] ? `${item.prices[quantity]} ${item.currency}` : "");
 
@@ -21,20 +22,16 @@ function Chip({ children, tone }: { children: ReactNode; tone?: "warning" }) {
 export function PackagingPickDialog({
   partId, connectorId, onClose, onChanged,
 }: { partId: string; connectorId: string; onClose: () => void; onChanged: () => void }) {
-  const [options, setOptions] = useState<PackagingOptions | null>(null);
+  const fetcher = useCallback((signal: AbortSignal) => getPackagingOptions(partId, connectorId, signal), [partId, connectorId]);
+  const loaded = useLoaded<PackagingOptions>(`parts/${partId}/packaging/${connectorId}`, fetcher, "Could not load the listings");
+  const options = loaded.data;
   const [similar, setSimilar] = useState<{ packaging: string; items: PackagingSimilar[] } | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
-  // The listing ticked to be followed; only the one picked now to begin with.
-  const [ticked, setTicked] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    getPackagingOptions(partId, connectorId, controller.signal)
-      .then((found) => { setOptions(found); setTicked(found.picked); })
-      .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
-    return () => controller.abort();
-  }, [partId, connectorId]);
+  const [failed, setError] = useState("");
+  const error = failed || (loaded.status === "error" ? loaded.error : "");
+  // The listing ticked to be followed; the one picked now until a person ticks another.
+  const [touched, setTicked] = useState<string | null | undefined>(undefined);
+  const ticked = touched === undefined ? options?.picked ?? null : touched;
 
   const pick = (listing: PackagingListing) => {
     pickPackaging(partId, connectorId, listing.id)
@@ -43,7 +40,7 @@ export function PackagingPickDialog({
         if (result.similar.length === 0) { toast.success("Packaging picked"); onClose(); return; }
         setSimilar({ packaging: result.packaging, items: result.similar });
         setChosen(new Set(result.similar.map((item) => item.part_id)));
-        setOptions((current) => (current ? { ...current, picked: listing.id } : current));
+        void invalidateSupply(`parts/${partId}`);
       })
       .catch((caught: Error) => setError(caught.message));
   };

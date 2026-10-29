@@ -10,6 +10,7 @@ import sys
 import time
 import unittest
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -121,7 +122,9 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
 
         def due() -> bool:
             with self.store.connection() as conn:
-                return conn.execute("SELECT next_poll_at <= NOW() AS due FROM supply_poll_state WHERE listing_id = 'lst-csv'").fetchone()["due"]
+                # On the app's clock, the one supply writes with (``clock.py``), not the database's.
+                return conn.execute("SELECT next_poll_at <= %s AS due FROM supply_poll_state WHERE listing_id = 'lst-csv'",
+                                    (datetime.now(timezone.utc),)).fetchone()["due"]
 
         self.assertFalse(due())
         self._import(connector["id"], f"{HEADER}\nOLD-1,M1,Acme,9")

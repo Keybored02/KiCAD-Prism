@@ -128,36 +128,10 @@ def _clean_credentials(spec: ProviderSpec, given: Mapping[str, Any] | None) -> d
 
 
 def _fetch(conn, connector_id: str):
-    row = conn.execute("SELECT * FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()
+    row = conn.execute(accounts.CONNECTOR_SQL + " WHERE c.id = %s", (connector_id,)).fetchone()
     if row is None:
         raise ConnectorNotFound(connector_id)
     return row
-
-
-def _hand_on_ledger(conn, connector_id: str) -> None:
-    """Before an account's oldest connector goes, give its call ledger to the next one, which then holds the account's day: the
-    calls already spent today still count, so deleting a connector never frees a fresh budget before the provider's day resets."""
-
-    from app.services.supply import accounts
-
-    account = accounts.resolve(conn, connector_id)
-    if account.ledger_id != connector_id or len(account.members) < 2:
-        return
-    conn.execute(
-        """
-        INSERT INTO supply_quota_ledger (connector_id, day, spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour,
-                                         spare_hour_spent)
-        SELECT %s, day, spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent
-        FROM supply_quota_ledger WHERE connector_id = %s
-        ON CONFLICT (connector_id, day) DO UPDATE SET
-            spent = supply_quota_ledger.spent + EXCLUDED.spent,
-            interactive_spent = supply_quota_ledger.interactive_spent + EXCLUDED.interactive_spent,
-            spare_spent = supply_quota_ledger.spare_spent + EXCLUDED.spare_spent,
-            spare_hour_spent = supply_quota_ledger.spare_hour_spent + EXCLUDED.spare_hour_spent,
-            scheduled_rest = EXCLUDED.scheduled_rest, scheduled_at = EXCLUDED.scheduled_at, spare_hour = EXCLUDED.spare_hour
-        """,
-        (account.members[1], connector_id),
-    )
 
 
 class ConnectorService:
@@ -181,7 +155,7 @@ class ConnectorService:
 
     def list(self) -> list[dict[str, Any]]:
         with self._store.connection() as conn:
-            rows = conn.execute("SELECT * FROM supply_connectors ORDER BY created_at, id").fetchall()
+            rows = conn.execute(accounts.CONNECTOR_SQL + " ORDER BY c.created_at, c.id").fetchall()
             usage = self._usage_today(conn)
             imports = self._offers.import_infos(conn)
             guesses = limits.suggestions(conn, self._clock())
@@ -232,17 +206,20 @@ class ConnectorService:
         account_key = accounts.key_for(self._keyring(), spec.key, cleaned)
         try:
             with self._store.connection() as conn:
+                # Credentials an account already holds join it, and its settings stand.
+                account_id = accounts.create(
+                    conn, spec.key, account_key, {"daily_budget": budget, "interactive_reserve_pct": reserve}, connector_id
+                )
                 conn.execute(
                     """
                     INSERT INTO supply_connectors (
                         id, provider, storefront, display_name, currency,
-                        credential_envelope, credential_names, account_key,
-                        daily_budget, interactive_reserve_pct, created_by
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
+                        credential_envelope, credential_names, account_id, created_by
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
                     """,
                     (
                         connector_id, spec.key, storefront, name, currency,
-                        envelope, json.dumps(list(cleaned)), account_key, budget, reserve, actor,
+                        envelope, json.dumps(list(cleaned)), account_id, actor,
                     ),
                 )
                 write_audit(conn, actor, "connector.create", connector_id,
@@ -308,16 +285,23 @@ class ConnectorService:
             fields["storefront"] = storefront
         if not fields:
             return self.get(connector_id)
-        # Column names come from the whitelist above, never from the caller.
-        assignments = ", ".join(f"{column} = %s" for column in fields)
+        # Column names come from the whitelist above, never from the caller. The budget and the reset are the account's.
+        shared = {name: value for name, value in fields.items() if name in accounts.SETTINGS}
+        own = {name: value for name, value in fields.items() if name not in accounts.SETTINGS}
         try:
             with self._store.connection() as conn:
                 result = conn.execute(
-                    f"UPDATE supply_connectors SET {assignments}, updated_at = NOW() WHERE id = %s",
-                    (*fields.values(), connector_id),
+                    f"UPDATE supply_connectors SET {''.join(f'{column} = %s, ' for column in own)}updated_at = NOW() WHERE id = %s",
+                    (*own.values(), connector_id),
                 )
                 if result.rowcount == 0:
                     raise ConnectorNotFound(connector_id)
+                if shared:
+                    conn.execute(
+                        f"UPDATE supply_accounts SET {', '.join(f'{column} = %s' for column in shared)} "
+                        "WHERE id = (SELECT account_id FROM supply_connectors WHERE id = %s)",
+                        (*shared.values(), connector_id),
+                    )
                 write_audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
                 if fields.keys() & {"daily_budget", "interactive_reserve_pct", "enabled"}:
                     admission.sync(conn)
@@ -345,10 +329,10 @@ class ConnectorService:
                 raise ConnectorError("invalid_credentials", f"{spec.label} takes no credentials.")
             envelope = sealed.seal(self._keyring(), connector_id, cleaned)
             conn.execute(
-                "UPDATE supply_connectors SET credential_envelope = %s, credential_names = %s::jsonb, account_key = %s, "
-                "updated_at = NOW() WHERE id = %s",
-                (envelope, json.dumps(list(cleaned)), accounts.key_for(self._keyring(), spec.key, cleaned), connector_id),
+                "UPDATE supply_connectors SET credential_envelope = %s, credential_names = %s::jsonb, updated_at = NOW() WHERE id = %s",
+                (envelope, json.dumps(list(cleaned)), connector_id),
             )
+            accounts.rekey(conn, connector_id, accounts.key_for(self._keyring(), spec.key, cleaned))
             detail: dict[str, Any] = {"names": list(cleaned)}
             if before != cleaned.get("client_id", ""):
                 # A sign-in belongs to the app (client ID) it was made for.
@@ -373,7 +357,7 @@ class ConnectorService:
         actor = actor_text(actor)
         with self._store.connection() as conn:
             row = _fetch(conn, connector_id)
-            _hand_on_ledger(conn, connector_id)
+            # The account stays while another connector is on it, with today's spending; the last one takes it along.
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector_id,))
             write_audit(conn, actor, "connector.delete", connector_id,
                    {"provider": row["provider"], "storefront": row["storefront"]})
@@ -385,15 +369,15 @@ class ConnectorService:
         with self._store.connection() as conn:
             if error_code is None:
                 conn.execute(
-                    "UPDATE supply_connectors SET last_ok_at = NOW(), last_error_code = '', error_streak = 0, block_streak = 0 WHERE id = %s",
-                    (connector_id,),
+                    "UPDATE supply_connectors SET last_ok_at = %s, last_error_code = '', error_streak = 0, block_streak = 0 WHERE id = %s",
+                    (self._clock(), connector_id),
                 )
-                limits.note_ok(conn, connector_id, datetime.now(timezone.utc))
+                limits.note_ok(conn, connector_id, self._clock())
             else:
                 conn.execute(
-                    "UPDATE supply_connectors SET last_error_code = %s, last_error_at = NOW(), error_streak = error_streak + 1 "
+                    "UPDATE supply_connectors SET last_error_code = %s, last_error_at = %s, error_streak = error_streak + 1 "
                     "WHERE id = %s",
-                    (error_code[:64], connector_id),
+                    (error_code[:64], self._clock(), connector_id),
                 )
 
     def keyring(self):
@@ -414,15 +398,16 @@ class ConnectorService:
 
         changed = 0
         with self._store.connection() as conn:
-            rows = conn.execute("SELECT id, provider, credential_envelope, account_key FROM supply_connectors WHERE credential_envelope <> ''").fetchall()
+            rows = conn.execute(accounts.CONNECTOR_SQL + " WHERE c.credential_envelope <> '' ORDER BY c.created_at, c.id").fetchall()
             for row in rows:
                 try:
                     credentials = sealed.unseal(self._keyring(), row["id"], row["credential_envelope"])
                 except Exception:  # noqa: BLE001 - one unreadable connector must not stop the rest
                     continue
                 key = accounts.key_for(self._keyring(), row["provider"], credentials)
-                if key != row["account_key"]:
-                    conn.execute("UPDATE supply_connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
+                if key != conn.execute("SELECT a.account_key FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id "
+                                       "WHERE c.id = %s", (row["id"],)).fetchone()["account_key"]:
+                    accounts.rekey(conn, row["id"], key)
                     changed += 1
             if changed:
                 admission.sync(conn)
@@ -479,17 +464,17 @@ class ConnectorService:
 
         now = self._clock()
         ledger_rows = {
-            (row["connector_id"], row["day"]): row
+            (row["account_id"], row["day"]): row
             for row in conn.execute(
-                "SELECT connector_id, day, spent, interactive_spent FROM supply_quota_ledger WHERE day >= %s",
+                "SELECT account_id, day, spent, interactive_spent FROM supply_quota_ledger WHERE day >= %s",
                 (now.astimezone(timezone.utc).date() - timedelta(days=2),),
             ).fetchall()
         }
-        first_of: dict[str, str] = {}
         usage: dict[str, dict[str, Any]] = {}
-        for row in conn.execute("SELECT id, account_key, reset_time, reset_tz FROM supply_connectors ORDER BY created_at, id").fetchall():
-            owner = first_of.setdefault(row["account_key"], row["id"]) if row["account_key"] else row["id"]
-            found = ledger_rows.get((owner, quota.provider_day(now, row["reset_time"], row["reset_tz"])))
+        for row in conn.execute(
+            "SELECT c.id, c.account_id, a.reset_time, a.reset_tz FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id"
+        ).fetchall():
+            found = ledger_rows.get((row["account_id"], quota.provider_day(now, row["reset_time"], row["reset_tz"])))
             if found:
                 usage[row["id"]] = {"spent": int(found["spent"]), "interactive_spent": int(found["interactive_spent"])}
         return usage

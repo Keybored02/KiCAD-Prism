@@ -16,9 +16,9 @@ export function reviewCountOf(review: SupplyReviewQueue): number {
   return review.counts.unresolved + review.counts.near + review.counts.aliases + (review.choices?.length ?? 0) + approve + pinned + matched;
 }
 
-/** How many items wait on the Review page; undefined until known. Reloaded when `refreshKey` changes. */
-export function useReviewCount(allowed: boolean, refreshKey: string): number | undefined {
+/** How many items wait on the Review page; undefined until known. The same read as the page, so a decision there counts here. */
+export function useReviewCount(allowed: boolean): number | undefined {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyReviewQueue(signal), []);
-  const { data } = useLoaded<SupplyReviewQueue>(allowed ? `count:${refreshKey}` : null, fetcher, "Could not load the review queue", "supply");
+  const { data } = useLoaded<SupplyReviewQueue>(allowed ? "review" : null, fetcher, "Could not load the review queue");
   return data ? reviewCountOf(data) : undefined;
 }

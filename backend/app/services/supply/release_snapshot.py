@@ -17,6 +17,7 @@ from typing import Any
 
 from app.services.job_kinds import JobKind
 from app.services.supply import catalog_read, release_bom, release_check, release_source
+from app.services.supply.progress import job_progress
 from app.services.supply.store import supply_store
 
 JOB_KIND = "supply_release_snapshot"
@@ -41,14 +42,19 @@ def _state(conn, project_id: str, build_id: str, state: str, reason: str = "", *
 
 
 def status_of(conn, project_id: str, build_id: str) -> dict[str, Any]:
-    """Whether a release has its snapshot: ``taken``, ``queued``, or ``failed`` with the reason. ``none`` when nothing was asked."""
+    """Whether a release has its snapshot, as a job's progress: ``done`` once taken, ``running`` while queued, ``failed``
+    with the reason, ``none`` when nothing was asked."""
 
     if conn.execute("SELECT 1 FROM supply_release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)).fetchone():
-        return {"state": "taken", "reason": ""}
+        return job_progress("done", done=1, total=1)
     row = conn.execute("SELECT state, reason FROM supply_release_snapshot_jobs WHERE build_id = %s AND project_id = %s", (build_id, project_id)).fetchone()
     if row is None:
-        return {"state": "none", "reason": ""}
-    return {"state": "taken" if row["state"] == "done" else row["state"], "reason": row["reason"]}
+        return job_progress("none")
+    if row["state"] == "failed":
+        return job_progress("failed", total=1, failed=1, reason=row["reason"])
+    if row["state"] == "done":
+        return job_progress("done", done=1, total=1)
+    return job_progress("running", total=1)
 
 
 def queue(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str, *, job_service: Any | None = None) -> bool:

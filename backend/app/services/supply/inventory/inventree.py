@@ -1,11 +1,12 @@
 """A read-only client for InvenTree's REST API, and for any server that serves the same subset of it.
 
-It reads what a stock sync needs: the server's identity, the category tree, the parts of one category with their
-manufacturer part numbers, the stock records of that category, and the location tree. Shapes follow InvenTree's
+It reads what a stock sync needs (``read``, the ``InventoryReader`` contract in ``base.py``): the server's identity, every
+part (or those of one category, when the source follows one) with its manufacturer and supplier part numbers, the stock
+records, and the location tree. The category tree is read for choosing one. Shapes follow InvenTree's
 schema (v566): ``Authorization: Token <key>``, ``limit``/``offset`` paging with ``{count, results}``.
 
-Requests go through ``SafeHttpClient``: HTTPS only, to the source's own host, at public addresses, or at private ones for
-a host the operator lists in ``SUPPLY_INVENTORY_PRIVATE_HOSTS``. The client never writes and never logs the token. Errors
+Requests go through ``SafeHttpClient``: HTTPS only, to the source's own host, at public addresses on port 443, or at
+private ones and any port for a host the operator lists in ``SUPPLY_INVENTORY_PRIVATE_HOSTS``. The client never writes and never logs the token. Errors
 are the providers' ``ProviderError`` subclasses.
 
 Only the filters every compatible server is known to serve are sent: some answer any other with ``400``.
@@ -18,10 +19,13 @@ from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 from app.services.supply.http_client import SafeHttpClient
+from app.services.supply.inventory.base import InventoryRead, Location, Part, StockRecord
 from app.services.supply.providers.base import ProviderError
 
+__all__ = ["Category", "InvenTreeClient", "InvenTreeError", "Location", "Part", "ServerInfo", "StockRecord", "base_url"]
+
 PAGE = 500
-# A server answering more pages than this is not serving one category of parts; stop rather than read without end.
+# A server answering more pages than this (200,000 rows of one list) is not an inventory; stop rather than read without end.
 MAX_PAGES = 400
 
 # InvenTree's base stock statuses. Only OK stock counts as available.
@@ -50,36 +54,6 @@ class Category:
     name: str
     pathstring: str
     parent: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class Part:
-    pk: int
-    name: str
-    ipn: str
-    units: str
-    # (manufacturer name, MPN) of each manufacturer part.
-    mpns: tuple[tuple[str, str], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class Location:
-    pk: int
-    pathstring: str
-    external: bool
-
-
-@dataclass(frozen=True, slots=True)
-class StockRecord:
-    pk: int
-    part: int
-    quantity: float
-    allocated: float
-    status: int
-    status_text: str
-    location: int | None
-    batch: str
-    updated: str
 
 
 def base_url(text: str) -> str:
@@ -168,11 +142,18 @@ class InvenTreeClient:
                 found.append(Category(pk=pk, name=_text(row.get("name")), pathstring=_text(row.get("pathstring")) or _text(row.get("name")), parent=_pk(row.get("parent"))))
         return found
 
-    def parts(self, category: int) -> dict[int, Part]:
-        """The parts of a category and its subcategories, each with its manufacturer part numbers."""
+    def read(self, category: int | None) -> InventoryRead:
+        info = self.server()
+        return InventoryRead(
+            server=info.server, api_version=info.api_version, parts=self.parts(category), locations=self.locations(), stock=self.stock(category),
+        )
+
+    def parts(self, category: int | None = None) -> dict[int, Part]:
+        """Every part, or those of a category and its subcategories, each with its manufacturer and supplier part numbers."""
 
         parts: dict[int, Part] = {}
-        for row in self._pages("part/", {"category": str(category), "cascade": "true"}):
+        scope = {"category": str(category), "cascade": "true"} if category is not None else {}
+        for row in self._pages("part/", scope):
             pk = _pk(row.get("pk"))
             if pk is not None:
                 parts[pk] = Part(pk=pk, name=_text(row.get("full_name")) or _text(row.get("name")), ipn=_text(row.get("IPN")), units=_text(row.get("units")))
@@ -185,7 +166,18 @@ class InvenTreeClient:
                 detail = row.get("manufacturer_detail")
                 maker = _text(detail.get("name")) if isinstance(detail, dict) else ""
                 mpns.setdefault(part, []).append((maker, mpn))
-        return {pk: Part(pk=p.pk, name=p.name, ipn=p.ipn, units=p.units, mpns=tuple(mpns.get(pk, ()))) for pk, p in parts.items()}
+        skus: dict[int, list[tuple[str, str]]] = {}
+        # Supplier parts: the distributor's number (SKU) under the supplier's name, which is only a hint as the maker is.
+        for row in self._pages("company/part/", {}):
+            part = _pk(row.get("part"))
+            sku = _text(row.get("SKU"))
+            if part in parts and sku:
+                detail = row.get("supplier_detail")
+                skus.setdefault(part, []).append((_text(detail.get("name")) if isinstance(detail, dict) else "", sku))
+        return {
+            pk: Part(pk=p.pk, name=p.name, ipn=p.ipn, units=p.units, mpns=tuple(mpns.get(pk, ())), skus=tuple(skus.get(pk, ())))
+            for pk, p in parts.items()
+        }
 
     def locations(self) -> dict[int, Location]:
         found = {}
@@ -195,11 +187,12 @@ class InvenTreeClient:
                 found[pk] = Location(pk=pk, pathstring=_text(row.get("pathstring")) or _text(row.get("name")), external=row.get("external") is True)
         return found
 
-    def stock(self, category: int) -> list[StockRecord]:
-        """Every in-stock record of the category's parts."""
+    def stock(self, category: int | None = None) -> list[StockRecord]:
+        """Every in-stock record, or those of the category's parts."""
 
         records = []
-        for row in self._pages("stock/", {"category": str(category), "in_stock": "true"}):
+        scope = {"category": str(category)} if category is not None else {}
+        for row in self._pages("stock/", {**scope, "in_stock": "true"}):
             pk, part = _pk(row.get("pk")), _pk(row.get("part"))
             if pk is None or part is None:
                 continue

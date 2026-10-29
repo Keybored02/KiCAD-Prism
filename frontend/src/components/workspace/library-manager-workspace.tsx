@@ -50,7 +50,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
   const views: LibraryView[] = supplyRole ? ["catalog", "bulk-edit", "imports", "releases", "review", "connectors"] : ["catalog", "bulk-edit", "imports", "releases"];
   const view: LibraryView = requestedView && views.includes(requestedView) ? requestedView : "catalog";
   // Counted again whenever the tab changes, so a decision made on Review shows when leaving it.
-  const reviewCount = useLibraryReviewCount(supplyRole, view);
+  const reviewCount = useLibraryReviewCount(supplyRole);
 
   const setView = (next: LibraryView) => {
     setSearchParams((current) => {

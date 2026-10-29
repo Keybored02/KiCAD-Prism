@@ -9,7 +9,7 @@ how many promises they rest on, and no rate is stated from fewer than ``MIN_RESO
 from __future__ import annotations
 
 import statistics
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Sequence
 
 from app.services.supply.models import Incoming
@@ -61,9 +61,9 @@ def reliability(conn, part_id: str, today: date) -> dict[str, Any] | None:
     rows = conn.execute(
         """
         SELECT p.state, p.delay_days, p.expected FROM supply_arrival_promises p JOIN supply_listings l ON l.id = p.listing_id
-        WHERE l.part_id = %s AND p.first_seen_at >= NOW() - make_interval(days => %s)
+        WHERE l.part_id = %s AND p.first_seen_at >= %s
         """,
-        (part_id, KEEP_DAYS),
+        (part_id, datetime.combine(today - timedelta(days=KEEP_DAYS), time.min, tzinfo=timezone.utc)),
     ).fetchall()
     if not rows:
         return None
