@@ -16,6 +16,7 @@ Reactions to trouble:
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
@@ -462,6 +463,15 @@ class Poller:
         return gone
 
     @staticmethod
+    def _price_of(kept) -> Decimal | None:
+        """A kept offer's price at the reference quantity, worked out as a sample's is."""
+
+        return pricing.unit_price_at(
+            [(int(quantity), Decimal(str(unit_price))) for quantity, unit_price in kept["price_breaks"] or []],
+            moq=kept["moq"], order_multiple=kept["order_multiple"], up_to=kept["price_up_to"],
+        )
+
+    @staticmethod
     def _bom_link_is_wrong(conn, row: DueListing, offer: Offer) -> bool:
         """A number taken from a BOM field is trusted until the distributor names the product. If the product is another
         part (not the same number, nor one that extends it, as with a packaging suffix), the link is only a near match
@@ -494,13 +504,16 @@ class Poller:
             [(item.quantity, item.unit_price) for item in offer.price_breaks],
             moq=offer.moq, order_multiple=offer.order_multiple, up_to=offer.price_up_to,
         )
+        # The reading before this one is the kept offer, not the newest sample: samples are thinned and deleted by age, and a
+        # listing read less often than they are kept would lose every stock-out, restock and lifecycle change.
         previous = conn.execute(
-            "SELECT sampled_at, stock, unit_price, lifecycle, discontinued, moq, order_multiple FROM supply_samples WHERE listing_id = %s "
-            "ORDER BY sampled_at DESC LIMIT 1", (row.id,)
+            "SELECT o.stock, o.price_breaks, o.price_up_to, o.lifecycle, o.discontinued, o.moq, o.order_multiple, "
+            "(SELECT MAX(s.sampled_at) FROM supply_samples s WHERE s.listing_id = o.listing_id) AS sampled_at "
+            "FROM supply_offers o WHERE o.listing_id = %s", (row.id,)
         ).fetchone()
         changed = previous is None or (
             previous["stock"] != offer.stock
-            or previous["unit_price"] != price
+            or self._price_of(previous) != price
             or previous["lifecycle"] != offer.lifecycle.value
             or previous["discontinued"] != offer.discontinued
             or previous["moq"] != offer.moq
@@ -539,7 +552,7 @@ class Poller:
         )
         # A reading is kept when something changed since the last, or the last is a day old; a re-read of an unchanged
         # listing the same day adds nothing.
-        if changed or previous["sampled_at"] <= offer.fetched_at - SAMPLE_EVERY:
+        if changed or previous["sampled_at"] is None or previous["sampled_at"] <= offer.fetched_at - SAMPLE_EVERY:
             conn.execute(
                 """
                 INSERT INTO supply_samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
