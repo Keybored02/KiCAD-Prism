@@ -232,9 +232,10 @@ def withdraw(conn, subject_kind: str, subject_id: str, kind: str, decision: str)
 
 # --- proposals ----------------------------------------------------------------------------------------------------------------
 
-# The one rule for putting something aside. Acknowledging, snoozing and muting quiet it, for anyone who writes supply data.
-# Dismissing and waiving settle it: an approver's stands at once, and anyone else's is a proposal an approver accepts or rejects.
-SETTLING = (DISMISS, WAIVE)
+# The one rule for putting something aside, by how long it lasts. Acknowledging and snoozing quiet one row for now, for anyone who
+# writes supply data. Dismissing, muting and waiving put it aside for good: an approver's stands at once, and anyone else's is a
+# proposal an approver accepts or rejects.
+SETTLING = (DISMISS, MUTE, WAIVE)
 
 
 def state_for(decision: str, *, approver: bool) -> str:

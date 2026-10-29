@@ -45569,6 +45569,54 @@
         ]
       }
     },
+    "/api/v1/supply/mutes/{decision_id}/{verdict}": {
+      "post": {
+        "operationId": "decide_mute",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "title": "Decision Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "verdict",
+            "required": true,
+            "schema": {
+              "enum": [
+                "approve",
+                "reject"
+              ],
+              "title": "Verdict",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Mute",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
     "/api/v1/supply/notices": {
       "post": {
         "operationId": "add_notice",
@@ -46379,6 +46427,7 @@
         ]
       },
       "put": {
+        "description": "Switching an alert off is an approver's; anyone else's waits in To approve (``muting``).",
         "operationId": "put_alert_rules",
         "parameters": [
           {

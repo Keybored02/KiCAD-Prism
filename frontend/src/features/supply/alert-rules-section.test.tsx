@@ -36,6 +36,17 @@ describe("the alert rules of a part", () => {
     }));
   });
 
+  it("keeps an alert QA has yet to switch off unticked, marked as asked, and asks again on save", async () => {
+    mocked.getAlertRules.mockResolvedValue({ muted: [], muting: ["price_up"], price_rise_percent: null, target_price: null, target_currency: "", mutable: MUTABLE });
+    mocked.saveAlertRules.mockImplementation(async (_id, rules) => ({ ...rules, muted: [], muting: ["price_up"] }));
+    render(<AlertRulesSection partId="p1" canEdit />);
+    expect((await screen.findByLabelText("Price rises")).getAttribute("data-state")).toBe("unchecked");
+    expect(screen.getByText("Asked QA")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save alert rules" }));
+    await waitFor(() => expect(mocked.saveAlertRules).toHaveBeenCalledWith("p1", expect.objectContaining({ muted: ["price_up"] })));
+    expect(await screen.findByText("Asked QA")).toBeTruthy();
+  });
+
   it("says the alerts go to the Dashboard, and never suggests email", async () => {
     const { container } = render(<AlertRulesSection partId="p1" canEdit />);
     expect(await screen.findByText("A Dashboard alert when")).toBeTruthy();

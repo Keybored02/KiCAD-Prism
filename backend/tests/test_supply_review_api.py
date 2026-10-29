@@ -167,7 +167,7 @@ class SupplyReviewApiTests(unittest.TestCase):
         self.assertEqual([w["id"] for w in waiting["waivers"]], ["w1"])
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_attention_decisions SET state = 'approved'")
-        self.assertEqual(self.call("GET", "/api/supply/review").json["to_approve"], {"waivers": [], "alternates": [], "dismissals": []})
+        self.assertEqual(self.call("GET", "/api/supply/review").json["to_approve"], {"waivers": [], "alternates": [], "dismissals": [], "mutes": []})
 
     def test_pinning_a_listing_with_another_number_can_add_that_number_to_the_part(self) -> None:
         body = {"add_number": True}

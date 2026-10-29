@@ -5403,6 +5403,14 @@ class GeneratedClient:
             path_params={"decision_id": decision_id, "verdict": verdict},
         )
 
+    def decide_mute(self, decision_id: str, verdict: str) -> None:
+        """Decide Mute"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/mutes/{decision_id}/{verdict}",
+            path_params={"decision_id": decision_id, "verdict": verdict},
+        )
+
     def decide_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Decide Work Item"""
         return self._request(
