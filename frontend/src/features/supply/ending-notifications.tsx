@@ -131,7 +131,6 @@ export function EndingNotifications({ role, onOpenComponent }: { role: UserRole 
   const items = (loaded.data?.items ?? []).filter((item) => item.restriction === null && !item.dismissed);
   if (items.length === 0) return null;
   return (
-    // Folded by default: the Dashboard's inbox counts it, and opens it.
     <details id="dashboard-ending" className="border border-warning/40" aria-label="Ending parts">
       <summary className="flex cursor-pointer items-center gap-2 bg-warning/10 px-3 py-2 text-sm font-semibold">
         <Hourglass className="h-4 w-4 text-warning" aria-hidden />

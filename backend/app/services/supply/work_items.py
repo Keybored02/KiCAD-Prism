@@ -208,19 +208,6 @@ def listed(
     return _shown(conn, [dict(row) for row in rows], role)
 
 
-def counts(conn, actor: str, today: date) -> dict[str, int]:
-    """How many live items the caller owns, and how many are due a recheck: what the Dashboard's inbox shows."""
-
-    row = conn.execute(
-        """
-        SELECT COUNT(*) FILTER (WHERE owner = %s) AS mine, COUNT(*) FILTER (WHERE recheck_on <= %s) AS due
-        FROM supply_attention WHERE kind = 'work' AND state = 'open'
-        """,
-        (actor_text(actor) if actor else "", today),
-    ).fetchone()
-    return {"mine": int(row["mine"]) if actor else 0, "due": int(row["due"])}
-
-
 def history(conn, item_id: str) -> list[dict[str, Any]]:
     get(conn, item_id)
     return [

@@ -69,10 +69,6 @@ class WorkItemTests(unittest.TestCase):
         mine = self.call("GET", "", "designer", query="state=mine").json
         due = self.call("GET", "", "qa", query="state=due").json
         self.assertEqual(([row["id"] for row in mine], [row["id"] for row in due]), ([item["id"]], [item["id"]]))
-        with self.store.connection() as conn:
-            from app.services.supply import work_items
-
-            self.assertEqual(work_items.counts(conn, "designer@example.com", date.today()), {"mine": 1, "due": 1})
 
         done = self.call("POST", f"/{item['id']}/state", "designer", {"state": "done"}).json
         self.assertEqual(done["state"], "done", "its owner closes it")

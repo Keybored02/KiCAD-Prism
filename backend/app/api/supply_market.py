@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/supply", tags=["supply"])
 async def dashboard_figures(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with supply_connectors.service.store.connection() as conn:
-            return dashboard.build(conn, role=user.role, actor=user.email)
+            return dashboard.build(conn, role=user.role)
 
     return await asyncio.to_thread(read)
 

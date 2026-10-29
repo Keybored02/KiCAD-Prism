@@ -47,7 +47,7 @@ between tests.
 
 **Dashboard** — `dashboard-view.tsx` with `dashboard-tiles.tsx`,
 `dashboard-charts.tsx`, `dashboard-risk-cards.tsx`, `dashboard-forecast.tsx`,
-`dashboard-inbox.tsx` (the inbox, ranked by `backend/app/services/supply/inbox.py`), `dashboard-alerts.tsx`, `ending-notifications.tsx`,
+`dashboard-alerts.tsx`, `ending-notifications.tsx`,
 `recent-changes.tsx`.
 
 **Tracking and the part sheet** — `parts-view.tsx`, `parts-table.tsx`,
