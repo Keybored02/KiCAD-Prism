@@ -57,6 +57,7 @@ root first.
 | `attrition.py` | Spares by package class (small passives 2%, others none), used when a lookup asks for `attrition_percent: null`. |
 | `cross_reference.py` | Alternatives with the same value, graded ratings met, similar (ratings the candidate doesn't list are unknown, never met), other package, or fails a rating, from canonical parameters and the distributor category; `grade` is pure. No grade claims interchangeability; no footprint, pin or operating-condition comparison. |
 | `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
+| `clock.py` | Supply's one clock: what supply writes or compares comes from a clock the caller passed in (a job's, a test's) or `clock.now()`, never the database's `NOW()`. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash), a row of `supply_accounts`: one budget, reserve and reset time, one ledger, one pacer, one job. A connector with no credentials is its own account (same id); new credentials move a connector between accounts (`rekey`), and an account goes with its last connector. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account (and between processes through `pace_state`), doubled for a day after a rate limit. |
 | `schedule_settings.py` | Which spare work is on. Spare budget (`quota.free_allowance`) is the calls nothing else needs, at any hour. |
