@@ -5,10 +5,10 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException
 
 from app.core import policy
-from app.core.security import AuthenticatedUser, get_current_user
+from app.core.security import AuthenticatedUser, require_supply_reader
 
 
-async def require_supply_editor(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+async def require_supply_editor(user: AuthenticatedUser = Depends(require_supply_reader)) -> AuthenticatedUser:
     """Whoever may propose supply decisions: the people who write supply data and the people who approve it."""
 
     # The token side is a writer's; the role may be a writer's or an approver's (QA proposes too, through an agent as well).
