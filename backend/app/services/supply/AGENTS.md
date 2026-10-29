@@ -133,7 +133,7 @@ root first.
 | `usage.py` | Where parts are used (and `project_rows`, the stored lines behind a project's supply card): one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). A symbol with a `Prism ID` the catalog knows takes that component's manufacturer and number. Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
 | `overview.py` | The Supply overview: counts, open alerts, recent changes, data age. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
-| `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
+| `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. An offer's `price_up_to` (a distributor that quotes one quantity, such as Avnet) leaves larger orders unpriced; every lookup passes it. |
 | `retention.py` | Rolls raw samples older than 60 days (or the connector's `retention_days`) into `samples_daily`, in slices of 30 days, and `drop_expired` deletes all history past the connector's `keep_days`. `trim_summaries` drops kept summaries unread for a week, rollups past their reading age and every change mark no kept row can still depend on. All run in housekeeping. |
 | `backend/app/api/supply_parts.py` | Parts and watches API, and the read-only part lookup the component Sourcing tab uses. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |

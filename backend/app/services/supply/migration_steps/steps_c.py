@@ -634,3 +634,16 @@ def _m097_restart_out_everywhere(conn) -> None:
         """,
         prepare=False,
     )
+
+
+def _m098_price_up_to(conn) -> None:
+    """The largest quantity an offer's price holds for, when a distributor quotes one quantity only (Avnet): a larger order gets no
+    price from it rather than the quote's. Kept with the price breaks' history too."""
+
+    conn.execute(
+        """
+        ALTER TABLE supply_offers ADD COLUMN IF NOT EXISTS price_up_to INTEGER;
+        ALTER TABLE supply_price_breaks_history ADD COLUMN IF NOT EXISTS price_up_to INTEGER;
+        """,
+        prepare=False,
+    )

@@ -13,22 +13,26 @@ from decimal import Decimal
 from typing import Any, Sequence
 
 
-def record(conn, listing_id: str, since: datetime, breaks: Sequence[tuple[int, Decimal]], currency: str, moq: int, order_multiple: int) -> bool:
+def record(
+    conn, listing_id: str, since: datetime, breaks: Sequence[tuple[int, Decimal]], currency: str, moq: int, order_multiple: int,
+    *, up_to: int | None = None,
+) -> bool:
     """Keep the breaks when they differ from the last kept. Returns whether a row was added."""
 
     if not breaks or not currency:
         return False
     text = [[int(quantity), format(Decimal(price).normalize(), "f")] for quantity, price in breaks]
     last = conn.execute(
-        "SELECT breaks, currency, moq, order_multiple FROM supply_price_breaks_history WHERE listing_id = %s ORDER BY since DESC LIMIT 1",
+        "SELECT breaks, currency, moq, order_multiple, price_up_to FROM supply_price_breaks_history WHERE listing_id = %s ORDER BY since DESC LIMIT 1",
         (listing_id,),
     ).fetchone()
-    if last is not None and _same(last["breaks"], text) and (last["currency"], last["moq"], last["order_multiple"]) == (currency, moq, order_multiple):
+    if last is not None and _same(last["breaks"], text) and (
+        last["currency"], last["moq"], last["order_multiple"], last["price_up_to"]) == (currency, moq, order_multiple, up_to):
         return False
     conn.execute(
-        "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, %s, %s, %s) "
-        "ON CONFLICT DO NOTHING",
-        (listing_id, since, json.dumps(text), currency, moq, order_multiple),
+        "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple, price_up_to) "
+        "VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+        (listing_id, since, json.dumps(text), currency, moq, order_multiple, up_to),
     )
     return True
 
@@ -44,13 +48,14 @@ def load(conn, listing_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
     if not listing_ids:
         return found
     for row in conn.execute(
-        "SELECT listing_id, since, breaks, currency, moq, order_multiple FROM supply_price_breaks_history WHERE listing_id = ANY(%s) ORDER BY since",
+        "SELECT listing_id, since, breaks, currency, moq, order_multiple, price_up_to FROM supply_price_breaks_history "
+        "WHERE listing_id = ANY(%s) ORDER BY since",
         (list(listing_ids),),
     ).fetchall():
         found.setdefault(row["listing_id"], []).append({
             "day": row["since"].astimezone(timezone.utc).date(),
             "breaks": [(int(quantity), Decimal(str(price))) for quantity, price in row["breaks"]],
-            "currency": row["currency"], "moq": int(row["moq"]), "order_multiple": int(row["order_multiple"]),
+            "currency": row["currency"], "moq": int(row["moq"]), "order_multiple": int(row["order_multiple"]), "up_to": row["price_up_to"],
         })
     return found
 

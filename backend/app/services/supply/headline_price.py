@@ -49,7 +49,7 @@ def native_price(offer: Mapping[str, Any], wanted: int) -> tuple[str | None, str
     quantity = pricing.order_quantity(wanted, offer["moq"], offer["order_multiple"])
     if not offer["currency"]:
         return None, "", quantity
-    price = pricing.unit_price_at(_breaks(offer), moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=wanted)
+    price = pricing.unit_price_at(_breaks(offer), moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=wanted, up_to=offer.get("price_up_to"))
     return (format(price.normalize(), "f") if price is not None else None), offer["currency"], quantity
 
 
@@ -58,7 +58,7 @@ def quote(offer: Mapping[str, Any], wanted: int, base: str, rates: Rates) -> Quo
 
     if offer["marketplace"] or not offer["currency"]:
         return None
-    native = pricing.unit_price_at(_breaks(offer), moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=wanted)
+    native = pricing.unit_price_at(_breaks(offer), moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=wanted, up_to=offer.get("price_up_to"))
     if native is None:
         return None
     converted = rates.convert(native, offer["currency"], base)

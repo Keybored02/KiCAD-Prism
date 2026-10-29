@@ -878,8 +878,11 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertFalse(price_breaks.record(conn, listing, self.now + timedelta(days=1), breaks, "EUR", 1, 1), "same breaks")
             self.assertTrue(price_breaks.record(conn, listing, self.now + timedelta(days=2), [(1, Decimal("0.50")), (100, Decimal("0.29"))], "EUR", 1, 1))
             self.assertFalse(price_breaks.record(conn, listing, self.now, [], "EUR", 1, 1), "nothing to keep")
+            self.assertTrue(price_breaks.record(conn, listing, self.now + timedelta(days=3), [(1, Decimal("0.50")), (100, Decimal("0.29"))], "EUR", 1, 1, up_to=100),
+                            "a quote that now stops at a quantity is a change")
             kept = price_breaks.load(conn, [listing])[listing]
-        self.assertEqual([row["breaks"][1][1] for row in kept], [Decimal("0.30"), Decimal("0.29")])
+        self.assertEqual([row["breaks"][1][1] for row in kept], [Decimal("0.30"), Decimal("0.29"), Decimal("0.29")])
+        self.assertEqual([row["up_to"] for row in kept], [None, None, 100])
 
     # --- the detail -------------------------------------------------------
 
