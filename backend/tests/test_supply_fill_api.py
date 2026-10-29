@@ -100,7 +100,7 @@ class SupplyFillTests(unittest.TestCase):
         self.assertEqual(self.spent(), 0)
         self.connectors.resume(self.cid, actor="admin@example.com")
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_connectors SET daily_budget = 0")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 0")
         response = self.call("search", {"mpn": "LM358DR"})
         self.assertEqual(response.json["skipped"], [{"connector": "Sim", "reason": "daily lookup allowance used"}])
 

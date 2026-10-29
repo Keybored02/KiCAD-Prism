@@ -359,21 +359,18 @@ class Poller:
         calls = polled = gone = 0
         stopped: str | None = None
         for batch in batches:
-            purpose = (
-                ledger.PURPOSE_ONE_OFF if oneoff else ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if not committed
-                else f"tier{min(row.tier for row in batch)}"
+            sources = (
+                ledger.ONE_OFF if oneoff else (ledger.PEOPLE,) if interactive else (ledger.SPARE,) if not committed
+                else (ledger.committed(min(row.tier for row in batch)),)
             )
-
-            def spend(from_spare: bool) -> bool:
-                return ledger.spend_call(
-                    self._store, connector, now=now, interactive=interactive or (oneoff and not from_spare), units=spec.calls_per_offers_batch,
-                    kind=ledger.KIND_OFFERS, purpose=purpose, spare=bool(spare) or from_spare,
-                    keep_pool_pct=ledger.POOL_KEPT_FOR_PEOPLE_PCT if oneoff and not from_spare else 0,
-                )
-
-            if spec.metered and not (spend(False) or (oneoff and spend(True))):
+            if spare and committed:
+                # Late committed reads, paid from free calls but counted as their tier's.
+                sources = (ledger.Source(sources[0].purpose, spare=True),)
+            paid = ledger.fund(self._store, connector, sources, now=now, kind=ledger.KIND_OFFERS, units=spec.calls_per_offers_batch) if spec.metered else sources[0]
+            if paid is None:
                 stopped = STOPPED_BUDGET
                 break
+            purpose = paid.purpose
             calls += 1
             before = calls_made(provider)
             try:

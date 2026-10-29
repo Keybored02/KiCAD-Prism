@@ -398,7 +398,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         listings = [self.insert_listing(part, cid, "PO-1", stock=1000, price="0.50") for cid in (first, second)]
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_connectors SET account_key = 'one-account' WHERE id = ANY(%s)", ([first, second],))
+            conn.execute("UPDATE supply_connectors SET account_id = %s WHERE id = %s", (first, second))
             for listing in listings:
                 conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 1000, 0.5, 'EUR')", (listing, now))
             data = part_history.build(conn, part, now, 7)

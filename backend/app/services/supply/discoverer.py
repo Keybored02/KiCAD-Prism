@@ -33,7 +33,6 @@ STOPPED_INACTIVE = "inactive"
 STOPPED_COOLING_DOWN = "cooling_down"
 STOPPED_UNSUPPORTED = "unsupported"
 STOPPED_BUDGET = "budget"
-POOL_KEPT_FOR_PEOPLE_PCT = ledger.POOL_KEPT_FOR_PEOPLE_PCT
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,13 +239,7 @@ class Discoverer:
         with self._store.connection() as conn:
             groups = cut_groups(conn, todo, size)
         for group in groups:
-            if spec.metered and not (
-                ledger.spend_call(
-                    self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF,
-                    keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
-                )
-                or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF, spare=True)
-            ):
+            if spec.metered and ledger.fund(self._store, connector, ledger.ONE_OFF, now=now, kind=ledger.KIND_SEARCH) is None:
                 return searched, STOPPED_BUDGET
             try:
                 results = self._search(
@@ -287,23 +280,11 @@ class Discoverer:
         (counted as the tier's tracking), else from the pool (half of which stays for people), then from free calls; a repeat from the
         committed share. Returns what paid, as (purpose, from the pool), or None when nothing could."""
 
-        now = self._clock()
-        tracking = f"tier{tier}"
-        if spare_only:
-            paid = ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)
-            return (ledger.PURPOSE_SPARE, False) if paid else None
-        if not first:
-            return (tracking, False) if ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=tracking) else None
-        if not reads_due and ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=tracking):
-            return tracking, False
-        if ledger.spend_call(
-            self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF,
-            keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
-        ):
-            return ledger.PURPOSE_ONE_OFF, True
-        if ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True):
-            return ledger.PURPOSE_SPARE, False
-        return None
+        sources = (
+            (ledger.SPARE,) if spare_only else (ledger.committed(tier),) if not first else ledger.first_search(tier, reads_due=reads_due)
+        )
+        paid = ledger.fund(self._store, connector, sources, now=self._clock(), kind=ledger.KIND_SEARCH)
+        return None if paid is None else (paid.purpose, paid.interactive)
 
     def _charge_extra(self, connector_id: str, extra: int, purpose: str, *, interactive: bool) -> None:
         """Calls a search made beyond the one it paid for are counted, so the day's figure stays the provider's."""

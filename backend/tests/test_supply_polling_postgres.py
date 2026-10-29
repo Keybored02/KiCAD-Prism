@@ -316,7 +316,7 @@ class PollingTests(unittest.TestCase):
         summary = self.poller().poll_connector(cid)
         self.assertEqual((summary.calls, summary.polled, summary.stopped), (3, 6, "budget"))
         with self.store.connection() as conn:
-            spent = conn.execute("SELECT spent FROM supply_quota_ledger WHERE connector_id = %s", (cid,)).fetchone()["spent"]
+            spent = conn.execute("SELECT spent FROM supply_quota_ledger WHERE account_id = %s", (cid,)).fetchone()["spent"]
         self.assertEqual(spent, 3)
         self.clock.advance(hours=11)
         later = self.poller().poll_connector(cid)
@@ -335,7 +335,7 @@ class PollingTests(unittest.TestCase):
         self.imports_file(free, "sku,mpn,manufacturer,stock\nC2,C2,Acme,3\n")
         self.discover_csv(watch, free)
         self.assertEqual(self.poller_csv().poll_connector(free).polled, 1)
-        self.assertEqual(self.rows("SELECT * FROM supply_quota_ledger WHERE connector_id = %s", free), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_quota_ledger WHERE account_id = %s", free), [])
 
     def test_a_reading_that_differs_from_the_last_writes_change_events(self) -> None:
         import dataclasses
@@ -549,8 +549,8 @@ class PollingTests(unittest.TestCase):
                 account = accounts.resolve(conn, cid)
                 state = ledger.get_state(conn, account.ledger_id, daily_budget=1000, reserve_pct=10, now=self.clock.now)
                 day = quota.provider_day(self.clock.now)
-                conn.execute("INSERT INTO supply_quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING", (account.ledger_id, day))
-                row = conn.execute("SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
+                conn.execute("INSERT INTO supply_quota_ledger (account_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING", (account.ledger_id, day))
+                row = conn.execute("SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE account_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
                 return ledger.free_calls(conn, account.ledger_id, state, row, self.clock.now, reset_time=account.reset_time, reset_tz=account.reset_tz)
 
         self.assertEqual(free(), 0, "nothing counted yet")

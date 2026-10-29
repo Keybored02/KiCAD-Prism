@@ -123,7 +123,7 @@ class SchedulerSimulationTests(unittest.TestCase):
 
         with self.store.connection() as conn:
             ledger = conn.execute(
-                "SELECT day, spent, interactive_spent, spare_spent FROM supply_quota_ledger WHERE connector_id = %s ORDER BY day", (connector,)
+                "SELECT day, spent, interactive_spent, spare_spent FROM supply_quota_ledger WHERE account_id = %s ORDER BY day", (connector,)
             ).fetchall()
             by_purpose = {
                 (row["day"], row["purpose"]): int(row["n"])
