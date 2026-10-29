@@ -55,7 +55,8 @@ between tests.
 `part-sheet.tsx` with `part-detail-sections.tsx`, `part-history*.ts(x)`,
 `part-offer-rows.tsx`, `listing-*.tsx`, `outlook-section.tsx`,
 `forecast-section.tsx`, `notices-section.tsx`, `compliance-section.tsx`,
-`alert-rules-section.tsx`. Tracking a part: `watch-part-dialog.tsx`,
+`alert-rules-section.tsx`. Inside KiCad's Remote Symbols webview the app shows only
+`kicad-part-page.tsx` (the part the panel's Open in Prism names; closing returns to the panel). Tracking a part: `watch-part-dialog.tsx`,
 `watch-popover.tsx`, `tracking-control.tsx` (tiers). The BOM file check is
 `bom-file-*.ts(x)`.
 

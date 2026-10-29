@@ -116,7 +116,7 @@ class PanelPayloadTests(unittest.TestCase):
         self.assertEqual(detail["outlook"], "No signs of an end")
         self.assertEqual(detail["risks"], [])
         self.assertEqual(detail["links"]["sourcing"], f"{ORIGIN}/?section=library-manager&libraryView=catalog&component=cmp-1&componentTab=sourcing")
-        self.assertEqual(detail["links"]["supply"], f"{ORIGIN}/?section=supply&supplyView=parts&part={self.part.id}")
+        self.assertEqual(detail["links"]["supply"], f"{ORIGIN}/?section=supply&supplyView=parts&part={self.part.id}&component=cmp-1")
 
     def test_risks_name_the_worst_open_findings_at_most_two(self) -> None:
         self.listing(stock=0, lifecycle="nrnd")

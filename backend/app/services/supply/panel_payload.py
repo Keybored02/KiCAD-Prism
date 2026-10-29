@@ -100,7 +100,8 @@ def _links(origin: str, component_id: str, part_id: str) -> dict[str, str]:
     return {
         "component": library(),
         "sourcing": library(componentTab="sourcing"),
-        "supply": f"{origin}/?" + urlencode({"section": "supply", "supplyView": "parts", "part": part_id}),
+        # ``component`` brings KiCad's panel back to this component when the part page it opens there is closed.
+        "supply": f"{origin}/?" + urlencode({"section": "supply", "supplyView": "parts", "part": part_id, "component": component_id}),
     }
 
 
