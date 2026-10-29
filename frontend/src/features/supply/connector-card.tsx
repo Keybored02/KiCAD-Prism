@@ -64,7 +64,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
         ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} capacity={capacity} /> : undefined} />
         : <OffersFile connector={connector} />}
       {budget?.library && budget.library.total > 0 ? <LibraryBar library={budget.library} /> : null}
-      {providerNote(connector.provider) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider)}</p> : null}
+      {providerNote(connector.provider, connector.catalogue) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider, connector.catalogue)}</p> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">
         {credentialNames.length > 0 ? (

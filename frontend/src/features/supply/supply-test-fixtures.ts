@@ -16,6 +16,8 @@ export function connectorFixture(overrides: Partial<SupplyConnector> = {}): Supp
     keep_days: null,
     limits_storage: false,
     keep_unused: false,
+    catalogue: false,
+    catalogue_available: false,
     interactive_reserve_pct: 10,
     metered: true,
     csv_fed: false,

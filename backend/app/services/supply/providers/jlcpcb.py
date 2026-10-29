@@ -32,4 +32,5 @@ SPEC = ProviderSpec(
     metered=False,
     assembly_only=True,
     csv_fed=True,
+    catalogue_url="https://yaqwsx.github.io/jlcparts/data/",
 )

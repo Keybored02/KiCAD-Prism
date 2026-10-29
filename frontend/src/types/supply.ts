@@ -58,6 +58,9 @@ export interface SupplyConnector {
   limits_storage: boolean;
   /** The administrator holds the distributor's written leave to keep them. */
   keep_unused: boolean;
+  /** Offers come from the provider's published catalogue (jlcparts) instead of an uploaded file. */
+  catalogue: boolean;
+  catalogue_available: boolean;
   metered: boolean;
   /** The connector's offers come from an uploaded file. */
   csv_fed: boolean;
@@ -111,6 +114,7 @@ export interface UpdateSupplyConnectorInput {
   retention_days?: number | null;
   keep_days?: number | null;
   keep_unused?: boolean;
+  catalogue?: boolean;
   storefront?: string;
   reset_time?: string;
   reset_tz?: string;

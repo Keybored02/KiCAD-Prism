@@ -8,7 +8,8 @@ import { budgetUsedPercent } from "./connector-status";
 import { formatDateTime } from "./supply-format";
 
 /** One line about how a provider is called, where it matters. */
-export function providerNote(provider: string): string {
+export function providerNote(provider: string, catalogue = false): string {
+  if (catalogue) return "Offers come from the jlcparts catalogue, twice a day.";
   if (provider === "lcsc" || provider === "jlcpcb") return "Offers come from an uploaded CSV file: no calls, no credentials.";
   if (provider === "arrow") return "Reads 100 parts a call.";
   return "";

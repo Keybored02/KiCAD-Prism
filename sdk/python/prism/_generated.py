@@ -4656,6 +4656,7 @@ class app__api__supply_connectors__CreateConnectorRequest(TypedDict, total=False
 
 
 class app__api__supply_connectors__UpdateConnectorRequest(TypedDict, total=False):
+    catalogue: bool | None
     currency: str | None
     daily_budget: int | None
     display_name: str | None

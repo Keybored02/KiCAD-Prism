@@ -221,6 +221,8 @@ class ProviderSpec:
     # stock of a part not in use are kept only for ``retention.READ_WINDOW`` after a read, unless the connector's
     # administrator holds the distributor's written leave to keep more (``keep_unused``).
     limits_storage: bool = False
+    # Where a published catalogue can stand in for the offers file (``jlc_catalogue``), for an administrator who turns it on.
+    catalogue_url: str = ""
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):
