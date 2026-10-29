@@ -16,8 +16,10 @@ NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 
 
 class InboxTests(unittest.TestCase):
-    def build(self, role: str | None = "qa", *, alerts=(), approvals: int = 0, **built):
-        with mock.patch.object(inbox, "_alerts", return_value=list(alerts)), mock.patch.object(inbox, "_awaiting_approval", return_value=approvals):
+    def build(self, role: str | None = "qa", *, alerts=(), approvals: int = 0, work=None, **built):
+        work = work or {"mine": 0, "due": 0}
+        with mock.patch.object(inbox, "_alerts", return_value=list(alerts)), mock.patch.object(inbox, "_awaiting_approval", return_value=approvals), \
+                mock.patch.object(inbox, "_work", return_value=work):
             return inbox.items(None, built, role, NOW)
 
     def test_worst_first_and_feeds_before_everything_of_their_severity(self) -> None:
@@ -57,6 +59,10 @@ class InboxTests(unittest.TestCase):
         (deadline,) = self.build(deadlines=deadlines)["items"]
         self.assertEqual((deadline["mpn"], deadline["count"]), ("A-1", 2))
         self.assertEqual(self.build("designer", approvals=3)["items"], [], "a designer doesn't approve")
+
+    def test_work_items_due_a_recheck_and_those_the_caller_owns(self) -> None:
+        found = self.build(work={"mine": 2, "due": 1})
+        self.assertEqual([(item["kind"], item["count"]) for item in found["items"]], [("work_due", 1), ("work_mine", 2)])
 
     def test_only_a_few_lines_and_how_many_more(self) -> None:
         alerts = [{"kind": "alerts", "severity": "warning", "count": n, "alert_kind": f"k{n}"} for n in range(1, 12)]

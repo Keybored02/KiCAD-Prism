@@ -13,6 +13,7 @@ import type { EndingPart } from "@/types/supply";
 import { dismissEnding, getEndingParts, retireComponent, setRestriction } from "./ending-api";
 import { StatusDot } from "./status-dot";
 import { formatStock } from "./supply-format";
+import { WorkItemButton } from "./work-item-dialog";
 import { useLoaded } from "./use-loaded";
 
 type Decision = "mark" | "retire";
@@ -93,6 +94,7 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
           <Button size="sm" variant="outline" onClick={() => setDecision("mark")}>Not for new designs</Button>
           {item.healthy ? null : <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>}
           <Button size="sm" variant="ghost" disabled={busy} onClick={dismiss}>Dismiss</Button>
+          <WorkItemButton subject={{ kind: "component", id: item.component.id }} title={`${item.component.name || item.component.mpn}: ending`} action="alternate" />
         </span>
       ) : null}
       {decision ? <DecisionDialog item={item} decision={decision} onClose={() => setDecision(null)} onDone={onChanged} /> : null}

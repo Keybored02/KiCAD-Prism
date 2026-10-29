@@ -122,7 +122,7 @@ def failing_feeds(conn) -> list[dict[str, Any]]:
     return found
 
 
-def build(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
+def build(conn, now: datetime | None = None, role: str | None = None, actor: str = "") -> dict[str, Any]:
     """Everything the Dashboard page draws."""
 
     now = now or datetime.now(timezone.utc)
@@ -163,5 +163,5 @@ def build(conn, now: datetime | None = None, role: str | None = None) -> dict[st
         "insights_ready": len(kept),
         "failing_feeds": failing_feeds(conn),
     }
-    built["inbox"] = inbox.items(conn, built, role, now)
+    built["inbox"] = inbox.items(conn, built, role, now, actor)
     return built

@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
 
-import { canReviewSupply } from "@/lib/roles";
+import { canEditSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { listInventorySources } from "./inventory-api";
 import { useReviewCount } from "./review-count";
 import { ReviewView } from "./review-view";
 import { UnmatchedStockSection } from "./unmatched-stock";
+import { WorkItemsSection } from "./work-items-section";
 import { useLoaded } from "./use-loaded";
 
 /** Unmatched parts across every local inventory source; undefined until known. Reloaded when `refreshKey` changes. */
@@ -30,7 +31,12 @@ export function LibraryReviewView({ user }: { user: User | null }) {
     <ReviewView
       user={user}
       othersWaiting={(unmatched ?? 0) > 0}
-      after={<UnmatchedStockSection key={decided} canDecide={canReviewSupply(user?.role)} onDecided={() => setDecided((count) => count + 1)} />}
+      after={(
+        <>
+          <WorkItemsSection email={user?.email ?? ""} canFollow={canEditSupply(user?.role)} canDecide={canReviewSupply(user?.role)} />
+          <UnmatchedStockSection key={decided} canDecide={canReviewSupply(user?.role)} onDecided={() => setDecided((count) => count + 1)} />
+        </>
+      )}
     />
   );
 }

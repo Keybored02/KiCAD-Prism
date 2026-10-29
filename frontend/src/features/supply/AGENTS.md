@@ -77,7 +77,9 @@ Tracking a project is the `track-*.tsx` dialog steps and
 `edit-connector-dialog.tsx`, `connector-signin.tsx`, `csv-upload-dialog.tsx`,
 `budget-view.tsx`), `inventory-sources.tsx` and `inventory-source-dialogs.tsx`
 (InvenTree-compatible stores), `settings-view.tsx` and `settings-*.tsx`
-(Supply settings), `library-review-view.tsx` and `review-view.tsx` (Review).
+(Supply settings), `library-review-view.tsx` and `review-view.tsx` (Review), with
+`work-items-section.tsx` (Review's work items), `work-item-dialog.tsx` (the
+button that opens one) and `work-items-api.ts`.
 Mounted by `frontend/src/components/workspace/library-manager-workspace.tsx`.
 Each form mounts only while its dialog is open, so it resets without effects;
 connector form rules live in `connector-form-model.ts`, not in components.

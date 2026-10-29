@@ -1597,7 +1597,31 @@ export type SupplyInboxItem = { severity: "fatal" | "error" | "warning" | "info"
   | { kind: "alerts"; alert_kind: string }
   | { kind: "likely_out" }
   | { kind: "approvals" }
+  | { kind: "work_due" }
+  | { kind: "work_mine" }
 );
+
+export type WorkItemAction = "investigate" | "alternate" | "not_for_new_designs" | "retire" | "replace" | "last_time_buy" | "other";
+export type WorkItemState = "open" | "accepted" | "rejected" | "done";
+
+/** An engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it touches (as the
+ * caller may see them), QA's disposition and when to look again. */
+export interface SupplyWorkItem {
+  id: string;
+  subject_kind: "component" | "part";
+  subject_id: string;
+  subject_name: string;
+  title: string;
+  action: WorkItemAction;
+  owner: string;
+  state: WorkItemState;
+  evidence: Array<{ text: string; by: string; at: string }>;
+  projects: Array<{ project_id: string; name: string }>;
+  recheck_on: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface SupplyDashboard {
   /** What needs a person today, worst first, and how many more there are. */
