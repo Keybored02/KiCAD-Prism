@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { OutsideLink } from "@/panel/components/OutsideLink";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
@@ -511,16 +512,14 @@ export function PartDetailScreen({
       <div className="sticky bottom-0 z-30 -mx-3 mt-auto border-t bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center gap-2">
           {component.datasheet_url ? (
-            <a
+            <OutsideLink
               href={component.datasheet_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open datasheet"
+              label="Open datasheet"
               className={cn(buttonVariants({ variant: "outline" }), "shrink-0")}
             >
               <FileText data-icon="inline-start" className="h-4 w-4" />
               Datasheet
-            </a>
+            </OutsideLink>
           ) : (
             <Button variant="outline" disabled className="shrink-0" aria-label="No datasheet">
               <FileText data-icon="inline-start" className="h-4 w-4" />
@@ -650,15 +649,13 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotTone)} />
         <span className="truncate text-xs font-medium">{source.display_name}</span>
         {isVendor && source.product_url ? (
-          <a
+          <OutsideLink
             href={source.product_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Open ${source.display_name} product page`}
+            label={`Open ${source.display_name} product page`}
             className="shrink-0 text-muted-foreground/70 transition-colors hover:text-primary"
           >
             <ExternalLink className="h-3 w-3" />
-          </a>
+          </OutsideLink>
         ) : null}
         {asOf ? (
           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">

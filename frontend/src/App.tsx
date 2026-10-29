@@ -7,6 +7,7 @@ import { Search } from 'lucide-react';
 import { ApiHttpError, fetchApi } from '@/lib/api';
 import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath, stashCurrentLocation } from '@/lib/auth';
 import { IS_APPLE_PLATFORM } from '@/lib/shortcuts';
+import { insideKiCad } from '@/lib/kicad-host';
 import { roleLabel } from '@/lib/roles';
 import { useHotkeys } from '@/hooks/use-hotkeys';
 import { clearWorkspaceDataCache } from '@/hooks/use-workspace-data';
@@ -27,6 +28,9 @@ const AuthCallbackPage = lazy(() =>
 );
 const Workspace = lazy(() =>
     import('./components/workspace').then((module) => ({ default: module.Workspace }))
+);
+const KiCadPartPage = lazy(() =>
+    import('@/features/supply/kicad-part-page').then((module) => ({ default: module.KiCadPartPage }))
 );
 const ProjectDetailPage = lazy(() =>
     import('./pages/ProjectDetailPage').then((module) => ({ default: module.ProjectDetailPage }))
@@ -50,6 +54,19 @@ function FullScreenMessage({ message, isError = false }: { message: string; isEr
 
 /** A lazily loaded page, with the route fallback while its chunk loads. */
 const suspended = (page: ReactNode) => <Suspense fallback={<RouteFallback />}>{page}</Suspense>;
+
+/** The app inside KiCad's Remote Symbols webview: the part the panel opened, alone. */
+function InsideKiCad({ user }: { user: User }) {
+    const params = new URLSearchParams(window.location.search);
+    return (
+        <BrowserRouter useTransitions={false}>
+            <Toaster richColors position="top-right" />
+            <div className="min-h-app-viewport bg-background text-foreground">
+                {suspended(<KiCadPartPage partId={params.get('part')} componentId={params.get('component')} user={user} />)}
+            </div>
+        </BrowserRouter>
+    );
+}
 
 function PasswordChangeGate({
     authConfig,
@@ -252,6 +269,12 @@ function App() {
                 onChanged={handleAuthCodeSuccess}
             />
         );
+    }
+
+    // Inside KiCad's Remote Symbols webview only the part the panel opened is shown: KiCad keeps every navigation there, and
+    // the workspace has no way back to the panel.
+    if (insideKiCad()) {
+        return <InsideKiCad user={user} />;
     }
 
     // User is authenticated or auth is disabled - show app
