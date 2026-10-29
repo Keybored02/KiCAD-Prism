@@ -754,6 +754,35 @@ class KeptRollupTests(unittest.TestCase):
         self.assertEqual((row["stats"]["boards"], row["stats"]["cost_per_board"]), (fresh["can_build"], format(Decimal(fresh["cost_per_board"]), "f")))
         self.assertEqual((dash["count"], dash["statuses"], dash["stats"]), (row["count"], row["statuses"], row["stats"]), "the Dashboard row is the Projects row")
 
+    def test_a_project_the_caller_may_not_see_is_left_out_of_the_dashboard(self) -> None:
+        import json
+
+        from app.services.supply import dashboard, usage
+
+        self.part("GOOD-1", stock=5000)
+        self.track("prj_seen", [component("R1", "Acme", "GOOD-1")])
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_bom_cost_history WHERE project_id IN ('prj_seen', 'prj_hidden')")
+
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            usage.store_project(conn, "prj_hidden", "Private customer board", "rev1", lines([component("R1", "Acme", "GOOD-1")]), NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_hidden', '{\"\"}', 'a@example.com', 10)")
+            for project_id in ("prj_seen", "prj_hidden"):
+                conn.execute(
+                    "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, build_quantity) "
+                    "VALUES (%s, '', %s, 1, 'EUR', 1, 1, 10)", (project_id, NOW.date()),
+                )
+            with mock.patch.object(usage, "visible_project_ids", return_value={"prj_seen"}):
+                built = dashboard.build(conn, NOW, role="designer")
+            everyone = dashboard.build(conn, NOW)
+        self.assertEqual([row["project_id"] for row in built["projects"]], ["prj_seen"])
+        self.assertEqual([row["project_id"] for row in built["project_costs"]], ["prj_seen"])
+        self.assertNotIn("Private customer board", json.dumps(built, default=str))
+        self.assertEqual(sorted(row["project_id"] for row in everyone["projects"]), ["prj_hidden", "prj_seen"], "internal callers see all")
+
     def test_trimming_keeps_the_marks_a_kept_rollup_still_depends_on(self) -> None:
         from app.services.supply import retention
 

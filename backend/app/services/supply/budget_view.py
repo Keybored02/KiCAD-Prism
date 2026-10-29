@@ -49,7 +49,7 @@ def _refused(conn, connector_id: str, day) -> int:
     return int(row["n"])
 
 
-def owners(conn, connector_id: str, spec, data: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def owners(conn, connector_id: str, spec, data: dict[str, Any], visible: set[str] | None = None) -> dict[str, list[dict[str, Any]]]:
     """The projects and parts that cost most at a connector, estimated: calls a day, by the cost model."""
 
     rows = conn.execute(
@@ -74,7 +74,9 @@ def owners(conn, connector_id: str, spec, data: dict[str, Any]) -> dict[str, lis
             if (row["part_id"], connector_id) not in data["picked"] else 0.0,
         })
     parts.sort(key=lambda item: -item["calls_a_day"])
-    top_projects = sorted(({"project_id": ref, "calls_a_day": round(cost, 3)} for ref, cost in projects.items()), key=lambda item: -item["calls_a_day"])
+    # A project the caller may not see is left out, not named.
+    shown = {ref: cost for ref, cost in projects.items() if visible is None or ref == "" or ref in visible}
+    top_projects = sorted(({"project_id": ref, "calls_a_day": round(cost, 3)} for ref, cost in shown.items()), key=lambda item: -item["calls_a_day"])
     top_projects = top_projects[:TOP]
     names = {row["project_id"]: row["project_name"] for row in conn.execute(
         "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", ([item["project_id"] for item in top_projects],)
@@ -84,7 +86,7 @@ def owners(conn, connector_id: str, spec, data: dict[str, Any]) -> dict[str, lis
     return {"projects": top_projects, "parts": parts[:TOP]}
 
 
-def view(conn, now: datetime) -> list[dict[str, Any]]:
+def view(conn, now: datetime, visible: set[str] | None = None) -> list[dict[str, Any]]:
     data = admission._inputs(conn)  # noqa: SLF001 - the cost inputs are read once for every connector
     standing = {item["connector_id"]: item for item in admission.status(conn)}
     result = []
@@ -127,7 +129,7 @@ def view(conn, now: datetime) -> list[dict[str, Any]]:
             # A provider's own notice quota has its own bar; its calls are not part of the product budget's day.
             "hourly": _hourly(conn, row["id"], day, notices=not spec.notice_daily_limit),
             "days": _daily(conn, row["id"], day, notices=not spec.notice_daily_limit),
-            "owners": owners(conn, row["id"], spec, data),
+            "owners": owners(conn, row["id"], spec, data, visible),
             # The provider's change-notice quota, apart from the products budget; absent for providers without one.
             "notices": notice_budget.plan(conn, row["id"], spec.notice_daily_limit, now).dto() if spec.notice_daily_limit else None,
         })

@@ -141,13 +141,16 @@ async def choose_line(project_id: str, body: LineChoiceIn, user: AuthenticatedUs
 
 
 @router.get("")
-async def overview(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+async def overview(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    visible = await _run(lambda: usage.visible_project_ids(user.role))
+
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return {
                 "counts": tracking.counts(conn),
                 "projects": [
                     {**item, "tracked_at": item["tracked_at"].isoformat()} for item in tracking.list_tracked_projects(conn)
+                    if visible is None or item["project_id"] in visible
                 ],
                 "budget": admission.status(conn),
             }
@@ -283,12 +286,15 @@ async def stop_tracking_part(part_id: str, user: AuthenticatedUser = Depends(req
 
 
 @budget_router.get("/budget")
-async def budget(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    """Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it."""
+async def budget(user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+    """Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it;
+    projects the caller may not see are not named."""
+
+    visible = await _run(lambda: usage.visible_project_ids(user.role))
 
     def read() -> list[dict[str, Any]]:
         with _store().connection() as conn:
-            return budget_view.view(conn, datetime.now(timezone.utc))
+            return budget_view.view(conn, datetime.now(timezone.utc), visible)
 
     return await _run(read)
 
