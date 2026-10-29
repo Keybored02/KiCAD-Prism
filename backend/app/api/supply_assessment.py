@@ -13,8 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.api.supply_access import require_supply_editor
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api.supply_access import is_approver, require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
 from app.services.supply import parts
 from app.services.supply.assessment import service, waivers
@@ -81,7 +80,7 @@ async def propose_waiver(
             finding = next((f for f in current["findings"] if f["check"] == body.check), None)
             # The finding the waiver is tied to, as the assessment says it stands now.
             raised = Finding(finding["check"], Status(finding["severity"]), finding["text"], finding["scope"]) if finding else None
-            return waivers.propose(conn, part_id, raised, body.reason, editor.email, approver=editor.role in SUPPLY_APPROVE_ROLES)
+            return waivers.propose(conn, part_id, raised, body.reason, editor.email, approver=is_approver(editor))
 
     return await _run(run)
 
@@ -110,7 +109,7 @@ async def reject_waiver(waiver_id: str, approver: AuthenticatedUser = Depends(re
 async def revoke_waiver(waiver_id: str, editor: AuthenticatedUser = Depends(require_supply_editor)) -> Response:
     def run() -> None:
         with _store().connection() as conn:
-            waivers.revoke(conn, waiver_id, editor.email, approver=editor.role in SUPPLY_APPROVE_ROLES)
+            waivers.revoke(conn, waiver_id, editor.email, approver=is_approver(editor))
 
     await _run(run)
     return Response(status_code=204)

@@ -36,6 +36,8 @@ class AssessmentApiTests(unittest.TestCase):
             role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             for role in ("viewer", "qa", "designer", "admin")
         }
+        # QA's role through an agent: it may propose, never approve.
+        cls.users["qa_agent"] = AuthenticatedUser(email="qa@example.com", name="qa", role="qa", auth_type="mcp", scopes=["*"])
         cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_assess_test_{uuid.uuid4().hex[:8]}"})()
         cls.store.initialize()
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
@@ -136,6 +138,12 @@ class AssessmentApiTests(unittest.TestCase):
         self.offer(lifecycle="nrnd")
         response = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Fine"})
         self.assertEqual(response.json["state"], "approved")
+
+    def test_an_approver_through_an_agent_only_proposes(self) -> None:
+        self.offer(lifecycle="nrnd")
+        response = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa_agent", body={"check": "nrnd", "reason": "Fine"})
+        self.assertEqual(response.json.get("state"), "proposed", response.json)
+        self.assertEqual(self.call("POST", f"/api/supply/waivers/{response.json['id']}/approve", role="qa_agent").status, 403)
 
     def test_a_waiver_stops_holding_when_the_condition_changes(self) -> None:
         self.offer(lifecycle="nrnd")

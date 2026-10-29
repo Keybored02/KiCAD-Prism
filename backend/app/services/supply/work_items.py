@@ -14,7 +14,6 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Sequence
 
-from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.services.supply import component_parts, usage
 from app.services.supply.audit import actor_text, write_audit
 
@@ -89,19 +88,22 @@ def get(conn, item_id: str) -> dict[str, Any]:
     return dict(row)
 
 
-def _may_edit(item: dict[str, Any], actor: str, role: str | None) -> bool:
-    return role in SUPPLY_APPROVE_ROLES or actor in (item["created_by"], item["owner"])
+def _may_edit(item: dict[str, Any], actor: str, approver: bool) -> bool:
+    return approver or actor in (item["created_by"], item["owner"])
 
 
 def update(
-    conn, item_id: str, *, actor: str, role: str | None, title: str | None = None, action: str | None = None, owner: str | None = None,
+    conn, item_id: str, *, actor: str, approver: bool, title: str | None = None, action: str | None = None, owner: str | None = None,
     recheck_on: date | None | str = "unchanged", note: str = "",
 ) -> dict[str, Any]:
-    """Change what an item says, or add a note to its evidence. Its maker, its owner and QA may."""
+    """Change what an item says, or add a note to its evidence. Its maker, its owner and QA may.
+
+    ``approver`` is whether the caller's decisions stand alone (``policy`` "supply_approve"): QA or an administrator, as a person.
+    """
 
     actor = actor_text(actor)
     item = get(conn, item_id)
-    if not _may_edit(item, actor, role):
+    if not _may_edit(item, actor, approver):
         raise NotAllowed("Only its owner, whoever opened it, or QA may change a work item.")
     fields: dict[str, Any] = {}
     if title is not None:
@@ -128,21 +130,20 @@ def update(
     return get(conn, item_id)
 
 
-def decide(conn, item_id: str, state: str, *, actor: str, role: str | None, note: str = "") -> dict[str, Any]:
+def decide(conn, item_id: str, state: str, *, actor: str, approver: bool, note: str = "") -> dict[str, Any]:
     """Move an item: QA accepts or rejects it, or opens it again; its owner, its maker or QA marks it done."""
 
     actor = actor_text(actor)
     if state not in STATES:
         raise WorkItemError("That state is not one Prism knows.")
     item = get(conn, item_id)
-    approver = role in SUPPLY_APPROVE_ROLES
     if state in ("accepted", "rejected", "open") and not approver:
         raise NotAllowed("QA and administrators accept, reject or reopen a work item.")
-    if state == "done" and not _may_edit(item, actor, role):
+    if state == "done" and not _may_edit(item, actor, approver):
         raise NotAllowed("Only its owner, whoever opened it, or QA may mark a work item done.")
     conn.execute("UPDATE supply_work_items SET state = %s, updated_at = NOW() WHERE id = %s", (state, item_id))
     if note:
-        update(conn, item_id, actor=actor, role=role, note=note)
+        update(conn, item_id, actor=actor, approver=approver, note=note)
     write_audit(conn, actor, f"work_item.{state}", item_id, {"from": item["state"], "note": _clean_note(note)}, subject_kind="work_item")
     return get(conn, item_id)
 

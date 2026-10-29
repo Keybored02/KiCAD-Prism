@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review, watches
 
@@ -278,7 +278,7 @@ async def add_watch(
             record, created = watches.add_watch(
                 conn, body.manufacturer, body.mpn, writer.email, threshold=body.threshold, pinned=body.pinned,
                 packaging=body.packaging,
-                may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES,
+                may_create_manufacturer=is_approver(writer),
             )
         return _watch_dto(record), created
 

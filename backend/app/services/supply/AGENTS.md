@@ -135,7 +135,7 @@ root first.
 | `overview.py` | The Supply overview: counts, open alerts, recent changes, data age. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. An offer's `price_up_to` (a distributor that quotes one quantity, such as Avnet) leaves larger orders unpriced; every lookup passes it. |
-| `retention.py` | Rolls raw samples older than 60 days (or the connector's `retention_days`) into `samples_daily`, in slices of 30 days, and `drop_expired` deletes all history past the connector's `keep_days`. `trim_summaries` drops kept summaries unread for a week, rollups past their reading age and every change mark no kept row can still depend on. All run in housekeeping. |
+| `retention.py` | Rolls raw samples older than 60 days (or the connector's `retention_days`) into `samples_daily`, in slices of 30 days, and `drop_expired` deletes every listing history past the connector's `keep_days` (samples, daily rows, price breaks, stock events, promises, events; not what still holds today) and call counts past 90 days. `trim_summaries` drops kept summaries unread for a week, rollups past their reading age and every change mark no kept row can still depend on. All run in housekeeping. |
 | `backend/app/api/supply_parts.py` | Parts and watches API, and the read-only part lookup the component Sourcing tab uses. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
@@ -168,6 +168,8 @@ root first.
 - **Only approvers introduce a manufacturer.** A designer watching a part must pick a
   manufacturer Prism already knows (`ensure_manufacturer(may_create=False)`), so a stray
   "TI" cannot become a second Texas Instruments.
+- **Approval is a person's.** "Is this caller an approver" is `supply_access.is_approver` (policy
+  `supply_approve`, human-only), never a role comparison: an agent with QA's role proposes, it never approves.
 - **A job is queued only when the connector can spend a call now** (`jobs._has_budget`),
   and a repeated provider failure rests the connector. Neither may become a job a minute.
 - **A manufacturer argument is a hint, never a filter.** Prism decides who is the
