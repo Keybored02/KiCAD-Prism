@@ -70,10 +70,10 @@ class SupplyHealthTests(unittest.TestCase):
                     (f"l{index}", due, NOW - timedelta(hours=30 - index), errors))
 
     def test_an_administrator_sees_what_polling_has_done_and_how_late_it_runs(self) -> None:
-        from app.services.supply import health
+        from app.services.supply import connector_health
 
         with self.store.connection() as conn:
-            (row,) = health.connector_health(conn, NOW)
+            (row,) = connector_health.connector_health(conn, NOW)
         self.assertEqual((row["name"], row["calls_today"], row["budget"], row["last_error_code"]), ("TME", 0, 1000, "rate_limited"))
         self.assertEqual((row["listings"], row["late"], row["failing"], row["late_by_hours"]), (2, 1, 1, 5.0))
         self.assertTrue(row["oldest_read"].startswith("2026-02-28T06:00"))

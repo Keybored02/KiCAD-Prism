@@ -130,11 +130,7 @@ class PollingTests(unittest.TestCase):
         again = self.watch("lm358d")
         self.assertEqual((first.id, first.threshold, first.owner), (again.id, 100, ACTOR))
         self.assertEqual(len(self.rows("SELECT 1 FROM supply_parts")), 1)
-        self.assertEqual([w.mpn for w in self.rows_as_watches()], ["LM358-D"])
-
-    def rows_as_watches(self):
-        with self.store.connection() as conn:
-            return self.watches.list_watches(conn)
+        self.assertEqual(first.mpn, "LM358-D")
 
     def test_changing_and_removing_a_watch(self) -> None:
         watch = self.watch()

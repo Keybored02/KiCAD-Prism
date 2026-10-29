@@ -5,6 +5,7 @@ Needs ``PRISM_DATABASE_URL``. Readings are written by hand; no distributor is ca
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 import unittest
@@ -21,6 +22,18 @@ from supply_api_helpers import request as _request  # noqa: E402
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 START = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 ADMIN = "admin@example.com"
+
+
+def _load_backtest():
+    """The backtest lives under ``backend/scripts``, outside the app package."""
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "forecast_backtest.py"
+    spec = importlib.util.spec_from_file_location("prism_forecast_backtest", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")
@@ -55,11 +68,12 @@ class ForecastDbTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
-        from app.services.supply import forecast_lifecycle, forecast_load, forecast_price, parts, watches
+        from app.services.supply.forecast import inputs, models
+        from app.services.supply import parts, watches
 
-        forecast_load.forget()
-        forecast_price.forget()
-        forecast_lifecycle.forget()
+        inputs.forget_outage_pool()
+        inputs.forget_price_pool()
+        inputs.forget_lifecycle_rates()
         with self.store.connection() as conn:
             for table in ("supply_forecast_checks", "supply_forecasts", "supply_forecast_models", "supply_events", "supply_stock_events", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers",
                           "supply_part_insights", "supply_part_summaries", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_bom_usage", "supply_bom_usage_projects"):
@@ -109,22 +123,22 @@ class ForecastDbTests(unittest.TestCase):
     def test_a_cheaper_listing_joining_is_not_a_repricing_but_a_listing_changing_its_price_is(self) -> None:
         import math
 
-        from app.services.supply import forecast_price
+        from app.services.supply.forecast import inputs, models
 
         first, joined = self.listing(self.cid, "A"), self.listing(self.other, "B")
         self.readings(first, [100] * 10, START - timedelta(days=19), fetched_at=START, price="0.50")
         self.readings(first, [100] * 10, START - timedelta(days=9), fetched_at=START, price="0.60")
         self.readings(joined, [100] * 6, START - timedelta(days=5), fetched_at=START, price="0.05")
         with self.store.connection() as conn:
-            own = forecast_price.own_moves(conn, self.part_id, START)
-            cheapest = forecast_price.moves_of(forecast_price.series_of(conn, self.part_id, START))
+            own = inputs.own_moves(conn, self.part_id, START)
+            cheapest = models.moves_of(inputs.series_of(conn, self.part_id, START))
         self.assertEqual(own.count, 1, "only the listing that changed its price moved")
         self.assertAlmostEqual(own.sizes[0], math.log(0.60 / 0.50), places=6)
         self.assertEqual(cheapest.count, 0, "the cheaper listing counts from the start, so the cheapest price does not jump when it is found")
-        self.assertLessEqual(max(abs(size) for size in own.sizes), forecast_price.MAX_MOVE)
+        self.assertLessEqual(max(abs(size) for size in own.sizes), models.MAX_MOVE)
 
     def test_a_reel_repricing_does_not_set_the_moves_of_a_cut_tape_part(self) -> None:
-        from app.services.supply import forecast_price
+        from app.services.supply.forecast import inputs
 
         cut, reel = self.listing(self.cid, "A"), self.listing(self.other, "B")
         self.readings(cut, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.50")
@@ -132,12 +146,13 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_samples SET moq = 3000 WHERE listing_id = %s", (reel,))
             conn.execute("UPDATE supply_samples SET unit_price = 0.40 WHERE listing_id = %s AND sampled_at > %s", (reel, START - timedelta(days=9)))
-            self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 0, "the reel changed its price, the cut tape did not")
+            self.assertEqual(inputs.own_moves(conn, self.part_id, START).count, 0, "the reel changed its price, the cut tape did not")
             conn.execute("DELETE FROM supply_samples WHERE listing_id = %s", (cut,))
-            self.assertEqual(forecast_price.own_moves(conn, self.part_id, START).count, 1, "with nothing else pricing the part the reel counts")
+            self.assertEqual(inputs.own_moves(conn, self.part_id, START).count, 1, "with nothing else pricing the part the reel counts")
 
     def test_the_pooled_moves_read_every_part_at_once_and_add_up_to_each_parts_own(self) -> None:
-        from app.services.supply import forecast_price, parts, prices
+        from app.services.supply.forecast import inputs
+        from app.services.supply import parts, prices
 
         with self.store.connection() as conn:
             other = parts.ensure_part(conn, "Acme", "RISE-1", ADMIN).id
@@ -152,19 +167,19 @@ class ForecastDbTests(unittest.TestCase):
             self.assertEqual(together[self.part_id], prices.listing_series(conn, self.part_id, START))
             self.assertEqual(together[other], prices.listing_series(conn, other, START))
             self.assertEqual(together["no-such-part"], {})
-            pooled = forecast_price.pooled_moves(conn, [self.part_id, other], START)
-            each = [forecast_price.own_moves(conn, part_id, START) for part_id in (self.part_id, other)]
+            pooled = inputs.pooled_moves(conn, [self.part_id, other], START)
+            each = [inputs.own_moves(conn, part_id, START) for part_id in (self.part_id, other)]
         self.assertEqual((pooled.count, sorted(pooled.sizes)), (2, sorted(size for moves in each for size in moves.sizes)))
         self.assertAlmostEqual(pooled.span, sum(moves.span for moves in each))
 
     # --- making and keeping -------------------------------------------------
 
     def test_a_falling_part_gets_its_forecasts_kept_and_the_little_a_list_needs(self) -> None:
-        from app.services.supply import forecast_price, forecast_run
+        from app.services.supply.forecast import models, run
 
         self.falling(self.listing(self.cid, "FALL-SKU"))
-        with self.store.connection() as conn, mock.patch.dict(forecast_price.MIN_SPAN_DAYS, {30: 7, 90: 7}):  # the fall is 20 days of readings
-            summary = forecast_run.run_part(conn, self.part_id, START)
+        with self.store.connection() as conn, mock.patch.dict(models.MIN_SPAN_DAYS, {30: 7, 90: 7}):  # the fall is 20 days of readings
+            summary = run.run_part(conn, self.part_id, START)
         self.assertTrue(summary["available"])
         self.assertEqual(summary["runout"]["median_date"], (START + timedelta(days=10)).date().isoformat())
         self.assertEqual(summary["p_out_4w"], 1.0)
@@ -174,67 +189,67 @@ class ForecastDbTests(unittest.TestCase):
         self.assertEqual(kept["can_buy_4w"]["horizon_days"], 28)
 
     def test_asking_again_the_same_day_replaces_the_forecast_instead_of_adding_one(self) -> None:
-        from app.services.supply import forecast_run
+        from app.services.supply.forecast import run
 
         self.falling(self.listing(self.cid, "FALL-SKU"))
         with self.store.connection() as conn:
-            forecast_run.run_part(conn, self.part_id, START)
-            forecast_run.run_part(conn, self.part_id, START)
+            run.run_part(conn, self.part_id, START)
+            run.run_part(conn, self.part_id, START)
         self.assertEqual(len(self.rows("SELECT id FROM supply_forecasts WHERE target = 'runout'")), 1)
 
     def test_a_part_with_a_week_of_readings_or_less_has_none(self) -> None:
-        from app.services.supply import forecast_run
+        from app.services.supply.forecast import run
 
         self.readings(self.listing(self.cid, "SHORT"), [900, 800, 700], START - timedelta(days=2), fetched_at=START)
         with self.store.connection() as conn:
-            summary = forecast_run.run_part(conn, self.part_id, START)
+            summary = run.run_part(conn, self.part_id, START)
         self.assertFalse(summary["available"])
         self.assertEqual(self.rows("SELECT id FROM supply_forecasts WHERE target = 'runout'"), [])
 
     # --- checking ----------------------------------------------------------
 
     def test_a_forecast_is_checked_when_its_day_comes_and_the_model_learns_from_it(self) -> None:
-        from app.services.supply import forecast_run, forecasting
+        from app.services.supply.forecast import run, store
 
         listing = self.listing(self.cid, "FALL-SKU")
         self.falling(listing)
         with self.store.connection() as conn:
-            forecast_run.run_part(conn, self.part_id, START)
-            self.assertEqual(forecast_run.check_due(conn, START + timedelta(days=3)), 0, "its day has not come")
+            run.run_part(conn, self.part_id, START)
+            self.assertEqual(run.check_due(conn, START + timedelta(days=3)), 0, "its day has not come")
         # What happened: stock fell to nothing on day 10, as said.
         self.readings(listing, [1000 - 100 * i for i in range(1, 16) if 1000 - 100 * i > 0] + [0] * 6, START + timedelta(days=1), fetched_at=START + timedelta(days=16))
         later = START + timedelta(days=16)
         with self.store.connection() as conn:
-            checked = forecast_run.check_due(conn, later)
-            states = forecasting.update_models(conn, later)
+            checked = run.check_due(conn, later)
+            states = store.update_models(conn, later)
         self.assertEqual(checked, 1, "only the runout is due; the four-week ones are not")
         check = self.rows("SELECT c.observed, c.inside, c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
         self.assertEqual((check["observed"], check["inside"], check["void"]), (10.0, True, False))
         self.assertEqual(states["runout"], "learning", "one check is not enough to be shown")
-        model = forecasting.model_states(self.store.connection().__enter__())["runout"]
+        model = store.model_states(self.store.connection().__enter__())["runout"]
         self.assertEqual((model["checks"], model["needs"]), (1, 40))
 
     def test_a_forecast_about_a_day_nobody_read_is_voided_not_judged(self) -> None:
-        from app.services.supply import forecast_run
+        from app.services.supply.forecast import run
 
         listing = self.listing(self.cid, "FALL-SKU")
         self.falling(listing)
         with self.store.connection() as conn:
-            forecast_run.run_part(conn, self.part_id, START)
-            forecast_run.check_due(conn, START + timedelta(days=40))
+            run.run_part(conn, self.part_id, START)
+            run.check_due(conn, START + timedelta(days=40))
         voided = self.rows("SELECT c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")
         self.assertEqual([row["void"] for row in voided], [True])
 
     def test_a_restock_before_the_runout_voids_that_check(self) -> None:
-        from app.services.supply import forecast_run
+        from app.services.supply.forecast import run
 
         listing = self.listing(self.cid, "FALL-SKU")
         self.falling(listing)
         with self.store.connection() as conn:
-            forecast_run.run_part(conn, self.part_id, START)
+            run.run_part(conn, self.part_id, START)
         self.readings(listing, [1000 - 100 * i for i in range(1, 5)] + [5000] * 14, START + timedelta(days=1), fetched_at=START + timedelta(days=16))
         with self.store.connection() as conn:
-            forecast_run.check_due(conn, START + timedelta(days=16))
+            run.check_due(conn, START + timedelta(days=16))
         row = self.rows("SELECT c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
         self.assertTrue(row["void"])
 
@@ -243,54 +258,54 @@ class ForecastDbTests(unittest.TestCase):
     def seed_checks(self, target, rows):
         """Checks written straight in: (made_on offset, probability, inside, observed)."""
 
-        from app.services.supply import forecasting
+        from app.services.supply.forecast import store
 
         with self.store.connection() as conn:
             for index, (probability, inside, observed) in enumerate(rows):
                 made = (START - timedelta(days=400 - index)).date()
-                fid = forecasting.store(conn, "part", self.part_id, target, made, 10, model="t", scope=str(index), low=1, high=2, median=1.5, probability=probability)
-                forecasting.record_check(conn, fid, made, observed=observed, inside=inside)
+                fid = store.store(conn, "part", self.part_id, target, made, 10, model="t", scope=str(index), low=1, high=2, median=1.5, probability=probability)
+                store.record_check(conn, fid, made, observed=observed, inside=inside)
 
     def test_a_model_is_shown_when_enough_checks_say_it_holds_and_paused_when_the_latest_say_it_does_not(self) -> None:
-        from app.services.supply import forecasting
+        from app.services.supply.forecast import store
 
         self.seed_checks("runout", [(None, i % 5 != 0, 5.0) for i in range(45)])
         with self.store.connection() as conn:
-            self.assertEqual(forecasting.update_models(conn, START)["runout"], "shown")
-            first = forecasting.model_states(conn)["runout"]
+            self.assertEqual(store.update_models(conn, START)["runout"], "shown")
+            first = store.model_states(conn)["runout"]
         self.assertEqual((first["checks"], first["score"]), (45, 0.8))
         self.seed_checks("price_30", [(None, False, 1.0) for _ in range(45)])
         with self.store.connection() as conn:
-            states = forecasting.update_models(conn, START)
-            miss = forecasting.model_states(conn)["price_30"]
+            states = store.update_models(conn, START)
+            miss = store.model_states(conn)["price_30"]
         self.assertEqual(states["price_30"], "learning", "never shown, so it is still learning, with its record said")
         self.assertIn("held 0%", miss["reason"])
         # The shown model starts missing: the last thirty checks all fall outside.
         with self.store.connection() as conn:
             for index in range(30):
                 made = (START - timedelta(days=100 - index)).date()
-                fid = forecasting.store(conn, "part", self.part_id, "runout", made, 10, model="t", scope=f"late{index}", low=1, high=2, median=1.5)
-                forecasting.record_check(conn, fid, made, observed=9.0, inside=False)
-            self.assertEqual(forecasting.update_models(conn, START)["runout"], "paused")
+                fid = store.store(conn, "part", self.part_id, "runout", made, 10, model="t", scope=f"late{index}", low=1, high=2, median=1.5)
+                store.record_check(conn, fid, made, observed=9.0, inside=False)
+            self.assertEqual(store.update_models(conn, START)["runout"], "paused")
 
     def test_chances_are_judged_on_calibration(self) -> None:
-        from app.services.supply import forecasting
+        from app.services.supply.forecast import store
 
         self.seed_checks("can_buy_4w", [(0.7, None, 1.0 if i % 10 < 7 else 0.0) for i in range(70)])
         with self.store.connection() as conn:
-            self.assertEqual(forecasting.update_models(conn, START)["can_buy_4w"], "shown")
-            curve = forecasting.reliability(conn, "can_buy_4w")
+            self.assertEqual(store.update_models(conn, START)["can_buy_4w"], "shown")
+            curve = store.reliability(conn, "can_buy_4w")
         self.assertEqual([(round(b["said"], 1), round(b["happened"], 1)) for b in curve], [(0.7, 0.7)])
 
     def test_a_backtest_replays_past_days_from_the_readings_up_to_each_and_checks_them(self) -> None:
-        from app.services.supply import forecast_backtest, forecasting
+        backtest = _load_backtest()
 
         listing = self.listing(self.cid, "FALL-SKU")
         # 60 days: falling 100 a day to zero on day 30, then a restock of 5,000 and falling again.
         values = [3000 - 100 * i for i in range(31)] + [5000 - 100 * i for i in range(1, 30)]
         self.readings(listing, values, START - timedelta(days=59), fetched_at=START)
         with self.store.connection() as conn:
-            result = forecast_backtest.run(conn, (START - timedelta(days=50)).date(), START + timedelta(days=1))
+            result = backtest.run(conn, (START - timedelta(days=50)).date(), START + timedelta(days=1))
         checks = self.rows("SELECT COUNT(*) AS n FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout' AND NOT c.void")
         self.assertGreater(result["kept"], 20)
         self.assertGreater(checks[0]["n"], 3, "the runouts made in the first falling run were judged")
@@ -303,11 +318,11 @@ class ForecastDbTests(unittest.TestCase):
         return _request(self.app, "GET", path, user=self.user, query=query)
 
     def test_the_part_forecast_comes_as_dates_and_words_with_each_models_state(self) -> None:
-        from app.services.supply import forecast_price, forecast_view
+        from app.services.supply.forecast import models, views
 
         self.falling(self.listing(self.cid, "FALL-SKU"))
-        with self.store.connection() as conn, mock.patch.dict(forecast_price.MIN_SPAN_DAYS, {30: 7, 90: 7}):
-            found = forecast_view.part(conn, self.part_id, START, quantity=100)
+        with self.store.connection() as conn, mock.patch.dict(models.MIN_SPAN_DAYS, {30: 7, 90: 7}):
+            found = views.part(conn, self.part_id, START, quantity=100)
         self.assertTrue(found["available"])
         self.assertEqual(found["runout"]["median"], (START + timedelta(days=10)).date().isoformat())
         self.assertEqual(found["runout"]["state"]["state"], "learning")
@@ -318,26 +333,26 @@ class ForecastDbTests(unittest.TestCase):
         self.assertTrue(found["price"]["h90"]["flat"])
         self.assertEqual(found["path"][0]["day"], START.date().isoformat())
         self.assertNotIn("end_of_life", found, "the lifecycle chance waits for the changes it needs; until then it is the prior's")
-        from app.services.supply import forecast_lifecycle
+        from app.services.supply.forecast import inputs
 
-        with self.store.connection() as conn, mock.patch.dict(forecast_price.MIN_SPAN_DAYS, {30: 7, 90: 7}), \
-                mock.patch.object(forecast_lifecycle, "MIN_CHANGES_TO_SHOW", 0):
-            shown = forecast_view.part(conn, self.part_id, START, quantity=100)
+        with self.store.connection() as conn, mock.patch.dict(models.MIN_SPAN_DAYS, {30: 7, 90: 7}), \
+                mock.patch.object(models, "MIN_CHANGES_TO_SHOW", 0):
+            shown = views.part(conn, self.part_id, START, quantity=100)
         self.assertIn("p12", shown["end_of_life"], "and is shown once it rests on data")
 
     def test_a_part_with_an_open_notice_and_distributors_dropping_it_is_likelier_to_end_but_never_certain(self) -> None:
-        from app.services.supply import forecast_lifecycle
+        from app.services.supply.forecast import inputs
 
         listing = self.listing(self.cid, "EOL-SKU")
         self.readings(listing, [100] * 10, START - timedelta(days=9), fetched_at=START)
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_parts SET created_at = %s", (START - timedelta(days=1080),))  # three years watched: a small pooled rate
-            plain = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
+            plain = inputs.part_chance(conn, self.part_id, "active", START.date())
             conn.execute("INSERT INTO supply_pcns (id, title, kind, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', 'open', 'a')")
             conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
-            noticed = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
+            noticed = inputs.part_chance(conn, self.part_id, "active", START.date())
             conn.execute("UPDATE supply_offers SET discontinued = TRUE WHERE listing_id = %s", (listing,))
-            dropped = forecast_lifecycle.part_chance(conn, self.part_id, "active", START.date())
+            dropped = inputs.part_chance(conn, self.part_id, "active", START.date())
             self.assertEqual(plain["signs"], {"notice": False, "dropped_share": 0.0})
             self.assertEqual(dropped["signs"], {"notice": True, "dropped_share": 1.0})
             self.assertAlmostEqual(noticed["rate"] / plain["rate"], 3.0, places=6)
@@ -345,10 +360,11 @@ class ForecastDbTests(unittest.TestCase):
             self.assertLess(dropped["p12"], 0.95)
             self.assertGreater(dropped["p12"], noticed["p12"])
             conn.execute("UPDATE supply_pcns SET state = 'closed'")
-            self.assertFalse(forecast_lifecycle.signs(conn, self.part_id)["notice"], "a closed notice is no sign")
+            self.assertFalse(inputs.signs(conn, self.part_id)["notice"], "a closed notice is no sign")
 
     def test_a_part_with_few_readings_since_its_restock_borrows_the_drain_of_five_similar_parts(self) -> None:
-        from app.services.supply import forecast_load, forecast_stock, parts, watches
+        from app.services.supply.forecast import inputs, models
+        from app.services.supply import parts, watches
 
         category = "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
         with self.store.connection() as conn:
@@ -364,18 +380,19 @@ class ForecastDbTests(unittest.TestCase):
         # This part: a restock to 3,000 two days ago and three readings since.
         self.readings(self.listing(self.cid, "NEW-SKU"), [200] * 12 + [3000, 2950, 2900], START - timedelta(days=14), fetched_at=START)
         with self.store.connection() as conn:
-            shares = forecast_load.similar_shares(conn, self.part_id, START)
-            found = forecast_load.holders(conn, self.part_id, START)
-            alone = forecast_load.holders(conn, self.part_id, START, borrow=False)
+            shares = inputs.similar_shares(conn, self.part_id, START)
+            found = inputs.holders(conn, self.part_id, START)
+            alone = inputs.holders(conn, self.part_id, START, borrow=False)
         self.assertIsNotNone(shares)
         self.assertEqual(len(shares), 5)
         self.assertTrue(all(0.0 < share < 0.2 for share in shares), shares)
         self.assertIsNotNone(found[0].similar)
         self.assertIsNone(alone[0].similar)
-        self.assertLess(len(forecast_stock.run_since_restock(found[0].series)), forecast_stock.FEW_READINGS)
+        self.assertLess(len(models.run_since_restock(found[0].series)), models.FEW_READINGS)
 
     def test_four_similar_parts_are_too_few_to_borrow_from(self) -> None:
-        from app.services.supply import forecast_load, parts, watches
+        from app.services.supply.forecast import inputs
+        from app.services.supply import parts, watches
 
         category = "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'category', 'Op Amps', %s)"
         with self.store.connection() as conn:
@@ -389,7 +406,7 @@ class ForecastDbTests(unittest.TestCase):
         for index, twin in enumerate(twins):
             self.falling(self.listing(self.cid, f"SKU-{index}", twin))
         with self.store.connection() as conn:
-            self.assertIsNone(forecast_load.similar_shares(conn, self.part_id, START))
+            self.assertIsNone(inputs.similar_shares(conn, self.part_id, START))
 
     def test_the_forecast_endpoint_and_the_track_record(self) -> None:
         self.falling(self.listing(self.cid, "FALL-SKU"), end=datetime.now(timezone.utc))

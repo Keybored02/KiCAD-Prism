@@ -275,14 +275,3 @@ def reject_listing(conn, listing_id: str, actor: str) -> None:
     if result.rowcount == 0:
         raise ListingNotFound(listing_id)
     write_audit(conn, actor, "listing.reject", listing_id, {}, subject_kind="listing")
-
-
-def counted_listings(conn, part_id: str) -> list[dict]:
-    """The listings that feed stock and price for a part."""
-
-    rows = conn.execute(
-        "SELECT id, connector_id, sku, packaging, match_state FROM supply_listings "
-        "WHERE part_id = %s AND supply_counted(match_state) ORDER BY connector_id, sku",
-        (part_id,),
-    ).fetchall()
-    return [dict(row) for row in rows]
