@@ -134,7 +134,6 @@ class DiscoveryService:
             if part.provisional:
                 # The answers may settle who makes it; the listings are sorted again by what they say.
                 settle.settle_part(conn, part.id)
-            settle.learn_aliases(conn)
             read = [
                 (row["id"], match.offer)
                 for match, row in (

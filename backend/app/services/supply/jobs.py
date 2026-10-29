@@ -309,16 +309,16 @@ def schedule_due_supply_jobs(
     return queued
 
 
-def _read_details(connectors: ConnectorService, connector_id: str) -> str | None:
+def _read_details(connectors: ConnectorService, connector_id: str, provider: Any = None) -> str | None:
     """Read a few due change notices or substance lists. Best effort: a failure is recorded per listing, never the job."""
 
     try:
-        stopped = details.run(connectors, connector_id).stopped
+        stopped = details.run(connectors, connector_id, provider=provider).stopped
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).warning("Distributor details not read", exc_info=True)
         return "error"
     try:
-        substitutes.run_due(connectors, connector_id)
+        substitutes.run_due(connectors, connector_id, provider=provider)
     except Exception:  # noqa: BLE001 - substitutes are a favour; the notices and the job do not depend on them
         logging.getLogger(__name__).warning("Substitutes not asked for", exc_info=True)
     return stopped
@@ -365,6 +365,15 @@ def run_supply_poll_job(context: Any) -> Any:
 
     connector_ids = [str(item) for item in context.payload.get("connector_ids") or [context.payload["connector_id"]]]
     connectors = ConnectorService()
+    # One adapter per connector for the whole job: its session, pacing and token are reused by every read and search.
+    loaded: dict[str, Any] = {}
+
+    def provider_for(connector_id: str) -> Any:
+        if connector_id not in loaded:
+            loaded[connector_id] = connectors.load_provider(connector_id)
+        return loaded[connector_id]
+
+    poller, discoverer = Poller(connectors, provider_for=provider_for), Discoverer(connectors, provider_for=provider_for)
     searched = listings = calls = polled_count = gone = spare_calls = holding = 0
     discovery_stopped = poll_stopped = None
     for connector_id in connector_ids:
@@ -374,11 +383,11 @@ def run_supply_poll_job(context: Any) -> Any:
         except Exception:  # noqa: BLE001 - without the figure no call counts as free; the job's own work goes on
             logging.getLogger(__name__).warning("Scheduled work not counted", exc_info=True)
         context.progress(stage="supply-poll", message="Reading stock and prices", percent=10, force=True)
-        polled = Poller(connectors).poll_connector(connector_id)
+        polled = poller.poll_connector(connector_id)
         context.progress(stage="supply-discover", message="Searching for listings", percent=50, force=True)
-        found = Discoverer(connectors).run(connector_id)
+        found = discoverer.run(connector_id)
         try:
-            oneoff.run(Discoverer(connectors), Poller(connectors), connectors.store, connector_id)
+            oneoff.run(discoverer, poller, connectors.store, connector_id)
         except Exception:  # noqa: BLE001 - a check that fails is tried again; it never fails the job
             logging.getLogger(__name__).warning("Check once not served", exc_info=True)
         if polled.stopped in (None, "nothing_due", "budget"):
@@ -387,11 +396,11 @@ def run_supply_poll_job(context: Any) -> Any:
                     refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
             except Exception:  # noqa: BLE001
                 logging.getLogger(__name__).warning("Scheduled work not counted", exc_info=True)
-            spare_calls += _spend_spare(connectors, connector_id)[0]
+            spare_calls += _spend_spare(connectors, connector_id, poller=poller, discoverer=discoverer)[0]
         searched, listings = searched + found.searched, listings + found.listings
         calls, polled_count, gone, holding = calls + polled.calls, polled_count + polled.polled, gone + polled.gone, holding + polled.holding
         discovery_stopped, poll_stopped = found.stopped, polled.stopped
-    details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
+    details_stopped = [_read_details(connectors, connector_id, provider_for(connector_id)) for connector_id in connector_ids][-1]
     if polled_count:
         tasks.run_one(connectors.store, "rollups", force=True)
     details: Mapping[str, Any] = {
