@@ -406,6 +406,7 @@ def _offer(sku: str, item: Mapping[str, Any], source: Mapping[str, Any], part: M
 SPEC = ProviderSpec(
     key=KEY,
     hosts=ALLOWED_HOSTS,
+    limits_storage=True,
     label="Arrow",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING}),
     max_batch=MAX_PARTS,

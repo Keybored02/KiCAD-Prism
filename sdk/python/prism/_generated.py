@@ -4662,6 +4662,7 @@ class app__api__supply_connectors__UpdateConnectorRequest(TypedDict, total=False
     enabled: bool | None
     interactive_reserve_pct: int | None
     keep_days: int | None
+    keep_unused: bool | None
     reset_time: str | None
     reset_tz: str | None
     retention_days: int | None

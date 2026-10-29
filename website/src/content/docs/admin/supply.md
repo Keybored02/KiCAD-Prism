@@ -192,6 +192,14 @@ stale on each component. See
   readings, price breaks, stock-outs and restocks, arrival dates and change
   events are deleted. What still holds today stays: the current prices, a
   stock-out not yet over, an arrival date not yet reached.
+- DigiKey, Mouser, Farnell, Arrow and Avnet don't allow their data to be kept
+  as a database of your own. For these, Prism keeps prices and stock only for
+  parts in use: followed at a tier (a tracked project or a watch) or held in
+  stock by an inventory source. Any other part keeps its prices and stock for
+  24 hours after it was read. After that they're deleted, but the
+  distributor's part numbers stay, so the next read needs no search. If you
+  have the distributor's written permission to keep more, turn on **Keep
+  prices of parts not in use** in the connector's **Edit settings**.
 - Call counts are kept 90 days.
 - Providers Prism doesn't know can be added as plugins through the
   `prism.supply_providers` entry point.

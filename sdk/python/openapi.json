@@ -25210,6 +25210,17 @@
             ],
             "title": "Keep Days"
           },
+          "keep_unused": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Unused"
+          },
           "reset_time": {
             "anyOf": [
               {

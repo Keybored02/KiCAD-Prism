@@ -41,6 +41,7 @@ TABLES: tuple[str, ...] = (
         cooldown_until TIMESTAMPTZ,
         retention_days INTEGER CHECK ((retention_days >= 1) AND (retention_days <= 365)),
         keep_days INTEGER CHECK ((keep_days >= 1) AND (keep_days <= 3650)),
+        keep_unused BOOLEAN NOT NULL DEFAULT FALSE,
         account_key TEXT NOT NULL DEFAULT '',
         reset_time TEXT NOT NULL DEFAULT '00:00',
         reset_tz TEXT NOT NULL DEFAULT 'UTC',

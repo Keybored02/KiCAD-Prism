@@ -54,6 +54,10 @@ export interface SupplyConnector {
   retention_days: number | null;
   /** Days any history is kept, daily rows included; null keeps it for good. */
   keep_days: number | null;
+  /** The distributor's terms limit storage: prices of parts not in use are kept only for a day after a read. */
+  limits_storage: boolean;
+  /** The administrator holds the distributor's written leave to keep them. */
+  keep_unused: boolean;
   metered: boolean;
   /** The connector's offers come from an uploaded file. */
   csv_fed: boolean;
@@ -106,6 +110,7 @@ export interface UpdateSupplyConnectorInput {
   interactive_reserve_pct?: number;
   retention_days?: number | null;
   keep_days?: number | null;
+  keep_unused?: boolean;
   storefront?: string;
   reset_time?: string;
   reset_tz?: string;

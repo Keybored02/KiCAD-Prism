@@ -59,6 +59,8 @@ class UpdateConnectorRequest(BaseModel):
     retention_days: Optional[int] = None
     # Days any history is kept, daily rows included. Null keeps it for good.
     keep_days: Optional[int] = None
+    # The administrator holds the distributor's written leave to keep prices and stock of parts not in use.
+    keep_unused: Optional[bool] = None
     # When the provider's day begins (HH:MM) and in which time zone; its budget resets then.
     reset_time: Optional[str] = Field(default=None, max_length=5)
     reset_tz: Optional[str] = Field(default=None, max_length=64)

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { SupplyConnector } from "@/types/supply";
 import { changesFrom, settingsProblem, valuesOf, type EditValues } from "./connector-form-model";
 import { updateSupplyConnector } from "./supply-api";
@@ -129,6 +130,16 @@ function EditForm({ connector, storefronts = [], onClose, onSaved }: { connector
           />
           <p className="text-[11px] text-muted-foreground">Set it if the provider&apos;s terms limit how long its data may be stored.</p>
         </div>
+        {connector.limits_storage ? (
+          <div className="col-span-2 flex items-center justify-between gap-3">
+            <Label htmlFor="edit-connector-keep-unused">Keep prices of parts not in use</Label>
+            <Switch
+              id="edit-connector-keep-unused"
+              checked={values.keepUnused}
+              onCheckedChange={(checked) => update({ keepUnused: checked })}
+            />
+          </div>
+        ) : null}
       </div>
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter>
