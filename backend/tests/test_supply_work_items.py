@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -41,7 +41,7 @@ class WorkItemTests(unittest.TestCase):
 
         def clear() -> None:
             with self.store.connection() as conn:
-                conn.execute("DELETE FROM supply_work_items")
+                conn.execute("DELETE FROM supply_attention WHERE kind = 'work'")
                 conn.execute("DELETE FROM supply_bom_usage_projects")
 
         self.addCleanup(clear)
@@ -79,6 +79,22 @@ class WorkItemTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "", "designer", query="state=live").json, [])
         history = self.call("GET", f"/{item['id']}/history", "qa").json
         self.assertEqual([entry["action"] for entry in history], ["create", "update", "accepted", "done"])
+
+    def test_an_item_is_an_attention_row_that_rejection_or_done_closes_and_reopening_opens(self) -> None:
+        from app.services.supply import attention
+
+        part_id = self.make()
+        item = self.call("POST", "", "qa", {"subject_kind": "part", "subject_id": part_id, "title": "Retire OLD-1", "action": "retire"}).json
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT kind, state, part_id, title FROM supply_attention WHERE id = %s", (int(item["id"]),)).fetchone()
+            self.assertEqual(dict(row), {"kind": "work", "state": "open", "part_id": part_id, "title": "Retire OLD-1"})
+            self.assertEqual(attention.summary(conn, datetime.now(timezone.utc)), [], "a work item is not an alert to count")
+        rejected = self.call("POST", f"/{item['id']}/state", "qa", {"state": "rejected"}).json
+        self.assertEqual(rejected["state"], "rejected")
+        self.assertEqual([row["id"] for row in self.call("GET", "", "qa", query="state=rejected").json], [item["id"]])
+        self.assertEqual(self.call("POST", f"/{item['id']}/state", "qa", {"state": "open"}).json["state"], "open", "QA opens it again")
+        self.assertEqual(self.call("POST", f"/{item['id']}/state", "qa", {"state": "done"}).json["state"], "done")
+        self.assertEqual(self.call("GET", "/not-a-number/history", "qa").status, 404)
 
     def test_someone_who_is_neither_owner_nor_maker_nor_qa_may_not_change_it(self) -> None:
         part_id = self.make()

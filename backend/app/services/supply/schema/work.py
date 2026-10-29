@@ -1,5 +1,5 @@
-"""What people follow and decide: watches, what needs a person and what they decided (attention), alert rules, ending components and
-work items, tracked projects and their BOM usage, BOM notes and cost history, and release snapshots.
+"""What people follow and decide: watches, what needs a person and what they decided (attention, work items among it), alert
+rules, ending components, tracked projects and their BOM usage, BOM notes and cost history, and release snapshots.
 """
 
 from __future__ import annotations
@@ -210,25 +210,6 @@ TABLES: tuple[str, ...] = (
         rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly')),
         origin TEXT NOT NULL DEFAULT 'person' CHECK (origin IN ('person', 'legacy'))
     );
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS supply_work_items (
-        id TEXT PRIMARY KEY,
-        subject_kind TEXT NOT NULL CHECK (subject_kind IN ('component', 'part')),
-        subject_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        action TEXT NOT NULL,
-        owner TEXT NOT NULL DEFAULT '',
-        state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'accepted', 'rejected', 'done')),
-        evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
-        project_ids TEXT[] NOT NULL DEFAULT '{}'::text[],
-        recheck_on DATE,
-        created_by TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_supply_work_items_open ON supply_work_items (state, recheck_on);
-    CREATE INDEX IF NOT EXISTS idx_supply_work_items_subject ON supply_work_items (subject_kind, subject_id);
     """,
 )
 
