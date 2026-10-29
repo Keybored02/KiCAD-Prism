@@ -53,10 +53,27 @@ def _tracked(conn) -> list[str]:
     return [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers").fetchall()]
 
 
+class _PooledRates:
+    """The run's pooled lifecycle rates, worked out on the first part that needs them and reused after."""
+
+    def __init__(self, conn, day: date) -> None:
+        self._conn = conn
+        self._day = day
+        self._found: dict[str, Any] | None = None
+
+    def get(self) -> dict[str, Any]:
+        if self._found is None:
+            from app.services.supply import forecast_lifecycle
+
+            self._found = forecast_lifecycle.rates(self._conn, self._day)
+        return self._found
+
+
 def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
     """Make and keep the forecasts of one part. Returns the little the lists need to show them."""
 
     day = now.astimezone(timezone.utc).date()
+    rates = _PooledRates(conn, day)
     quantity = forecast_load.default_quantity(conn, part_id)
     stock = stock_forecast(conn, part_id, now, quantity)
     summary: dict[str, Any] = {"available": bool(stock.get("available")), "made_on": day.isoformat()}
@@ -77,7 +94,7 @@ def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
             forecasting.store(conn, "part", part_id, target, day, weeks * 7, model="drain-sim", quantity=quantity, probability=stock["weeks"][weeks - 1], inputs=stock["inputs"])
         summary |= {"p_out_4w": stock["out_everywhere"][4], "p_out_8w": stock["out_everywhere"][8],
                     "can_buy_4w": stock["weeks"][3], "can_buy_8w": stock["weeks"][7], "out_now": stock["out_now"]}
-    _store_end_of_life(conn, part_id, day)
+    _store_end_of_life(conn, part_id, day, rates)
     price = price_forecast(conn, part_id, now)
     if price.get("available"):
         for target, key, horizon in (("price_30", "h30", 30), ("price_90", "h90", 90)):
@@ -90,7 +107,7 @@ def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
 EOL_EVERY_DAYS = 28
 
 
-def _store_end_of_life(conn, part_id: str, day: date) -> None:
+def _store_end_of_life(conn, part_id: str, day: date, rates: _PooledRates) -> None:
     """Keep the 12-month end-of-life chance of a part that is not ending, about once a month (its check is a year away)."""
 
     from app.services.supply import forecast_lifecycle, parts_view
@@ -104,7 +121,7 @@ def _store_end_of_life(conn, part_id: str, day: date) -> None:
     items = parts_view.summaries_for(conn, [part_id])
     if not items:
         return
-    found = forecast_lifecycle.part_chance(conn, part_id, items[0]["lifecycle"], day)
+    found = forecast_lifecycle.part_chance(conn, part_id, items[0]["lifecycle"], day, pooled=rates.get())
     if found["available"]:
         forecasting.store(conn, "part", part_id, "eol_12", day, 365, model="pooled-hazard", probability=found["p12"], inputs={"rate": found["rate"], "changes": found["changes"], "signs": found["signs"]})
 

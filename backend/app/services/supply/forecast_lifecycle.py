@@ -97,12 +97,12 @@ def factor(found: dict[str, Any]) -> float:
     return (NOTICE_FACTOR if found["notice"] else 1.0) * (1.0 + (DROPPED_FACTOR - 1.0) * found["dropped_share"])
 
 
-def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None) -> dict[str, Any]:
+def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None, *, pooled: dict[str, Any] | None = None) -> dict[str, Any]:
     """The chance a part turns ending within 12 and 24 months, from its maker's rate and its own signs. None for a part that already is."""
 
     if lifecycle in _ENDING:
         return {"available": False, "reason": "already_ending"}
-    found = rates(conn, today)
+    found = pooled if pooled is not None else rates(conn, today)
     maker = conn.execute("SELECT m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)).fetchone()
     rate = found["makers"].get(maker["name"], found["pooled"]) if maker else found["pooled"]
     shown = signs(conn, part_id)
