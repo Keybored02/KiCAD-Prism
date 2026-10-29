@@ -1,8 +1,12 @@
-"""Read one part now.
+"""Read one part now, or the parts someone is looking at.
 
 A person asks for a fresh reading of a part instead of waiting for its turn. It reads that part's
 counted listings at each distributor that holds one, and spends the interactive reserve, never the
 polling budget. One person may ask for the same part once every fifteen minutes.
+
+``read_on_view`` is the same read without asking: opening parts nothing follows reads, in one batch per distributor, the
+listings whose prices are older than the read window (``retention.READ_WINDOW``, after which a distributor that limits
+storage has them deleted). A part is tried once every fifteen minutes, whoever looks.
 """
 
 from __future__ import annotations
@@ -10,12 +14,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import poller, parts, trouble
+from app.services.supply import poller, parts, retention, trouble
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorService
 
 COOLDOWN = timedelta(minutes=15)
 ACTION = "part.refresh"
+VIEW_ACTION = "part.view_read"
+VIEW_MAX_PARTS = 50
 
 _STOPPED_TEXT = {
     poller.STOPPED_INACTIVE: "is disabled or paused",
@@ -81,3 +87,45 @@ def read_now(
                 "reason": trouble.stopped_text(store, connector_id, name, summary.stopped, now, _STOPPED_TEXT.get(summary.stopped, "could not be read")),
             })
     return {"read": read, "connectors": len(connector_ids), "problems": problems}
+
+
+def read_on_view(
+    connectors: ConnectorService,
+    part_ids: list[str],
+    actor: str,
+    *,
+    clock: Callable[[], datetime] | None = None,
+    reader: poller.Poller | None = None,
+) -> dict[str, Any]:
+    """Read the parts someone opened that nothing follows and whose prices have aged past the read window, from the interactive
+    reserve. Returns how many listings were read."""
+
+    now = (clock or (lambda: datetime.now(timezone.utc)))()
+    stale = now - retention.READ_WINDOW
+    store = connectors.store
+    wanted = list(dict.fromkeys(str(part_id) for part_id in part_ids if part_id))[:VIEW_MAX_PARTS]
+    with store.connection() as conn:
+        used = retention.in_use(conn, wanted)
+        tried = {row["subject_id"] for row in conn.execute(
+            "SELECT DISTINCT subject_id FROM supply_audit_events WHERE action = %s AND subject_id = ANY(%s) AND at > %s",
+            (VIEW_ACTION, wanted, now - COOLDOWN),
+        ).fetchall()}
+        todo = [part_id for part_id in wanted if part_id not in used and part_id not in tried]
+        rows = conn.execute(
+            "SELECT l.connector_id, l.part_id FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id "
+            "WHERE l.part_id = ANY(%s) AND supply_counted(l.match_state) AND (o.fetched_at IS NULL OR o.fetched_at < %s) "
+            "ORDER BY l.connector_id, l.part_id",
+            (todo, stale),
+        ).fetchall() if todo else []
+        by_connector: dict[str, list[str]] = {}
+        for row in rows:
+            by_connector.setdefault(row["connector_id"], [])
+            if row["part_id"] not in by_connector[row["connector_id"]]:
+                by_connector[row["connector_id"]].append(row["part_id"])
+        for part_id in sorted({row["part_id"] for row in rows}):
+            write_audit(conn, actor_text(actor), VIEW_ACTION, part_id, {}, subject_kind="part")
+    reader = reader or poller.Poller(connectors, store=store, clock=clock)
+    read = 0
+    for connector_id, ids in by_connector.items():
+        read += reader.poll_connector(connector_id, interactive=True, only_part=ids, fresh_since=stale).polled
+    return {"read": read}

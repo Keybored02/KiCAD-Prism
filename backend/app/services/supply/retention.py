@@ -104,6 +104,16 @@ def _in_use(conn) -> str:
     )
 
 
+def in_use(conn, part_ids) -> set[str]:
+    """Which of these parts are in use (``_in_use``): their prices are read on schedule and kept."""
+
+    wanted = sorted({str(part_id) for part_id in part_ids if part_id})
+    if not wanted:
+        return set()
+    rows = conn.execute(f"SELECT l.part_id FROM unnest(%s::text[]) AS l(part_id) WHERE {_in_use(conn)}", (wanted,)).fetchall()
+    return {row["part_id"] for row in rows}
+
+
 def drop_unused(conn, now: datetime) -> int:
     """Delete the offer and every price and stock history of each listing whose part is not in use, at a distributor that limits
     storage, once ``READ_WINDOW`` has passed since its last read. Returns how many listings were cleared."""

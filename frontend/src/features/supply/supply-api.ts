@@ -653,6 +653,11 @@ export function checkPartNotices(partId: string): Promise<SupplyNoticeCheck> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/check-notices`, undefined, "Could not check the notices");
 }
 
+/** Read a part someone opened when nothing follows it and its prices are older than the read window; the server decides. */
+export function readSupplyPartOnView(partId: string): Promise<{ read: number }> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/view-read`, undefined, "Could not read the part");
+}
+
 export function readSupplyPartNow(partId: string): Promise<SupplyReadNow> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/refresh`, undefined, "Could not read the part");
 }
