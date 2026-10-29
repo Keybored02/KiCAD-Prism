@@ -43079,7 +43079,7 @@
     },
     "/api/v1/supply/budget": {
       "get": {
-        "description": "Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it.",
+        "description": "Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it;\nprojects the caller may not see are not named.",
         "operationId": "budget",
         "responses": {
           "200": {
