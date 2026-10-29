@@ -144,7 +144,7 @@ describe("supply columns on the BOM", () => {
     const resistors = rowOf("10k");
     expect(await within(resistors).findByText("OK")).toBeTruthy();
     expect(within(resistors).getByText("5,000")).toBeTruthy();
-    expect(within(resistors).getByText("4 wk")).toBeTruthy();
+    expect(within(resistors).getByText("4 w")).toBeTruthy();
   });
 
   it("marks a shortage and a part nobody watches", async () => {
