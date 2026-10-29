@@ -55,7 +55,7 @@ root first.
 | `attrition.py` | Spares by package class (small passives 2%, others none), used when a lookup asks for `attrition_percent: null`. |
 | `cross_reference.py` | Alternatives with the same value, graded ratings met, similar (ratings the candidate doesn't list are unknown, never met), other package, or fails a rating, from canonical parameters and the distributor category; `grade` is pure. No grade claims interchangeability; no footprint, pin or operating-condition comparison. |
 | `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
-| `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
+| `accounts.py` | Connectors on the same credentials are one account (keyed hash), a row of `supply_accounts`: one budget, reserve and reset time, one ledger, one pacer, one job. A connector with no credentials is its own account (same id); new credentials move a connector between accounts (`rekey`), and an account goes with its last connector. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account (and between processes through `pace_state`), doubled for a day after a rate limit. |
 | `schedule_settings.py` | Which spare work is on. Spare budget (`quota.free_allowance`) is the calls nothing else needs, at any hour. |
 | `counted.py` | Which listings count, in one place: `STATES` (exact and manual) and its database copy `supply_counted(match_state)`; `listing_sql` (a counted match at an enabled connector, read: a pick that limits reads leaves the others out); `priced_sql` (the picked listing prices the part at its distributor). |
@@ -154,7 +154,7 @@ root first.
 | `project_bom.py` | Tracked projects' BOMs kept current: read again every 15 minutes, the index of a new revision queued when missing (once per 6 hours if it fails), and a `project_bom_changed` event with what the revision added and removed. |
 | `room.py` | How many more parts tracking has room for: a typical part's cost per distributor from what it carries and its listings, checked against a week of real tracking spend, divided into each account's free committed calls; the headline is the distributor that fills first (assembly-only left out). |
 | `limits.py` | What a provider reports about its limits (`x-ratelimit-*`), `limit_marks`, the reset time suggested from readings and long refusals, and the sync of the provider's count into the ledger once an administrator has applied it. |
-| `ledger.py` | Atomic daily spending per account (`try_spend` locks the day's row) with `call_counts` by connector, kind and purpose in the same transaction. |
+| `ledger.py` | Atomic daily spending per account (`try_spend` locks the day's row) with `call_counts` by connector, kind and purpose in the same transaction. Where each kind of work is paid from is declared once (`Source`, `ONE_OFF`, `first_search`, `fund`). |
 | `credentials.py` | The one adapter over the credential keyring. |
 | `connectors.py` | Connector setup, credentials, pause, state. |
 | `backend/app/api/supply_connectors.py` | HTTP API for connectors. Readers are admin, designer and qa; only admin changes anything. Strips request bodies from 422 errors. |

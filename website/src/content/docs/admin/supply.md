@@ -80,7 +80,9 @@ JLCPCB before you turn it on.
 **Remove uploaded data** deletes the offers; stock history already collected
 stays.
 
-Connectors on the same credentials share one daily call limit.
+Connectors on the same credentials are one account at the distributor: they share
+one daily call limit, and the budget, the share kept for people and the reset
+time set on any of them apply to all.
 
 ### DigiKey change notices
 
