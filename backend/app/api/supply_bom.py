@@ -17,9 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api._helpers import get_project_for_role_or_404
 from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import admission, bom_lookup, catalog_read, project_bom, spreadsheet, usage
+from app.services.supply import admission, bom_lookup, catalog_read, project_bom, project_supply, spreadsheet, usage
 from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
@@ -47,7 +48,10 @@ class LineIn(BaseModel):
 class LookupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    build_quantity: int = Field(default=1, ge=1, le=1_000_000)
+    # The project the BOM is from: left out, the build and spares are its usual ones (one board, the workspace's spares, when it
+    # is not tracked or there is no project).
+    project_id: str = Field(default="", max_length=200)
+    build_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
     # Spares on top of what the boards use, as a percentage of the quantity.
     # Null asks for spares by kind of part (small passives get some, the rest none).
     attrition_percent: float | None = Field(default=0, ge=0, le=100)
@@ -174,13 +178,21 @@ async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depe
 
 
 @router.post("/lookup")
-async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+async def lookup(body: LookupRequest, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Stock, price and status of the BOM's lines for a build, with the build and spares it was priced for."""
+
+    if body.project_id:
+        get_project_for_role_or_404(body.project_id, user.role)
+    spares = body.attrition_percent if "attrition_percent" in body.model_fields_set else project_supply.DEFAULT
+
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return bom_lookup.lookup(
-                conn, _lines(body.lines), body.build_quantity, body.attrition_percent, identities=catalog_read.identities,
+            _tracked, build_quantity, attrition_percent = project_supply.build_of(conn, body.project_id, body.build_quantity, spares, fallback_build=1)
+            found = bom_lookup.lookup(
+                conn, _lines(body.lines), build_quantity, attrition_percent, identities=catalog_read.identities,
                 in_library=catalog_read.in_library,
             )
+        return {**found, "build_quantity": build_quantity, "attrition_percent": attrition_percent}
 
     return await _run(read)
 

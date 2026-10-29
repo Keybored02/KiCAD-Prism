@@ -1,6 +1,6 @@
-"""Alerts and the overview.
+"""Alerts.
 
-Everyone who reads supply data sees both. Acknowledging or snoozing an alert needs
+Everyone who reads supply data sees them. Acknowledging or snoozing an alert needs
 write access (admin, designer). Alerts are in-app only; nothing is sent anywhere.
 """
 
@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api.supply_access import is_approver, require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
-from app.services.supply import alert_rules, alerts, overview
+from app.services.supply import alert_rules, alerts
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -47,15 +47,6 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={"code": "decided", "message": str(exc)}) from exc
-
-
-@router.get("/overview")
-async def get_overview(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            return overview.build_overview(conn, role=user.role)
-
-    return await _run(read)
 
 
 @router.get("/alerts")

@@ -5,14 +5,12 @@ import type {
   PartsScope,
   SupplyAlert,
   SupplyManufacturer,
-  SupplyOverview,
   SupplyPartDetail,
   SupplyPartGroups,
   SupplyPartRow,
   SupplyPartsPage,
 } from "@/types/supply";
 import {
-  getSupplyOverview,
   findSupplyPart,
   getSupplyPart,
   listSupplyAlerts,
@@ -63,11 +61,6 @@ export function useSupplyManufacturers(): SupplyManufacturer[] {
 export function useSupplyPart(partId: string | null) {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyPart(partId ?? "", signal), [partId]);
   return useLoaded<SupplyPartDetail>(partId === null ? null : `parts/${partId}`, fetcher, "Could not load the part");
-}
-
-export function useSupplyOverview() {
-  const fetcher = useCallback((signal: AbortSignal) => getSupplyOverview(signal), []);
-  return useLoaded<SupplyOverview>("overview", fetcher, "Could not load the overview");
 }
 
 export function useSupplyAlerts(includeResolved: boolean) {

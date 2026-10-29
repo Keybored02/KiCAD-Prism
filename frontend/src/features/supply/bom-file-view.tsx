@@ -70,7 +70,7 @@ export function BomFileView() {
   };
 
   const check = () => run(async () => {
-    setLookup(await lookupSupplyBom(built.lines.map(lineInput), build));
+    setLookup(await lookupSupplyBom(built.lines.map(lineInput), { buildQuantity: build, attritionPercent: 0 }));
   });
 
   return (

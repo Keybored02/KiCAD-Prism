@@ -5,7 +5,7 @@ import type { PackagingOptions } from "@/types/supply";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("./packaging-api", () => ({
-  listPackagingWaiting: vi.fn(), getPackagingOptions: vi.fn(), pickPackaging: vi.fn(), clearPackagingPick: vi.fn(), applySimilarPicks: vi.fn(),
+  getPackagingOptions: vi.fn(), pickPackaging: vi.fn(), clearPackagingPick: vi.fn(), applySimilarPicks: vi.fn(),
 }));
 
 import * as api from "./packaging-api";

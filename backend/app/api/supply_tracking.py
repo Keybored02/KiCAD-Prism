@@ -142,24 +142,6 @@ async def choose_line(project_id: str, body: LineChoiceIn, user: AuthenticatedUs
     await _run(run)
 
 
-@router.get("")
-async def overview(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    visible = await _run(lambda: usage.visible_project_ids(user.role))
-
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            return {
-                "counts": tracking.counts(conn),
-                "projects": [
-                    {**item, "tracked_at": item["tracked_at"].isoformat()} for item in tracking.list_tracked_projects(conn)
-                    if visible is None or item["project_id"] in visible
-                ],
-                "budget": admission.status(conn),
-            }
-
-    return await _run(read)
-
-
 @router.get("/projects/{project_id}")
 async def project_state(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)

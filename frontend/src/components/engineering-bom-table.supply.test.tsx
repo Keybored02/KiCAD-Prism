@@ -19,13 +19,11 @@ vi.mock("@/features/supply/supply-api", () => ({
   readSupplyPartOnView: vi.fn(async () => ({ read: 0 })),
 }));
 
-vi.mock("@/features/supply/tracking-api", () => ({ getProjectTracking: vi.fn() }));
 
 // Recharts is slow to load cold and is not what these tests are about.
 vi.mock("@/features/supply/stock-chart", () => ({ default: () => <div role="img" aria-label="Stock over the last 90 days" /> }));
 
 import * as api from "@/features/supply/supply-api";
-import { getProjectTracking } from "@/features/supply/tracking-api";
 import { lineKey } from "@/features/supply/bom-supply";
 import { partDetailFixture } from "@/features/supply/supply-test-fixtures";
 import { toast } from "sonner";
@@ -106,8 +104,8 @@ function renderTable(role: UserRole | null, projectId?: string, atHead = true) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.lookupSupplyBom.mockImplementation(async (_lines, build) => lookupFor(build));
-  vi.mocked(getProjectTracking).mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
+  // The server prices for the project's usual build, one board without one.
+  mocked.lookupSupplyBom.mockImplementation(async (_lines, options) => lookupFor(options?.projectId === "prj_1" ? 10 : 1));
   window.localStorage.clear();
 });
 afterEach(cleanup);
@@ -119,23 +117,18 @@ function rowOf(value: string): HTMLElement {
 }
 
 describe("supply columns on the BOM", () => {
-  it("prices a tracked project's BOM at its usual build and spares, as the project page does", async () => {
-    vi.mocked(getProjectTracking).mockResolvedValue({
-      tracked: { project_id: "prj_1", variants: [], all_variants: true, build_quantity: 10, spares: "5", connector_ids: null, tracked_by: "a", tracked_at: "2026-10-01T00:00:00Z" },
-      has_usage: true, variants: [],
-    });
+  it("asks the server to price a project's BOM at its usual build and spares, as the project page does", async () => {
     renderTable("admin", "prj_1");
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalled());
-    const [, build, options] = mocked.lookupSupplyBom.mock.calls[0];
-    expect(build).toBe(10);
-    expect(options?.attritionPercent).toBe(5);
+    const [, options] = mocked.lookupSupplyBom.mock.calls[0];
+    expect(options).toEqual(expect.objectContaining({ projectId: "prj_1" }));
+    expect(options?.buildQuantity).toBeUndefined();
   });
 
   it("asks only for fitted parts and shows each row's figures", async () => {
     renderTable("designer");
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalled());
-    const [lines, build] = mocked.lookupSupplyBom.mock.calls[0];
-    expect(build).toBe(1);
+    const [lines] = mocked.lookupSupplyBom.mock.calls[0];
     expect(lines.map((line) => [line.mpn, line.quantity]).sort()).toEqual(
       [["", 1], ["C-100N", 1], ["C-220N", 1], ["R-10K", 2], ["R-47K-A", 1], ["R-47K-B", 1]],
     );
@@ -181,7 +174,7 @@ describe("supply columns on the BOM", () => {
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
     expect(screen.queryByLabelText("Boards to build")).toBeNull();
     expect(screen.queryByLabelText("Spare parts, percent")).toBeNull();
-    expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.anything());
+    expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ projectId: "prj_1" }));
     expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Track|Tracking settings/ })).toBeNull();
   });
@@ -246,7 +239,7 @@ describe("the supply column set", () => {
 
 describe("actions on the BOM", () => {
   it("reports a lookup that failed and retries", async () => {
-    mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async (_lines, build) => lookupFor(build));
+    mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async () => lookupFor(1));
     renderTable("designer");
     expect(await screen.findByText("Backend is down")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));

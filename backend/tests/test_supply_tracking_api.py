@@ -41,7 +41,7 @@ class TrackingApiTests(unittest.TestCase):
         from app.api import supply_checks, supply_connectors, supply_tracking
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
-        from app.services.supply import usage
+        from app.services.supply import tracking, usage
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.providers import registry
         from app.services.supply.providers.base import ProviderSpec
@@ -49,7 +49,7 @@ class TrackingApiTests(unittest.TestCase):
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
 
-        cls.database, cls.usage, cls.supply_tracking = database, usage, supply_tracking
+        cls.database, cls.usage, cls.supply_tracking, cls.tracking = database, usage, supply_tracking, tracking
         cls.registry = registry
         cls.users = {role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role) for role in ("viewer", "qa", "designer", "admin")}
         cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_trk_api_{uuid.uuid4().hex[:8]}"})()
@@ -104,10 +104,14 @@ class TrackingApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             return conn.execute("SELECT id FROM supply_parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
 
+    def counts(self) -> dict:
+        with self.store.connection() as conn:
+            return self.tracking.counts(conn)
+
     def test_readers_see_the_state_and_only_they(self) -> None:
         for role in ("qa", "designer", "admin"):
-            self.assertEqual(self.call("GET", "", role=role).status, 200, role)
-        self.assertEqual(self.call("GET", "", role="viewer").status, 403)
+            self.assertEqual(self.call("GET", "/projects/prj_1", role=role).status, 200, role)
+        self.assertEqual(self.call("GET", "/projects/prj_1", role="viewer").status, 403)
         self.assertEqual(self.call("PUT", "/projects/prj_1", role="viewer", body={"variants": [""]}).status, 403)
 
     def test_admin_designer_and_qa_may_track_a_project(self) -> None:
@@ -124,28 +128,24 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual((item["admitted_new"], item["waiting_new"], report["fits_nowhere"]), (3, 0, False))
         state = self.call("GET", "/projects/prj_1").json
         self.assertIsNone(state["tracked"])
-        self.assertEqual(self.call("GET", "").json["counts"], {"tier1": 0, "tier2": 0})
+        self.assertEqual(self.counts(), {"tier1": 0, "tier2": 0})
 
     def test_tracking_records_the_project_and_the_overview_counts_it(self) -> None:
         self.connector()
         self.assertEqual(self.call("PUT", "/projects/prj_1", body={"variants": [""]}).status, 200)
-        overview = self.call("GET", "").json
-        self.assertEqual(overview["counts"], {"tier1": 3, "tier2": 0})
-        self.assertEqual([p["project_id"] for p in overview["projects"]], ["prj_1"])
-        self.assertEqual((overview["budget"][0]["admitted"], overview["budget"][0]["waiting"]), (3, 0))
-        with mock.patch("app.services.supply.usage.visible_project_ids", return_value=set()):
-            hidden = self.call("GET", "").json
-        self.assertEqual((hidden["projects"], hidden["counts"]), ([], {"tier1": 3, "tier2": 0}), "a hidden project is not named")
+        self.assertEqual(self.counts(), {"tier1": 3, "tier2": 0})
+        with self.store.connection() as conn:
+            self.assertEqual([p["project_id"] for p in self.tracking.list_tracked_projects(conn)], ["prj_1"])
         state = self.call("GET", "/projects/prj_1").json
         self.assertEqual((state["tracked"]["variants"], state["has_usage"]), ([""], True))
         self.assertEqual(self.call("DELETE", "/projects/prj_1").status, 204)
-        self.assertEqual(self.call("GET", "").json["counts"], {"tier1": 0, "tier2": 0})
+        self.assertEqual(self.counts(), {"tier1": 0, "tier2": 0})
 
     def test_nothing_that_fits_nowhere_is_refused_with_the_reason(self) -> None:
         self.connector(budget=1)
         result = self.call("PUT", "/projects/prj_1", body={"variants": [""]})
         self.assertEqual((result.status, result.json["detail"]["code"]), (409, "no_room"))
-        self.assertEqual(self.call("GET", "").json["counts"], {"tier1": 0, "tier2": 0})
+        self.assertEqual(self.counts(), {"tier1": 0, "tier2": 0})
         self.assertTrue(self.call("POST", "/projects/prj_1/preview", body={"variants": [""]}).json["fits_nowhere"])
 
     def test_an_unknown_variant_is_a_bad_request(self) -> None:

@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
-import type { SupplyOverview } from "@/types/supply";
+import type { SupplyDashboard } from "@/types/supply";
 import { AlertRow } from "./alert-row";
 import { ALERT_KIND_LABEL } from "./alert-kinds";
 import { acknowledgeSupplyAlert, snoozeSupplyAlert } from "./supply-api";
@@ -24,9 +24,9 @@ function useAlertList(user: User | null) {
 }
 
 /** The alerts, worst first, with a chip a kind to narrow them. */
-export function AlertList({ user, overview, feedsFailing = false, kind, onKind, onOpenPart }: {
+export function AlertList({ user, dashboard, feedsFailing = false, kind, onKind, onOpenPart }: {
   user: User | null;
-  overview: SupplyOverview | null | undefined;
+  dashboard: SupplyDashboard | null | undefined;
   /** A feed is failing: an empty list then never says "Nothing needs you". */
   feedsFailing?: boolean;
   kind: string;
@@ -76,7 +76,7 @@ export function AlertList({ user, overview, feedsFailing = false, kind, onKind, 
       {actionError ? <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert> : null}
       {status === "ready" && data ? (
         shown.length === 0 ? (
-          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(overview, showCleared, feedsFailing)}</div>
+          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(dashboard, showCleared, feedsFailing)}</div>
         ) : (
           <ul className={cn("border")}>
             {shown.map((alert) => (
@@ -98,12 +98,12 @@ export function AlertList({ user, overview, feedsFailing = false, kind, onKind, 
   );
 }
 
-function emptyText(overview: SupplyOverview | null | undefined, showCleared: boolean, feedsFailing: boolean): string {
+function emptyText(dashboard: SupplyDashboard | null | undefined, showCleared: boolean, feedsFailing: boolean): string {
   if (showCleared) return "Nothing here yet.";
   if (feedsFailing) return "No open alerts.";
-  if (!overview) return "Nothing needs you.";
-  if (overview.connectors === 0) return "No distributor is connected. Add one under Connectors, and Prism can start reading stock.";
-  if (overview.figures.watched === 0) return "No parts are tracked yet. Track a part in Parts and it is read regularly.";
-  if (overview.figures.no_data === overview.figures.watched) return "Tracked parts are waiting for their first read.";
+  if (!dashboard) return "Nothing needs you.";
+  if (dashboard.connectors === 0) return "No distributor is connected. Add one under Connectors, and Prism can start reading stock.";
+  if (dashboard.figures.watched === 0) return "No parts are tracked yet. Track a part in Parts and it is read regularly.";
+  if (dashboard.no_data === dashboard.figures.watched) return "Tracked parts are waiting for their first read.";
   return "Nothing needs you. Alerts appear here after a part has been read twice.";
 }

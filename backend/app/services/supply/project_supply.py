@@ -10,7 +10,7 @@ import json
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 from app.services.supply import attention, bom_comments, bom_lookup, cost_history, freshness, tracking, usage
 from app.services.supply import settings as supply_settings
@@ -288,21 +288,47 @@ def refresh_rollups(conn) -> int:
     return worked
 
 
+def build_of(
+    conn, project_id: str, build_quantity: int | None, attrition_percent: float | None | str, fallback_build: int = 100,
+) -> tuple[dict[str, Any] | None, int, float | None]:
+    """The tracked project, and the build and spares a page prices for: as asked, else the project's usual ones, else
+    ``fallback_build`` boards with the workspace's spares. An empty ``project_id`` is no project."""
+
+    tracked = tracking.tracked_project(conn, project_id) if project_id else None
+    spares = usual_attrition(conn, tracked) if attrition_percent == DEFAULT else cast(float | None, attrition_percent)
+    if build_quantity is None:
+        build_quantity = (int(tracked["build_quantity"]) if tracked else None) or fallback_build
+    return tracked, build_quantity, spares
+
+
+def _notes_by_line(notes: list[dict[str, Any]]) -> dict[str, int]:
+    counted: dict[str, int] = {}
+    for note in notes:
+        counted[note["line_key"]] = counted.get(note["line_key"], 0) + 1
+    return counted
+
+
+def project_lines(
+    conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT,
+) -> list[dict[str, Any]]:
+    """The project's BOM lines priced for a build, as the overview's ``parts`` has them; empty when the BOM has not been read."""
+
+    _tracked, build_quantity, attrition_percent = build_of(conn, project_id, build_quantity, attrition_percent)
+    rows = usage.project_rows(conn, project_id, variant)
+    if not rows:
+        return []
+    return _parts(conn, rows, build_quantity, _notes_by_line(bom_comments.for_project(conn, project_id)), attrition_percent)[0]
+
+
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
     """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the project's own
     spares when it is tracked and has them, else the workspace's."""
 
-    tracked = tracking.tracked_project(conn, project_id)
-    if attrition_percent == DEFAULT:
-        attrition_percent = usual_attrition(conn, tracked)
+    tracked, build_quantity, attrition_percent = build_of(conn, project_id, build_quantity, attrition_percent)
     usual = int(tracked["build_quantity"]) if tracked else None
-    if build_quantity is None:
-        build_quantity = usual or 100
     rows = usage.project_rows(conn, project_id, variant)
-    notes_by_line: dict[str, int] = {}
     notes = bom_comments.for_project(conn, project_id)
-    for note in notes:
-        notes_by_line[note["line_key"]] = notes_by_line.get(note["line_key"], 0) + 1
+    notes_by_line = _notes_by_line(notes)
     if not rows:
         return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "releases": [], "notes": notes}
     parts, rollup, curve = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)

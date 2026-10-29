@@ -176,10 +176,9 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=bad").status, 422)
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["viewer"], query="metric=dropped").status, 403)
 
-    def test_nothing_stored_yet_says_so_and_only_readers_see_it(self) -> None:
-        response = _request(self.app, "GET", "/api/supply/market", user=self.users["qa"])
-        self.assertEqual((response.status, response.json), (200, {"day": None, "scopes": []}))
-        self.assertEqual(_request(self.app, "GET", "/api/supply/market", user=self.users["viewer"]).status, 403)
+    def test_nothing_stored_yet_says_so(self) -> None:
+        with self.store.connection() as conn:
+            self.assertEqual(market.overview(conn), {"day": None, "scopes": []})
 
 
 if __name__ == "__main__":

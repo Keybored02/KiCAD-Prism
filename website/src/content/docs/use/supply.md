@@ -137,7 +137,9 @@ questions:
 Below them are the cost by build size, the cost over time, the releases, line
 notes and the parts. Use the chips **Unchecked**, **Out of stock**, **Short for this build**,
 **Limiting the build**, **Not priced**, **End of life** and **Open alerts** to
-narrow the parts.
+narrow the parts; each counts over the whole project. The list shows **Per
+board**, **Need**, **In stock**, **Price** and **Line cost** in both layouts,
+a hundred parts a page.
 
 Available stores stock counts toward the build; held and at-vendor stock does
 not. Each line shows its **Stores** figure under its references, and the BOM

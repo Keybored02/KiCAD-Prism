@@ -12,9 +12,9 @@ import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping, Sequence
 
-from app.services.supply import attention, budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import attention, budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_history, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import store
@@ -699,12 +699,13 @@ def _order_sql(sort: str) -> str:
 
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter | str = "", offset: int = 0,
-    project_id: str = "", vendor: str = "", sort: str = "",
+    project_id: str = "", vendor: str = "", sort: str = "", part_ids: Sequence[str] | None = None, order_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
     one project (``none`` for those in no project). ``sort`` "runout" puts the parts likeliest to be out within 4 weeks first, then
-    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column. Filtered, ordered and paged on the kept
-    summaries, however many parts match."""
+    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column. ``part_ids`` keeps only those parts;
+    ``order_ids`` puts the parts in that order first (a project's own columns). Filtered, ordered and paged on the kept summaries,
+    however many parts match."""
 
     limit = max(1, min(limit, MAX_LIMIT))
     offset = max(0, offset)
@@ -725,13 +726,21 @@ def list_parts(
         used = "p.id IN (SELECT pp.part_id FROM (" + usage.part_projects_sql(False) + ") pp" + (" WHERE pp.project_id = %s)" if project_id != NO_PROJECT else ")")
         conditions.append(used if project_id != NO_PROJECT else f"NOT {used}")
         params = [*params, *usage.role_params(role), *([project_id] if project_id != NO_PROJECT else [])]
+    if part_ids is not None:
+        conditions.append("p.id = ANY(%s)")
+        params = [*params, list(part_ids)]
     where = " AND ".join(conditions)
+    order = _order_sql(sort)
+    order_params: list[Any] = []
+    if order_ids is not None:
+        order = f"array_position(%s::text[], p.id) NULLS LAST, {order}"
+        order_params = [list(order_ids)]
     joins = _KEPT + ("LEFT JOIN supply_part_insights i ON i.part_id = p.id " if sort == "runout" else "")
     total = int(conn.execute(
         "SELECT COUNT(*) AS n FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
         f"LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id {_KEPT}WHERE {where}", params,
     ).fetchone()["n"])
-    rows = conn.execute(_ROW_SELECT + f"{joins}WHERE {where} ORDER BY {_order_sql(sort)} LIMIT %s OFFSET %s", [*params, limit, offset]).fetchall()
+    rows = conn.execute(_ROW_SELECT + f"{joins}WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s", [*params, *order_params, limit, offset]).fetchall()
     page = _summaries(conn, rows, role=role)
     kept = part_insights.of_parts(conn, [item["id"] for item in page])
     extras = _row_extras(conn, page, kept, role)
@@ -1141,6 +1150,8 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "lifecycle": lifecycle.value,
         "listings": listings,
         "history": days,
+        # Stock and price a line per distributor over the sheet's 90 days, so the sheet needs no second request for its charts.
+        "distributor_history": part_history.build(conn, part_id, now),
         "price": price_view,
         "parameters": parameters_of(conn, part_id),
         "outlook": ahead,

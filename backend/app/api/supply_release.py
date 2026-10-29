@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, usage,
+    catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
@@ -39,34 +39,6 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
-@router.get("/{project_id}/bom-health")
-async def bom_health(
-    project_id: str,
-    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
-    variant: str = Query(default="", max_length=120),
-    user: AuthenticatedUser = Depends(require_supply_reader),
-) -> dict[str, Any]:
-    """The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor.
-
-    ``variant`` names a design variant; empty is the base design. ``variants`` lists the names stored.
-    """
-
-    get_project_for_role_or_404(project_id, user.role)
-
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            rows = usage.project_rows(conn, project_id, variant)
-            if not rows:
-                return {"available": False}
-            lines = [project_supply.bom_line(row) for row in rows]
-            return {
-                "available": True, "build_quantity": build_quantity, "variant": variant, "variants": usage.project_variants(conn, project_id),
-                "rollup": bom_lookup.lookup(conn, lines, build_quantity, **bom_lookup.library_readers(conn))["rollup"],
-            }
-
-    return await _run(read)
-
-
 @router.get("/{project_id}/supply")
 async def project_overview(
     project_id: str,
@@ -87,6 +59,40 @@ async def project_overview(
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return project_supply.overview(conn, project_id, variant, build_quantity, attrition)
+
+    return await _run(read)
+
+
+@router.get("/{project_id}/parts")
+async def project_parts_page(
+    project_id: str,
+    build_quantity: int | None = Query(default=None, ge=1, le=1_000_000),
+    variant: str = Query(default="", max_length=120),
+    spares: str = Query(default="", max_length=12),
+    chip: str = Query(default="", max_length=20),
+    q: str = Query(default="", max_length=200),
+    only: str = Query(default="", max_length=60),
+    vendor: str = Query(default="", max_length=80),
+    sort: str = Query(default="", max_length=40),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """One page of the project's parts with their BOM lines for the build, the "needs a look" chips counted over the whole project
+    (``chip`` keeps one), and the lines no part matches. ``q`` that is a board reference finds the lines that carry it."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    try:
+        attrition = project_supply.attrition_of(spares)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return project_parts.page(
+                conn, project_id, variant=variant, build_quantity=build_quantity, attrition_percent=attrition, chip=chip, query=q,
+                only=only, vendor=vendor, sort=sort, offset=offset, limit=limit, role=user.role,
+            )
 
     return await _run(read)
 

@@ -2,12 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectSupply, SupplyBomRollup } from "@/types/supply";
+import type { ProjectSupply, ProjectSupplyPart, SupplyBomRollup } from "@/types/supply";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getProjectSupply: vi.fn(),
-  listSupplyParts: vi.fn(),
+  getProjectParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
 }));
 vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn(), readProjectBom: vi.fn() }));
@@ -43,16 +43,26 @@ const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
 const renderTab = (role: "designer" | "viewer" = "designer") =>
   render(<MemoryRouter><ProjectSupplyTab projectId="prj" user={{ name: role, email: `${role}@example.com`, role }} /></MemoryRouter>);
 
-/** The parts list the way the server gives it: a row for each part of the BOM. */
-const listed = (...ids: string[]) => ({
-  items: ids.map((id) => ({
-    id, mpn: id === "p1" ? "FLAKY-1" : "GOOD-1", manufacturer: "Acme", status: id === "p1" ? "error" : "ok", problem: null, stock: id === "p1" ? 0 : 5000, listings: 1,
-    lifecycle: id === "p1" ? "obsolete" : "active", dropped: false, unit_price: "0.1", price_quantity: 100, currency: "EUR", fetched_at: null, tier: id === "p1" ? 1 : 2,
-    used_in: 1, watch: null, flags: id === "p1" ? ["waiting"] : [], distributors: [],
-  })),
-  total: ids.length, limit: 200, offset: 0, next_offset: null,
-  forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
-});
+/** The parts list the way the server gives it: a row for each part of the BOM with its line, a chip keeping its parts. */
+function serve(lines: ProjectSupplyPart[]) {
+  const keeps: Record<string, (line: ProjectSupplyPart) => boolean> = {
+    out: (line) => line.part_id !== null && line.stock === 0, unchecked: (line) => line.state !== "tracked",
+  };
+  mocked.getProjectParts.mockImplementation(async (_project, asked) => {
+    const kept = lines.filter((line) => !asked.chip || keeps[asked.chip](line));
+    const items = kept.flatMap((line) => (line.part_id ? [{
+      id: line.part_id, mpn: line.mpn, manufacturer: "Acme", status: line.status, problem: null, stock: line.stock, listings: 1,
+      lifecycle: line.lifecycle, dropped: false, unit_price: "0.1", price_quantity: 100, currency: "EUR", fetched_at: null, tier: 1,
+      used_in: 1, watch: null, flags: line.part_id === "p1" ? ["waiting"] : [], distributors: [], line,
+    }] : []));
+    return {
+      items, total: items.length, limit: 100, offset: 0, next_offset: null,
+      unmatched: !asked.chip || asked.chip === "unchecked" ? kept.filter((line) => !line.part_id) : [],
+      chips: Object.entries(keeps).flatMap(([key, keep]) => (lines.some(keep) ? [{ key, count: lines.filter(keep).length }] : [])),
+      forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
+    } as never;
+  });
+}
 
 /** The boards are set from the pencil on the Build tile. */
 async function boardsTo(count: number) {
@@ -66,7 +76,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.getProjectSupply.mockResolvedValue(supply());
   mocked.listSupplyConnectors.mockResolvedValue([]);
-  mocked.listSupplyParts.mockResolvedValue(listed("p1", "p2") as never);
+  serve(supply().parts ?? []);
 });
 afterEach(cleanup);
 
@@ -139,26 +149,21 @@ describe("the project Supply tab", () => {
     const parts = await screen.findByRole("region", { name: "Parts" });
     await within(parts).findByText("FLAKY-1");
     fireEvent.click(within(parts).getByRole("button", { name: "Sort by Price" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "", "price:desc"));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ sort: "price:desc" }), expect.anything()));
     fireEvent.click(within(parts).getByRole("button", { name: "Runs out first" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "", "runout"));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ sort: "runout" }), expect.anything()));
     expect(within(parts).getByRole("button", { name: "Runs out first" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("sorts by the columns only the project has where the list is, and searches the project's parts", async () => {
+  it("asks the server to sort by the columns only the project has, over the whole project, and searches the project's parts", async () => {
     renderTab();
     const parts = await screen.findByRole("region", { name: "Parts" });
     await within(parts).findByText("FLAKY-1");
-    const names = () => within(parts).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0]?.textContent);
-    expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
     fireEvent.click(within(parts).getByRole("button", { name: "Sort by Need" }));
-    expect(names()).toEqual(["GOOD-1", "FLAKY-1"]);
-    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Need" }));
-    expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "");
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ sort: "need:desc", offset: 0 }), expect.anything()));
     fireEvent.change(within(parts).getByLabelText("Search parts"), { target: { value: "flaky" } });
     fireEvent.click(within(parts).getByRole("button", { name: "Search" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "flaky", expect.anything(), "", 0, 200, "prj", ""));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ q: "flaky" }), expect.anything()));
   });
 
   it("sends the boards to the costing, and the file follows them", async () => {
@@ -182,11 +187,11 @@ describe("the project Supply tab", () => {
     const parts = screen.getByRole("region", { name: "Parts" });
     await within(parts).findByText("GOOD-1");
     expect(within(parts).getAllByRole("row")).toHaveLength(3);
-    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
-    expect(within(parts).getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(await screen.findByRole("button", { name: /Out of stock/ }));
+    await waitFor(() => expect(within(parts).getAllByRole("row")).toHaveLength(2));
     expect(within(parts).getByText("FLAKY-1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
-    expect(within(parts).getAllByRole("row")).toHaveLength(3);
+    await waitFor(() => expect(within(parts).getAllByRole("row")).toHaveLength(3));
   });
 
   it("opens at the project's usual build and offers to keep another size as the usual one", async () => {
@@ -212,6 +217,7 @@ describe("the project Supply tab", () => {
     const base = supply();
     const parts = (base.parts ?? []).map((part) => (part.key === "k2" ? { ...part, unit_price: "0.93", buy_quantity: 20, line_cost: "18.60" } : part));
     mocked.getProjectSupply.mockResolvedValue(supply({ parts }));
+    serve(parts);
     renderTab();
     const table = await screen.findByRole("region", { name: "Parts" });
     await within(table).findByText("GOOD-1");
@@ -223,14 +229,15 @@ describe("the project Supply tab", () => {
     const noMpn = { key: "none:796638-2|TB", manufacturer: "", mpn: "", quantity: 1, references: "J2", part_id: null, state: "no_mpn" as const, status: null, stock: null, lifecycle: null, short: false, unit_price: null, notes: 0, need: 1 };
     const base = supply();
     mocked.getProjectSupply.mockResolvedValue(supply({ parts: [...(base.parts ?? []), noMpn] }));
+    serve([...(base.parts ?? []), noMpn]);
     renderTab();
     expect(await screen.findByText("33%")).toBeTruthy();
     expect(screen.getByText(/1 of 3 lines in stock for 100 boards, 1 short/)).toBeTruthy();
     const parts = screen.getByRole("region", { name: "Parts" });
     await within(parts).findByText("GOOD-1");
-    fireEvent.click(screen.getByRole("button", { name: /Unchecked/ }));
-    expect(within(parts).getByText("No MPN")).toBeTruthy();
-    expect(within(parts).queryByText("GOOD-1")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /Unchecked/ }));
+    expect(await within(parts).findByText("No MPN")).toBeTruthy();
+    await waitFor(() => expect(within(parts).queryByText("GOOD-1")).toBeNull());
     expect(screen.queryByText("In 8 weeks")).toBeNull();
   });
 

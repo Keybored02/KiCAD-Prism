@@ -1450,10 +1450,6 @@ class DatabasePoolMetrics(TypedDict, total=True):
     pool: dict[str, Any]
 
 
-class DatasheetAddress(TypedDict, total=False):
-    url: str
-
-
 class DebugLoggingCleared(TypedDict, total=True):
     """Confirmation that the debug window was removed."""
     cleared: bool
@@ -2616,8 +2612,9 @@ class LoginStartResponse(TypedDict, total=True):
 
 class LookupRequest(TypedDict, total=False):
     attrition_percent: float | None
-    build_quantity: int
+    build_quantity: int | None
     lines: list[app__api__supply_bom__LineIn]
+    project_id: str
 
 
 class MakerSpellingBody(TypedDict, total=False):
@@ -5004,15 +5001,6 @@ class GeneratedClient:
             query={"since": since},
         )
 
-    def bom_health(self, project_id: str, *, build_quantity: int = 1, variant: str = '') -> dict[str, Any]:
-        """Bom Health"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/projects/{project_id}/bom-health",
-            path_params={"project_id": project_id},
-            query={"build_quantity": build_quantity, "variant": variant},
-        )
-
     def browse_library_assets(self, *, asset_type: str, q: str = '', limit: int = 50) -> AssetBrowseResult:
         """Browse stored library assets"""
         return self._request(
@@ -5188,14 +5176,6 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/supply/parts/{part_id}/trade-mark",
             path_params={"part_id": part_id},
-        )
-
-    def close_notice(self, notice_id: str) -> None:
-        """Close Notice"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/notices/{notice_id}/close",
-            path_params={"notice_id": notice_id},
         )
 
     def compare_component_revisions(self, component_id: str, *, before: str, after: str) -> RevisionComparison:
@@ -6390,13 +6370,6 @@ class GeneratedClient:
             query={"type": type, "folder": folder, "commit": commit},
         )
 
-    def get_overview(self) -> dict[str, Any]:
-        """Get Overview"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/overview",
-        )
-
     def get_part(self, part_id: str) -> dict[str, Any]:
         """Get Part"""
         return self._request(
@@ -7407,13 +7380,6 @@ class GeneratedClient:
             query={"metric": metric},
         )
 
-    def market_overview(self) -> dict[str, Any]:
-        """Market Overview"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/market",
-        )
-
     def metadata_batch_report(self, batch_id: str) -> Any:
         """Export a metadata batch report"""
         return self._request(
@@ -7549,13 +7515,6 @@ class GeneratedClient:
             "/api/v1/supply/review/choices/{part_id}/other",
             path_params={"part_id": part_id},
             body=body,
-        )
-
-    def overview(self) -> dict[str, Any]:
-        """Overview"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/tracking",
         )
 
     def part_compliance(self, part_id: str) -> dict[str, Any]:
@@ -7738,6 +7697,15 @@ class GeneratedClient:
             "/api/v1/supply/projects/{project_id}/supply",
             path_params={"project_id": project_id},
             query={"build_quantity": build_quantity, "variant": variant, "spares": spares},
+        )
+
+    def project_parts_page(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '', chip: str = '', q: str = '', only: str = '', vendor: str = '', sort: str = '', offset: int = 0, limit: int = 100) -> dict[str, Any]:
+        """Project Parts Page"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/parts",
+            path_params={"project_id": project_id},
+            query={"build_quantity": build_quantity, "variant": variant, "spares": spares, "chip": chip, "q": q, "only": only, "vendor": vendor, "sort": sort, "offset": offset, "limit": limit},
         )
 
     def project_progress(self, project_id: str) -> dict[str, Any]:
@@ -8472,15 +8440,6 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_datasheet_url(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
-        """Set Datasheet Url"""
-        return self._request(
-            "PUT",
-            "/api/v1/supply/parts/{part_id}/datasheet-url",
-            path_params={"part_id": part_id},
-            body=body,
-        )
-
     def set_model_alignment(self, component_id: str, asset_id: str, *, body: dict[str, Any] | None = None) -> ModelPage:
         """Save a model's alignment"""
         return self._request(
@@ -8566,14 +8525,6 @@ class GeneratedClient:
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/share",
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
-        )
-
-    def signin_status(self, connector_id: str) -> dict[str, Any]:
-        """Signin Status"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/connectors/{connector_id}/signin",
-            path_params={"connector_id": connector_id},
         )
 
     def snooze_alert(self, alert_id: int, *, body: dict[str, Any] | None = None) -> None:
@@ -8735,13 +8686,6 @@ class GeneratedClient:
             "/api/v1/supply/tracking/projects/{project_id}",
             path_params={"project_id": project_id},
             body=body,
-        )
-
-    def track_record(self) -> dict[str, Any]:
-        """Track Record"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/forecasts/track-record",
         )
 
     def tracker_webhook(self, provider: str, connector_id: str) -> WebhookAccepted:
@@ -9057,13 +9001,6 @@ class GeneratedClient:
             "GET",
             "/api/v1/catalog/components/{component_id}/audit/verify",
             path_params={"component_id": component_id},
-        )
-
-    def waiting(self) -> dict[str, Any]:
-        """Waiting"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/packaging/waiting",
         )
 
     def watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:

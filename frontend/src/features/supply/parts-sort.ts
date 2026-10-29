@@ -22,12 +22,6 @@ export function columnOf(sort: PartsSort): { column: SortColumn | ProjectColumn;
   return PROJECT_COLUMNS.includes(column) && (direction === "asc" || direction === "desc") ? { column: column as SortColumn | ProjectColumn, direction } : null;
 }
 
-/** The part of a sort the server can do. The columns only a project's list has are sorted where the list is. */
-export function serverSort(sort: PartsSort): PartsSort {
-  const on = columnOf(sort);
-  return on && !COLUMNS.some((item) => item === on.column) ? "" : sort;
-}
-
 /** The sort after a click on a column: the first click puts the most first (the part number, A first), the next reverses it, the third lets go. */
 export function clickColumn(sort: PartsSort, column: SortColumn | ProjectColumn): PartsSort {
   const now = columnOf(sort);
