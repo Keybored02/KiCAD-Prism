@@ -46,7 +46,7 @@ developer portal.
 | **Mouser** | **Search API key** | No storefront. About 1,000 calls a day. |
 | **DigiKey** | **Client ID**, **Client secret** | A storefront per country site. One part per call, so it is slow for large lists. 1,000 calls a day; change notices have their own 50 a day and need an administrator's sign-in (below). |
 | **Farnell / Newark / element14** | **API key** | The storefront is the regional site. Choose it carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. For a store outside the UK, the euro zone, the US, Canada and India, set the currency, or offers show no price. |
-| **Avnet** | **Client ID**, **Client secret**, **Scope**, **Subscription key** | From the Avnet API portal once Avnet approves your subscription. Avnet answers by part number only. |
+| **Avnet** | **Client ID**, **Client secret**, **Scope**, **Subscription key** | From the Avnet API portal once Avnet approves your subscription. Avnet answers by part number only, with one price for the quantity it names (one piece, or its minimum order): Prism prices no larger order from it. |
 | **Arrow** | **Login**, **API key**, **Address of this server** | The Pricing & Availability API. The address is the public IP address Arrow sees Prism's calls come from. The storefront picks the regions to keep (**ALL** keeps every region). Prices stay in each region's currency and Prism converts them. Reads 100 parts a call. |
 | **LCSC** | none | Offers come from a file you upload (below). Prism makes no calls. |
 | **JLCPCB (assembly)** | none | From an uploaded file, read only for projects built at JLCPCB. Its stock is for its own assembly and never counts in a total. |

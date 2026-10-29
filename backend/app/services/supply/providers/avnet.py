@@ -304,6 +304,7 @@ def _offer(sku: str, row: Mapping[str, Any], now: datetime) -> Offer:
     breaks: tuple[PriceBreak, ...] = ()
     if price is not None and price > 0 and len(currency) == 3 and currency.isalpha():
         breaks = (PriceBreak(quantity, Decimal(price)),)
+    # Avnet quotes the quantity asked and nothing beyond it: the price holds up to that quantity only, never for a larger order.
     lead = parse_count(row.get("LEAD_TIME"))
     return Offer(
         provider=KEY,
@@ -314,7 +315,7 @@ def _offer(sku: str, row: Mapping[str, Any], now: datetime) -> Offer:
         fetched_at=now,
         moq=moq,
         packaging=_packaging(row.get("PACKAGE_TYPE")),
-        price_breaks=breaks,
+        price_breaks=breaks, price_up_to=quantity if breaks else None,
         currency=currency if breaks else "",
         lead_time_days=lead if lead is not None and stock < moq else None,
         lifecycle=_lifecycle(row),

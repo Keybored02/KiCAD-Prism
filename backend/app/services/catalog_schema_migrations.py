@@ -551,6 +551,13 @@ def _supply_restart_out_everywhere(conn: Any) -> None:
     _m097_restart_out_everywhere(getattr(conn, "_connection", conn))
 
 
+def _supply_price_up_to(conn: Any) -> None:
+    """Supply step 98 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
+    from app.services.supply.migration_steps.steps_c import _m098_price_up_to
+
+    _m098_price_up_to(getattr(conn, "_connection", conn))
+
+
 def _inventory_ignored(conn: Any) -> None:
     """Unmatched local stock a person set aside (consumables, tools, anything that will never be a library component). Kept apart
     from ``inventory_unmatched``, which every read replaces, so the choice holds across reads until someone restores it."""
@@ -660,7 +667,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (20, "supply_ending_dismissals", _supply_ending_dismissals),
     (21, "supply_project_rollups", _supply_project_rollups),
     (22, "supply_restart_out_everywhere", _supply_restart_out_everywhere),
-    # 23 is a supply step on another branch; the ledger runs any step it has not, whatever its number.
+    (23, "supply_price_up_to", _supply_price_up_to),
     (24, "inventory_ignored", _inventory_ignored),
 )
 
