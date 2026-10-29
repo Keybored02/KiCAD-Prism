@@ -164,20 +164,15 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
         """
     )
 
-    # Part identity is derived from the row number; the maker and lifecycle
-    # from the seed, so two seeds with the same parameters differ only in data.
+    # Part identity is derived from the row number and the maker from the seed,
+    # so two seeds with the same parameters differ only in data.
     conn.execute(
         """
-        INSERT INTO supply_parts (id, manufacturer_id, mpn, match_key, lifecycle)
+        INSERT INTO supply_parts (id, manufacturer_id, mpn, match_key)
         SELECT 'p' || lpad(g::text, 6, '0'),
                'm' || lpad((1 + abs(hashtext(%(seed)s || ':maker:' || g)) %% 600)::text, 4, '0'),
                'MPN-' || lpad(g::text, 6, '0'),
-               'MPN' || lpad(g::text, 6, '0'),
-               CASE
-                   WHEN abs(hashtext(%(seed)s || ':life:' || g)) %% 97 = 0 THEN 'obsolete'
-                   WHEN abs(hashtext(%(seed)s || ':life:' || g)) %% 25 = 0 THEN 'nrnd'
-                   ELSE 'active'
-               END
+               'MPN' || lpad(g::text, 6, '0')
         FROM generate_series(1, %(parts)s) g
         """,
         {"seed": seed, "parts": parts},

@@ -106,7 +106,7 @@ ROLLUP_EVERYWHERE = (
     "supply_fx_rates", "supply_manufacturer_aliases", "supply_part_alternates", "supply_part_numbers", "supply_part_preferences",
     "supply_part_spellings", "supply_part_tiers", "supply_parts", "supply_settings",
 )
-# Catalog tables the rollups read; their triggers are made once the catalog has them (``catalog_triggers``).
+# Catalog tables the rollups read; their triggers are made once the catalog has them (``create_catalog_links``).
 ROLLUP_EVERYWHERE_CATALOG = ("component_parts", "components", "inventory_levels")
 
 
