@@ -575,8 +575,8 @@ class SupplyJobTests(unittest.TestCase):
         context = SimpleNamespace(payload={"connector_id": cid}, progress=lambda **kwargs: progress.append(kwargs["stage"]))
         with (
             mock.patch.object(self.jobs, "ConnectorService", lambda: self.connectors),
-            mock.patch.object(self.jobs, "Discoverer", lambda connectors: self.discoverer_()),
-            mock.patch.object(self.jobs, "Poller", lambda connectors: self.poller_()),
+            mock.patch.object(self.jobs, "Discoverer", lambda connectors, **_kwargs: self.discoverer_()),
+            mock.patch.object(self.jobs, "Poller", lambda connectors, **_kwargs: self.poller_()),
         ):
             result = self.jobs.run_supply_poll_job(context)
             self.assertEqual((result.details["searched"], result.details["polled"]), (1, 0), "nothing was due yet: the search found the listing")
