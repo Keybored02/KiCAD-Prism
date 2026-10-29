@@ -86,6 +86,12 @@ class PackagingPickTests(unittest.TestCase):
             self.admission.sync(conn)
         return watch.part_id
 
+    def waiting(self) -> list[dict]:
+        """The parts waiting for a pick whose pick would save calls."""
+
+        with self.store.connection() as conn:
+            return [item for item in self.picks.waiting(conn) if item["saves_calls_a_day"] > 0]
+
     def call(self, method, path, *, role="designer", body=None):
         return _request(self.app, method, "/api/supply/packaging" + path, user=self.users[role], body=body)
 
@@ -96,9 +102,9 @@ class PackagingPickTests(unittest.TestCase):
     def test_a_part_with_several_listings_waits_for_a_pick_and_says_what_it_would_save(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         self.part("ONE", ("cut_tape",))
-        listed = self.call("GET", "/waiting").json
-        self.assertEqual([item["part_id"] for item in listed["items"]], [a])
-        self.assertAlmostEqual(listed["items"][0]["saves_calls_a_day"], 1.0, places=2, msg="the provider reads each listing: one fewer call a day")
+        listed = self.waiting()
+        self.assertEqual([item["part_id"] for item in listed], [a])
+        self.assertAlmostEqual(listed[0]["saves_calls_a_day"], 1.0, places=2, msg="the provider reads each listing: one fewer call a day")
 
     def test_review_lists_every_part_with_several_listings_picked_or_not(self) -> None:
         waiting = self.part("A", ("cut_tape", "tape_reel"))
@@ -161,10 +167,10 @@ class PackagingPickTests(unittest.TestCase):
             self.assertEqual(self.parts_view.summaries_for(conn, [a])[0]["stock"], 100)
             self.assertEqual(self.stock.part_stock(conn, a).total, 100)
             self.assertLessEqual(self.admission.status(conn)[0]["committed"], before)
-        self.assertEqual(self.call("GET", "/waiting").json["items"], [])
+        self.assertEqual(self.waiting(), [])
         self.assertEqual(self.call("GET", f"/{a}/{self.cid}").json["picked"], "A-1")
         self.assertEqual(self.call("DELETE", f"/{a}/{self.cid}").status, 204)
-        self.assertEqual(len(self.call("GET", "/waiting").json["items"]), 1)
+        self.assertEqual(len(self.waiting()), 1)
 
     def test_a_listing_found_after_the_pick_is_flagged_in_review(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
@@ -206,7 +212,6 @@ class PackagingPickTests(unittest.TestCase):
         b = self.part("B", ("cut_tape", "tape_reel"))
         self.assertEqual(self.call("PUT", f"/{a}/{self.cid}", body={"listing_id": "B-0"}).status, 400)
         self.assertEqual(self.call("PUT", f"/{b}/{self.cid}", body={"listing_id": "B-0"}, role="viewer").status, 403)
-        self.assertEqual(self.call("GET", "/waiting", role="viewer").status, 403)
         self.assertEqual(self.call("PUT", f"/{b}/{self.cid}", body={"listing_id": "B-0"}, role="qa").status, 200)
         self.assertEqual(self.call("GET", "/nope/" + self.cid).status, 404)
 

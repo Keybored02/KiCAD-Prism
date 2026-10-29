@@ -7,7 +7,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listPartNotices: vi.fn(),
   addNotice: vi.fn(),
-  closeNotice: vi.fn(),
   checkPartNotices: vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
@@ -36,7 +35,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.listPartNotices.mockResolvedValue([notice]);
   mocked.addNotice.mockResolvedValue({ id: "n2" });
-  mocked.closeNotice.mockResolvedValue();
 });
 afterEach(cleanup);
 

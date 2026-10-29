@@ -1,13 +1,9 @@
 import { fetchJson } from "@/lib/api";
-import type { PackagingOptions, PackagingProposal, PackagingSeveral, PackagingSimilar, PackagingWaiting } from "@/types/supply";
+import type { PackagingOptions, PackagingProposal, PackagingSeveral, PackagingSimilar } from "@/types/supply";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply/packaging";
 const path = (partId: string, connectorId: string) => `${BASE}/${encodeURIComponent(partId)}/${encodeURIComponent(connectorId)}`;
-
-export function listPackagingWaiting(signal?: AbortSignal): Promise<{ items: PackagingWaiting[]; saves_calls_a_day: number }> {
-  return fetchJson(`${BASE}/waiting`, { signal }, "Could not load the packaging picks");
-}
 
 export function getPackagingOptions(partId: string, connectorId: string, signal?: AbortSignal): Promise<PackagingOptions> {
   return fetchJson(path(partId, connectorId), { signal }, "Could not load the listings");

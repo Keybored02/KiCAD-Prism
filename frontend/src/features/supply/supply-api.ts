@@ -34,11 +34,9 @@ import type {
   SupplyProvider,
   SupplyMakerGroup,
   SupplyReviewQueue,
-  SupplyBomRollup,
   SupplyCompliance,
   SupplyBomComment,
   SupplyComponentWatch,
-  SupplyMarket,
   SupplyMarketHistory,
   SupplyNotice,
   SupplyNoticeKind,
@@ -560,27 +558,8 @@ export function getProjectSupply(projectId: string, variant = "", boards?: numbe
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply?${query.toString()}`, { signal }, "Could not load the project's supply");
 }
 
-export function getProjectBomHealth(
-  projectId: string,
-  signal?: AbortSignal,
-  variant = "",
-): Promise<{ available: boolean; rollup?: SupplyBomRollup; variants?: string[] }> {
-  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
-  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health${query}`, { signal }, "Could not load the supply health");
-}
-
 export function getPartDatasheet(partId: string, signal?: AbortSignal): Promise<{ url: string }> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet`, { signal }, "Could not load the datasheet address");
-}
-
-async function setDatasheetUrlRequest(partId: string, url: string): Promise<void> {
-  const response = await fetchApi(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet-url`, {
-    method: "PUT",
-    body: JSON.stringify({ url }),
-  });
-  if (!response.ok) {
-    throw new ApiHttpError(response.status, await readApiError(response, "Could not save the datasheet address"));
-  }
 }
 
 export function getPartCompliance(partId: string, signal?: AbortSignal): Promise<SupplyCompliance> {
@@ -622,10 +601,6 @@ export async function readBomSheet(xlsxBase64: string): Promise<string[][]> {
   return sheet.rows;
 }
 
-export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
-  return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
-}
-
 export function getSupplyMarketHistory(metric: string, signal?: AbortSignal): Promise<SupplyMarketHistory> {
   return fetchJson(`${BASE}/market/history?metric=${encodeURIComponent(metric)}`, { signal }, "Could not load the market history");
 }
@@ -645,10 +620,6 @@ function addNoticeRequest(notice: {
   notes: string;
 }): Promise<{ id: string }> {
   return post(`${BASE}/notices`, notice, "Could not add the notice");
-}
-
-function closeNoticeRequest(noticeId: string): Promise<void> {
-  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
 }
 
 export interface SupplyReadNow {
@@ -726,7 +697,6 @@ export const proposeWaiver = changesSupply(proposeWaiverRequest);
 export const decideWaiver = changesSupply(decideWaiverRequest);
 export const revokeWaiver = changesSupply(revokeWaiverRequest);
 export const saveAssessmentSettings = changesSupply(saveAssessmentSettingsRequest);
-export const setDatasheetUrl = changesSupply(setDatasheetUrlRequest);
 export const declareSubstance = changesSupply(declareSubstanceRequest);
 export const addRohsExemption = changesSupply(addRohsExemptionRequest);
 export const removeRohsExemption = changesSupply(removeRohsExemptionRequest);
@@ -734,6 +704,5 @@ export const undeclareSubstance = changesSupply(undeclareSubstanceRequest);
 export const loadSvhcList = changesSupply(loadSvhcListRequest);
 export const loadSvhcListXlsx = changesSupply(loadSvhcListXlsxRequest);
 export const addNotice = changesSupply(addNoticeRequest);
-export const closeNotice = changesSupply(closeNoticeRequest);
 export const checkPartNotices = changesSupply(checkPartNoticesRequest);
 export const readSupplyPartNow = changesSupply(readSupplyPartNowRequest);

@@ -199,18 +199,18 @@ class ReleaseCheckTests(unittest.TestCase):
         viewer = _request(self.app, "POST", "/api/supply/projects/prj_5/release-builds/b1/read-bom", user=self.users["viewer"])
         self.assertEqual(viewer.status, 403)
 
-    def test_the_project_health_rolls_up_the_stored_bom_lines(self) -> None:
+    def test_the_project_page_rolls_up_the_stored_bom_lines(self) -> None:
         from app.services.supply import usage
 
         self.part("GOOD-1", stock=5000)
         project = SimpleNamespace(id="prj_9")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            self.assertEqual(self.request("prj_9/bom-health").json, {"available": False})
+            self.assertFalse(self.request("prj_9/supply").json["available"])
             with self.store.connection() as conn:
                 usage.store_project(conn, "prj_9", "Nine", "rev1", usage.lines_from_components([
                     component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
                 ]), NOW)
-            response = self.request("prj_9/bom-health", query="build_quantity=10")
+            response = self.request("prj_9/supply", query="build_quantity=10")
         self.assertEqual(response.status, 200, response.text)
         rollup = response.json["rollup"]
         self.assertEqual((response.json["available"], rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["can_build"]), (True, 2, 1, 1, 2500))
@@ -219,10 +219,10 @@ class ReleaseCheckTests(unittest.TestCase):
             conn.execute(
                 "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, match_key, quantity) VALUES ('prj_9', 'Lite', 'k', 'Acme', 'GOOD-1', '', 1)")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            lite = self.request("prj_9/bom-health", query="variant=Lite").json
-            nothing = self.request("prj_9/bom-health", query="variant=Nope").json
+            lite = self.request("prj_9/supply", query="variant=Lite").json
+            nothing = self.request("prj_9/supply", query="variant=Nope").json
         self.assertEqual((lite["available"], lite["variant"], lite["variants"], lite["rollup"]["lines"]), (True, "Lite", ["Lite"], 1))
-        self.assertEqual(nothing, {"available": False})
+        self.assertFalse(nothing["available"])
 
     def test_the_project_page_lists_parts_releases_and_what_changed_since(self) -> None:
         from app.services.supply import usage

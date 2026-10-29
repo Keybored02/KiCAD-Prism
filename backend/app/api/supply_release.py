@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
+    catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
@@ -37,34 +37,6 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=404, detail="No supply snapshot for this build") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
-
-
-@router.get("/{project_id}/bom-health")
-async def bom_health(
-    project_id: str,
-    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
-    variant: str = Query(default="", max_length=120),
-    user: AuthenticatedUser = Depends(require_supply_reader),
-) -> dict[str, Any]:
-    """The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor.
-
-    ``variant`` names a design variant; empty is the base design. ``variants`` lists the names stored.
-    """
-
-    get_project_for_role_or_404(project_id, user.role)
-
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            rows = usage.project_rows(conn, project_id, variant)
-            if not rows:
-                return {"available": False}
-            lines = [project_supply.bom_line(row) for row in rows]
-            return {
-                "available": True, "build_quantity": build_quantity, "variant": variant, "variants": usage.project_variants(conn, project_id),
-                "rollup": bom_lookup.lookup(conn, lines, build_quantity, **bom_lookup.library_readers(conn))["rollup"],
-            }
-
-    return await _run(read)
 
 
 @router.get("/{project_id}/supply")
