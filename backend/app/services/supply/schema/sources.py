@@ -1,6 +1,6 @@
 """Where supply data comes from and what it costs: accounts (the credentials a provider knows Prism by, with their call
 budget and its ledger), connectors and their credentials' grants, rate-limit marks and pacing, uploaded offer files,
-exchange rates, settings and the audit trail.
+exchange rates, periodic task runs, settings and the audit trail.
 """
 
 from __future__ import annotations
@@ -171,6 +171,16 @@ TABLES: tuple[str, ...] = (
         spare_hour_spent INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (account_id, day),
         CONSTRAINT supply_quota_ledger_check CHECK ((interactive_spent >= 0) AND (interactive_spent <= spent))
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS supply_task_runs (
+        name TEXT PRIMARY KEY,
+        started_at TIMESTAMPTZ,
+        next_at TIMESTAMPTZ,
+        last_ok_at TIMESTAMPTZ,
+        last_error TEXT NOT NULL DEFAULT '',
+        last_error_at TIMESTAMPTZ
     );
     """,
     """
