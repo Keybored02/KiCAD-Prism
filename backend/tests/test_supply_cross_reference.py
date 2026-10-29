@@ -58,6 +58,39 @@ class GradeTests(unittest.TestCase):
         self.assertNotEqual(cross_reference.package_key("SOT-23-5"), cross_reference.package_key("SOT-23-6"))
 
 
+class ParametersOfPartsTests(unittest.TestCase):
+    class Conn:
+        def __init__(self, rows) -> None:
+            self.rows = rows
+            self.queries: list[tuple[str, tuple]] = []
+
+        def execute(self, sql, params=()):
+            self.queries.append((sql, params))
+            wanted = params[0]
+            chosen = [row for row in self.rows if row["part_id"] in wanted] if isinstance(wanted, list) else [row for row in self.rows if row["part_id"] == wanted]
+            return type("Rows", (), {"fetchall": lambda _self: chosen})()
+
+    def test_the_bulk_read_matches_the_one_part_read_from_one_parameter_query(self) -> None:
+        from unittest import mock
+
+        from app.services.supply import parts_view
+
+        rows = [
+            {"part_id": "p1", "provider": "digikey", "name": "Resistance", "raw": "10 kOhms"},
+            {"part_id": "p1", "provider": "mouser", "name": "Series", "raw": "X"},
+            {"part_id": "p2", "provider": "digikey", "name": "Capacitance", "raw": "100nF"},
+        ]
+        with mock.patch.object(parts_view.facts, "for_part", return_value=[]):
+            together = parts_view.parameters_of_parts(self.Conn(rows), ["p1", "p2"])
+            alone = {part_id: parts_view.parameters_of(self.Conn(rows), part_id) for part_id in ("p1", "p2")}
+        self.assertEqual(together, alone)
+        conn = self.Conn(rows)
+        with mock.patch.object(parts_view.facts, "for_part", return_value=[]):
+            parts_view.parameters_of_parts(conn, ["p1", "p2"])
+        self.assertEqual(len(conn.queries), 1)
+        self.assertIn("ANY(%s)", conn.queries[0][0])
+
+
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")
 class CandidateTests(unittest.TestCase):
     @classmethod
@@ -112,6 +145,16 @@ class CandidateTests(unittest.TestCase):
         lone = self.part("Acme", "ODD-1", [("Series", "x")])
         with self.store.connection() as conn:
             self.assertEqual(cross_reference.candidates(conn, lone)["candidates"], [])
+
+    def test_parameters_read_for_the_pool_match_reading_each_part_alone(self) -> None:
+        from app.services.supply import parts_view
+
+        first = self.part("Acme", "R-10K", [("Resistance", "10 kOhms"), ("Package / Case", "0603")])
+        second = self.part("Globex", "G-10K", [("Resistance", "10 kOhms"), ("Package / Case", "0603")])
+        with self.store.connection() as conn:
+            together = parts_view.parameters_of_parts(conn, [first, second])
+            self.assertEqual(together[first], parts_view.parameters_of(conn, first))
+            self.assertEqual(together[second], parts_view.parameters_of(conn, second))
 
 
 if __name__ == "__main__":

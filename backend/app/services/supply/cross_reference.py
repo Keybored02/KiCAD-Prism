@@ -107,10 +107,10 @@ def grade_label(verdict: Mapping[str, Any]) -> str:
     return GRADE_LABEL[verdict["grade"]]
 
 
-def _signature(conn, part_id: str) -> dict[str, dict[str, Any]]:
+def _signature(parameters: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {
         item["key"]: {"value": Decimal(item["value"]) if item["value"] is not None else None, "raw": item["raw"]}
-        for item in parts_view.parameters_of(conn, part_id) if item["key"]
+        for item in parameters if item["key"]
     }
 
 
@@ -125,7 +125,7 @@ def _categories(conn, part_id: str) -> list[str]:
 def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any]:
     """Graded alternatives to a part, and the manufacturer's own suggestion if a distributor gave one."""
 
-    base = _signature(conn, part_id)
+    base = _signature(parts_view.parameters_of(conn, part_id))
     suggested = [
         source["value"] for fact in facts.for_part(conn, part_id) if fact["name"] == "suggested_replacement" for source in fact["sources"]
     ]
@@ -139,9 +139,13 @@ def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any
             """,
             (categories, part_id, MAX_POOL),
         ).fetchall()
-        standing = {item["id"]: item for item in parts_view.summaries_for(conn, [row["id"] for row in pool])}
+        pool_ids = [row["id"] for row in pool]
+        standing = {item["id"]: item for item in parts_view.summaries_for(conn, pool_ids)}
+        signatures = {
+            candidate_id: _signature(items) for candidate_id, items in parts_view.parameters_of_parts(conn, pool_ids, with_facts=False).items()
+        }
         for row in pool:
-            verdict = grade(base, _signature(conn, row["id"]))
+            verdict = grade(base, signatures.get(row["id"], {}))
             if verdict is None:
                 continue
             item = standing[row["id"]]

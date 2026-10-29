@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -43,6 +44,19 @@ class ReleaseBomTests(unittest.TestCase):
             release_bom.lines_from_csv("Reference,MPN\n")
         with self.assertRaises(release_bom.BomReadError):
             release_bom.lines_from_csv("a,b\n" + "x" * (release_bom.MAX_BYTES + 1))
+
+    def test_more_data_rows_than_the_limit_is_refused_not_cut(self) -> None:
+        text = "Reference,MPN\n" + "".join(f"R{index},P{index}\n" for index in range(6))
+        with mock.patch.object(release_bom, "MAX_ROWS", 5), self.assertRaises(release_bom.BomReadError) as caught:
+            release_bom.lines_from_csv(text)
+        self.assertIn("more than 5 rows", str(caught.exception))
+
+    def test_exactly_the_limit_reads_every_row(self) -> None:
+        text = "Reference,MPN\n" + "".join(f"R{index},P{index}\n" for index in range(5))
+        with mock.patch.object(release_bom, "MAX_ROWS", 5):
+            read = release_bom.lines_from_csv(text)
+        self.assertEqual([line.mpn for line in read.lines], [f"P{index}" for index in range(5)])
+        self.assertEqual(read.rows, 5)
 
 
 if __name__ == "__main__":

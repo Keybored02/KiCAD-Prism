@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenLibraryManager } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { PartsFilter, SupplyDashboard } from "@/types/supply";
+import type { PartsFilter, SupplyDashboard, SupplyInboxItem } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
+import { InboxCard } from "./dashboard-inbox";
 import { EndingNotifications } from "./ending-notifications";
-import { FeedHealthStrip } from "./feed-health-strip";
 import { RunwayCard } from "./dashboard-charts";
 import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
@@ -22,15 +22,21 @@ import { useLoaded } from "./use-loaded";
 import { OpenPartSheet } from "./open-part-sheet";
 import { useSupplyNavigation } from "./use-supply-navigation";
 import { useSupplyOverview } from "./use-supply-parts";
+import { CONNECTORS_PLACE, REVIEW_PLACE } from "./supply-views";
 
 const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
   out_now: "out_of_stock", runs_out_2w: "runs_out_2w", runs_out_8w: "runs_out_8w", runs_out_later: "runs_out_later", steady: "steady", few_readings: "few_readings",
 };
 
-function showAlerts() {
-  const section = document.getElementById("dashboard-alerts");
+/** Opens one of the Dashboard's folded lists and brings it into view. */
+function showDetails(id: string) {
+  const section = document.getElementById(id);
   if (section instanceof HTMLDetailsElement) section.open = true;
   section?.scrollIntoView?.();
+}
+
+function showAlerts() {
+  showDetails("dashboard-alerts");
 }
 
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
@@ -56,13 +62,24 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
   ];
   const openComponent = (componentId: string) =>
     navigate(`/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`);
+  const openInbox = (item: SupplyInboxItem) => {
+    switch (item.kind) {
+      case "feed": if (canOpenLibraryManager(user?.role)) navigate(CONNECTORS_PLACE); return;
+      case "ending": showDetails("dashboard-ending"); return;
+      case "deadline": openPart(item.part_id); return;
+      case "project_short":
+      case "project_unconfirmed": navigate(`/project/${encodeURIComponent(item.project_id)}?section=supply`); return;
+      case "alerts": setAlertKind(item.alert_kind); showAlerts(); return;
+      case "likely_out": parts("likely_out_4w")(); return;
+      case "approvals": navigate(REVIEW_PLACE); return;
+    }
+  };
 
   return (
     <div className="themed-scrollbar relative h-full overflow-y-auto px-4 pb-4 pt-2">
       <div className="space-y-4">
-        {data ? <FeedHealthStrip feeds={data.failing_feeds ?? []} canOpenConnectors={canOpenLibraryManager(user?.role)} /> : null}
+        {data?.inbox ? <InboxCard items={data.inbox.items} more={data.inbox.more} onOpen={openInbox} /> : null}
         {user?.role === "admin" ? <AdminStrip waiting={data?.figures.waiting ?? 0} /> : null}
-        {canOpenLibraryManager(user?.role) ? <EndingNotifications role={user?.role} onOpenComponent={openComponent} /> : null}
         {dashboard.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {dashboard.status === "error" ? (
           <Alert variant="destructive">
@@ -77,6 +94,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
               {tiles.filter((tile) => tile.value !== undefined).map((tile) => <TileButton key={tile.label} tile={tile} />)}
             </div>
+            {canOpenLibraryManager(user?.role) ? <EndingNotifications role={user?.role} onOpenComponent={openComponent} /> : null}
             <div className="grid gap-3 lg:grid-cols-2">
               <RiskGridCard grid={data.risk_grid} onOpen={(filter) => parts(filter)()} />
               <DeadlinesCard deadlines={data.deadlines} onOpenPart={openPart} />

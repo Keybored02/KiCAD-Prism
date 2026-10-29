@@ -98,11 +98,12 @@ clock on a part's sheet shows its tier and why, and lets you change it.
 
 **Supply → Dashboard** shows what needs a person, top to bottom:
 
-- A red line when an inventory source or a distributor can't be read. Until it
-  reads again, the figures behind it may be old.
-- **Library components' parts are ending**: the components whose part is not
-  recommended for new designs, at last time buy, obsolete, dropped by every
-  distributor, or whose outlook is ending. See step 6.
+- **Inbox**: up to eight lines, worst first, each opening where it is acted
+  on: a distributor or the stores feed that can't be read (until it reads
+  again the figures behind it may be old), components whose part is ending (step 6),
+  the nearest last-buy deadline in the next month, projects short of their
+  usual build or with unchecked lines, open alerts by kind, parts likely out
+  in four weeks, and, for QA and administrators, what waits for approval.
 - The tiles: **Tracked**, **At risk**, **Out of stock**, **End of life**,
   **Open alerts**, **Queued for calls**. Each opens the list of exactly those
   parts.
@@ -112,8 +113,11 @@ clock on a part's sheet shows its tier and why, and lets you change it.
 - **Projected stock**: parts by how soon they run out at the recent rate.
 - **Tracked projects**: each project's parts at risk, how many boards the
   stock covers and its cost per board.
-- **Alerts**, then **Recent changes** (new BOM revisions, parts added and
-  removed).
+- **Library components' parts are ending** (folded): the components whose
+  part is not recommended for new designs, at last time buy, obsolete, dropped
+  by every distributor, or expected to end within two years. See step 6.
+- **Alerts** (folded), then **Recent changes** (new BOM revisions, parts added
+  and removed).
 
 ## 5. Look into a part
 
@@ -135,13 +139,17 @@ threshold, the price rise that matters and a target price.
 ## 6. Act on ending parts
 
 When a library component's part is ending, the Dashboard lists it with the
-reasons, the last buy date, its stock and the projects that use it. QA decides:
+reasons, the last buy date, its stock and the projects that use it. When the
+ending part is one of the component's approved alternates, the row says
+**Alternate**, and it says how many of the component's other parts are
+healthy. QA decides:
 
 - **Not for new designs**: the component stays released and keeps working
   where it is placed, but the catalog marks it so nobody picks it for a new
   design.
 - **Retire**: the component is archived and leaves the KiCad library.
-  Symbols already placed stop resolving.
+  Symbols already placed stop resolving. Offered only when none of the
+  component's other approved parts is healthy.
 - **Dismiss**: hide it until its part gains a new reason.
 
 Before retiring, give designers a way forward: propose an alternate (below) or
@@ -157,6 +165,12 @@ it.
    **Manufacturer** and **Part number** and choose **Propose alternate**.
 2. A QA reviewer approves or rejects it on the same row. **Library Manager →
    Review** lists everything waiting.
+
+Approval is for the component's main part at the time. When the component's
+part number changes in the library, its approved alternates go back to
+waiting, so QA checks them against the new part. When BOM lines naming two
+components resolve to the same part, only alternates both components approved
+count for it.
 
 **Alternatives** on a part's sheet suggests candidates with the same value,
 from distributors and from the parts Prism knows, graded by what distributors

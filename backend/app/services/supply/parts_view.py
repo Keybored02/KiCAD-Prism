@@ -818,12 +818,9 @@ def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetim
     return insights.analyse(points, threshold=threshold, today=now.astimezone(timezone.utc).date())
 
 
-def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
-    """The attributes distributors list for the part: known ones in one vocabulary first, the rest as written."""
+def _parameters(rows: list[dict[str, Any]], part_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Shape one part's parameter rows and facts into the list the part sheet shows."""
 
-    rows = conn.execute(
-        "SELECT provider, name, raw FROM supply_part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
-    ).fetchall()
     sources: dict[tuple[str, str], list[str]] = {}
     for row in rows:
         sources.setdefault((row["name"].lower(), row["raw"]), []).append(row["provider"])
@@ -837,7 +834,7 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
         for item in params.normalise(first_seen)
     ]
     # What a distributor files the part under is not a compliance fact; it is listed here, as the distributor wrote it.
-    for fact in facts.for_part(conn, part_id):
+    for fact in part_facts:
         if fact["name"] in facts.NOT_COMPLIANCE:
             for value in dict.fromkeys(source["value"] for source in fact["sources"]):
                 listed.append({
@@ -845,6 +842,30 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
                     "sources": [source["provider"] for source in fact["sources"] if source["value"] == value],
                 })
     return listed
+
+
+def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
+    """The attributes distributors list for the part: known ones in one vocabulary first, the rest as written."""
+
+    rows = conn.execute(
+        "SELECT provider, name, raw FROM supply_part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
+    ).fetchall()
+    return _parameters(rows, facts.for_part(conn, part_id))
+
+
+def parameters_of_parts(conn, part_ids: list[str], *, with_facts: bool = True) -> dict[str, list[dict[str, Any]]]:
+    """The attributes of several parts, each exactly as ``parameters_of`` gives it, from one parameter read. ``with_facts`` False leaves
+    out what distributors file the parts under (rows with no ``key``), and with them a facts read per part."""
+
+    ids = list(dict.fromkeys(part_ids))
+    if not ids:
+        return {}
+    by_part: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in conn.execute(
+        "SELECT part_id, provider, name, raw FROM supply_part_params WHERE part_id = ANY(%s) ORDER BY part_id, provider, name", (ids,)
+    ).fetchall():
+        by_part[row["part_id"]].append(row)
+    return {part_id: _parameters(by_part.get(part_id, []), facts.for_part(conn, part_id) if with_facts else []) for part_id in ids}
 
 
 def _packaging_state(conn, part_id: str) -> dict[str, Any]:
