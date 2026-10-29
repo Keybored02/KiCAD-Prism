@@ -219,6 +219,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         part = self.part()
         result = self.discover(part, match("S1", "LM358D", "TI"), match("S2", "LM358D", "ti"))
         self.assertEqual((result.exact, result.near), (2, 0))
+        self.assertEqual({sku: row["match_state"] for sku, row in self.listings().items()}, {"S1": "exact", "S2": "exact"})
         with self.store.connection() as conn:
             self.assertIn("ti", self.parts.part_spelling_keys(conn, part.id))
 
@@ -230,6 +231,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
             moved = self.parts.confirm_alias(conn, "umw", part.manufacturer_id, "ben@example.com")
             self.assertEqual(self.parts.pending_aliases(conn), [])
         self.assertEqual(moved, 2)
+        self.assertEqual({sku: row["match_state"] for sku, row in self.listings().items()}, {"S1": "exact", "S2": "exact"}, "both count now")
         self.assertEqual(self.listings()["S1"]["matched_by"], "ben@example.com")
         self.assertEqual(self.audit("alias.confirm"), 1)
 
