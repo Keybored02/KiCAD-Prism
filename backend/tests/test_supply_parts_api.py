@@ -800,8 +800,8 @@ class SupplyPartsApiTests(unittest.TestCase):
             one, two = listings["A0"], listings["B0"]
             def daily(listing: str, days_ago: int, stock: int, marketplace: bool = False) -> None:
                 conn.execute(
-                    "INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, marketplace, sample_count) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, 1)", (listing, today - timedelta(days=days_ago), stock, stock, stock, marketplace))
+                    "INSERT INTO supply_samples_daily (listing_id, day, stock, marketplace) VALUES (%s, %s, %s, %s)",
+                    (listing, today - timedelta(days=days_ago), stock, marketplace))
 
             def raw(listing: str, days_ago: int, hour: int, stock: int, marketplace: bool = False) -> None:
                 at = datetime.combine(today - timedelta(days=days_ago), datetime.min.time(), timezone.utc) + timedelta(hours=hour)
@@ -1033,7 +1033,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         old_day = (datetime.now(timezone.utc) - timedelta(days=80)).date()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 5, 40, 30, 6)",
+                "INSERT INTO supply_samples_daily (listing_id, day, stock) VALUES (%s, %s, 30)",
                 (listing, old_day))
         self.insert_sample(listing, datetime.now(timezone.utc) - timedelta(days=1), 7)
         history = self.call("GET", f"/api/supply/parts/{part_id}").json["history"]

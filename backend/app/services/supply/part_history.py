@@ -23,6 +23,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.services.supply import fx, insights, prices, stock
+from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 
 _COUNTED = ("exact", "manual")
@@ -48,25 +49,13 @@ def _listings(conn, part_id: str) -> list[dict[str, Any]]:
 
 
 def _day_figures(conn, listing_ids: list[str], since: datetime) -> dict[str, dict[date, dict[str, Any]]]:
-    """Each listing's last figures per day: raw readings where they exist, the daily rollup before."""
+    """Each listing's last figures per day (``days_sql``)."""
 
     figures: dict[str, dict[date, dict[str, Any]]] = defaultdict(dict)
     for row in conn.execute(
-        """
-        SELECT d.listing_id, d.day, d.last_stock AS stock, d.last_unit_price AS price, d.currency, d.marketplace
-        FROM supply_samples_daily d WHERE d.listing_id = ANY(%s) AND d.day >= %s
-        """,
-        (listing_ids, since.date()),
-    ).fetchall():
-        figures[row["listing_id"]][row["day"]] = dict(row)
-    for row in conn.execute(
-        """
-        SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.unit_price AS price, s.currency, s.marketplace, s.moq
-        FROM supply_samples s WHERE s.listing_id = ANY(%s) AND s.sampled_at >= %s
-        ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        """,
-        (listing_ids, since),
+        "SELECT listing_id, day, stock, unit_price AS price, currency, marketplace, moq FROM "
+        + days_sql("SELECT unnest(%(ids)s::text[])", "%(since)s") + " d",
+        {"ids": listing_ids, "since": since.date()},
     ).fetchall():
         figures[row["listing_id"]][row["day"]] = dict(row)
     return figures

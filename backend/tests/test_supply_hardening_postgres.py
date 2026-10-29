@@ -261,17 +261,23 @@ class HardeningTests(unittest.TestCase):
         old = datetime(2025, 12, 1, 8, 0, tzinfo=timezone.utc)
         recent = START - timedelta(days=5)
         with self.store.connection() as conn:
-            for hours, stock, price in ((0, 10, "1.0"), (6, 4, "1.2"), (12, 7, "1.1")):
+            for hours, stock, price, lead in ((0, 10, "1.0", 70), (6, 4, "1.2", 63), (12, 7, "1.1", 56)):
                 conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')",
-                    (listing, old + timedelta(hours=hours), stock, price))
+                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, lead_time_days, lifecycle, moq) "
+                    "VALUES (%s, %s, %s, %s, 'EUR', %s, 'nrnd', 10)",
+                    (listing, old + timedelta(hours=hours), stock, price, lead))
             conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 99)", (listing, recent))
             removed = self.retention.compact_samples(conn, START)
         self.assertEqual(removed, 3)
         (daily,) = self.rows("SELECT * FROM supply_samples_daily")
-        self.assertEqual((daily["day"], daily["min_stock"], daily["max_stock"], daily["last_stock"], daily["sample_count"]),
-                         (old.date(), 4, 10, 7, 3))
-        self.assertEqual(str(daily["last_unit_price"]), "1.100000")
+        # The day's last reading, every column of it.
+        self.assertEqual((daily["day"], daily["stock"], daily["lead_time_days"], daily["lifecycle"], daily["moq"]), (old.date(), 7, 56, "nrnd", 10))
+        self.assertEqual(str(daily["unit_price"]), "1.100000")
+        with self.store.connection() as conn:
+            from app.services.supply.history import days_sql
+
+            days = conn.execute(f"SELECT day, stock FROM {days_sql('SELECT unnest(%(ids)s::text[])')} d ORDER BY day", {"ids": [listing]}).fetchall()
+        self.assertEqual([(row["day"], row["stock"]) for row in days], [(old.date(), 7), (recent.date(), 99)], "one history, daily rows then raw")
         self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples")), 1, "the recent sample is untouched")
         with self.store.connection() as conn:
             self.assertEqual(self.retention.compact_samples(conn, START), 0, "nothing left to do")
@@ -321,7 +327,7 @@ class HardeningTests(unittest.TestCase):
                 conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, old))
                 conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, START - timedelta(days=5)))
                 conn.execute(
-                    "INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 1, 5, 5, 3)",
+                    "INSERT INTO supply_samples_daily (listing_id, day, stock) VALUES (%s, %s, 5)",
                     (listing, old.date()))
             self.assertEqual(self.retention.drop_expired(conn, START), 2, "its old sample and its old daily row")
         self.assertEqual(sorted(r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_samples")), sorted([one, two, two]))

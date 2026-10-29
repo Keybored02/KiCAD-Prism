@@ -21,6 +21,7 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import parts_view, price_breaks, price_quantity, pricing
+from app.services.supply.history import days_sql
 from app.services.supply.vocabulary import Lifecycle
 
 MIN_SAMPLE = 3
@@ -114,15 +115,18 @@ def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, l
         return {}
     rows = conn.execute(
         """
-        SELECT l.part_id, l.id AS listing_id,
-               (SELECT s.unit_price FROM supply_samples s WHERE s.listing_id = l.id AND s.sampled_at < %s AND s.unit_price IS NOT NULL
-                ORDER BY s.sampled_at DESC LIMIT 1) AS before,
-               (SELECT s.unit_price FROM supply_samples s WHERE s.listing_id = l.id AND s.unit_price IS NOT NULL
-                ORDER BY s.sampled_at DESC LIMIT 1) AS now
-        FROM supply_listings l
-        WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
+        WITH listed AS (SELECT id, part_id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND match_state IN ('exact', 'manual'))
+        SELECT listed.part_id, listed.id AS listing_id, h.before, h.now
+        FROM listed LEFT JOIN (
+            SELECT d.listing_id,
+                   (array_agg(d.unit_price ORDER BY d.day DESC) FILTER (WHERE d.day < %(since)s))[1] AS before,
+                   (array_agg(d.unit_price ORDER BY d.day DESC))[1] AS now
+            FROM """ + days_sql("SELECT id FROM listed", "%(from)s") + """ d
+            WHERE d.unit_price IS NOT NULL
+            GROUP BY d.listing_id
+        ) h ON h.listing_id = listed.id
         """,
-        (since, list(part_ids)),
+        {"since": since.date(), "parts": list(part_ids), "from": (since - timedelta(days=HISTORY_DAYS)).date()},
     ).fetchall()
     quantities = price_quantity.of_parts(conn, part_ids)
     kept = price_breaks.load(conn, [row["listing_id"] for row in rows if quantities[row["part_id"]] != pricing.REFERENCE_QUANTITY])

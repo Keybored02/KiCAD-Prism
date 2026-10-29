@@ -75,6 +75,17 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(self.part_insights.matching(conn, "one_distributor"), {falling})
             self.assertEqual(self.part_insights.matching(conn, "steady"), {steady})
 
+    def test_new_exchange_rates_leave_the_kept_facts_readable_and_first_to_be_renewed(self) -> None:
+        from app.services.supply import price_quantity
+
+        part = self.follow("RATE-1", [500] * 3)
+        with self.store.connection() as conn:
+            self.part_insights.renew(conn, NOW)
+            price_quantity.forget(conn)  # what saving new rates does
+            self.assertEqual([row["part_id"] for row in self.part_insights.read_all(conn)], [part], "still readable")
+            self.dashboard.build(conn)
+            self.assertEqual(self.part_insights.renew(conn, NOW), 1, "and renewed first")
+
     def test_the_parts_list_narrows_to_a_finding_and_carries_the_trend_line(self) -> None:
         falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
         self.follow("STEADY-1", [500] * 9, holders=("c1", "c2"))

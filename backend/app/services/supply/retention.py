@@ -1,7 +1,8 @@
 """Keeping the sample history from growing without limit.
 
 Raw samples stay for ``RAW_DAYS``. Older ones are rolled into one row per listing
-per day (lowest, highest and last stock, last price) and the raw rows deleted.
+per day, the day's last reading with every column a sample has, and the raw rows deleted.
+``history.days_sql`` reads both as one history.
 The roll-up is idempotent, so a run that is interrupted or repeated changes
 nothing it should not.
 
@@ -93,19 +94,14 @@ def _compact(conn, now: datetime, days: int) -> int:
     stop = min(cutoff, oldest + timedelta(days=BATCH_DAYS))
     conn.execute(
         f"""
-        INSERT INTO supply_samples_daily (listing_id, day, min_stock, max_stock, last_stock, last_unit_price,
-                                   currency, marketplace, sample_count)
-        SELECT listing_id,
-               (sampled_at AT TIME ZONE 'UTC')::date AS day,
-               MIN(stock), MAX(stock),
-               (ARRAY_AGG(stock ORDER BY sampled_at DESC))[1],
-               (ARRAY_AGG(unit_price ORDER BY sampled_at DESC))[1],
-               (ARRAY_AGG(currency ORDER BY sampled_at DESC))[1],
-               (ARRAY_AGG(marketplace ORDER BY sampled_at DESC))[1],
-               COUNT(*)
+        INSERT INTO supply_samples_daily (listing_id, day, stock, incoming_qty, unit_price, currency, lead_time_days, lifecycle,
+                                          discontinued, marketplace, moq, order_multiple)
+        SELECT DISTINCT ON (listing_id, (sampled_at AT TIME ZONE 'UTC')::date)
+               listing_id, (sampled_at AT TIME ZONE 'UTC')::date, stock, incoming_qty, unit_price, currency, lead_time_days, lifecycle,
+               discontinued, marketplace, moq, order_multiple
         FROM supply_samples
         WHERE sampled_at < %s AND {mine}
-        GROUP BY listing_id, (sampled_at AT TIME ZONE 'UTC')::date
+        ORDER BY listing_id, (sampled_at AT TIME ZONE 'UTC')::date, sampled_at DESC
         ON CONFLICT (listing_id, day) DO NOTHING
         """,
         (_midnight(stop), RAW_DAYS, days),
