@@ -470,6 +470,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="DigiKey",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_PCN, CAP_SUBSTITUTES}),
     max_batch=1,

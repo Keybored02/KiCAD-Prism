@@ -323,6 +323,7 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, s
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="Farnell / Newark / element14",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE}),
     max_batch=MAX_MATCHES,

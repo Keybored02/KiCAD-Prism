@@ -345,6 +345,7 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="TME",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH}),
     max_batch=MAX_BATCH,

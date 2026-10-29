@@ -326,6 +326,7 @@ def _offer(sku: str, row: Mapping[str, Any], now: datetime) -> Offer:
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="Avnet",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_BATCH}),
     max_batch=MAX_LINES,

@@ -419,6 +419,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
     label="Mouser",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING, CAP_SUBSTANCES}),
     max_batch=MAX_BATCH,
