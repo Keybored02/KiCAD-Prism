@@ -1023,10 +1023,13 @@ class SupplyPartsApiTests(unittest.TestCase):
         day = lambda n, hour=9: (start + timedelta(days=n)).replace(hour=hour)  # noqa: E731
         for when, stock in ((day(0), 10), (day(0, 18), 12), (day(3), 25)):
             self.insert_sample(first, when, stock)
-        history = self.call("GET", f"/api/supply/parts/{part_id}").json["history"]
+        detail = self.call("GET", f"/api/supply/parts/{part_id}").json
+        history = detail["history"]
         self.assertEqual([(h["day"], h["stock"]) for h in history],
                          [((start + timedelta(days=n)).date().isoformat(), value) for n, value in ((0, 12), (1, 12), (2, 12), (3, 25))],
                          "the last sample of a day wins and quiet days repeat it")
+        # The sheet's charts come with the detail, a line per distributor, as the history endpoint gives them.
+        self.assertEqual(detail["distributor_history"], self.call("GET", f"/api/supply/parts/{part_id}/history").json)
 
     def test_history_combines_listings_without_double_counting_pooled_stock(self) -> None:
         cid = self.fake_connector()  # the simulated market's stock is pooled across packaging

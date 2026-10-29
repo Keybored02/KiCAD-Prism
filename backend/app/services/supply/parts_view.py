@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping, Sequence
 
-from app.services.supply import budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_history, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 from app.services.supply.forecast import store
@@ -1152,6 +1152,8 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "lifecycle": lifecycle.value,
         "listings": listings,
         "history": days,
+        # Stock and price a line per distributor over the sheet's 90 days, so the sheet needs no second request for its charts.
+        "distributor_history": part_history.build(conn, part_id, now),
         "price": price_view,
         "parameters": parameters_of(conn, part_id),
         "outlook": ahead,

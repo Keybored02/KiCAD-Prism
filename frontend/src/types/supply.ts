@@ -951,6 +951,8 @@ export interface SupplyPartDetail {
   listings: SupplyListing[];
   /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
   history: Array<{ day: string; stock: number; listings: number }>;
+  /** Stock and price a line per distributor over the last 90 days: what the sheet's charts draw. */
+  distributor_history?: PartHistory;
   /** The cheapest counted unit price per day. `trend` is the move over the last 30 days, or null when there is not enough to read one. */
   price: {
     currency: string;

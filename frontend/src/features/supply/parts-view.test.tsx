@@ -258,11 +258,13 @@ describe("a part", () => {
   });
 
   it("gives the price its own heading, vendors legend and chart like the stock", async () => {
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ price: { currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null } }));
-    mocked.getPartHistory.mockResolvedValue({
-      days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
-      connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [["2026-03-01", 0.5]] }],
-    });
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
+      price: { currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null },
+      distributor_history: {
+        days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
+        connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [["2026-03-01", 0.5]] }],
+      },
+    }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
     const price = await within(sheet).findByRole("region", { name: "Price" });
@@ -394,7 +396,7 @@ describe("a part", () => {
   });
 
   it("asks for history rather than drawing a line through nothing", async () => {
-    mocked.getPartHistory.mockResolvedValue({ days: 90, currency: "EUR", connectors: [], total: [], events: [] });
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ distributor_history: { days: 90, currency: "EUR", connectors: [], total: [], events: [] } }));
     renderView("designer", "/?part=p1");
     expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
   });

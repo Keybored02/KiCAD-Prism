@@ -517,6 +517,20 @@ class BomLookupTests(unittest.TestCase):
         data = self.lookup(lines, build=10)
         self.assertEqual((data["lines"]["named"]["short"], data["lines"]["blank"]["short"], data["rollup"]["short"]), (True, True, 1))
 
+    def test_a_projects_bom_is_priced_for_its_usual_build_and_spares_unless_asked_otherwise(self) -> None:
+        part_id = self.part("Acme", "BUILD-1", watch=True)
+        self.offer(part_id, "B1", stock=5000)
+        line = [{"key": "k", "manufacturer": "Acme", "mpn": "BUILD-1", "quantity": 2}]
+        usual = {"build_quantity": 10, "spares": "5"}
+        with mock.patch("app.api.supply_bom.get_project_for_role_or_404"), \
+                mock.patch("app.services.supply.project_supply.tracking.tracked_project", return_value=usual):
+            found = self.call("/api/supply/bom/lookup", {"project_id": "prj_1", "lines": line}).json
+            asked = self.call("/api/supply/bom/lookup", {"project_id": "prj_1", "lines": line, "build_quantity": 3, "attrition_percent": 0}).json
+        self.assertEqual((found["build_quantity"], found["attrition_percent"]), (10, 5.0))
+        self.assertEqual((asked["build_quantity"], asked["attrition_percent"]), (3, 0))
+        alone = self.call("/api/supply/bom/lookup", {"lines": line}).json
+        self.assertEqual((alone["build_quantity"], alone["attrition_percent"]), (1, 0.0), "no project: one board, the workspace's spares")
+
     def test_requests_are_checked(self) -> None:
         for body in ({"lines": [], "build_quantity": 0}, {"lines": [{"key": "a", "quantity": 0}]},
                      {"lines": [{"key": "", "mpn": "x"}]}, {"lines": [{"key": "a", "owner": "mallory"}]}):

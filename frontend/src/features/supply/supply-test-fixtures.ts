@@ -76,6 +76,10 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
 export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): SupplyPartDetail {
   return {
     part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
+    distributor_history: {
+      days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
+      connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [] }],
+    },
     watch: { id: "w1", threshold: 500, pinned: false, owner: "ana@example.com", packaging: "any" },
     status: "ok",
     problem: null,
