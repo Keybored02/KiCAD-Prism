@@ -283,8 +283,8 @@ class SummaryCacheTests(unittest.TestCase):
             self.assertEqual(self.status(), "error", "no distributor has it")
             with self.store.connection() as conn:
                 conn.execute(
-                    "INSERT INTO supply_waivers (id, part_id, check_id, scope, reason, state, proposed_by) "
-                    "VALUES ('w1', %s, 'no_distributor_stock', 'no_stock', 'stocked by hand', 'approved', %s)", (part, ACTOR))
+                    "INSERT INTO supply_attention_decisions (id, part_id, kind, scope, reason, decision, state, made_by) "
+                    "VALUES ('w1', %s, 'no_distributor_stock', 'no_stock', 'stocked by hand', 'waive', 'approved', %s)", (part, ACTOR))
             self.assertEqual(self.status(), "ok", "the approved waiver marks the summary and the status follows")
 
     def test_a_kept_status_holds_until_the_clock_makes_the_read_late(self) -> None:

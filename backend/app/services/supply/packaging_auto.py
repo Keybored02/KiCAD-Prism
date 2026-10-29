@@ -21,7 +21,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from app.services.supply import admission, packaging_picks, usage
+from app.services.supply import admission, packaging_picks, stock, usage
 
 CUT_TAPE, CUSTOM_REEL, TAPE_REEL, TUBE_TRAY, SMALLEST = "cut_tape", "custom_reel", "tape_reel", "tube_tray", "smallest"
 PACKAGINGS = (CUT_TAPE, CUSTOM_REEL, TAPE_REEL, TUBE_TRAY, SMALLEST)
@@ -43,7 +43,7 @@ _CHAIN = {
 
 
 def policy_of(conn, part_id: str) -> str:
-    """The packaging a part is bought in: the smaller of what its tracked projects ask for, else its watch's, else cut tape."""
+    """The packaging a part is bought in: the smaller of what its tracked projects ask for, else its watch's (``stock.packaging_of``), else cut tape."""
 
     rows = conn.execute(
         "SELECT DISTINCT tp.project_id, tp.packaging FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
@@ -54,8 +54,7 @@ def policy_of(conn, part_id: str) -> str:
     asked = [row["packaging"] for row in rows if row["packaging"] in _SMALLER]
     if asked:
         return min(asked, key=_SMALLER.__getitem__)
-    watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
-    return _WATCH.get(watch["packaging"], DEFAULT) if watch else DEFAULT
+    return _WATCH.get(stock.packaging_of(conn, part_id), DEFAULT)
 
 
 def _moq(listing: dict[str, Any]) -> int:

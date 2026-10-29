@@ -29,11 +29,17 @@ async function retireComponentRequest(componentId: string, reason: string): Prom
 }
 
 /** Nothing to do about this component for these reasons; a new reason brings it back. */
-async function dismissEndingRequest(componentId: string, reasons: string[]): Promise<void> {
-  await fetchJson(`${BASE}/${encodeURIComponent(componentId)}/dismissal`, { method: "PUT", body: JSON.stringify({ reasons }) }, "Could not dismiss it");
+async function dismissEndingRequest(componentId: string, reasons: string[]): Promise<{ id: string; state: "approved" | "proposed" }> {
+  return fetchJson(`${BASE}/${encodeURIComponent(componentId)}/dismissal`, { method: "PUT", body: JSON.stringify({ reasons }) }, "Could not dismiss it");
+}
+
+/** QA accepts or rejects a dismissal someone asked for. */
+async function decideDismissalRequest(id: string, approve: boolean): Promise<void> {
+  await fetchJson(`${BASE}/dismissals/${encodeURIComponent(id)}/${approve ? "approve" : "reject"}`, { method: "POST" }, "Could not save the decision");
 }
 
 export const setRestriction = changesSupply(setRestrictionRequest);
 export const clearRestriction = changesSupply(clearRestrictionRequest);
 export const retireComponent = changesSupply(retireComponentRequest);
 export const dismissEnding = changesSupply(dismissEndingRequest);
+export const decideDismissal = changesSupply(decideDismissalRequest);

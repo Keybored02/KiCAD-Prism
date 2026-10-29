@@ -75,18 +75,12 @@ def _deadlines(deadlines: list[Mapping[str, Any]], today: date) -> list[dict[str
 
 
 def _alerts(conn, now: datetime) -> list[dict[str, Any]]:
-    """Open alerts, one item per kind, at the worst severity among them."""
+    """Open alerts, one item per kind, at the worst severity among them (``attention.summary``)."""
 
-    rows = conn.execute(
-        """
-        SELECT kind, COUNT(*) AS n,
-               MIN(CASE severity WHEN 'fatal' THEN 0 WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END) AS worst
-        FROM supply_alerts WHERE state = 'open' OR (state = 'snoozed' AND snoozed_until <= %s)
-        GROUP BY kind
-        """,
-        (now,),
-    ).fetchall()
-    return [{"kind": "alerts", "severity": SEVERITY[int(row["worst"])], "count": int(row["n"]), "alert_kind": row["kind"]} for row in rows]
+    from app.services.supply import alerts, attention
+
+    return [{"kind": "alerts", "severity": row["severity"], "count": row["count"], "alert_kind": row["kind"]}
+            for row in attention.summary(conn, now) if row["kind"] in alerts.KINDS]
 
 
 def _work(conn, actor: str, today: date) -> dict[str, int]:

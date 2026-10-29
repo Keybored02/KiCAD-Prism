@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import bom_comments, bom_lookup, cost_history, freshness, tracking, usage
+from app.services.supply import attention, bom_comments, bom_lookup, cost_history, freshness, tracking, usage
 from app.services.supply import settings as supply_settings
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
@@ -70,12 +70,7 @@ def _parts(
     sizes = sorted({*CURVE_SIZES, build_quantity})
     curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
-    alerts = {
-        row["part_id"]: int(row["n"])
-        for row in conn.execute(
-            "SELECT part_id, COUNT(*) AS n FROM supply_alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (part_ids,)
-        ).fetchall()
-    } if part_ids else {}
+    alerts = attention.open_counts(conn, datetime.now(timezone.utc), attention.PART, part_ids) if part_ids else {}
     converted = bool(result["rollup"]["converted"])
     parts = []
     for row in rows:

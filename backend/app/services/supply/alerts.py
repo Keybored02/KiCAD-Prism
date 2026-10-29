@@ -1,11 +1,12 @@
 """Alerts: when a watched part crosses a line, say so once, and stop saying it when it clears.
 
-Alerts are in-app only; nothing is sent anywhere. One alert exists per part and kind.
+Alerts are the part rows of ``supply_attention`` (``attention.py``), in-app only; nothing is sent anywhere. One alert exists per
+part and kind.
 A condition has to hold on two evaluations at least ``HOLD`` apart before it opens
 (so one odd reading does not raise anything), except a lost part, which is already
 a settled fact. A condition that clears resolves its alert by itself. A person can
 acknowledge an alert (it stays listed, quieter) or snooze it; a worse severity wakes
-either of them up.
+either of them up. Muting a kind on a part and the status a part is judged against are standing decisions.
 
 The lines are the tracked part's assessment findings (``ALERT_OF_CHECK``), so an alert says
 what the status says, at the severity the workspace set for the check, and a held waiver
@@ -15,12 +16,11 @@ when it stops being watched. Functions work on a connection and do not commit.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import alert_rules
+from app.services.supply import alert_rules, attention
 from app.services.supply.assessment import settings as checks_ids
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Status
@@ -52,7 +52,10 @@ _STATUS_ORDER = ("ok", "warning", "error", "fatal")
 _IMMEDIATE = frozenset({PART_LOST, PCN})
 _SEVERITY_RANK = {Status.FATAL.value: 0, Status.ERROR.value: 1, Status.WARNING.value: 2}
 
-PENDING, OPEN, ACKNOWLEDGED, SNOOZED, RESOLVED = "pending", "open", "acknowledged", "snoozed", "resolved"
+PENDING, OPEN, RESOLVED = attention.PENDING, attention.OPEN, attention.RESOLVED
+ACKNOWLEDGED, SNOOZED = attention.ACKNOWLEDGED, attention.SNOOZED
+# The standing decision that holds the status a part is judged against.
+STATUS = "status"
 
 
 class AlertNotFound(KeyError):
@@ -119,12 +122,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         part_id: conditions_from(entry["findings"], entry["status"], marks.get(part_id), rules.get(part_id, alert_rules.NONE).muted)
         for part_id, entry in result.items()
     }
-    existing: dict[tuple[str, str], Mapping[str, Any]] = {}
-    for row in conn.execute(
-        "SELECT * FROM supply_alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)
-    ).fetchall():
-        existing[(row["part_id"], row["kind"])] = row
-
+    existing = attention.live(conn, attention.PART, ids, KINDS)
     for part_id in ids:
         found = current.get(part_id, {})
         for kind in KINDS:
@@ -132,11 +130,12 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
             condition = found.get(kind)
             if condition is None:
                 if row is not None:
-                    _clear(conn, row, now)
+                    attention.clear(conn, row, now)
             elif row is None:
-                _begin(conn, part_id, kind, condition, now)
+                attention.begin(conn, attention.PART, part_id, kind, condition.severity, condition.detail, now, at_once=kind in _IMMEDIATE)
             else:
-                _update(conn, row, kind, condition, now)
+                attention.hold(conn, row, condition.severity, condition.detail, now,
+                               opens=row["state"] == PENDING and row["seen_count"] + 1 >= 2 and now - row["first_seen_at"] >= HOLD)
 
 
 def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
@@ -150,95 +149,38 @@ def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, d
         return {}, {}
     result = assessment.assess_parts(conn, tracked, now=now)
     states = {part_id: entry["status"] for part_id, entry in result.items() if entry["status"] in _STATUS_ORDER}
-    marks = {
-        row["part_id"]: row["status"]
-        for row in conn.execute("SELECT part_id, status FROM supply_assessment_marks WHERE part_id = ANY(%s)", (tracked,)).fetchall()
-    }
+    marks = {part_id: rows[-1]["scope"] for part_id, rows in attention.standing(conn, attention.PART, tracked, attention.ACCEPT, [STATUS]).items()}
     for part_id, status in states.items():
         mark = marks.get(part_id)
         if mark is None or _STATUS_ORDER.index(status) < _STATUS_ORDER.index(mark):
-            conn.execute(
-                "INSERT INTO supply_assessment_marks (part_id, status) VALUES (%s, %s) "
-                "ON CONFLICT (part_id) DO UPDATE SET status = EXCLUDED.status, marked_at = NOW()",
-                (part_id, status),
-            )
+            attention.stand(conn, attention.PART, part_id, STATUS, attention.ACCEPT, "system", scope=status)
             marks[part_id] = status
     return result, marks
-
-
-def _begin(conn, part_id: str, kind: str, condition: Condition, now: datetime) -> None:
-    state = OPEN if kind in _IMMEDIATE else PENDING
-    conn.execute(
-        """
-        INSERT INTO supply_alerts (part_id, kind, severity, state, first_seen_at, seen_count, opened_at, last_event_at, detail)
-        VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s::jsonb)
-        """,
-        (part_id, kind, condition.severity, state, now, now if state == OPEN else None, now,
-         json.dumps(dict(condition.detail))),
-    )
-
-
-def _clear(conn, row: Mapping[str, Any], now: datetime) -> None:
-    if row["state"] == PENDING:
-        conn.execute("DELETE FROM supply_alerts WHERE id = %s", (row["id"],))
-    else:
-        conn.execute("UPDATE supply_alerts SET state = 'resolved', resolved_at = %s WHERE id = %s", (now, row["id"]))
-
-
-def _update(conn, row: Mapping[str, Any], kind: str, condition: Condition, now: datetime) -> None:
-    detail = json.dumps(dict(condition.detail))
-    worse = _SEVERITY_RANK[condition.severity] < _SEVERITY_RANK[row["severity"]]
-    state = row["state"]
-    if state == PENDING:
-        seen = row["seen_count"] + 1
-        if seen >= 2 and now - row["first_seen_at"] >= HOLD:
-            conn.execute(
-                "UPDATE supply_alerts SET state = 'open', seen_count = %s, severity = %s, opened_at = %s, last_event_at = %s, "
-                "detail = %s::jsonb WHERE id = %s",
-                (seen, condition.severity, now, now, detail, row["id"]),
-            )
-        else:
-            conn.execute(
-                "UPDATE supply_alerts SET seen_count = %s, severity = %s, detail = %s::jsonb WHERE id = %s",
-                (seen, condition.severity, detail, row["id"]),
-            )
-        return
-    wake = worse or (state == SNOOZED and row["snoozed_until"] is not None and row["snoozed_until"] <= now)
-    if wake:
-        conn.execute(
-            "UPDATE supply_alerts SET state = 'open', severity = %s, last_event_at = %s, acknowledged_by = '', "
-            "acknowledged_at = NULL, snoozed_until = NULL, detail = %s::jsonb WHERE id = %s",
-            (condition.severity, now, detail, row["id"]),
-        )
-    else:
-        conn.execute("UPDATE supply_alerts SET severity = %s, detail = %s::jsonb WHERE id = %s",
-                     (condition.severity, detail, row["id"]))
 
 
 # --- reading -------------------------------------------------------------------
 
 
-def _effective_state(row: Mapping[str, Any], now: datetime) -> str:
-    if row["state"] == SNOOZED and row["snoozed_until"] is not None and row["snoozed_until"] <= now:
-        return OPEN
-    return row["state"]
+_SELECT = """
+    SELECT a.*, p.mpn, m.name AS manufacturer
+    FROM supply_attention a JOIN supply_parts p ON p.id = a.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+"""
+
+
+def _dtos(conn, rows, now: datetime) -> list[dict[str, Any]]:
+    decided = attention.row_decisions(conn, [row["id"] for row in rows])
+    return [_dto(row, decided.get(row["id"], {}), now) for row in rows]
 
 
 def list_alerts(conn, now: datetime, *, include_resolved: bool = False, limit: int = 200) -> list[dict[str, Any]]:
     """Alerts people should see: worst first, then newest. Resolved ones only on request (recent first)."""
 
-    states = [OPEN, ACKNOWLEDGED, SNOOZED] + ([RESOLVED] if include_resolved else [])
+    states = [OPEN] + ([RESOLVED] if include_resolved else [])
     rows = conn.execute(
-        """
-        SELECT a.*, p.mpn, m.name AS manufacturer
-        FROM supply_alerts a JOIN supply_parts p ON p.id = a.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
-        WHERE a.state = ANY(%s)
-        ORDER BY a.last_event_at DESC, a.id DESC
-        LIMIT %s
-        """,
-        (states, limit),
+        _SELECT + "WHERE a.part_id IS NOT NULL AND a.kind = ANY(%s) AND a.state = ANY(%s) ORDER BY a.last_event_at DESC, a.id DESC LIMIT %s",
+        (list(KINDS), states, limit),
     ).fetchall()
-    items = [_dto(row, now) for row in rows]
+    items = _dtos(conn, rows, now)
     items.sort(key=lambda item: (item["state"] == RESOLVED, _SEVERITY_RANK.get(item["severity"], 3)))
     return items
 
@@ -250,15 +192,9 @@ def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = No
     since = now - timedelta(days=days)
     changes: list[dict[str, Any]] = []
     rows = conn.execute(
-        """
-        SELECT a.*, p.mpn, m.name AS manufacturer
-        FROM supply_alerts a JOIN supply_parts p ON p.id = a.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
-        WHERE a.opened_at >= %s OR a.resolved_at >= %s
-        """,
-        (since, since),
+        _SELECT + "WHERE a.part_id IS NOT NULL AND a.kind = ANY(%s) AND (a.opened_at >= %s OR a.resolved_at >= %s)", (list(KINDS), since, since),
     ).fetchall()
-    for row in rows:
-        alert = _dto(row, now)
+    for row, alert in zip(rows, _dtos(conn, rows, now)):
         if row["opened_at"] and row["opened_at"] >= since:
             changes.append({"at": alert["opened_at"], "type": "alert_opened", "part_id": row["part_id"], "mpn": row["mpn"],
                             "manufacturer": row["manufacturer"], "alert": alert, "sku": ""})
@@ -289,12 +225,10 @@ def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = No
 def count_attention(conn, now: datetime) -> int:
     """Alerts that are open (not acknowledged, snoozed or resolved)."""
 
-    return int(conn.execute(
-        "SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open' OR (state = 'snoozed' AND snoozed_until <= %s)", (now,)
-    ).fetchone()["n"])
+    return attention.open_counts(conn, now)[""]
 
 
-def _dto(row: Mapping[str, Any], now: datetime) -> dict[str, Any]:
+def _dto(row: Mapping[str, Any], decided: Mapping[str, Mapping[str, Any]], now: datetime) -> dict[str, Any]:
     def iso(value: datetime | None) -> str | None:
         return value.isoformat() if value else None
 
@@ -305,12 +239,12 @@ def _dto(row: Mapping[str, Any], now: datetime) -> dict[str, Any]:
         "manufacturer": row["manufacturer"],
         "kind": row["kind"],
         "severity": row["severity"],
-        "state": _effective_state(row, now),
+        "state": attention.shown_state(row, decided, now),
         "detail": row["detail"],
         "opened_at": iso(row["opened_at"]),
         "last_event_at": iso(row["last_event_at"]),
-        "acknowledged_by": row["acknowledged_by"],
-        "snoozed_until": iso(row["snoozed_until"]),
+        "acknowledged_by": next((item["made_by"] for item in decided.values()), ""),
+        "snoozed_until": iso((decided.get(attention.SNOOZE) or {}).get("until")),
         "resolved_at": iso(row["resolved_at"]),
     }
 
@@ -319,7 +253,8 @@ def _dto(row: Mapping[str, Any], now: datetime) -> dict[str, Any]:
 
 
 def _fetch(conn, alert_id: int):
-    row = conn.execute("SELECT * FROM supply_alerts WHERE id = %s FOR UPDATE", (alert_id,)).fetchone()
+    row = conn.execute("SELECT * FROM supply_attention WHERE id = %s AND part_id IS NOT NULL AND kind = ANY(%s) FOR UPDATE",
+                       (alert_id, list(KINDS))).fetchone()
     if row is None or row["state"] == PENDING:
         raise AlertNotFound(alert_id)
     if row["state"] == RESOLVED:
@@ -330,15 +265,12 @@ def _fetch(conn, alert_id: int):
 def acknowledge(conn, alert_id: int, actor: str, now: datetime) -> None:
     actor = actor_text(actor)
     row = _fetch(conn, alert_id)
-    if _effective_state(row, now) != OPEN:
+    if attention.shown_state(row, attention.row_decisions(conn, [alert_id]).get(alert_id, {}), now) != OPEN:
         raise AlertError("Only an open alert can be acknowledged.")
-    conn.execute(
-        "UPDATE supply_alerts SET state = 'acknowledged', acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
-        (actor, now, alert_id),
-    )
+    attention.decide_row(conn, alert_id, attention.ACKNOWLEDGE, actor)
     if row["kind"] == ASSESSMENT_WORSE and (row["detail"] or {}).get("to") in _STATUS_ORDER:
         # Seen and accepted: the part is now judged against where it stands.
-        conn.execute("UPDATE supply_assessment_marks SET status = %s, marked_at = %s WHERE part_id = %s", (row["detail"]["to"], now, row["part_id"]))
+        attention.stand(conn, attention.PART, row["part_id"], STATUS, attention.ACCEPT, actor, scope=row["detail"]["to"])
     write_audit(conn, actor, "alert.acknowledge", str(alert_id), {"kind": row["kind"]}, subject_kind="alert")
 
 
@@ -347,9 +279,5 @@ def snooze(conn, alert_id: int, hours: int, actor: str, now: datetime) -> None:
     if isinstance(hours, bool) or not isinstance(hours, int) or not 1 <= hours <= MAX_SNOOZE_HOURS:
         raise AlertError(f"Snooze for 1 to {MAX_SNOOZE_HOURS} hours.")
     row = _fetch(conn, alert_id)
-    until = now + timedelta(hours=hours)
-    conn.execute(
-        "UPDATE supply_alerts SET state = 'snoozed', snoozed_until = %s, acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
-        (until, actor, now, alert_id),
-    )
+    attention.decide_row(conn, alert_id, attention.SNOOZE, actor, until=now + timedelta(hours=hours))
     write_audit(conn, actor, "alert.snooze", str(alert_id), {"kind": row["kind"], "hours": hours}, subject_kind="alert")

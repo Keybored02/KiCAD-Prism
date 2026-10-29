@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { canReviewSupply } from "@/lib/roles";
+import { canEditSupply, canReviewSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { EndingPart } from "@/types/supply";
 import { dismissEnding, getEndingParts, retireComponent, setRestriction } from "./ending-api";
@@ -61,13 +61,19 @@ function DecisionDialog({ item, decision, onClose, onDone }: { item: EndingPart;
   );
 }
 
-function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDecide: boolean; onOpen: () => void; onChanged: () => void }) {
+function Row({ item, canDecide, canPropose, onOpen, onChanged }: {
+  item: EndingPart; canDecide: boolean; canPropose: boolean; onOpen: () => void; onChanged: () => void;
+}) {
   const [decision, setDecision] = useState<Decision | null>(null);
   const [busy, setBusy] = useState(false);
   const dismiss = () => {
     setBusy(true);
     dismissEnding(item.component.id, item.reasons.map((reason) => reason.kind))
-      .then(() => { toast.success(`${item.component.name || item.component.mpn} dismissed until its part gains a new reason.`); onChanged(); })
+      .then((made) => {
+        const name = item.component.name || item.component.mpn;
+        toast.success(made.state === "approved" ? `${name} dismissed until its part gains a new reason.` : `${name} waits for QA to dismiss it.`);
+        onChanged();
+      })
       .catch((caught: Error) => { toast.error(caught.message); setBusy(false); });
   };
   const used = item.projects.length === 0 ? "No tracked project" : item.projects.slice(0, 2).map((project) => project.name).join(", ") + (item.projects.length > 2 ? ` +${item.projects.length - 2}` : "");
@@ -96,6 +102,10 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
           <Button size="sm" variant="ghost" disabled={busy} onClick={dismiss}>Dismiss</Button>
           <WorkItemButton subject={{ kind: "component", id: item.component.id }} title={`${item.component.name || item.component.mpn}: ending`} action="alternate" />
         </span>
+      ) : canPropose ? (
+        <Button size="sm" variant="ghost" className="shrink-0" disabled={busy || item.dismissal_waiting === true} onClick={dismiss}>
+          {item.dismissal_waiting ? "Asked QA" : "Ask QA to dismiss"}
+        </Button>
       ) : null}
       {decision ? <DecisionDialog item={item} decision={decision} onClose={() => setDecision(null)} onDone={onChanged} /> : null}
     </li>
@@ -110,6 +120,7 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
 export function EndingNotifications({ role, onOpenComponent }: { role: UserRole | null | undefined; onOpenComponent: (componentId: string) => void }) {
   const loaded = useLoaded("ending/parts", getEndingParts, "Could not load the ending parts");
   const canDecide = canReviewSupply(role);
+  const canPropose = canEditSupply(role);
   if (loaded.status === "error") {
     return (
       <Alert variant="destructive">
@@ -127,7 +138,7 @@ export function EndingNotifications({ role, onOpenComponent }: { role: UserRole 
         {items.length === 1 ? "1 library component's part is ending" : `${items.length} library components' parts are ending`}
       </summary>
       <ul className="divide-y">
-        {items.map((item) => <Row key={item.component.id} item={item} canDecide={canDecide} onOpen={() => onOpenComponent(item.component.id)} onChanged={() => void loaded.refresh()} />)}
+        {items.map((item) => <Row key={item.component.id} item={item} canDecide={canDecide} canPropose={canPropose} onOpen={() => onOpenComponent(item.component.id)} onChanged={() => void loaded.refresh()} />)}
       </ul>
       {loaded.data && loaded.data.more > 0 ? <p className="border-t px-3 py-1.5 text-xs text-muted-foreground">{loaded.data.more} more ending parts are not listed.</p> : null}
     </details>

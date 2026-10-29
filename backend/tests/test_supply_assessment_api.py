@@ -58,7 +58,7 @@ class AssessmentApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("supply_waivers", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
+            for table in ("supply_attention_decisions", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
         self.part_id = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": "ABC123"}).json["part_id"]
@@ -149,7 +149,7 @@ class AssessmentApiTests(unittest.TestCase):
         self.offer(lifecycle="nrnd")
         waiver = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Fine"}).json
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_waivers SET scope = 'something_else' WHERE id = %s", (waiver["id"],))
+            conn.execute("UPDATE supply_attention_decisions SET scope = 'something_else' WHERE id = %s", (waiver["id"],))
         (finding,) = self.assessment()["findings"]
         self.assertEqual((finding["waiver"]["holds"], finding["waiver"]["outdated"]), (False, True))
         again = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Still fine"})
