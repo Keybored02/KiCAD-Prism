@@ -10,6 +10,12 @@ A connector can also say how long any history may be kept (``keep_days``, for a 
 storage): past that, every history of its listings is deleted (samples, daily rows, price breaks, stock-outs and restocks,
 arrival promises, change events), except what still describes today. Without it, that history stays for good.
 
+A distributor whose terms forbid keeping its data as a database (``ProviderSpec.limits_storage``) keeps prices and stock
+only for parts in use: followed at a tier (a tracked project, a watch) or held in stock by an inventory source. Any other
+part's offer and history go ``READ_WINDOW`` after its last read (``drop_unused``); its listings stay, since a distributor's
+part numbers are identifiers, not its price data. A connector whose administrator holds the distributor's written leave to
+keep more says so (``keep_unused``).
+
 Call counts are operational: they are kept ``CALL_COUNT_DAYS``, well past the four weeks any view reads.
 """
 
@@ -17,12 +23,14 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
-from app.services.supply import freshness
+from app.services.supply import component_parts, freshness
+from app.services.supply.providers import registry
 from app.services.supply.project_supply import ROLLUP_MAX_AGE
 
 RAW_DAYS = 60
 BATCH_DAYS = 30
 CALL_COUNT_DAYS = 90
+READ_WINDOW = timedelta(hours=24)
 
 
 def _midnight(day) -> datetime:
@@ -78,6 +86,48 @@ def drop_expired(conn, now: datetime) -> int:
         removed += int(result.rowcount or 0)
     result = conn.execute("DELETE FROM supply_call_counts WHERE day < %s", ((now - timedelta(days=CALL_COUNT_DAYS)).date(),))
     return removed + int(result.rowcount or 0)
+
+
+# Every history of a listing, beside its offer, that holds the distributor's prices or stock.
+_PRICE_HISTORY = ("supply_samples", "supply_samples_daily", "supply_price_breaks_history", "supply_stock_events", "supply_arrival_promises", "supply_events")
+
+
+def _in_use(conn) -> str:
+    """A condition on ``l.part_id``: the part is followed at a tier, or an inventory source holds it in stock."""
+
+    tiered = "l.part_id IN (SELECT part_id FROM supply_part_tiers)"
+    if not component_parts.library_present(conn) or conn.execute("SELECT to_regclass('inventory_levels') IS NULL AS absent").fetchone()["absent"]:
+        return tiered
+    return (
+        f"({tiered} OR l.part_id IN (SELECT cp.part_id FROM component_parts cp JOIN inventory_levels i ON i.component_id = cp.component_id "
+        "WHERE cp.approval = 'approved' AND i.quantity > 0))"
+    )
+
+
+def drop_unused(conn, now: datetime) -> int:
+    """Delete the offer and every price and stock history of each listing whose part is not in use, at a distributor that limits
+    storage, once ``READ_WINDOW`` has passed since its last read. Returns how many listings were cleared."""
+
+    limited = [spec.key for spec in registry.list_specs(include_dev=True) if spec.limits_storage]
+    if not limited:
+        return 0
+    rows = conn.execute(
+        f"""
+        SELECT l.id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id
+        WHERE c.provider = ANY(%s) AND NOT c.keep_unused AND NOT (l.part_id IS NOT NULL AND {_in_use(conn)})
+          AND NOT EXISTS (SELECT 1 FROM supply_offers o WHERE o.listing_id = l.id AND o.fetched_at >= %s)
+          AND (EXISTS (SELECT 1 FROM supply_offers o WHERE o.listing_id = l.id)
+               OR EXISTS (SELECT 1 FROM supply_samples_daily d WHERE d.listing_id = l.id)
+               OR EXISTS (SELECT 1 FROM supply_price_breaks_history b WHERE b.listing_id = l.id))
+        """,
+        (limited, now - READ_WINDOW),
+    ).fetchall()
+    gone = [row["id"] for row in rows]
+    if not gone:
+        return 0
+    for table in ("supply_offers", *_PRICE_HISTORY):
+        conn.execute(f"DELETE FROM {table} WHERE listing_id = ANY(%s)", (gone,))
+    return len(gone)
 
 
 def _compact(conn, now: datetime, days: int) -> int:

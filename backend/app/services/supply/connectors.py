@@ -25,7 +25,7 @@ from app.services.supply.providers.base import ProviderConfig, ProviderSpec, Sup
 from app.services.supply.store import SupplyStore, supply_store
 
 _UPDATABLE = frozenset({
-    "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days", "keep_days",
+    "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days", "keep_days", "keep_unused",
     "storefront", "reset_time", "reset_tz", "reset_from_provider",
 })
 _MAX_REASON = 200
@@ -288,6 +288,10 @@ class ConnectorService:
             fields["retention_days"] = _clean_retention(changes["retention_days"])
         if "keep_days" in changes:
             fields["keep_days"] = _clean_keep(changes["keep_days"])
+        if "keep_unused" in changes:
+            if not isinstance(changes["keep_unused"], bool):
+                raise ConnectorError("invalid_field", "keep_unused must be true or false.")
+            fields["keep_unused"] = changes["keep_unused"]
         if "storefront" in changes:
             with self._store.connection() as conn:
                 spec = self._spec(_fetch(conn, connector_id)["provider"])
@@ -509,6 +513,8 @@ class ConnectorService:
             "interactive_reserve_pct": row["interactive_reserve_pct"],
             "retention_days": row["retention_days"],
             "keep_days": row["keep_days"],
+            "keep_unused": bool(row["keep_unused"]),
+            "limits_storage": bool(spec and spec.limits_storage),
             "reset_time": row["reset_time"],
             "reset_tz": row["reset_tz"],
             "metered": spec.metered if spec else True,

@@ -404,6 +404,40 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(left("supply_events"), 3)
         self.assertEqual(left("supply_call_counts"), 0)
 
+    def test_a_distributor_that_limits_storage_keeps_prices_of_parts_not_in_use_only_for_the_read_window(self) -> None:
+        limited = self.connector("farnell", storefront="uk.farnell.com", credentials={"api_key": "key-1"})
+        allowed = self.connector("farnell", storefront="it.farnell.com", credentials={"api_key": "key-2"})
+        own = self.connector("csv")
+        with self.assertRaises(Exception):
+            self.connectors.update(allowed, actor="a@example.com", keep_unused="yes")
+        self.connectors.update(allowed, actor="a@example.com", keep_unused=True)
+        self.assertEqual((self.connectors.get(limited)["limits_storage"], self.connectors.get(limited)["keep_unused"]), (True, False))
+        self.assertEqual((self.connectors.get(allowed)["keep_unused"], self.connectors.get(own)["limits_storage"]), (True, False))
+        used = self.watch("USED1").part_id
+        unused = self.watch("SPARE1").part_id
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_part_tiers WHERE part_id = %s", (unused,))
+        stale, fresh = START - timedelta(hours=30), START - timedelta(hours=2)
+        listings = {
+            "used": (self.add_listing(used, limited, "U"), stale),
+            "stale": (self.add_listing(unused, limited, "S"), stale),
+            "fresh": (self.add_listing(unused, limited, "F"), fresh),
+            "allowed": (self.add_listing(unused, allowed, "A"), stale),
+            "own": (self.add_listing(unused, own, "O"), stale),
+        }
+        with self.store.connection() as conn:
+            for listing, fetched in listings.values():
+                conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock) VALUES (%s, %s, 5)", (listing, fetched))
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, fetched))
+                conn.execute("INSERT INTO supply_samples_daily (listing_id, day, stock) VALUES (%s, %s, 5)", (listing, (fetched - timedelta(days=3)).date()))
+            self.assertEqual(self.retention.drop_unused(conn, START), 1, "only the stale read of a part not in use, where storage is limited")
+            self.assertEqual(self.retention.drop_unused(conn, START), 0, "nothing left to clear")
+        gone = listings["stale"][0]
+        for table in ("supply_offers", "supply_samples", "supply_samples_daily"):
+            kept = {r["listing_id"] for r in self.rows(f"SELECT listing_id FROM {table}")}
+            self.assertEqual(kept, {listing for listing, _ in listings.values()} - {gone}, table)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_listings WHERE id = %s", gone)), 1, "its part number stays")
+
     def test_the_first_run_on_a_long_history_works_in_slices(self) -> None:
         cid = self.connector()
         listing = self.add_listing(self.watch().part_id, cid, "A")

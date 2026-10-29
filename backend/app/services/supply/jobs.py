@@ -284,6 +284,7 @@ def housekeeping(store: SupplyStore) -> int:
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         conn.commit()
         retention.drop_expired(conn, datetime.now(timezone.utc))
+        retention.drop_unused(conn, datetime.now(timezone.utc))
         retention.trim_summaries(conn)
         oneoff.expire(conn, datetime.now(timezone.utc))
     return compacted

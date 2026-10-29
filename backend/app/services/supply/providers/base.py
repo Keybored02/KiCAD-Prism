@@ -217,6 +217,10 @@ class ProviderSpec:
     # Every host the provider calls, as bare names ("api.example.com"): the only hosts its HTTP client reaches. Empty for
     # one that calls nothing (a file upload, the simulated market).
     hosts: tuple[str, ...] = ()
+    # The distributor's API terms forbid keeping its data as a database of one's own (DigiKey, Mouser, Farnell): prices and
+    # stock of a part not in use are kept only for ``retention.READ_WINDOW`` after a read, unless the connector's
+    # administrator holds the distributor's written leave to keep more (``keep_unused``).
+    limits_storage: bool = False
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):
