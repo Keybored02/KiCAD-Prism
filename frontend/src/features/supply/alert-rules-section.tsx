@@ -22,10 +22,12 @@ const KIND_LABEL: Record<string, string> = {
   assessment_worse: "Assessment gets worse",
 };
 
-function Form({ partId, initial, mutable, watch, onChanged }: {
-  partId: string; initial: AlertRules; mutable: string[]; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
+function Form({ partId, initial, asking, mutable, watch, onChanged }: {
+  partId: string; initial: AlertRules; asking: string[]; mutable: string[]; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(initial);
+  // Kinds asked off and waiting for QA: off in the form, so saving again keeps the request.
+  const [asked, setAsked] = useState(() => new Set(asking));
   // The stock threshold is the watch's, typed where the rule that uses it is.
   const [thresholdText, setThresholdText] = useState(watch?.threshold == null ? "" : String(watch.threshold));
   const threshold = parseThreshold(thresholdText);
@@ -36,7 +38,13 @@ function Form({ partId, initial, mutable, watch, onChanged }: {
   const save = () => {
     if (threshold === undefined) return;
     void run(async () => {
-      setDraft(await saveAlertRules(partId, draft));
+      const saved = await saveAlertRules(partId, draft);
+      const waiting = saved.muting ?? [];
+      setDraft({
+        muted: [...saved.muted, ...waiting], price_rise_percent: saved.price_rise_percent, likely_out_percent: saved.likely_out_percent ?? null,
+        target_price: saved.target_price, target_currency: saved.target_currency,
+      });
+      setAsked(new Set(waiting));
       if (watch && threshold !== watch.threshold) {
         await updateSupplyWatch(watch.id, { threshold });
         await onChanged?.();
@@ -52,6 +60,7 @@ function Form({ partId, initial, mutable, watch, onChanged }: {
           <div key={kind} className="flex items-center gap-2">
             <Checkbox id={`rule-${kind}`} checked={!muted.has(kind)} onCheckedChange={(on) => toggle(kind, on === true)} />
             <Label htmlFor={`rule-${kind}`} className="font-normal">{KIND_LABEL[kind] ?? kind}</Label>
+            {asked.has(kind) && muted.has(kind) ? <span className="text-xs text-muted-foreground">Asked QA</span> : null}
             {kind === "below_threshold" && watch ? (
               <Input
                 aria-label="Stock threshold" inputMode="numeric" placeholder="None" className="ml-auto h-7 w-24"
@@ -99,7 +108,7 @@ export function AlertRulesSection({ partId, canEdit, watch, onChanged }: {
   return (
     <section aria-label="Alert rules" className="space-y-2">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alert rules</h3>
-      <Form watch={watch} onChanged={onChanged} partId={partId} initial={{ muted: data.muted, price_rise_percent: data.price_rise_percent, likely_out_percent: data.likely_out_percent ?? null, target_price: data.target_price, target_currency: data.target_currency }} mutable={data.mutable} />
+      <Form watch={watch} onChanged={onChanged} partId={partId} asking={data.muting ?? []} initial={{ muted: [...data.muted, ...(data.muting ?? [])], price_rise_percent: data.price_rise_percent, likely_out_percent: data.likely_out_percent ?? null, target_price: data.target_price, target_currency: data.target_currency }} mutable={data.mutable} />
     </section>
   );
 }

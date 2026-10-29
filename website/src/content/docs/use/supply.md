@@ -231,7 +231,9 @@ chat messages.
 
 The bell on a watched part opens its alert rules: which alerts it raises, its
 stock threshold (typed beside **At or below the threshold**), the price rise
-that counts and a target price. The Dashboard lists the open alerts, the ones the **Open alerts**
+that counts and a target price. Switching an alert off is for QA and
+administrators; a designer's request waits in **To approve** and the alert
+still rises until it is approved. The Dashboard lists the open alerts, the ones the **Open alerts**
 tile counts; **Show cleared** adds the acknowledged, snoozed and resolved ones.
 
 Ending components and the alert list sit below the tiles, folded. While the
@@ -253,7 +255,8 @@ unchecked.
 **Library Manager → Review** lists what needs a person:
 
 - **Work items**: decisions people opened about components and parts.
-- **To approve**: alternates, waivers and dismissals waiting for QA.
+- **To approve**: alternates, waivers, dismissals and alerts to switch off,
+  waiting for QA.
 - **Manufacturer spellings**: maker names the distributors don't settle.
 - **Listings waiting**: distributor listings filed under another number.
 - **Unmatched local stock**: inventory parts with stock that match no library

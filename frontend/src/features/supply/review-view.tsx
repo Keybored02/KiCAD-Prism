@@ -39,7 +39,7 @@ export function ReviewView({ user, after, othersWaiting = false }: { user: User 
         {status === "ready" && queue ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {!othersWaiting && queue.aliases.length === 0 && queue.listings.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 && !(queue.to_approve?.waivers.length) && !(queue.to_approve?.dismissals?.length) ? (
+            {!othersWaiting && queue.aliases.length === 0 && queue.listings.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 && !(queue.to_approve?.waivers.length) && !(queue.to_approve?.dismissals?.length) && !(queue.to_approve?.mutes?.length) ? (
               <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
                 <CheckCheck className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing to review</p>
