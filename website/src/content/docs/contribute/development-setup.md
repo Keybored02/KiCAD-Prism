@@ -438,6 +438,50 @@ python3 -m unittest scripts.test_release_bundle
 POSTGRES_PASSWORD=ci-release-validation PRISM_ENV_FILE=.env.example docker compose --env-file deploy/release/.env.example -f deploy/release/compose.yml config --quiet
 ```
 
+## Benchmark Supply at scale
+
+Build a frozen, synthetic Supply library in its own database, then measure the
+Supply pages and the housekeeping worker against it. The same parameters and
+seed produce the same parts, listings and BOMs, with stock history relative to
+the run day, so two commits can be compared.
+
+1. Create a database whose name starts with `bench_`:
+
+   ```bash
+   psql "postgresql://ci:ci@127.0.0.1:55432/postgres" -c "CREATE DATABASE bench_supply_dev"
+   ```
+
+2. From `backend/`, seed it. The defaults are 20,000 parts and 50 projects;
+   `--parts` and `--projects` make a smaller first run:
+
+   ```bash
+   PYTHONPATH=$PWD python ../scripts/benchmark_supply.py seed --database-url "postgresql://ci:ci@127.0.0.1:55432/bench_supply_dev" --parts 2000 --projects 5
+   ```
+
+3. Run the benchmark. It writes `loadtest/results/supply-benchmark.json` and
+   prints a Markdown table:
+
+   ```bash
+   PYTHONPATH=$PWD python ../scripts/benchmark_supply.py run --database-url "postgresql://ci:ci@127.0.0.1:55432/bench_supply_dev" --repeats 5
+   ```
+
+4. To include browser heap and DOM size, start Prism with sign-in off, then
+   pass its URL and the Chrome executable:
+
+   ```bash
+   PYTHONPATH=$PWD python ../scripts/benchmark_supply.py run --database-url "postgresql://ci:ci@127.0.0.1:55432/bench_supply_dev" --browser-url http://localhost:5173 --chrome "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+   ```
+
+The report records the fixture parameters, the Git commit, the machine, and for
+each read model the cold latency, the warm p50, p95 and max, the SQL statements
+per run, and peak RSS. It also records the housekeeping worker's wall time and
+peak RSS, and each Supply page's `JSHeapUsedSize`, `Nodes` and `LayoutCount`
+when a browser URL is given.
+
+Both subcommands refuse a database whose name does not start with `bench_`.
+The script never signs in, and it never touches an application database.
+Seeding the same database twice refuses instead of doubling the data.
+
 ## Rules for code changes
 
 - Follow the conventions of the code around you.
