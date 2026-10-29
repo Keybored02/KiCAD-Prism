@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import type { PushTarget, PushToken } from "@/types/supply";
 import { getPushToken, issuePushToken, revokePushToken } from "./push-api";
 import { formatDateTime } from "./supply-format";
+import { useLoaded } from "./use-loaded";
 
 const message = (caught: unknown) => (caught instanceof Error ? caught.message : String(caught));
 
@@ -18,16 +19,14 @@ export function PushTokenDialog({ target, id, name, onClose }: {
   name: string;
   onClose: () => void;
 }) {
-  const [current, setCurrent] = useState<PushToken | null | undefined>(undefined);
+  const loaded = useLoaded<PushToken | null>(
+    id ? `push/${target}/${id}` : null, (signal) => getPushToken(target, id ?? "", signal), "Could not load the push token",
+    { onError: (caught) => toast.error(caught.message) },
+  );
+  // undefined while it loads; null when there is none.
+  const current = loaded.status === "ready" ? loaded.data : undefined;
   const [issued, setIssued] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!id) return;
-    let live = true;
-    getPushToken(target, id).then((found) => { if (live) setCurrent(found); }, (caught) => { if (live) toast.error(message(caught)); });
-    return () => { live = false; };
-  }, [target, id]);
 
   const issue = async () => {
     if (!id) return;
@@ -35,7 +34,6 @@ export function PushTokenDialog({ target, id, name, onClose }: {
     try {
       const made = await issuePushToken(target, id);
       setIssued(made.token);
-      setCurrent(await getPushToken(target, id));
     } catch (caught) {
       toast.error(message(caught));
     } finally {
@@ -49,7 +47,6 @@ export function PushTokenDialog({ target, id, name, onClose }: {
     try {
       await revokePushToken(target, id);
       setIssued("");
-      setCurrent(null);
       toast.success("Push token revoked");
     } catch (caught) {
       toast.error(message(caught));
