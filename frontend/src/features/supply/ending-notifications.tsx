@@ -78,7 +78,11 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
           {item.component.name || item.component.mpn}
         </button>
         <p className="truncate text-xs text-muted-foreground" title={item.reasons.map((reason) => `${reason.text} (${reason.source})`).join("; ")}>
-          {[item.reasons.map((reason) => reason.text).join(" · "), lastBuy, used].filter(Boolean).join(" · ")}
+          {[
+            item.role === "alternate" ? "Alternate" : "",
+            item.healthy ? `${item.healthy} healthy ${item.healthy === 1 ? "part" : "parts"}` : "",
+            item.reasons.map((reason) => reason.text).join(" · "), lastBuy, used,
+          ].filter(Boolean).join(" · ")}
         </p>
       </div>
       <span className="inline-flex shrink-0 items-center gap-1.5 tabular-nums" title="Distributor stock">
@@ -87,7 +91,7 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
       {canDecide ? (
         <span className="inline-flex shrink-0 gap-1">
           <Button size="sm" variant="outline" onClick={() => setDecision("mark")}>Not for new designs</Button>
-          <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>
+          {item.healthy ? null : <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>}
           <Button size="sm" variant="ghost" disabled={busy} onClick={dismiss}>Dismiss</Button>
         </span>
       ) : null}
