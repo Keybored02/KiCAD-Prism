@@ -5,23 +5,23 @@ evidence for it, the projects it touches (taken when it is made, so the record k
 Anyone who follows supply opens and edits items; QA and administrators accept or reject them; the owner or QA marks one done. Its
 history is the audit trail. Nothing here changes the library or the BOM: an item records the decision, the change is made where it
 belongs.
+
+An item is an attention row (``attention.py``) of kind ``work``, open until done or rejected, and the assignment columns of that row
+are the item: its title, action, owner, notes, projects, recheck date and QA's disposition.
 """
 
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Sequence
 
-from app.services.supply import component_parts, usage
+from app.services.supply import attention, component_parts, usage
 from app.services.supply.audit import actor_text, write_audit
 
 SUBJECTS = ("component", "part")
 ACTIONS = ("investigate", "alternate", "not_for_new_designs", "retire", "replace", "last_time_buy", "other")
 STATES = ("open", "accepted", "rejected", "done")
-# Still waiting on someone: open, or accepted and not yet done.
-LIVE = ("open", "accepted")
 MAX_TITLE = 160
 MAX_NOTE = 2000
 MAX_NOTES = 50
@@ -66,23 +66,39 @@ def create(
         raise WorkItemError("A work item is about a component or a part.")
     if action not in ACTIONS:
         raise WorkItemError("That action is not one Prism knows.")
-    item_id = uuid.uuid4().hex
     note = _clean_note(note)
-    evidence = [{"text": note, "by": actor, "at": datetime.now(timezone.utc).isoformat()}] if note else []
-    conn.execute(
-        """
-        INSERT INTO supply_work_items (id, subject_kind, subject_id, title, action, owner, evidence, project_ids, recheck_on, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+    now = datetime.now(timezone.utc)
+    evidence = [{"text": note, "by": actor, "at": now.isoformat()}] if note else []
+    item_id = str(conn.execute(
+        f"""
+        INSERT INTO supply_attention ({attention.column(subject_kind)}, kind, severity, state, first_seen_at, opened_at, last_event_at,
+                                      title, action, owner, notes, project_ids, recheck_on, created_by)
+        VALUES (%s, 'work', 'info', 'open', %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s) RETURNING id
         """,
-        (item_id, subject_kind, subject_id, _clean_title(title), action, str(owner or "").strip()[:200], json.dumps(evidence),
+        (subject_id, now, now, now, _clean_title(title), action, str(owner or "").strip()[:200], json.dumps(evidence),
          _affected(conn, subject_kind, subject_id), recheck_on, actor),
-    )
+    ).fetchone()["id"])
     write_audit(conn, actor, "work_item.create", item_id, {"title": title, "action": action, "owner": owner}, subject_kind="work_item")
     return get(conn, item_id)
 
 
+# The item's state from its row: open until done or rejected, with QA's disposition.
+STATE_SQL = (
+    "CASE WHEN w.state = 'resolved' THEN CASE WHEN w.disposition = 'rejected' THEN 'rejected' ELSE 'done' END "
+    "WHEN w.disposition = 'accepted' THEN 'accepted' ELSE 'open' END"
+)
+_SELECT = f"""
+    SELECT w.id::text AS id, CASE WHEN w.part_id IS NOT NULL THEN 'part' ELSE 'component' END AS subject_kind,
+           COALESCE(w.part_id, w.component_id) AS subject_id, w.title, w.action, w.owner, {STATE_SQL} AS state, w.notes AS evidence,
+           w.project_ids, w.recheck_on, w.created_by, w.first_seen_at AS created_at, w.updated_at
+    FROM supply_attention w
+"""
+# The row for each state an item is moved to: (attention state, disposition), None keeping the disposition.
+_MOVE = {"open": ("open", ""), "accepted": ("open", "accepted"), "rejected": ("resolved", "rejected"), "done": ("resolved", None)}
+
+
 def get(conn, item_id: str) -> dict[str, Any]:
-    row = conn.execute("SELECT * FROM supply_work_items WHERE id = %s", (item_id,)).fetchone()
+    row = conn.execute(_SELECT + "WHERE w.id = %s AND w.kind = 'work'", (int(item_id),)).fetchone() if str(item_id).isdigit() else None
     if row is None:
         raise LookupError(item_id)
     return dict(row)
@@ -123,8 +139,9 @@ def update(
             raise WorkItemError(f"A work item keeps at most {MAX_NOTES} notes.")
         fields["evidence"] = json.dumps([*evidence, {"text": note, "by": actor, "at": datetime.now(timezone.utc).isoformat()}])
     if fields:
-        assignments = ", ".join(f"{column} = %s::jsonb" if column == "evidence" else f"{column} = %s" for column in fields)
-        conn.execute(f"UPDATE supply_work_items SET {assignments}, updated_at = NOW() WHERE id = %s", (*fields.values(), item_id))
+        # Column names come from the fixed set above, never from the caller; the evidence is the row's notes.
+        assignments = ", ".join("notes = %s::jsonb" if column == "evidence" else f"{column} = %s" for column in fields)
+        conn.execute(f"UPDATE supply_attention SET {assignments}, updated_at = NOW() WHERE id = %s", (*fields.values(), int(item_id)))
         shown = {key: (value if key != "evidence" else note) for key, value in fields.items()}
         write_audit(conn, actor, "work_item.update", item_id, {key: str(value) for key, value in shown.items()}, subject_kind="work_item")
     return get(conn, item_id)
@@ -141,7 +158,15 @@ def decide(conn, item_id: str, state: str, *, actor: str, approver: bool, note: 
         raise NotAllowed("QA and administrators accept, reject or reopen a work item.")
     if state == "done" and not _may_edit(item, actor, approver):
         raise NotAllowed("Only its owner, whoever opened it, or QA may mark a work item done.")
-    conn.execute("UPDATE supply_work_items SET state = %s, updated_at = NOW() WHERE id = %s", (state, item_id))
+    row_state, disposition = _MOVE[state]
+    conn.execute(
+        """
+        UPDATE supply_attention SET state = %s, disposition = CASE WHEN %s::text IS NULL THEN (CASE WHEN disposition = 'rejected' THEN '' ELSE disposition END) ELSE %s END,
+            resolved_at = CASE WHEN %s = 'resolved' THEN NOW() END, updated_at = NOW()
+        WHERE id = %s
+        """,
+        (row_state, disposition, disposition, row_state, int(item_id)),
+    )
     if note:
         update(conn, item_id, actor=actor, approver=approver, note=note)
     write_audit(conn, actor, f"work_item.{state}", item_id, {"from": item["state"], "note": _clean_note(note)}, subject_kind="work_item")
@@ -156,13 +181,12 @@ def listed(
     ``actor``) or ``due`` (live with a recheck date today or past). Projects the caller may not see are not named."""
 
     today = today or datetime.now(timezone.utc).date()
-    where, params = ["TRUE"], []
+    where, params = ["w.kind = 'work'"], []
     if state in STATES:
-        where.append("w.state = %s")
+        where.append(f"{STATE_SQL} = %s")
         params.append(state)
     elif state in ("live", "mine", "due"):
-        where.append("w.state = ANY(%s)")
-        params.append(list(LIVE))
+        where.append("w.state = 'open'")
         if state == "mine":
             where.append("w.owner = %s")
             params.append(actor_text(actor))
@@ -172,10 +196,12 @@ def listed(
     else:
         raise WorkItemError("That list is not one Prism knows.")
     if subject_kind:
-        where.append("w.subject_kind = %s AND w.subject_id = %s")
-        params += [subject_kind, subject_id]
+        if subject_kind not in SUBJECTS:
+            raise WorkItemError("A work item is about a component or a part.")
+        where.append(f"w.{attention.column(subject_kind)} = %s")
+        params.append(subject_id)
     rows = conn.execute(
-        f"SELECT w.* FROM supply_work_items w WHERE {' AND '.join(where)} "
+        _SELECT + f"WHERE {' AND '.join(where)} "
         "ORDER BY w.recheck_on NULLS LAST, w.updated_at DESC LIMIT %s",
         (*params, limit),
     ).fetchall()
@@ -188,9 +214,9 @@ def counts(conn, actor: str, today: date) -> dict[str, int]:
     row = conn.execute(
         """
         SELECT COUNT(*) FILTER (WHERE owner = %s) AS mine, COUNT(*) FILTER (WHERE recheck_on <= %s) AS due
-        FROM supply_work_items WHERE state = ANY(%s)
+        FROM supply_attention WHERE kind = 'work' AND state = 'open'
         """,
-        (actor_text(actor) if actor else "", today, list(LIVE)),
+        (actor_text(actor) if actor else "", today),
     ).fetchone()
     return {"mine": int(row["mine"]) if actor else 0, "due": int(row["due"])}
 
