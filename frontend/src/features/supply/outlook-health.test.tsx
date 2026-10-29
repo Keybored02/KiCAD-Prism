@@ -38,7 +38,7 @@ function assessment(overrides: Partial<SupplyAssessment> = {}): SupplyAssessment
 const waiver = { id: "w1", state: "approved" as const, reason: "We hold stock", proposed_by: "a@example.com", decided_by: "qa@example.com", holds: true, outdated: false };
 
 const OUTLOOK: SupplyOutlook = {
-  band: "no_signs", label: "No signs of an end of life", method: "rule-based", signals: [],
+  band: "no_signs", label: "No signs of an end", method: "rule-based", signals: [],
 };
 
 function renderIt(role: UserRole = "designer") {
@@ -77,7 +77,7 @@ describe("the outlook and health line", () => {
     expect(screen.queryByRole("heading", { name: "Health" })).toBeNull();
     const section = screen.getByRole("region", { name: "Outlook" });
     expect(within(section).getAllByRole("button", { name: /Show how the outlook/ })).toHaveLength(1);
-    expect(within(section).getByText("No signs of an end of life").className).toContain("success");
+    expect(within(section).getByText("No signs of an end").className).toContain("success");
     await openDetails();
     expect(screen.getByText(/Nothing found points to an end/)).toBeTruthy();
     expect(screen.getByRole("list", { name: "Risk" })).toBeTruthy();
@@ -110,7 +110,7 @@ describe("the outlook and health line", () => {
   });
 
   it("lists the outlook's signals in the same modal", async () => {
-    render(<OutlookSection outlook={{ ...OUTLOOK, band: "under_2_years", label: "Under 2 years", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
+    render(<OutlookSection outlook={{ ...OUTLOOK, band: "under_2_years", label: "Ending", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
     expect(screen.queryByText(/A notice announces end of life/)).toBeNull();
     await openDetails();
     expect(screen.getByRole("list", { name: "Outlook signals" })).toBeTruthy();

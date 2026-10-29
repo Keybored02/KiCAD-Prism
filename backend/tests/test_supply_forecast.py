@@ -121,6 +121,22 @@ class OutageTests(unittest.TestCase):
         self.assertEqual(two, 1.0)
 
 
+class OutEverywhereJudgeTests(unittest.TestCase):
+    def test_out_within_four_weeks_is_any_day_of_them_even_if_restocked_after(self) -> None:
+        from datetime import date
+
+        from app.services.supply import forecast_run
+
+        made = date(2026, 3, 1)
+        truth = type("Truth", (), {"total": {date(2026, 3, 10): 0, date(2026, 3, 20): 5000}, "lines": {}, "ended": [], "covers": lambda self, day: True})()
+        row = {"made_on": made, "target": "out_4w", "horizon_days": 28}
+        self.assertEqual(forecast_run._judge(row, truth)[0], 1.0, "out in week two, back in week three")
+        truth.total = {date(2026, 3, 10): 40, date(2026, 3, 29): 0}
+        self.assertEqual(forecast_run._judge(row, truth)[0], 1.0, "out on the last day")
+        truth.total = {date(2026, 3, 10): 40, date(2026, 4, 5): 0}
+        self.assertEqual(forecast_run._judge(row, truth)[0], 0.0, "out after the window")
+
+
 class PriceTests(unittest.TestCase):
     def test_a_flat_price_stays_flat_and_says_so(self) -> None:
         flat = [(START + timedelta(days=i), 0.5) for i in range(70)]

@@ -1532,8 +1532,11 @@ export interface ProjectSupply {
 export interface CrossReference {
   candidates: Array<{
     part_id: string; manufacturer: string; mpn: string;
-    grade: "direct" | "form_fit_function" | "functional"; grade_label: string;
+    /** None claims the parts are interchangeable: "ratings_met" is every listed rating known and met, in the same package. */
+    grade: "ratings_met" | "similar" | "other_package" | "fails"; grade_label: string;
     same: string[]; differs: string[];
+    /** Ratings the part lists and the candidate doesn't, so they can't be judged. */
+    unknown?: string[];
     stock: number | null; status: SupplyStatus; lifecycle: SupplyLifecycle;
   }>;
   /** Replacements distributors name for the part, as written. */
