@@ -64,3 +64,13 @@ def packaging_word(text: object) -> Packaging:
 
     value = str(text or "").strip().lower()
     return next((packaging for word, packaging in _PACKAGING_WORDS if word in value), Packaging.UNKNOWN) if value else Packaging.UNKNOWN
+
+
+def link(text: object) -> str:
+    """A web address as a distributor writes it, made absolute: one that starts ``//`` (DigiKey's datasheets) gets ``https:``.
+    Anything that is not a web address is dropped."""
+
+    value = str(text or "").strip()
+    if value.startswith("//"):
+        value = f"https:{value}"
+    return value if value.lower().startswith(("https://", "http://")) else ""

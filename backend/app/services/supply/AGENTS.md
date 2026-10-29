@@ -12,6 +12,7 @@ root first.
 | `models.py` | Provider-neutral `Offer`, `PriceBreak`, `Incoming`, `PartMatch`, `PartData`. Validate on construction. |
 | `providers/base.py` | The provider contract: `ProviderSpec` (with `hosts`, the only hosts its HTTP client reaches), `ProviderConfig` (with `on_limits`, which Prism sets), the `SupplyProvider` protocol, the capability protocols checked with `isinstance` (`BatchSearch`, `FamilySearch`, `ConnectionCheck`, `ChangeNoticeReader`, `SubstanceReader`, `SubstituteReader`, `CallCounting`), `ProviderError` subclasses. Adding a distributor is one adapter module on `providers/http.py` and a `register` line. |
 | `providers/http.py` | `HttpProvider`, the base every web-API adapter uses: the HTTP client limited to the spec's hosts, the pacer the account's connectors share, the clocks, `request` (paced and counted) and `authorised` (one new token when the service refuses the one it had); `ClientCredentials` is the OAuth client-credentials token. `calls` counts every request, token requests and repeats included: the poller and the discoverer charge what an operation made beyond what it paid for up front. |
+| `providers/template.py` | A complete adapter for a made-up API, not registered: what a new distributor copies. The contract kit runs it like a built-in. |
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
 | `providers/tme.py` | TME API v2: OAuth client-credentials token (kept until shortly before it expires), `/products?mpns[]` to find listings, `/products` plus `/products/data` for offers (two calls a batch of 50). The storefront is the country. Gross prices are turned net. |
 | `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
@@ -20,7 +21,7 @@ root first.
 | `providers/farnell.py` | Farnell, Newark and element14 Product Search REST: manufacturer-number search, one SKU per call, the connector names the store and the currency. Not yet run against the live service. |
 | `providers/jlcpcb.py` | JLCPCB (assembly) as a CSV-fed connector: the same uploaded file as `csv_provider`, under the `jlcpcb` key, with every offer marked marketplace so no total counts it. Assembly-only; the file's optional `jlc_library` and `jlc_preferred` columns become facts (B, E, a star). Unmetered. |
 | `providers/lcsc.py` | LCSC as a CSV-fed connector: the same uploaded file as `csv_provider`, under the `lcsc` key, so saved listings and BOM links keep their provider. Unmetered. |
-| `providers/normalise.py` | What several distributors' answers share, read one way: `price_breaks` (pairs parsed, first price per quantity, ascending), `rohs_word` (plain wording) and `packaging_word` (most specific word first). A distributor's own codes and field names stay in its adapter. |
+| `providers/normalise.py` | What several distributors' answers share, read one way: `price_breaks` (pairs parsed, first price per quantity, ascending), `rohs_word` (plain wording), `packaging_word` (most specific word first) and `link` (a protocol-relative address made https). A distributor's own codes and field names stay in its adapter. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
@@ -219,4 +220,7 @@ The UI is `frontend/src/features/supply/`; its map is
 `backend/tests/test_supply_connectors_postgres.py` and
 `backend/tests/test_supply_connectors_api.py` need `PRISM_DATABASE_URL` and use a
 disposable schema. Provider tests use recorded fixtures, never live
-calls. Frontend tests are `*.test.ts(x)` beside the code.
+calls. Every web adapter, and the template, runs through the contract kit
+(`backend/tests/supply_provider_kit.py`, in `backend/tests/test_supply_provider_contract.py`): the real HTTP client
+over a replayed recording, checking the spec, shapes, paging, the call meter, errors and hosts. A new adapter adds a
+class there; the contributor page is `website/src/content/docs/contribute/add-a-distributor.md`. Frontend tests are `*.test.ts(x)` beside the code.
