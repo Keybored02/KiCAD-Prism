@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { ChartCard } from "./chart-card";
 import { RISK_AVAILABILITY, RISK_LIFECYCLE } from "./parts-filters";
+import { PriceAtQuantity } from "./price-at-quantity";
 import { counts } from "./project-row-text";
 import { formatPrice } from "./supply-format";
 import { TestDataChip } from "./test-data-chip";
@@ -146,8 +147,9 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
                       ) : stats.boards ?? "–"}
                     </td>
                     <td className="py-1.5 text-right tabular-nums">
-                      {stats.cost_per_board && stats.currency ? formatPrice(stats.cost_per_board, stats.currency) : "–"}
-                      {stats.cost_per_board && stats.build_quantity ? <span className="ml-1 text-xs text-muted-foreground">@ {stats.build_quantity}</span> : null}
+                      {stats.cost_per_board && stats.currency ? (
+                        <PriceAtQuantity price={formatPrice(stats.cost_per_board, stats.currency)} quantity={stats.build_quantity} />
+                      ) : "–"}
                       <TestDataChip show={stats.cost_per_board ? stats.test_data : false} />
                       {stats.cost_change_percent ? <span className={cn("ml-1 text-xs", stats.cost_change_percent > 0 ? "text-warning" : "text-success")}>{stats.cost_change_percent > 0 ? "▲" : "▼"} {Math.abs(stats.cost_change_percent)}%</span> : null}
                     </td>

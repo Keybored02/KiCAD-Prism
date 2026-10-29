@@ -78,7 +78,7 @@ describe("insight text", () => {
     }));
     expect(lines).toEqual([
       "Stock is steady.",
-      "The quoted lead time went from 28 to 70 days since 2026-08-01.",
+      "The quoted lead time went from 4 w to 10 w since 2026-08-01.",
       "On 2026-10-01 stock fell from 960 to 100 in one step, which ordinary use does not do.",
       "Over the year it runs highest in November and lowest in January.",
     ]);

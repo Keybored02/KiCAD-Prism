@@ -1,4 +1,5 @@
 import type { StoresState } from "@/types/supply";
+import { formatDay } from "./supply-format";
 
 /** "17:09" today, "28 Oct" before. */
 export function shortWhen(iso: string | null): string {
@@ -6,7 +7,7 @@ export function shortWhen(iso: string | null): string {
   const when = new Date(iso);
   if (Number.isNaN(when.getTime())) return "";
   const today = new Date().toDateString() === when.toDateString();
-  return today ? when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : when.toLocaleDateString([], { day: "numeric", month: "short" });
+  return today ? when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : formatDay(iso);
 }
 
 /** The words of a stores state, the same on every screen. */

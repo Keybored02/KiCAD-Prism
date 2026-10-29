@@ -155,7 +155,7 @@ describe("the dashboard", () => {
     const projects = await screen.findByRole("region", { name: "Tracked projects" });
     expect(within(projects).getByText("Unconfirmed")).toBeTruthy();
     expect(within(projects).getByText("247 · 1 unchecked")).toBeTruthy();
-    expect(within(projects).getByText("@ 10")).toBeTruthy();
+    expect(within(projects).getByText("× 10")).toBeTruthy();
   });
 
   it("puts what needs a person first in the inbox, worst first, each opening where it is acted on", async () => {

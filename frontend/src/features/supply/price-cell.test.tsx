@@ -12,12 +12,13 @@ const NOW = Date.parse("2026-10-17T12:00:00Z");
 describe("the price in a row", () => {
   it("shows the price and the quantity it is for", () => {
     render(<PriceCell part={partRowFixture({ price_kind: "orderable" })} now={NOW} />);
-    expect(screen.getByText("at 100")).toBeTruthy();
+    expect(screen.getByText("× 100")).toBeTruthy();
   });
 
   it("marks a backorder price with its lead time", () => {
     render(<PriceCell part={partRowFixture({ price_kind: "backorder", price_lead_days: 84 })} now={NOW} />);
-    expect(screen.getByText(/12 w, at 100/)).toBeTruthy();
+    expect(screen.getByText("12 w")).toBeTruthy();
+    expect(screen.getByText("× 100")).toBeTruthy();
   });
 
   it("says how old the last in stock price is", () => {
@@ -27,7 +28,8 @@ describe("the price in a row", () => {
 
   it("says when it is only the list price", () => {
     render(<PriceCell part={partRowFixture({ price_kind: "listed" })} now={NOW} />);
-    expect(screen.getByText("list price, at 100")).toBeTruthy();
+    expect(screen.getByText("list price")).toBeTruthy();
+    expect(screen.getByText("× 100")).toBeTruthy();
   });
 
   it("puts the range and the conversion in the hover text", () => {

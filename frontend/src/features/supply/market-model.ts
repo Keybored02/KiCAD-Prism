@@ -1,4 +1,5 @@
 import type { SupplyMarketHistory, SupplyMarketMetric } from "@/types/supply";
+import { formatLeadTime } from "./supply-format";
 
 export const MARKET_COLUMNS = [
   { key: "out_of_stock", label: "Out of stock", kind: "share" },
@@ -10,11 +11,11 @@ export const MARKET_COLUMNS = [
 
 export type MarketColumn = (typeof MARKET_COLUMNS)[number];
 
-/** A figure as a person reads it: 0.333 as "33%", 56 as "56 days". */
+/** A figure as a person reads it: 0.333 as "33%", 56 as "8 w". */
 export function marketFigure(column: MarketColumn, metric: SupplyMarketMetric | undefined): string {
   if (!metric) return "";
   if (column.kind === "share") return `${Math.round(metric.value * 100)}%`;
-  return column.kind === "index" ? metric.value.toFixed(1) : `${Math.round(metric.value)} days`;
+  return column.kind === "index" ? metric.value.toFixed(1) : formatLeadTime(Math.round(metric.value));
 }
 
 /** How far a figure moved since the earlier snapshot, or an empty string when there is nothing to compare. */

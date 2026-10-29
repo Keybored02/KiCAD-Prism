@@ -9,7 +9,7 @@ import { BomForecastLine } from "./bom-forecast-line";
 import { BomLineComments } from "./bom-line-comments";
 import { untrackedLabel, type BomLineDetail } from "./bom-supply";
 import { StatusDot } from "./status-dot";
-import { formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
+import { formatLeadTime, formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
 import { VendorName } from "./vendor-name";
 import { StoresCell } from "./stores-cell";
 
@@ -142,7 +142,7 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
           Found by part number alone: {result.manufacturer_match === "missing" ? "this symbol names no manufacturer." : "Prism does not know this manufacturer spelling."}
         </p>
       ) : null}
-      {result.lead_time_days !== null && result.lead_time_days !== undefined ? <p className="text-xs text-muted-foreground">Lead time {result.lead_time_days} days.</p> : null}
+      {result.lead_time_days !== null && result.lead_time_days !== undefined ? <p className="text-xs text-muted-foreground">Lead time {formatLeadTime(result.lead_time_days)}.</p> : null}
       {result.bought_with ? <p className="text-xs text-muted-foreground">Bought together with another line of this part.</p> : null}
       {result.part_id ? <BomForecastLine partId={result.part_id} need={result.part_need ?? result.need} /> : null}
       {result.preferred ? (

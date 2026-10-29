@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { coverageChanges, formatDay } from "./chart-format";
+import { coverageChanges } from "./chart-format";
 
 const HISTORY = [
   { day: "2026-02-27", stock: 9000, listings: 1 },
@@ -9,11 +9,6 @@ const HISTORY = [
 ];
 
 describe("chart formatting", () => {
-  it("writes a calendar day without shifting it across time zones", () => {
-    expect(formatDay("2026-03-01")).toBe(new Date(Date.UTC(2026, 2, 1)).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" }));
-    expect(formatDay("nonsense")).toBe("nonsense");
-  });
-
   it("finds the days when the number of listings changed", () => {
     expect(coverageChanges(HISTORY)).toEqual(["2026-03-01"]);
     expect(coverageChanges([])).toEqual([]);

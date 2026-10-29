@@ -4,7 +4,8 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import type { BudgetConnector, BudgetNotices, SupplyConnector } from "@/types/supply";
 import { DayBar } from "./call-day-bar";
-import { budgetUsedPercent, formatWhen } from "./connector-status";
+import { budgetUsedPercent } from "./connector-status";
+import { formatDateTime } from "./supply-format";
 
 /** One line about how a provider is called, where it matters. */
 export function providerNote(provider: string): string {
@@ -96,7 +97,7 @@ export function OffersFile({ connector }: { connector: SupplyConnector }) {
         <p>
           <span className="font-medium">{upload.filename || "Uploaded file"}</span>
           <span className="text-muted-foreground">
-            {" "}· {upload.row_count.toLocaleString()} rows · uploaded {formatWhen(upload.imported_at)} by {upload.imported_by}
+            {" "}· {upload.row_count.toLocaleString()} rows · uploaded {formatDateTime(upload.imported_at)} by {upload.imported_by}
           </span>
         </p>
       ) : (

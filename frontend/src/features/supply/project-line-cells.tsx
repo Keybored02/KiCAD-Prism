@@ -3,6 +3,7 @@ import { LibraryBig } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ProjectSupplyPart } from "@/types/supply";
 import { AlternatesNote } from "./alternates-note";
+import { PriceAtQuantity } from "./price-at-quantity";
 import { StoresCell } from "./stores-cell";
 import { formatPrice, formatStock } from "./supply-format";
 import { TestDataChip } from "./test-data-chip";
@@ -66,8 +67,7 @@ export function LinePriceCell({ line, lines }: { line: ProjectSupplyPart | undef
   if (!line || !unit) return <td className="px-3 py-2 text-right text-muted-foreground">-</td>;
   return (
     <td className="px-3 py-2 text-right tabular-nums" title={unit.title}>
-      {unit.text}
-      {line.buy_quantity ? <span className="text-muted-foreground"> @ {line.buy_quantity.toLocaleString()}</span> : null}
+      <PriceAtQuantity price={unit.text} quantity={line.buy_quantity} />
       <TestDataChip show={line.test_data} />
     </td>
   );
@@ -79,7 +79,7 @@ export function CostCell({ line, lines }: { line: ProjectSupplyPart | undefined;
   return (
     <td className="px-3 py-2 text-right tabular-nums">
       {formatPrice(line.line_cost, lines.currency)}<TestDataChip show={line.test_data} />
-      {line.buy_quantity && unitShown(line, lines) ? <div className="text-xs text-muted-foreground">{line.buy_quantity.toLocaleString()} × {unitShown(line, lines)?.text}</div> : null}
+      {line.buy_quantity && unitShown(line, lines) ? <div className="text-xs text-muted-foreground"><PriceAtQuantity price={unitShown(line, lines)?.text} quantity={line.buy_quantity} quantityFirst /></div> : null}
     </td>
   );
 }

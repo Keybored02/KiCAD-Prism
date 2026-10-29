@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SupplyConnector } from "@/types/supply";
-import { budgetUsedPercent, clockTime, connectorState, errorCodeLabel, failureWords, formatWhen, slowedText } from "./connector-status";
+import { budgetUsedPercent, clockTime, connectorState, errorCodeLabel, failureWords, slowedText } from "./connector-status";
 import { connectorFixture } from "./supply-test-fixtures";
 
 describe("connectorState", () => {
@@ -69,11 +69,6 @@ describe("labels", () => {
     expect(failureWords("", "TME")).not.toMatch(/_/);
   });
 
-  it("formats times and survives bad input", () => {
-    expect(formatWhen(null)).toBe("");
-    expect(formatWhen("not a date")).toBe("");
-    expect(formatWhen("2026-03-01T10:00:00Z")).not.toBe("");
-  });
 });
 
 describe("a resting connector", () => {

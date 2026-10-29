@@ -26,7 +26,6 @@ import { WorkspaceRefreshNotice } from "./workspace/workspace-refresh-notice";
 import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-properties-sheet";
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
-import { SupplyWorkspace } from "@/features/supply/supply-workspace";
 import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
 
 const WORKSPACE_PAGE_SIZE = 25;
@@ -51,6 +50,9 @@ const MoveProjectDialog = lazy(() =>
 );
 const RenameFolderDialog = lazy(() =>
   import("./workspace/rename-folder-dialog").then((module) => ({ default: module.RenameFolderDialog }))
+);
+const SupplyWorkspace = lazy(() =>
+  import("@/features/supply/supply-workspace").then((module) => ({ default: module.SupplyWorkspace }))
 );
 
 interface WorkspaceProps {
@@ -677,7 +679,9 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
               {loading ? (
                 <WorkspaceLoadingState />
               ) : section === "supply" ? (
-                <SupplyWorkspace user={user} />
+                <Suspense fallback={<WorkspaceLoadingState />}>
+                  <SupplyWorkspace user={user} />
+                </Suspense>
               ) : section === "library-manager" ? (
                 canOpenLibrary ? (
                   <LibraryManagerWorkspace user={user} projects={projects} />
