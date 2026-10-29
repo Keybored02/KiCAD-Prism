@@ -20,16 +20,15 @@ from decimal import Decimal
 from statistics import median
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts_view, price_breaks, price_quantity, pricing
+from app.services.supply import offer_rules, parts_view, price_breaks, price_quantity, pricing
 from app.services.supply.history import days_sql
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 MIN_SAMPLE = 3
 MAX_SERIES = 6
 ALL = "all"
 METRICS = ("out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days", "price_index")
 INDEX_BASE = Decimal(100)
-_LIFECYCLE_RISK = {Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value}
 COMPARE_DAYS = 30
 CATEGORY_PREFIX = "category:"
 HISTORY_DAYS = 365
@@ -54,12 +53,8 @@ def metrics_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
         result["dropped"] = sum(
             1 for row in with_data if row["offers"] and all(offer["discontinued"] for offer in row["offers"])
         ) / len(with_data)
-    result["lifecycle_risk"] = sum(1 for row in rows if row["lifecycle"] in _LIFECYCLE_RISK) / len(rows)
-    leads = [
-        min(offer["lead_time_days"] for offer in row["offers"] if offer["lead_time_days"] is not None)
-        for row in rows
-        if any(offer["lead_time_days"] is not None for offer in row["offers"])
-    ]
+    result["lifecycle_risk"] = sum(1 for row in rows if row["lifecycle"] in ENDING_LIFECYCLES) / len(rows)
+    leads = [lead for row in rows if (lead := offer_rules.lead_time_of(row["offers"])) is not None]
     if leads:
         result["median_lead_time_days"] = float(median(leads))
     return result

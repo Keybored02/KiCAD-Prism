@@ -31,6 +31,11 @@ class Lifecycle(StrEnum):
     UNKNOWN = "unknown"
 
 
+# A manufacturer lifecycle that says the part is going: not for new designs, a last date to buy, or gone. As values, so it serves
+# Python tests and SQL parameters alike.
+ENDING_LIFECYCLES: tuple[str, ...] = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
+
+
 class Packaging(StrEnum):
     CUT_TAPE = "cut_tape"
     # A reel cut to the quantity asked, with a reeling fee (DigiKey Digi-Reel, Mouser MouseReel).

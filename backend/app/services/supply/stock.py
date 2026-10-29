@@ -68,6 +68,20 @@ class PartStock:
     # The oldest read the total rests on: of the counted rows that hold stock, or of every counted row when none does.
     as_of: datetime | None = None
 
+    @property
+    def holders(self) -> int:
+        """How many hold stock: pools with stock (connectors on one account are one holder)."""
+
+        return sum(1 for amount in self.by_pool.values() if amount > 0)
+
+
+def holders(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> int:
+    """How many hold stock of a part, from its counted offer rows (``connector_id``, ``stock``, ``marketplace``, and ``pool`` and
+    ``packaging`` where known): stock pools with stock, as ``aggregate`` counts them. The one rule for "held by one distributor"."""
+
+    return len({row.get("pool") or row["connector_id"] for row in rows
+                if int(row["stock"] or 0) > 0 and not row["marketplace"] and counts(row.get("packaging"), policy)})
+
 
 def aggregate(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> PartStock:
     """Combine offer rows of one part. Each row needs connector_id, provider, stock, marketplace, fetched_at,

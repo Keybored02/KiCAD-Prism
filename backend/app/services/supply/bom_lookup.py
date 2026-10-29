@@ -32,7 +32,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import attrition, component_parts, ending_parts, fx, parts, parts_view, preferences, pricing, usage, watches
+from app.services.supply import attrition, component_parts, ending_parts, fx, offer_rules, parts, parts_view, preferences, pricing, usage, watches
 from app.services.supply.assessment import line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
@@ -250,15 +250,6 @@ def _next_break(offer: Mapping[str, Any], order: int, extended: Decimal) -> dict
     return None
 
 
-def _lead_time(offers: Sequence[Mapping[str, Any]]) -> int | None:
-    """The shortest lead time among offers holding stock, else among all."""
-
-    in_stock = [o["lead_time_days"] for o in offers if o["lead_time_days"] is not None and o["stock"] > 0]
-    anywhere = [o["lead_time_days"] for o in offers if o["lead_time_days"] is not None]
-    pool = in_stock or anywhere
-    return min(pool) if pool else None
-
-
 def needed(per_board: int, build_quantity: int, attrition_percent: float = 0) -> int:
     """Units to have for a build: what the boards use, plus the spares attrition asks for, rounded up."""
 
@@ -474,7 +465,7 @@ def _entries(
                 ],
                 "stock": stock,
                 "lifecycle": item["lifecycle"],
-                "lead_time_days": _lead_time(offers_here),
+                "lead_time_days": offer_rules.lead_time_of(offers_here),
                 "fetched_at": item["fetched_at"],
                 "part_need": part_need,
                 "usable": usable,

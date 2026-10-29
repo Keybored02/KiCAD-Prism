@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from enum import IntEnum
 
 from app.services.supply import quota
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES, Lifecycle
 
 SCHEDULES = ("daily", "weekly", "monthly")
 INTERVAL = {"daily": timedelta(days=1), "weekly": timedelta(days=7), "monthly": timedelta(days=30)}
@@ -39,7 +39,6 @@ class Urgency(IntEnum):
     NORMAL = 2
 
 
-_AT_RISK_LIFECYCLES = frozenset({Lifecycle.NRND, Lifecycle.LAST_TIME_BUY, Lifecycle.OBSOLETE})
 
 RECENT_CHANGE = timedelta(hours=24)
 # How close to the threshold counts as "approaching it", as a multiple.
@@ -79,7 +78,7 @@ def urgency(inputs: UrgencyInputs) -> Urgency:
                 asked.append(Urgency.WARM)
     if inputs.rupture_days is not None:
         asked.append(Urgency.HOT if inputs.rupture_days <= RUPTURE_HOT_DAYS else Urgency.WARM)
-    if inputs.lifecycle in _AT_RISK_LIFECYCLES:
+    if inputs.lifecycle in ENDING_LIFECYCLES:
         asked.append(Urgency.WARM)
     if inputs.last_change_at is not None and inputs.now - inputs.last_change_at < RECENT_CHANGE:
         asked.append(Urgency.WARM)

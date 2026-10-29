@@ -22,9 +22,8 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
 
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
-_ENDING = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 MAKER_SHRINK_MONTHS = 60.0
 PRIOR_EVENTS = 0.5
 MIN_CASES = 5
@@ -82,7 +81,7 @@ def rates(conn, today: date | None = None) -> dict[str, Any]:
         JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE e.kind = 'lifecycle_changed' AND e.payload->>'to' = ANY(%s) ORDER BY e.part_id, e.at
         """,
-        (list(_ENDING),),
+        (list(ENDING_LIFECYCLES),),
     ).fetchall():
         changes["__all__"] += 1
         changes[row["maker"]] += 1
@@ -122,7 +121,7 @@ def factor(found: dict[str, Any]) -> float:
 def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None, *, pooled: dict[str, Any] | None = None) -> dict[str, Any]:
     """The chance a part turns ending within 12 and 24 months, from its maker's rate and its own signs. None for a part that already is."""
 
-    if lifecycle in _ENDING:
+    if lifecycle in ENDING_LIFECYCLES:
         return {"available": False, "reason": "already_ending"}
     found = pooled if pooled is not None else rates(conn, today)
     maker = conn.execute("SELECT m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)).fetchone()

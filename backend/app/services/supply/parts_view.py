@@ -23,7 +23,7 @@ from app.services.supply.part_status import (
 )
 from app.services.supply.tiers import SCHEDULES
 from app.services.supply.offer_lines import in_base, offer_lines
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES, Lifecycle
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
@@ -40,7 +40,6 @@ Filter = Literal[
 ]
 # "At risk" is error or fatal everywhere (the Dashboard, this filter, the Projects view, a project's page); a warning only needs a look.
 _AT_RISK = ("fatal", "error")
-_LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 
 
 def _sql_in(values) -> str:
@@ -52,7 +51,7 @@ def _sql_in(values) -> str:
 _GROUPS: dict[str, tuple[str, Callable[[dict[str, Any]], bool]]] = {
     "at_risk": (f"s.status IN {_sql_in(_AT_RISK)}", lambda item: item["status"] in _AT_RISK),
     "out_of_stock": ("s.stock = 0", lambda item: item["stock"] == 0),
-    "lifecycle": (f"s.lifecycle IN {_sql_in(_LIFECYCLE_RISK)}", lambda item: item["lifecycle"] in _LIFECYCLE_RISK),
+    "lifecycle": (f"s.lifecycle IN {_sql_in(ENDING_LIFECYCLES)}", lambda item: item["lifecycle"] in ENDING_LIFECYCLES),
     **{f"lifecycle_{state.value}": (f"s.lifecycle = '{state.value}'", lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
 }
 FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {name: test for name, (_sql, test) in _GROUPS.items()}
@@ -219,7 +218,7 @@ def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Ra
         here = [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
         price = headline_price.headline(
             [o for o in here if not o["marketplace"]], quantities[row["id"]], base, rates,
-            lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates),
+            lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates, quantities[part_id]),
         )
         summary = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
         # Kept with the summary so the Dashboard counts statuses without the rest of the row; a watch change marks it stale.
@@ -738,12 +737,16 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
     for item in page:
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
         by_connector: dict[str, dict[str, Any]] = {}
+        held: dict[str, list[dict]] = defaultdict(list)
         for offer in here:
             entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0, "price": None, "currency": ""})
-            entry["stock"] += int(offer["stock"] or 0)
+            held[offer["connector_id"]].append(offer)
             price, currency, _quantity = headline_price.native_price(offer, quantities[item["id"]])
             if price is not None and (entry["price"] is None or Decimal(price) < Decimal(entry["price"])):
                 entry["price"], entry["currency"] = price, currency
+        for connector_id, entry in by_connector.items():
+            # By pile, as the part's stock counts it: cut tape and custom reel are one shelf.
+            entry["stock"] = stock.connector_stock(entry["provider"], held[connector_id])
         flags = []
         if item["id"] in waiting:
             flags.append("waiting")
@@ -826,7 +829,7 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
         # Holders and concentration count stock pools: connectors on one account hold one shelf.
         holding = [amount for amount in combined.by_pool.values() if amount > 0]
         series.append({
-            "day": day.isoformat(), "stock": combined.total, "listings": combined.listings, "sources": len(holding),
+            "day": day.isoformat(), "stock": combined.total, "listings": combined.listings, "sources": combined.holders,
             "concentration": sum((amount / combined.total) ** 2 for amount in holding) if combined.total > 0 else None,
         })
         day += timedelta(days=1)
@@ -968,7 +971,7 @@ def _price_block(conn, part_id: str, now: datetime, offers: list[dict]) -> dict[
     base = settings_store.load(conn).base_currency
     rates = fx.latest(conn)
     headline = headline_price.headline(
-        offers, chosen["quantity"], base, rates, lambda: prices.last_in_stock(conn, part_id, base, rates),
+        offers, chosen["quantity"], base, rates, lambda: prices.last_in_stock(conn, part_id, base, rates, chosen["quantity"]),
     )
     return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": headline}
 

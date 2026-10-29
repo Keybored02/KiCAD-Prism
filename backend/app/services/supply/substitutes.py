@@ -22,13 +22,12 @@ from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SUBSTITUTES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 ACTION = "part.substitutes"
 FRESH_DAYS = 30
 ASK_COOLDOWN = timedelta(hours=1)
 MAX_AUTO_PER_RUN = 5
-_ENDING = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 
 _STOPPED_TEXT = {
     "budget": "has used today's allowance for asking",
@@ -190,7 +189,7 @@ def due(conn, connector_id: str, now: datetime, limit: int = MAX_AUTO_PER_RUN) -
         ORDER BY p.id, o.fetched_at DESC
         LIMIT %(limit)s
         """,
-        {"connector": connector_id, "ending": list(_ENDING), "action": ACTION, "since": now - timedelta(days=FRESH_DAYS), "limit": limit},
+        {"connector": connector_id, "ending": list(ENDING_LIFECYCLES), "action": ACTION, "since": now - timedelta(days=FRESH_DAYS), "limit": limit},
     ).fetchall()]
 
 
