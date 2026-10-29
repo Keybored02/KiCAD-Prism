@@ -164,12 +164,11 @@ class FxDatabaseTests(unittest.TestCase):
         self.assertEqual(result["rollup"]["original_costs"], {})
 
     def test_a_rupee_workspace_totals_euro_offers_in_rupees(self) -> None:
-        from app.services.supply.assessment import settings as rules
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         with self.store.connection() as conn:
             one = self.parts.ensure_part(conn, "Acme", "P-1", "seed@example.com").id
-            settings_store.save(conn, rules.to_dto(rules.DEFAULTS) | {"base_currency": "INR"}, "admin@example.com")
+            supply_settings.save_form(conn, supply_settings.to_dto(supply_settings.DEFAULTS) | {"base_currency": "INR"}, "admin@example.com")
         self.offer(one, "c1", "A", "0.50", "EUR")
         lines = [{"key": "a", "manufacturer": "Acme", "mpn": "P-1", "quantity": 2}]
         self.assertEqual(self.lookup(lines)["rollup"]["currency"], "EUR", "no rupee rate yet: the euros stay euros")

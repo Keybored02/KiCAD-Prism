@@ -140,11 +140,11 @@ def _points_of(conn, part_ids: Sequence[str], now: datetime, days: int) -> dict[
     """``_points`` for each of many parts."""
 
     from app.services.supply import fx, price_breaks, price_quantity
-    from app.services.supply.assessment import settings_store
+    from app.services.supply import settings as supply_settings
 
     ids = list(dict.fromkeys(part_ids))
     quantities = price_quantity.of_parts(conn, ids)
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
     raw = _daily_rows(conn, ids, now, days)
     kept = price_breaks.load(conn, sorted({row["listing_id"] for row in raw}))

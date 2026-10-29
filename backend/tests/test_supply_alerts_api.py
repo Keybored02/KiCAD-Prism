@@ -288,11 +288,11 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(alert["detail"]["change_percent"], 30.0)
 
     def test_the_workspaces_price_rise_decides_and_a_parts_own_rule_wins(self) -> None:
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         rising = self.priced_part("PRICEY", "1.00", "1.30")
         with self.store.connection() as conn:
-            settings_store.save(conn, {"alert_price_rise_percent": 40}, "admin@example.com")
+            supply_settings.save_form(conn, {"alert_price_rise_percent": 40}, "admin@example.com")
         for later in (timedelta(0), timedelta(hours=1)):
             self.evaluate(rising["part_id"], after=later)
         self.assertEqual(self.listed(), [], "30% is under the workspace's 40%")

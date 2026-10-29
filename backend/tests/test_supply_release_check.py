@@ -327,21 +327,21 @@ class ReleaseCheckTests(unittest.TestCase):
 
     def test_the_workspaces_spares_are_the_pages_unless_it_names_its_own(self) -> None:
         from app.services.supply import usage
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         self.part("GOOD-1", stock=5000)
         project = SimpleNamespace(id="prj_56", name="Fifty six")
         with self.store.connection() as conn:
             usage.store_project(conn, "prj_56", "Fifty six", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
-            settings_store.save(conn, {"spares_mode": "flat", "spares_percent": 10}, "admin@example.com")
+            supply_settings.save_form(conn, {"spares_mode": "flat", "spares_percent": 10}, "admin@example.com")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             page = self.request("prj_56/supply", query="build_quantity=10").json
             own = self.request("prj_56/supply", query="build_quantity=10&spares=0").json
         self.assertEqual((page["attrition_percent"], page["parts"][0]["need"]), (10.0, 11), "10 pieces and 10%")
         self.assertEqual((own["attrition_percent"], own["parts"][0]["need"]), (0.0, 10))
         with self.store.connection() as conn:
-            settings_store.save(conn, {"spares_mode": "package"}, "admin@example.com")
-            self.assertIsNone(settings_store.load(conn).default_attrition())
+            supply_settings.save_form(conn, {"spares_mode": "package"}, "admin@example.com")
+            self.assertIsNone(supply_settings.load(conn).spares.default_attrition())
 
     def test_the_cost_curve_equals_single_lookups_and_the_money_goes_to_the_biggest_lines(self) -> None:
         from app.services.supply import bom_lookup, usage
