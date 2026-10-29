@@ -336,7 +336,7 @@ class ComponentPartsTests(unittest.TestCase):
             ending_parts.set_restriction(conn, component_id, "not_for_new_designs", "", "", "qa@example.com")
             self.assertEqual(count(lifecycle="obsolete"), 0, "decided")
             ending_parts.clear_restriction(conn, component_id, "qa@example.com")
-            ending_parts.dismiss(conn, component_id, ["obsolete"], "qa@example.com")
+            ending_parts.dismiss(conn, component_id, ["obsolete"], "qa@example.com", approver=True)
             self.assertEqual(count(lifecycle="obsolete"), 0, "dismissed for this reason")
             self.assertEqual(count(lifecycle="obsolete", dropped=True), 1, "a new reason brings it back")
 
@@ -347,7 +347,8 @@ class ComponentPartsTests(unittest.TestCase):
         rows = (
             "INSERT INTO supply_component_watches (component_id, owner, created_by) VALUES (%s, 'a', 'a')",
             "INSERT INTO supply_component_restrictions (component_id, level) VALUES (%s, 'retired')",
-            "INSERT INTO supply_ending_dismissals (component_id, reasons, dismissed_by) VALUES (%s, 'obsolete', 'a')",
+            "INSERT INTO supply_attention_decisions (id, component_id, kind, decision, made_by) VALUES (md5(random()::text), %s, 'ending', 'dismiss', 'a')",
+            "INSERT INTO supply_attention (component_id, kind, severity, state, first_seen_at, last_event_at) VALUES (%s, 'work', 'info', 'open', NOW(), NOW())",
         )
         for insert in rows:
             with self.assertRaises(psycopg.errors.ForeignKeyViolation), self.store.connection() as conn:
@@ -357,18 +358,75 @@ class ComponentPartsTests(unittest.TestCase):
                 conn.execute(insert, (component_id,))
             conn.rollback()
 
+    def test_a_component_watch_is_a_reason_to_follow_its_main_part_and_stopping_it_lowers_the_part(self) -> None:
+        from app.services.supply import component_watches, stock, tracking
+
+        component_id = str(self._component()["id"])
+        with self.store.connection() as conn:
+            component_watches.set_watch(conn, component_id, AUTHOR, packaging="tape_reel", tier=1, rate="daily")
+            main = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            got = tracking.tier_of(conn, main)
+            self.assertEqual((got["tier"], got["rate"], got["reasons"]), (1, "daily", [{"kind": "component", "ref": component_id}]))
+            self.assertIsNone(conn.execute("SELECT 1 FROM supply_watches WHERE part_id = %s", (main,)).fetchone(), "no part watch is made")
+            self.assertEqual(stock.packaging_of(conn, main), "tape_reel")
+            component_watches.remove_watch(conn, component_id, AUTHOR)
+            self.assertIsNone(tracking.tier_of(conn, main), "nothing else follows it")
+            self.assertEqual(stock.packaging_of(conn, main), "any")
+
+    def test_a_watched_component_follows_its_new_part_and_stopping_that_part_stops_the_watch(self) -> None:
+        from app.services.supply import component_watches, tracking, watches
+
+        component = self._component()
+        component_id = str(component["id"])
+        with self.store.connection() as conn:
+            component_watches.set_watch(conn, component_id, AUTHOR)
+            old = self.cp.parts_of(conn, component_id)[0]["part_id"]
+        self.catalog.update_component_metadata(component_id, {"mpn": f"{component['mpn']}-B"}, actor=AUTHOR, expected_revision_id=component["revision_id"])
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id])
+            new = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            tracking.recompute(conn, [old, new])
+            self.assertIsNone(tracking.tier_of(conn, old), "the old number is no longer the component's")
+            self.assertEqual(tracking.tier_of(conn, new)["reasons"], [{"kind": "component", "ref": component_id}])
+            self.assertTrue(watches.stop_tracking(conn, new, AUTHOR))
+            self.assertIsNone(component_watches.get(conn, component_id))
+            self.assertIsNone(tracking.tier_of(conn, new))
+            self.assertFalse(watches.stop_tracking(conn, new, AUTHOR), "nothing left to stop")
+
+    def test_a_component_without_a_part_number_cannot_be_watched(self) -> None:
+        from app.services.supply import component_watches
+
+        with self.store.connection() as conn, self.assertRaises(component_watches.ComponentWatchError):
+            component_watches.set_watch(conn, "no-such-component", AUTHOR)
+
     def test_a_dismissal_holds_only_for_the_reasons_it_was_made_for(self) -> None:
         from app.services.supply import ending_parts
 
         component_id = str(self._component()["id"])
         with self.store.connection() as conn:
-            ending_parts.dismiss(conn, component_id, ["nrnd"], AUTHOR)
+            ending_parts.dismiss(conn, component_id, ["nrnd"], AUTHOR, approver=True)
             stored = ending_parts.dismissals_of(conn, [component_id])[component_id]
             self.assertEqual(stored, ending_parts.reasons_key([{"kind": "nrnd"}]))
             self.assertNotEqual(stored, ending_parts.reasons_key([{"kind": "nrnd"}, {"kind": "last_time_buy"}]), "a new reason brings it back")
             with self.assertRaises(ValueError):
-                ending_parts.dismiss(conn, component_id, [], AUTHOR)
-            conn.execute("DELETE FROM supply_ending_dismissals WHERE component_id = %s", (component_id,))
+                ending_parts.dismiss(conn, component_id, [], AUTHOR, approver=True)
+            conn.execute("DELETE FROM supply_attention_decisions WHERE component_id = %s", (component_id,))
+
+    def test_a_writer_s_dismissal_waits_for_an_approver(self) -> None:
+        from app.services.supply import ending_parts, review
+
+        component_id = str(self._component()["id"])
+        with self.store.connection() as conn:
+            asked = ending_parts.dismiss(conn, component_id, ["obsolete"], "designer@example.com", approver=False)
+            self.assertEqual(asked["state"], "proposed")
+            self.assertEqual(ending_parts.dismissals_of(conn, [component_id]), {}, "not dismissed until QA says so")
+            waiting = [item for item in review.to_approve(conn)["dismissals"] if item["component_id"] == component_id]
+            self.assertEqual([(item["id"], item["reasons"], item["proposed_by"]) for item in waiting], [(asked["id"], ["obsolete"], "designer@example.com")])
+            ending_parts.decide_dismissal(conn, asked["id"], "qa@example.com", approve=True)
+            self.assertEqual(ending_parts.dismissals_of(conn, [component_id]), {component_id: "obsolete"})
+            with self.assertRaises(ValueError):
+                ending_parts.decide_dismissal(conn, asked["id"], "qa@example.com", approve=False)
+            conn.execute("DELETE FROM supply_attention_decisions WHERE component_id = %s", (component_id,))
 
     def test_a_part_link_opens_the_component_the_part_counts_for(self) -> None:
         from app.api import supply_parts

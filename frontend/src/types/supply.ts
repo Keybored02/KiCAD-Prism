@@ -250,6 +250,8 @@ export interface EndingPart {
   restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
   /** Someone dismissed it for the reasons it has now. */
   dismissed: boolean;
+  /** Someone asked QA to dismiss it for the reasons it has now. */
+  dismissal_waiting?: boolean;
   /** Whether the ending part is the component's main part or an approved alternate. */
   role?: "main" | "alternate";
   /** The component's other approved parts that are not ending; retiring is offered only when none is left. */
@@ -531,6 +533,10 @@ export interface SupplyToApprove {
   alternates?: Array<{
     component_id: string; component_name: string; component_mpn: string; part_id: string; mpn: string; manufacturer: string; proposed_by: string; proposed_at: string;
   }>;
+  /** Ending components someone asked QA to dismiss, with the reasons they were dismissed for. */
+  dismissals?: Array<{ id: string; component_id: string; component_name: string; component_mpn: string; reasons: string[]; proposed_by: string; proposed_at: string }>;
+  /** Alerts someone asked QA to switch off on a part. */
+  mutes?: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; kind: string; proposed_by: string; proposed_at: string }>;
 }
 
 export interface SupplyMakerGroup {
@@ -1473,6 +1479,8 @@ export interface ScheduleSettings {
 /** What a person wants to hear about a part. */
 export interface AlertRules {
   muted: string[];
+  /** Kinds someone asked QA to switch off; they still raise alerts until approved. */
+  muting?: string[];
   price_rise_percent: number | null;
   /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
   likely_out_percent?: number | null;
@@ -1629,20 +1637,6 @@ export interface TrackingRoom {
 }
 
 /** The Dashboard page in one read. */
-/** One line of the Dashboard's inbox: what needs a person, how bad, how many, and where it is acted on. */
-export type SupplyInboxItem = { severity: "fatal" | "error" | "warning" | "info"; count: number } & (
-  | { kind: "feed"; name: string; since: string | null; feed: "stores" | "connector" }
-  | { kind: "ending" }
-  | { kind: "deadline"; part_id: string; mpn: string; deadline: "last_time_buy" | "last_time_ship" | "last_buy_date"; date: string }
-  | { kind: "project_short"; project_id: string; name: string; of: number }
-  | { kind: "project_unconfirmed"; project_id: string; name: string }
-  | { kind: "alerts"; alert_kind: string }
-  | { kind: "likely_out" }
-  | { kind: "approvals" }
-  | { kind: "work_due" }
-  | { kind: "work_mine" }
-);
-
 export type WorkItemAction = "investigate" | "alternate" | "not_for_new_designs" | "retire" | "replace" | "last_time_buy" | "other";
 export type WorkItemState = "open" | "accepted" | "rejected" | "done";
 
@@ -1666,8 +1660,6 @@ export interface SupplyWorkItem {
 }
 
 export interface SupplyDashboard {
-  /** What needs a person today, worst first, and how many more there are. */
-  inbox?: { items: SupplyInboxItem[]; more: number };
   figures: Record<"watched" | "at_risk" | "out_of_stock" | "lifecycle" | "open_alerts" | "waiting", number>;
   /** Library components whose part is ending and nobody has decided about. */
   ending_components?: number;

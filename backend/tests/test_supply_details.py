@@ -159,7 +159,7 @@ class DetailsTests(unittest.TestCase):
             listed = pcn.for_part(conn, self.part_a)
             pcn.close(conn, notice["id"], ADMIN)
         self.assertEqual((listed[0]["source_label"], listed[0]["published_on"]), ("DigiKey", "2025-11-04"))
-        alerts = self.rows("SELECT kind FROM supply_alerts WHERE part_id = %s", self.part_a)
+        alerts = self.rows("SELECT kind FROM supply_attention WHERE part_id = %s", self.part_a)
         self.assertIn({"kind": "pcn"}, alerts)
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_detail_checks SET checked_at = %s", (NOW - timedelta(days=8),))

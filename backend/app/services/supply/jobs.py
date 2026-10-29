@@ -14,8 +14,9 @@ from typing import Any, Mapping
 
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, budget, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, schedule_settings, substitutes, tasks,
+    accounts, budget, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, substitutes, tasks,
 )
+from app.services.supply import settings as supply_settings
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs, pending_waiting
 from app.services.supply.poller import GROUP_LISTINGS, MAX_BATCHES_PER_RUN, Poller, due_listings, hold_back, spare_listings, with_siblings
@@ -189,7 +190,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
     result = {row["id"] for row in funded if _has_budget(conn, row, now)}
     # Parts waiting for room, and tier-2 parts that could be read early, are work for spare budget: a connector is queued for it only
     # when some of it is due and free calls are open.
-    kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
+    kinds = supply_settings.load(conn).schedule.kinds()
     spare = conn.execute(
         f"""
         SELECT c.id, c.provider FROM supply_connectors c
@@ -335,7 +336,7 @@ def _spend_spare(
 
     try:
         with connectors.store.connection() as conn:
-            kinds = [kind for kind, on in schedule_settings.load(conn)["spare"].items() if on]
+            kinds = supply_settings.load(conn).schedule.kinds()
         poller = poller or Poller(connectors)
         discoverer = discoverer or Discoverer(connectors)
         # Late committed reads come first, whatever the switches say: they are work the budget promised.

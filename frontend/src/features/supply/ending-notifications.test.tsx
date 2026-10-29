@@ -27,7 +27,7 @@ beforeEach(() => {
   vi.mocked(api.getEndingParts).mockResolvedValue({ items: [item()], tracked: 10, more: 0 });
   vi.mocked(api.setRestriction).mockResolvedValue(undefined);
   vi.mocked(api.retireComponent).mockResolvedValue(undefined);
-  vi.mocked(api.dismissEnding).mockResolvedValue(undefined);
+  vi.mocked(api.dismissEnding).mockResolvedValue({ id: "d1", state: "approved" });
 });
 afterEach(cleanup);
 
@@ -75,6 +75,20 @@ describe("ending parts on the Dashboard", () => {
     render(<EndingNotifications role="qa" onOpenComponent={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(api.dismissEnding).toHaveBeenCalledWith("c1", ["nrnd", "outlook"]));
+  });
+
+  it("lets a designer ask QA to dismiss, once", async () => {
+    vi.mocked(api.dismissEnding).mockResolvedValue({ id: "d1", state: "proposed" });
+    render(<EndingNotifications role="designer" onOpenComponent={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Ask QA to dismiss" }));
+    await waitFor(() => expect(api.dismissEnding).toHaveBeenCalledWith("c1", ["nrnd", "outlook"]));
+    cleanup();
+    // The mocked write skips `changesSupply`, so the kept list is forgotten here, as a real write would have it read again.
+    forgetServerState([]);
+    vi.mocked(api.getEndingParts).mockResolvedValue({ items: [item({ dismissal_waiting: true })], tracked: 10, more: 0 });
+    render(<EndingNotifications role="designer" onOpenComponent={vi.fn()} />);
+    expect((await screen.findByRole("button", { name: "Asked QA" })).hasAttribute("disabled")).toBe(true);
   });
 
   it("lists only components nobody has decided about, and nothing when there are none", async () => {

@@ -1,5 +1,5 @@
-"""What people follow and decide: watches, alerts and their rules, assessment marks, waivers, ending components and
-work items, tracked projects and their BOM usage, BOM notes and cost history, and release snapshots.
+"""What people follow and decide: watches, what needs a person and what they decided (attention, work items among it), alert
+rules, ending components, tracked projects and their BOM usage, BOM notes and cost history, and release snapshots.
 """
 
 from __future__ import annotations
@@ -8,7 +8,6 @@ TABLES: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS supply_alert_rules (
         part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
-        muted TEXT[] NOT NULL DEFAULT '{}'::text[],
         price_rise_percent INTEGER,
         target_price NUMERIC(14,6),
         target_currency TEXT NOT NULL DEFAULT '',
@@ -18,32 +17,63 @@ TABLES: tuple[str, ...] = (
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS supply_alerts (
+    CREATE TABLE IF NOT EXISTS supply_attention (
         id BIGSERIAL PRIMARY KEY,
-        part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
+        part_id TEXT REFERENCES supply_parts(id) ON DELETE CASCADE,
+        component_id TEXT,
         kind TEXT NOT NULL,
-        severity TEXT NOT NULL CHECK (severity IN ('warning', 'error', 'fatal')),
-        state TEXT NOT NULL CHECK (state IN ('pending', 'open', 'acknowledged', 'snoozed', 'resolved')),
+        scope TEXT NOT NULL DEFAULT '',
+        severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'error', 'fatal')),
+        state TEXT NOT NULL CHECK (state IN ('pending', 'open', 'resolved')),
         first_seen_at TIMESTAMPTZ NOT NULL,
         seen_count INTEGER NOT NULL DEFAULT 1,
         opened_at TIMESTAMPTZ,
         last_event_at TIMESTAMPTZ NOT NULL,
-        acknowledged_by TEXT NOT NULL DEFAULT '',
-        acknowledged_at TIMESTAMPTZ,
-        snoozed_until TIMESTAMPTZ,
         resolved_at TIMESTAMPTZ,
-        detail JSONB NOT NULL DEFAULT '{}'::jsonb
+        detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+        title TEXT NOT NULL DEFAULT '',
+        action TEXT NOT NULL DEFAULT '',
+        owner TEXT NOT NULL DEFAULT '',
+        disposition TEXT NOT NULL DEFAULT '' CHECK (disposition IN ('', 'accepted', 'rejected')),
+        notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        project_ids TEXT[] NOT NULL DEFAULT '{}'::text[],
+        recheck_on DATE,
+        created_by TEXT NOT NULL DEFAULT '',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK ((part_id IS NULL) <> (component_id IS NULL))
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_alerts_one_live ON supply_alerts (part_id, kind) WHERE state <> 'resolved';
-    CREATE INDEX IF NOT EXISTS idx_supply_alerts_state ON supply_alerts (state, last_event_at);
-    CREATE INDEX IF NOT EXISTS idx_supply_alerts_part ON supply_alerts (part_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_attention_one_live_part ON supply_attention (part_id, kind) WHERE state <> 'resolved' AND kind <> 'work' AND part_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_attention_one_live_component ON supply_attention (component_id, kind) WHERE state <> 'resolved' AND kind <> 'work' AND component_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_supply_attention_state ON supply_attention (state, last_event_at);
+    CREATE INDEX IF NOT EXISTS idx_supply_attention_part ON supply_attention (part_id);
+    CREATE INDEX IF NOT EXISTS idx_supply_attention_component ON supply_attention (component_id);
+    CREATE INDEX IF NOT EXISTS idx_supply_attention_work ON supply_attention (state, recheck_on) WHERE kind = 'work';
     """,
     """
-    CREATE TABLE IF NOT EXISTS supply_assessment_marks (
-        part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
-        status TEXT NOT NULL,
-        marked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    CREATE TABLE IF NOT EXISTS supply_attention_decisions (
+        id TEXT PRIMARY KEY,
+        attention_id BIGINT REFERENCES supply_attention(id) ON DELETE CASCADE,
+        part_id TEXT REFERENCES supply_parts(id) ON DELETE CASCADE,
+        component_id TEXT,
+        kind TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT '',
+        decision TEXT NOT NULL CHECK (decision IN ('acknowledge', 'snooze', 'dismiss', 'mute', 'waive', 'accept')),
+        state TEXT NOT NULL DEFAULT 'approved' CHECK (state IN ('proposed', 'approved', 'rejected')),
+        reason TEXT NOT NULL DEFAULT '',
+        until TIMESTAMPTZ,
+        made_by TEXT NOT NULL,
+        made_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        decided_by TEXT NOT NULL DEFAULT '',
+        decided_at TIMESTAMPTZ,
+        CHECK ((part_id IS NULL) <> (component_id IS NULL)),
+        CHECK ((attention_id IS NULL) = (decision NOT IN ('acknowledge', 'snooze')))
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_attention_decisions_row ON supply_attention_decisions (attention_id, decision) WHERE attention_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_attention_decisions_part ON supply_attention_decisions (part_id, kind, decision)
+        WHERE attention_id IS NULL AND part_id IS NOT NULL AND state <> 'rejected';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_attention_decisions_component ON supply_attention_decisions (component_id, kind, decision)
+        WHERE attention_id IS NULL AND component_id IS NOT NULL AND state <> 'rejected';
+    CREATE INDEX IF NOT EXISTS idx_supply_attention_decisions_waiting ON supply_attention_decisions (state) WHERE state = 'proposed';
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_bom_comments (
@@ -125,14 +155,6 @@ TABLES: tuple[str, ...] = (
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS supply_ending_dismissals (
-        component_id TEXT PRIMARY KEY,
-        reasons TEXT NOT NULL,
-        dismissed_by TEXT NOT NULL,
-        dismissed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    """,
-    """
     CREATE TABLE IF NOT EXISTS supply_release_snapshot_jobs (
         build_id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -174,21 +196,6 @@ TABLES: tuple[str, ...] = (
     );
     """,
     """
-    CREATE TABLE IF NOT EXISTS supply_waivers (
-        id TEXT PRIMARY KEY,
-        part_id TEXT NOT NULL REFERENCES supply_parts(id) ON DELETE CASCADE,
-        check_id TEXT NOT NULL,
-        scope TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('proposed', 'approved', 'rejected')),
-        proposed_by TEXT NOT NULL,
-        proposed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        decided_by TEXT NOT NULL DEFAULT '',
-        decided_at TIMESTAMPTZ
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_waivers_open ON supply_waivers (part_id, check_id) WHERE state <> 'rejected';
-    """,
-    """
     CREATE TABLE IF NOT EXISTS supply_watches (
         id TEXT PRIMARY KEY,
         part_id TEXT NOT NULL UNIQUE REFERENCES supply_parts(id) ON DELETE CASCADE,
@@ -201,27 +208,8 @@ TABLES: tuple[str, ...] = (
         packaging TEXT NOT NULL DEFAULT 'any' CHECK (packaging IN ('any', 'cut_tape', 'tape_reel', 'tray', 'tube', 'bulk')),
         tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2)),
         rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly')),
-        origin TEXT NOT NULL DEFAULT 'person' CHECK (origin IN ('person', 'component', 'legacy'))
+        origin TEXT NOT NULL DEFAULT 'person' CHECK (origin IN ('person', 'legacy'))
     );
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS supply_work_items (
-        id TEXT PRIMARY KEY,
-        subject_kind TEXT NOT NULL CHECK (subject_kind IN ('component', 'part')),
-        subject_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        action TEXT NOT NULL,
-        owner TEXT NOT NULL DEFAULT '',
-        state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'accepted', 'rejected', 'done')),
-        evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
-        project_ids TEXT[] NOT NULL DEFAULT '{}'::text[],
-        recheck_on DATE,
-        created_by TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_supply_work_items_open ON supply_work_items (state, recheck_on);
-    CREATE INDEX IF NOT EXISTS idx_supply_work_items_subject ON supply_work_items (subject_kind, subject_id);
     """,
 )
 
@@ -243,7 +231,7 @@ TRIGGERS: tuple[str, ...] = (
 
 # Supply rows about one catalog component must name a real one (and go if it is ever deleted). Made with the catalog's own steps
 # (``create_catalog_links``), since a test's disposable schema has no ``components``.
-COMPONENT_LINKS = ("supply_component_watches", "supply_component_restrictions", "supply_ending_dismissals")
+COMPONENT_LINKS = ("supply_component_watches", "supply_component_restrictions", "supply_attention", "supply_attention_decisions")
 
 
 def _component_link(table: str) -> str:

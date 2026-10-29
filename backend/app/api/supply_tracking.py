@@ -16,7 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
-from app.services.supply import admission, budget_view, parts, project_bom, room, schedule_settings, tracking, usage, watches
+from app.services.supply import admission, budget_view, parts, project_bom, room, tracking, usage, watches
+from app.services.supply import settings as supply_settings
 from app.services.supply.progress import job_progress
 
 router = APIRouter(prefix="/api/supply/tracking", tags=["supply"])
@@ -66,7 +67,7 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
     except parts.PartNotFound as exc:
         raise HTTPException(status_code=404, detail="Not found") from exc
-    except (tracking.TrackingError, schedule_settings.ScheduleError, ValueError) as exc:
+    except (tracking.TrackingError, supply_settings.SettingsError, ValueError) as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
@@ -309,7 +310,7 @@ async def get_schedule(_user: AuthenticatedUser = Depends(require_supply_reader)
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return schedule_settings.load(conn)
+            return supply_settings.to_dto(supply_settings.load(conn), ("schedule",))
 
     return await _run(read)
 
@@ -318,6 +319,6 @@ async def get_schedule(_user: AuthenticatedUser = Depends(require_supply_reader)
 async def put_schedule(body: ScheduleIn, user: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return schedule_settings.save(conn, body.model_dump(), user.email)
+            return supply_settings.to_dto(supply_settings.save(conn, {"schedule": body.model_dump()}, user.email), ("schedule",))
 
     return await _run(run)

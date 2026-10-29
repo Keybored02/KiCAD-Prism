@@ -33,7 +33,8 @@ from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from app.services.supply import attrition, component_parts, ending_parts, fx, offer_rules, parts, parts_view, preferences, pricing, usage, watches
-from app.services.supply.assessment import line_checks, settings_store
+from app.services.supply import settings as supply_settings
+from app.services.supply.assessment import line_checks
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
@@ -157,9 +158,9 @@ def resolve_lines(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | 
 def _preferred_for(part_id: str, own: Mapping[str, str], settings) -> list[str]:
     """The distributors to price a part at first: its own preferred one, then the workspace's order. Empty while the option is off."""
 
-    if not settings.prefer_distributors:
+    if not settings.pricing.prefer_distributors:
         return []
-    return list(dict.fromkeys([*([own[part_id]] if part_id in own else []), *settings.distributor_order]))
+    return list(dict.fromkeys([*([own[part_id]] if part_id in own else []), *settings.pricing.distributor_order]))
 
 
 def _preferred_standing(offers: Sequence[Mapping[str, Any]], connector_id: str | None) -> dict[str, Any] | None:
@@ -291,7 +292,7 @@ class Loaded:
     per_board: Mapping[str, int]
     first_line: Mapping[str, str]
     by_key: Mapping[str, BomLine]
-    settings: Any
+    settings: supply_settings.Settings
     extras: Mapping[str, list]
     rates: fx.Rates | None
     preferred_of: Mapping[str, Any]
@@ -328,9 +329,9 @@ def load(
         if part_id:
             per_board[part_id] = per_board.get(part_id, 0) + line.quantity
             first_line.setdefault(part_id, line.key)
-    settings = settings_store.load(conn)
+    settings = supply_settings.load(conn)
     extras: dict[str, list] = {}
-    _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings, extras)
+    _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings.assessment, extras)
     stores = _stores_of_lines(conn, lines, resolved, known)
     return Loaded(
         lines=list(lines), known=known, resolved=resolved, items=items, offers=offers, summary=summary, per_board=per_board,
@@ -389,7 +390,7 @@ def _library_lines(
 def _percents(loaded: Loaded, attrition_percent: float | None) -> dict[str, float]:
     """Spares per part. `None` asks for spares by kind of part, taken from the footprint on the part's first line; a number is for every part."""
 
-    table = loaded.settings.spares_table()
+    table = loaded.settings.spares.table()
     return {
         part_id: attrition.percent_for(loaded.by_key[loaded.first_line[part_id]].footprint, table) if attrition_percent is None else attrition_percent
         for part_id in loaded.per_board
@@ -445,7 +446,7 @@ def _entries(
                 "usable": usable,
                 "short": usable is not None and usable < part_need,
                 # Only the first line of a part carries the purchase; the others say where it is.
-                "buy": _best_purchase(offers_here, part_need, loaded.rates, loaded.settings.base_currency, _preferred_for(part_id, loaded.preferred_of, loaded.settings)) if line.key == leader else None,
+                "buy": _best_purchase(offers_here, part_need, loaded.rates, loaded.settings.pricing.base_currency, _preferred_for(part_id, loaded.preferred_of, loaded.settings)) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
                 # The distributor a person prefers for this part, with what it holds, shown first in the drawer.
                 "preferred": _preferred_standing(offers_here, loaded.preferred_of.get(part_id)),
@@ -478,7 +479,7 @@ def price(conn, loaded: Loaded, build_quantity: int, attrition_percent: float | 
         "attrition_percent": attrition_percent,
         "attrition_by_part": percents if attrition_percent is None else None,
         "lines": results,
-        "rollup": _rollup(loaded.lines, results, build_quantity, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.base_currency)
+        "rollup": _rollup(loaded.lines, results, build_quantity, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.pricing.base_currency)
         | _health_rollup(shown, needs),
     }
 
@@ -492,7 +493,7 @@ def cost_curve(loaded: Loaded, sizes: Sequence[int], attrition_percent: float | 
     for boards in sizes:
         needs = {part_id: needed(count, boards, percents[part_id]) for part_id, count in loaded.per_board.items()}
         results = _entries(loaded, boards, attrition_percent, percents, needs, None)
-        rollup = _rollup(loaded.lines, results, boards, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.base_currency)
+        rollup = _rollup(loaded.lines, results, boards, loaded.per_board, loaded.first_line, percents, loaded.rates, loaded.settings.pricing.base_currency)
         curve.append({
             "boards": boards, "cost_per_board": rollup["cost_per_board"], "cost_build": rollup["cost_build"], "currency": rollup["currency"],
             "short": rollup["short"], "lines_priced": rollup["lines_priced"], "lines": rollup["lines"],

@@ -7,10 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canOpenLibraryManager } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { PartsFilter, SupplyDashboard, SupplyInboxItem } from "@/types/supply";
+import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
-import { InboxCard } from "./dashboard-inbox";
 import { EndingNotifications } from "./ending-notifications";
 import { RunwayCard } from "./dashboard-charts";
 import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
@@ -21,7 +20,6 @@ import { getSupplyDashboard } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 import { OpenPartSheet } from "./open-part-sheet";
 import { useSupplyNavigation } from "./use-supply-navigation";
-import { CONNECTORS_PLACE, REVIEW_PLACE } from "./supply-views";
 
 const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
   out_now: "out_of_stock", runs_out_2w: "runs_out_2w", runs_out_8w: "runs_out_8w", runs_out_later: "runs_out_later", steady: "steady", few_readings: "few_readings",
@@ -60,25 +58,9 @@ export function DashboardView({ user }: { user: User | null }) {
   ];
   const openComponent = (componentId: string) =>
     navigate(`/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`);
-  const openInbox = (item: SupplyInboxItem) => {
-    switch (item.kind) {
-      case "feed": if (canOpenLibraryManager(user?.role)) navigate(CONNECTORS_PLACE); return;
-      case "ending": showDetails("dashboard-ending"); return;
-      case "deadline": openPart(item.part_id); return;
-      case "project_short":
-      case "project_unconfirmed": navigate(`/project/${encodeURIComponent(item.project_id)}?section=supply`); return;
-      case "alerts": setAlertKind(item.alert_kind); showAlerts(); return;
-      case "likely_out": parts("likely_out_4w")(); return;
-      case "approvals":
-      case "work_due":
-      case "work_mine": navigate(REVIEW_PLACE); return;
-    }
-  };
-
   return (
     <div className="themed-scrollbar relative h-full overflow-y-auto px-4 pb-4 pt-2">
       <div className="space-y-4">
-        {data?.inbox ? <InboxCard items={data.inbox.items} more={data.inbox.more} onOpen={openInbox} /> : null}
         {user?.role === "admin" ? <AdminStrip waiting={data?.figures.waiting ?? 0} /> : null}
         {dashboard.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {dashboard.status === "error" ? (

@@ -23,7 +23,7 @@ from typing import Any
 
 from app.services.supply import counted, fx, insights, price_breaks, price_quantity, prices, stock
 from app.services.supply.history import days_sql
-from app.services.supply.assessment import settings_store
+from app.services.supply import settings as supply_settings
 
 MAX_DAYS = 3650
 # Days a listing may go unread before its line is dashed, by the part's rate.
@@ -90,7 +90,7 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
     figures = {key: value for key, value in figures.items() if value}
     if not figures:
         return empty
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
     tier = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     allowed_gap = GAP_DAYS.get(tier["rate"] if tier else "daily", GAP_DAYS["daily"])

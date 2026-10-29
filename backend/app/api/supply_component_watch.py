@@ -1,4 +1,4 @@
-"""Component watch API: watching a catalog component's own part.
+"""Component watch API: following a catalog component's main part.
 
 Everyone who can read supply data sees a component's watch; setting or stopping one needs write access.
 """
@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import catalog_read, component_watches
+from app.services.supply import component_watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -61,9 +61,7 @@ async def set_component_watch(
 
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return {"watch": component_watches.set_watch(
-                conn, component_id, writer.email, catalog_read.identities, packaging=body.packaging,
-            )}
+            return {"watch": component_watches.set_watch(conn, component_id, writer.email, packaging=body.packaging)}
 
     return await _run(run)
 
