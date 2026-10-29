@@ -202,11 +202,11 @@ class InventorySyncTests(unittest.TestCase):
         cls.service_patch.stop()
         cls.tempdir.cleanup()
 
-    def _component(self, *, mpn: str | None = None, sap_code: str = "") -> dict:
+    def _component(self, *, mpn: str | None = None, sap_code: str = "", manufacturer: str = "") -> dict:
         token = uuid.uuid4().hex[:10]
         component = self.catalog.create_manual_component(
             value="10k", description="Inventory test", datasheet="https://example.com/r.pdf",
-            manufacturer=f"Maker {token}", manufacturer_part_number=mpn or f"INV-{token}", sap_code=sap_code, actor=AUTHOR,
+            manufacturer=manufacturer or f"Maker {token}", manufacturer_part_number=mpn or f"INV-{token}", sap_code=sap_code, actor=AUTHOR,
         )
         self.addCleanup(self.catalog.deactivate_component, str(component["id"]), actor=AUTHOR, reason="inventory test cleanup")
         return component
@@ -359,6 +359,42 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual((row["remote_part"], row["linked_component_id"], row["linked_mpn"]), ("5", str(component["id"]), component["mpn"]))
         self._sync(source_id, self._server("", "X", "Y", stock))
         self.assertEqual(self._unmatched(source_id), {}, "the read lands it on the component")
+
+    def test_a_new_server_token_or_category_reads_the_source_again_and_marks_its_stock_stale(self) -> None:
+        from app.services.supply.inventory import sources
+
+        sap = str(uuid.uuid4().int)[:9]
+        self._component(sap_code=sap)
+        source_id = self._source()
+        self._sync(source_id, self._server(sap, "X", "Y", [{"pk": 401, "part": 1, "quantity": 5, "status": 10}]))
+        with self.store.connection() as conn:
+            sources.update(conn, self.ring, source_id, AUTHOR, display_name="Stores")
+            self.assertIsNotNone(sources.get(conn, source_id)["last_sync_at"], "a new name changes nothing that was read")
+            sources.update(conn, self.ring, source_id, AUTHOR, category_id=8)
+            self.assertIsNone(sources.get(conn, source_id)["last_sync_at"], "due now")
+        self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("401", "error")],
+                         "kept, marked stale, until the next read replaces it")
+
+    def test_two_components_with_one_mpn_are_told_apart_by_any_spelling_of_the_maker(self) -> None:
+        from app.services.supply import parts
+
+        mpn = f"LM-{uuid.uuid4().hex[:8]}"
+        ti, other = self._component(mpn=mpn, manufacturer="Texas Instruments"), self._component(mpn=mpn)
+        with self.store.connection() as conn:
+            maker = parts.ensure_manufacturer(conn, "Texas Instruments", AUTHOR)
+            conn.execute(
+                "INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, manufacturer_id, status, confirmed_by) "
+                "VALUES ('ti', 'TI', %s, 'confirmed', %s) ON CONFLICT (alias_key) DO NOTHING", (maker, AUTHOR))
+        source_id = self._source()
+        server = FakeServer({
+            "part/": [{"pk": 9, "name": "Op amp", "IPN": ""}],
+            "company/part/manufacturer/": [{"pk": 19, "part": 9, "MPN": mpn, "manufacturer_detail": {"name": "TI"}}],
+            "stock/location/": [{"pk": 50, "pathstring": "WH1/A/01"}],
+            "stock/": [{"pk": 901, "part": 9, "quantity": 12, "status": 10, "location": 50}],
+        })
+        self._sync(source_id, server)
+        self.assertEqual([row["component_id"] for row in self._levels(source_id)], [str(ti["id"])], "TI is Texas Instruments")
+        self.assertNotEqual(str(ti["id"]), str(other["id"]))
 
     def test_only_due_sources_are_read(self) -> None:
         from app.services.supply.inventory import sync

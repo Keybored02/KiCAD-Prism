@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { InventorySource, InventoryUnmatchedPart } from "@/types/supply";
@@ -7,11 +7,11 @@ const listInventorySources = vi.fn();
 const listUnmatchedParts = vi.fn();
 vi.mock("./inventory-api", () => ({
   listInventorySources: () => listInventorySources(),
-  listUnmatchedParts: (id: string) => listUnmatchedParts(id),
+  listUnmatchedParts: (id: string, _signal?: AbortSignal, page?: unknown) => listUnmatchedParts(id, page),
   linkUnmatchedPart: vi.fn(),
 }));
 
-import { sameIdentity, UnmatchedStockSection } from "./unmatched-stock";
+import { sameIdentity, UNMATCHED_PAGE, UnmatchedStockSection } from "./unmatched-stock";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -53,6 +53,23 @@ describe("unmatched local stock", () => {
     render(<UnmatchedStockSection canDecide />);
     expect(await screen.findByText(/^Linked · RC0603FR-0710KL · next read /)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Unmatched local stock/ }).textContent).toContain("0");
+  });
+
+  it("asks for a page at a time, searches on the server and counts every part waiting", async () => {
+    listInventorySources.mockResolvedValue([source("a", 859)]);
+    listUnmatchedParts.mockImplementation(async (_id: string, page: { limit: number }) =>
+      Array.from({ length: page.limit }, (_, index) => part(String(index), 1000 - index)));
+    render(<UnmatchedStockSection canDecide />);
+    // A long section starts closed.
+    fireEvent.click(await screen.findByRole("button", { name: /Unmatched local stock/ }));
+    expect(await screen.findAllByRole("listitem")).toHaveLength(UNMATCHED_PAGE);
+    expect(listUnmatchedParts).toHaveBeenLastCalledWith("a", { q: "", limit: UNMATCHED_PAGE + 1 });
+    expect(screen.getByRole("button", { name: /Unmatched local stock/ }).textContent).toContain("859");
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(UNMATCHED_PAGE * 2));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search unmatched stock" }), { target: { value: "MPN-7" } });
+    fireEvent.submit(screen.getByRole("search"));
+    await waitFor(() => expect(listUnmatchedParts).toHaveBeenLastCalledWith("a", { q: "MPN-7", limit: UNMATCHED_PAGE + 1 }));
   });
 });
 

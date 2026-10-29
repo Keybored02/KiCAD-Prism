@@ -11,6 +11,7 @@ import type { CatalogComponent } from "@/types/catalog";
 import type { InventorySource, InventoryUnmatchedPart } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
 import { linkUnmatchedPart, listInventorySources, listUnmatchedParts } from "./inventory-api";
+import { SearchBox } from "./search-box";
 
 const REASON: Record<InventoryUnmatchedPart["reason"], string> = {
   no_component: "No component",
@@ -89,43 +90,62 @@ interface Waiting {
   part: InventoryUnmatchedPart;
 }
 
-/** Every source's unmatched parts with stock, largest first; null until loaded. */
-function useUnmatched() {
-  const [items, setItems] = useState<Waiting[] | null>(null);
+/** Rows asked for at a time, across every source. */
+export const UNMATCHED_PAGE = 50;
+
+/** The first `shown` unmatched parts with stock across every source, waiting ones first and largest first, narrowed by `query`;
+ * null until loaded. `waiting` is how many wait for a person in all (each source's own count), `more` whether any were left out. */
+function useUnmatched(query: string, shown: number) {
+  const [state, setState] = useState<{ items: Waiting[]; waiting: number; more: boolean } | null>(null);
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       // A source whose parts were all linked counts none unmatched, but its linked rows stay until the next read.
       const sources = await listInventorySources(signal);
-      const lists = await Promise.all(sources.map(async (source) => (await listUnmatchedParts(source.id, signal)).map((part) => ({ source, part }))));
-      setItems(lists.flat().sort((a, b) => b.part.quantity - a.part.quantity));
+      // One row past the page tells whether a source has more.
+      const lists = await Promise.all(sources.map(async (source) => (
+        await listUnmatchedParts(source.id, signal, { q: query, limit: shown + 1 })).map((part) => ({ source, part }))));
+      const all = lists.flat().sort((a, b) => Number(Boolean(a.part.linked_component_id)) - Number(Boolean(b.part.linked_component_id)) || b.part.quantity - a.part.quantity);
+      setState({ items: all.slice(0, shown), waiting: sources.reduce((sum, source) => sum + source.unmatched, 0), more: all.length > shown });
     } catch (caught) {
       if (!signal?.aborted) {
-        setItems([]);
+        setState({ items: [], waiting: 0, more: false });
         toast.error(caught instanceof Error ? caught.message : "Could not load the unmatched stock");
       }
     }
-  }, []);
+  }, [query, shown]);
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
-  return { items, reload: () => void load() };
+  return { state, reload: () => void load() };
 }
 
 /** Library Manager > Review: stock a local inventory server holds for parts no component matched. QA and admins link them. */
 export function UnmatchedStockSection({ canDecide, onDecided }: { canDecide: boolean; onDecided?: () => void }) {
-  const { items, reload } = useUnmatched();
-  if (!items || items.length === 0) return null;
+  const [query, setQuery] = useState("");
+  const [shown, setShown] = useState(UNMATCHED_PAGE);
+  const { state, reload } = useUnmatched(query, shown);
+  if (!state || (state.items.length === 0 && !query)) return null;
   const done = () => { reload(); onDecided?.(); };
-  const waiting = items.filter(({ part }) => !part.linked_component_id).length;
   return (
-    <CollapsibleSection id="review-unmatched-stock" title="Unmatched local stock" count={waiting}>
+    <CollapsibleSection id="review-unmatched-stock" title="Unmatched local stock" count={state.waiting}>
+      <div className="px-3 py-2">
+        <SearchBox
+          initial={query} label="Search unmatched stock" placeholder="IPN, MPN, maker or name"
+          onSearch={(text) => { setQuery(text); setShown(UNMATCHED_PAGE); }}
+        />
+      </div>
       <ul className="divide-y">
-        {items.map(({ source, part }) => (
+        {state.items.map(({ source, part }) => (
           <UnmatchedRow key={`${source.id}/${part.remote_part}`} source={source} part={part} canDecide={canDecide} onLinked={done} />
         ))}
       </ul>
+      {state.more ? (
+        <div className="px-3 py-2">
+          <Button size="sm" variant="outline" onClick={() => setShown((count) => count + UNMATCHED_PAGE)}>Load more</Button>
+        </div>
+      ) : null}
     </CollapsibleSection>
   );
 }

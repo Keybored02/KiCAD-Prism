@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime
 from typing import Callable, Literal, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
@@ -196,11 +196,20 @@ async def sync_inventory_source(source_id: str, _admin: AuthenticatedUser = Depe
 
 
 @router.get("/{source_id}/unmatched")
-async def list_unmatched_parts(source_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> list[UnmatchedPart]:
+async def list_unmatched_parts(
+    source_id: str,
+    q: str = Query("", max_length=100),
+    limit: int | None = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    _user: AuthenticatedUser = Depends(require_supply_reader),
+) -> list[UnmatchedPart]:
+    """The source's unmatched parts, waiting ones first and largest first; ``q`` searches IPN, MPN, maker and name, ``limit`` and
+    ``offset`` page them. Without ``limit``, every one."""
+
     def read() -> list[UnmatchedPart]:
         with _store().connection() as conn:
             sources.get(conn, source_id)
-            return [UnmatchedPart(**row) for row in sync.unmatched(conn, source_id)]
+            return [UnmatchedPart(**row) for row in sync.unmatched(conn, source_id, query=q, limit=limit, offset=offset)]
 
     return await _run(read)
 

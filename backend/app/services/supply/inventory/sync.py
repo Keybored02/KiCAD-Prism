@@ -49,6 +49,8 @@ class _Library:
     """The active components, indexed by SAP code and by part number."""
 
     def __init__(self, conn) -> None:
+        self._conn = conn
+        self._makers: dict[str, str] = {}
         rows = conn.execute(
             """
             SELECT c.id, r.sap_code, r.manufacturer, r.mpn
@@ -77,12 +79,24 @@ class _Library:
         for maker, mpn in part.mpns:
             holders = self.by_mpn.get(match_key(mpn), [])
             if len(holders) > 1 and alias_key(maker):
-                holders = [holder for holder in holders if alias_key(holder[1]) == alias_key(maker)] or holders
+                holders = [holder for holder in holders if self._maker(holder[1]) == self._maker(maker)] or holders
             if len(holders) == 1:
                 return holders[0][0], "mpn"
             if holders:
                 reason = MPN_SHARED
         return None, reason
+
+    def _maker(self, name: str) -> str:
+        """Who a spelling names, through supply's spellings of makers (TI is Texas Instruments); the spelling itself when Prism
+        can't place it."""
+
+        key = alias_key(name)
+        if key not in self._makers:
+            from app.services.supply import parts
+
+            found = parts.resolve_manufacturer(self._conn, name).manufacturer_id
+            self._makers[key] = f"id:{found}" if found else f"key:{key}"
+        return self._makers[key]
 
 
 def read(client: InvenTreeClient, category: int) -> Read:
@@ -213,9 +227,12 @@ def link(conn, source_id: str, remote_part: str, component_id: str, actor: str) 
     write_audit(conn, actor, "inventory_source.link", source_id, {"remote_part": remote_part, "component_id": component_id}, subject_kind="inventory_source")
 
 
-def unmatched(conn, source_id: str) -> list[dict[str, Any]]:
-    """The source's unmatched parts with stock. A part a person has linked since the last read stays, with the component it was
-    linked to, until a read lands its stock there."""
+def unmatched(conn, source_id: str, *, query: str = "", limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+    """The source's unmatched parts with stock, those waiting for a person first and largest first. A part a person has linked since
+    the last read stays, with the component it was linked to, until a read lands its stock there. ``query`` narrows to parts whose
+    IPN, MPN, maker or name contains it; ``limit`` and ``offset`` page the list."""
+
+    like = f"%{query.strip()}%" if query.strip() else None
 
     return [dict(row) for row in conn.execute(
         """
@@ -225,5 +242,8 @@ def unmatched(conn, source_id: str) -> list[dict[str, Any]]:
         LEFT JOIN inventory_links l ON l.source_id = u.source_id AND l.remote_part = u.remote_part
         LEFT JOIN components c ON c.id = l.component_id
         LEFT JOIN component_revisions r ON r.id = c.current_revision_id
-        WHERE u.source_id = %s ORDER BY (l.component_id IS NOT NULL), u.quantity DESC, u.remote_part
-        """, (source_id,)).fetchall()]
+        WHERE u.source_id = %s
+          AND (%s::text IS NULL OR u.ipn ILIKE %s OR u.mpn ILIKE %s OR u.manufacturer ILIKE %s OR u.name ILIKE %s)
+        ORDER BY (l.component_id IS NOT NULL), u.quantity DESC, u.remote_part
+        LIMIT %s OFFSET %s
+        """, (source_id, like, like, like, like, like, limit, max(offset, 0))).fetchall()]

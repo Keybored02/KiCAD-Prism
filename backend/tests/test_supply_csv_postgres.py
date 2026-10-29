@@ -109,6 +109,28 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
         self.assertEqual([o.sku for o in provider.get_offers(["NEW-1"])], ["NEW-1"])
         self.assertEqual(self.connectors.get(connector["id"])["csv_import"]["row_count"], 1)
 
+    def test_a_new_file_or_a_cleared_one_makes_the_connectors_listings_due_now(self) -> None:
+        connector = self._connector()
+        self._import(connector["id"], f"{HEADER}\nOLD-1,M1,Acme,5")
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO supply_listings (id, connector_id, sku, raw_mpn, raw_manufacturer, match_state) VALUES ('lst-csv', %s, 'OLD-1', 'M1', 'Acme', 'exact')",
+                (connector["id"],),
+            )
+            conn.execute("INSERT INTO supply_poll_state (listing_id, tier, next_poll_at) VALUES ('lst-csv', 'monthly', NOW() + INTERVAL '30 days')")
+
+        def due() -> bool:
+            with self.store.connection() as conn:
+                return conn.execute("SELECT next_poll_at <= NOW() AS due FROM supply_poll_state WHERE listing_id = 'lst-csv'").fetchone()["due"]
+
+        self.assertFalse(due())
+        self._import(connector["id"], f"{HEADER}\nOLD-1,M1,Acme,9")
+        self.assertTrue(due(), "the old offer is read again from the new file, not a month later")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = NOW() + INTERVAL '30 days' WHERE listing_id = 'lst-csv'")
+        self.imports.clear(connector["id"], actor="ana@example.com")
+        self.assertTrue(due(), "and when the file is removed")
+
     def test_a_rejected_file_changes_nothing(self) -> None:
         from app.services.supply.csv_import_service import CsvRejected
 

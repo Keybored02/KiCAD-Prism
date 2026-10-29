@@ -32,8 +32,15 @@ export function syncInventorySource(id: string): Promise<InventorySyncResult> {
   return fetchJson<InventorySyncResult>(path(id, "sync"), { method: "POST" }, "Could not read the server");
 }
 
-export function listUnmatchedParts(id: string, signal?: AbortSignal): Promise<InventoryUnmatchedPart[]> {
-  return fetchJson<InventoryUnmatchedPart[]>(path(id, "unmatched"), { signal }, "Could not load the unmatched stock");
+export function listUnmatchedParts(
+  id: string, signal?: AbortSignal, page: { q?: string; limit?: number; offset?: number } = {},
+): Promise<InventoryUnmatchedPart[]> {
+  const query = new URLSearchParams();
+  if (page.q) query.set("q", page.q);
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  if (page.offset) query.set("offset", String(page.offset));
+  const suffix = query.toString() ? `?${query}` : "";
+  return fetchJson<InventoryUnmatchedPart[]>(`${path(id, "unmatched")}${suffix}`, { signal }, "Could not load the unmatched stock");
 }
 
 /** Says which component a server part is; the source is read again, so its stock lands at once. */
