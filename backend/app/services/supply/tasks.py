@@ -128,7 +128,7 @@ def _retention(conn, now: datetime, store: SupplyStore) -> None:
     retention.compact_samples(conn, now)
     retention.drop_expired(conn, now)
     retention.drop_unused(conn, now)
-    retention.trim_summaries(conn)
+    retention.trim_summaries(conn, now)
     oneoff.expire(conn, now)
 
 
