@@ -346,6 +346,10 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(line["stock"][-1][1], 16140, "the cut tape and custom reel pile once, the full reel adds")
             self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"])
             self.assertEqual(line["price"][-1][1], 0.5, "the picked cut tape prices the line, not the cheaper reel")
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_packaging_picks WHERE part_id = %s", (part,))
+            (row,) = self.call("GET", "/api/supply/parts", query="scope=all&q=CHART-1").json["items"]
+            self.assertEqual(row["distributors"][0]["stock"], 16140, "the list row counts a distributor's piles as the part does")
         finally:
             registry.unregister("demo_chart")
 
@@ -686,6 +690,12 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(sorted(float(p) for _, p, _ in at_1000), [0.18, 0.2, 0.3], "before the breaks were kept the price at 100 is all there is")
         self.assertEqual(meta["quantity"], 1000)
         self.assertEqual(meta["estimated_until"], (today - timedelta(days=6)).date().isoformat(), "the chart says which days are drawn at 100")
+        from app.services.supply import part_history
+
+        with self.store.connection() as conn:
+            line = part_history.build(conn, part_id, today, 7)["connectors"][0]["price"]
+        self.assertEqual(line[-1][1], 0.18, "the distributor's line is priced at the part's quantity too, from the breaks in force")
+        self.assertEqual(line[0][1], 0.3, "and at the reading at 100 before the breaks were kept")
 
     def test_supply_search_finds_a_part_by_number_other_number_sku_or_maker(self) -> None:
         from app.services.supply import part_search

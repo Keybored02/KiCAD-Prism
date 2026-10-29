@@ -160,7 +160,7 @@ def run(discoverer, poller, store, connector_id: str, *, limit: int = PER_RUN) -
                 """
                 SELECT EXISTS (SELECT 1 FROM supply_discovery_runs d WHERE d.part_id = %(p)s AND d.connector_id = %(c)s) AS searched,
                        NOT EXISTS (SELECT 1 FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
-                                   WHERE l.part_id = %(p)s AND l.connector_id = %(c)s AND l.match_state IN ('exact', 'manual')
+                                   WHERE l.part_id = %(p)s AND l.connector_id = %(c)s AND supply_counted(l.match_state)
                                      AND o.listing_id IS NULL) AS read
                 """,
                 {"p": part_id, "c": connector_id},

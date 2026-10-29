@@ -140,7 +140,7 @@ def load(conn, part_id: str, now: datetime, base: str = "EUR") -> dict[str, Any]
     rows = conn.execute(
         f"""
         SELECT l.id, c.display_name, d.currency, d.day, d.unit_price, d.stock
-        FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND match_state IN ('exact', 'manual')", "%(since)s")} d
+        FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND supply_counted(match_state)", "%(since)s")} d
         JOIN supply_listings l ON l.id = d.listing_id JOIN supply_connectors c ON c.id = l.connector_id
         ORDER BY d.day
         """,

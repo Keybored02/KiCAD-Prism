@@ -349,7 +349,7 @@ class Discoverer:
                 """
                 SELECT d.part_id FROM supply_discovery_runs d
                 WHERE d.connector_id = %s AND d.part_id = ANY(%s) AND NOT d.family_done
-                  AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = d.part_id AND l.match_state IN ('exact', 'manual'))
+                  AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = d.part_id AND supply_counted(l.match_state))
                 """,
                 (connector_id, part_ids),
             ).fetchall()]

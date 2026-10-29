@@ -148,6 +148,7 @@ class RiskTests(unittest.TestCase):
         self.assertEqual(self.scores([offer()])["sourcing"], 3)
         self.assertEqual(self.scores([offer(), offer(connector_id="c2")])["sourcing"], 2)
         self.assertEqual(self.scores([offer(stock=0)])["sourcing"], 5)
+        self.assertEqual(self.scores([offer(pool="acct"), offer(connector_id="c2", pool="acct")])["sourcing"], 3, "two storefronts of one account are one holder")
 
     def test_inventory_follows_cover(self) -> None:
         for need, score in ((100, 1), (500, 2), (900, 3), (2000, 4)):

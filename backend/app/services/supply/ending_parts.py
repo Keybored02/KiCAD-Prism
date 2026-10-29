@@ -24,7 +24,7 @@ from typing import Any, Mapping, Sequence
 from app.services.supply import catalog_read, component_parts, facts, outlook, parts_view, usage
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES, Lifecycle
 
 LEVELS = ("not_for_new_designs", "retired")
 LEVEL_LABEL = {"not_for_new_designs": "Not for new designs", "retired": "Retired"}
@@ -42,7 +42,7 @@ def reasons_of(item: Mapping[str, Any], band: str | None) -> list[dict[str, str]
     """Why a part is ending, each with its source: the lifecycle distributors state, every distributor dropping it, the outlook."""
 
     found = []
-    if item["lifecycle"] in _ENDING:
+    if item["lifecycle"] in ENDING_LIFECYCLES:
         found.append({"kind": item["lifecycle"], "text": _ENDING[item["lifecycle"]], "source": "Distributors"})
     if item["dropped"]:
         found.append({"kind": "dropped", "text": "Every distributor dropped it", "source": "Distributors"})

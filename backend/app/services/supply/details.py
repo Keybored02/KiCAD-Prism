@@ -58,7 +58,7 @@ def due(
             SELECT DISTINCT ON (l.part_id) l.id, l.sku, l.part_id, l.raw_manufacturer, 2 AS tier
             FROM supply_listings l
             JOIN supply_offers o ON o.listing_id = l.id
-            WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+            WHERE l.connector_id = %(connector)s AND supply_counted(l.match_state)
               AND NOT EXISTS (SELECT 1 FROM supply_part_tiers pt WHERE pt.part_id = l.part_id)
               AND NOT EXISTS (
                   SELECT 1 FROM supply_detail_checks d JOIN supply_listings l2 ON l2.id = d.listing_id
@@ -84,7 +84,7 @@ def due(
             JOIN supply_connectors c ON c.id = l.connector_id
             LEFT JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
             LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id
-            WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+            WHERE l.connector_id = %(connector)s AND supply_counted(l.match_state)
               AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
               AND (%(kind)s <> 'substances' OR pt.tier = 1)
               AND (%(kind)s <> 'notices' OR NOT EXISTS (
@@ -327,7 +327,7 @@ def check_now(
         listings = conn.execute(
             """
             SELECT l.id, l.sku, l.part_id, l.connector_id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id
-            WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') ORDER BY l.connector_id, l.sku
+            WHERE l.part_id = %s AND supply_counted(l.match_state) ORDER BY l.connector_id, l.sku
             """,
             (part_id,),
         ).fetchall()

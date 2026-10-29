@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -96,6 +97,40 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(len(found["items"][0]["spark"]), 9)
         self.assertEqual(found["items"][0]["runs_out_days"], 2)
 
+    def test_the_list_sorts_by_a_column_in_the_database_and_a_part_with_no_figure_is_last_either_way(self) -> None:
+        for mpn, stock, price in (("B", 50, "0.10"), ("C", 900, "12.5"), ("D", 0, "0.0125")):
+            part_id = self.follow(mpn, [stock])
+            with self.store.connection() as conn:
+                conn.execute("UPDATE supply_offers SET price_breaks = %s::jsonb, currency = 'EUR' WHERE listing_id = %s", (f'[[1, {price}]]', f"l-{mpn}-c1"))
+        with self.store.connection() as conn:
+            self.watches.add_watch(conn, "Acme", "A", "seed@example.com")
+
+            def order(sort: str) -> list[str]:
+                return [item["mpn"] for item in self.parts_view.list_parts(conn, sort=sort)["items"]]
+
+            self.assertEqual(order("price:desc"), ["C", "B", "D", "A"], "by value, not text")
+            self.assertEqual(order("price:asc"), ["D", "B", "C", "A"])
+            self.assertEqual(order("stock:desc"), ["C", "B", "D", "A"])
+            self.assertEqual(order("stock:asc"), ["D", "B", "C", "A"])
+            self.assertEqual(order("part:asc"), ["A", "B", "C", "D"])
+            self.assertEqual(order("part:desc"), ["D", "C", "B", "A"])
+            self.assertEqual(self.parts_view.list_parts(conn, sort="stock:desc", limit=2, offset=2)["items"][0]["mpn"], "D", "paged in the same order")
+
+    def test_runout_puts_the_likeliest_to_be_out_in_four_weeks_first_then_the_fewest_days_to_zero(self) -> None:
+        kept = {
+            "none": {"days_to_zero": None, "forecast": {"available": False}},
+            "slow": {"days_to_zero": 90, "forecast": {"available": True, "p_out_4w": 0.1}},
+            "sure": {"days_to_zero": 20, "forecast": {"available": True, "p_out_4w": 0.9}},
+            "out": {"days_to_zero": 0, "forecast": {"available": True, "out_now": True, "p_out_4w": 0.0}},
+            "sooner": {"days_to_zero": 5, "forecast": {"available": True, "p_out_4w": 0.1}},
+        }
+        with self.store.connection() as conn:
+            for mpn, data in kept.items():
+                record, _ = self.watches.add_watch(conn, "Acme", mpn, "seed@example.com")
+                conn.execute("INSERT INTO supply_part_insights (part_id, computed_at, data) VALUES (%s, %s, %s::jsonb)", (record.part_id, NOW, json.dumps({"spark": [], **data})))
+            ordered = [item["mpn"] for item in self.parts_view.list_parts(conn, sort="runout")["items"]]
+        self.assertEqual([mpn.lower() for mpn in ordered], ["out", "sure", "sooner", "slow", "none"])
+
     def test_the_inbox_groups_open_alerts_by_kind_at_their_worst(self) -> None:
         first, second = self.follow("A-1", [10, 0]), self.follow("B-1", [10, 5])
         with self.store.connection() as conn:
@@ -132,9 +167,12 @@ class DashboardTests(unittest.TestCase):
         self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
         self.follow("STEADY-1", [500] * 9, holders=("c1", "c2"))
         self.follow("GONE-1", [0, 0, 0])
-        with unittest.mock.patch.object(self.parts_view, "MAX_CANDIDATES", 1), self.store.connection() as conn:
+        with self.store.connection() as conn:
             self.part_insights.renew(conn, NOW)
             result = self.dashboard.build(conn, NOW)
+            listed = self.parts_view.list_parts(conn, limit=1)
+            out = self.parts_view.list_parts(conn, limit=1, only="out_of_stock")
+        self.assertEqual((len(listed["items"]), listed["total"], out["total"]), (1, 3, 1), "the list pages and counts every part, as the Dashboard does")
         self.assertEqual(result["figures"]["watched"], 3)
         self.assertEqual(result["figures"]["out_of_stock"], 1)
         self.assertEqual(sum(item["count"] for item in result["statuses"]), 3)

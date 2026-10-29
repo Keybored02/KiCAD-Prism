@@ -11,21 +11,13 @@ import csv
 import io
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import bom_lookup, compliance, facts
+from app.services.supply import bom_lookup, compliance, facts, offer_rules
 
 HEADER = (
     "Manufacturer", "Part number", "Per board", "References", "RoHS", "REACH", "Declared substances on the Candidate List",
     "RoHS as stated", "REACH as stated", "Substances of very high concern as stated", "RoHS exemptions", "Gaps",
 )
 _RISKY_START = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _rohs(flags: Sequence[bool]) -> str:
-    if not flags:
-        return "unknown"
-    if all(flags):
-        return "compliant"
-    return "not compliant" if not any(flags) else "disputed"
 
 
 def _reach_text(standing: Mapping[str, Any]) -> str:
@@ -42,7 +34,7 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     if part_ids:
         for offer in conn.execute(
             "SELECT l.part_id, o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
-            "WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')",
+            "WHERE l.part_id = ANY(%s) AND supply_counted(l.match_state)",
             (part_ids,),
         ).fetchall():
             flags[offer["part_id"]].append((offer["rohs"], offer["reach_affected"]))
@@ -62,7 +54,7 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             gaps.append("Prism does not track this part, so nothing is known about it.")
             rohs, reach, on_list = "unknown", "unknown", []
         else:
-            rohs = _rohs([item[0] for item in flags[part_id] if item[0] is not None])
+            rohs = offer_rules.rohs_verdict([{"rohs": item[0]} for item in flags[part_id]]).replace("_", " ")
             on_list = listed.get(part_id, [])
             standing = compliance.standing([{"reach_affected": item[1]} for item in flags[part_id]], on_list)
             reach = _reach_text(standing)

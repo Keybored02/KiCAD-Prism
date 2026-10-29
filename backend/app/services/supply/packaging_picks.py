@@ -22,12 +22,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import admission, budget, params, parts, pricing
+from app.services.supply import admission, budget, counted, params, parts, pricing
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
 
-COUNTED = ("exact", "manual")
 PRICE_QUANTITIES = (1, 100, 1000)
 MAX_WAITING = 500
 
@@ -44,7 +43,7 @@ def _listings(conn, part_id: str, connector_id: str) -> list[dict[str, Any]]:
         FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
         WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state = ANY(%s) ORDER BY l.sku
         """,
-        (part_id, connector_id, list(COUNTED)),
+        (part_id, connector_id, list(counted.STATES)),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -147,7 +146,7 @@ def waiting(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
         WHERE l.match_state = ANY(%s) AND pk.part_id IS NULL
         GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name HAVING COUNT(*) > 1
         """,
-        (list(COUNTED),),
+        (list(counted.STATES),),
     ).fetchall()
     items = [
         {
@@ -164,7 +163,7 @@ def waiting(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
 def _check_listing(conn, part_id: str, connector_id: str, listing_id: str) -> dict[str, Any]:
     row = conn.execute(
         "SELECT id, packaging FROM supply_listings WHERE id = %s AND part_id = %s AND connector_id = %s AND match_state = ANY(%s)",
-        (listing_id, part_id, connector_id, list(COUNTED)),
+        (listing_id, part_id, connector_id, list(counted.STATES)),
     ).fetchone()
     if row is None:
         raise PickError("That listing is not one of this part's counted listings at this distributor.")
@@ -260,7 +259,7 @@ def several(conn, limit: int = MAX_WAITING) -> list[dict[str, Any]]:
         GROUP BY l.part_id, l.connector_id, p.mpn, m.name, c.display_name, c.provider, pk.listing_id, pl.sku, pk.picked_by, pk.note, pk.picked_at
         HAVING COUNT(*) > 1
         """,
-        (list(COUNTED),),
+        (list(counted.STATES),),
     ).fetchall()
     items = [
         {

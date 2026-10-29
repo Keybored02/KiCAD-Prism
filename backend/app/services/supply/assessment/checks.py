@@ -14,7 +14,8 @@ import statistics
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import stock
+from app.services.supply import stock as stock_rules
+from app.services.supply.offer_rules import lead_time_of, rohs_verdict  # functions here name their figure "stock"
 from app.services.supply.stock import as_of
 from app.services.supply.assessment import settings as ids
 from app.services.supply.assessment.settings import AssessmentSettings
@@ -75,14 +76,7 @@ def stock_of(offers: Sequence[Mapping[str, Any]]) -> int | None:
     """Units on hand across counted, non-marketplace offers, by pile at each distributor (``stock.aggregate``); None when none was read."""
 
     usable = [o for o in offers if not o["marketplace"]]
-    return stock.aggregate(usable, "any").total if usable else None
-
-
-def lead_time_of(offers: Sequence[Mapping[str, Any]]) -> int | None:
-    """The shortest lead time given by an offer that is not marketplace stock."""
-
-    times = [o["lead_time_days"] for o in offers if o["lead_time_days"] is not None and not o["marketplace"]]
-    return min(times) if times else None
+    return stock_rules.aggregate(usable, "any").total if usable else None
 
 
 # At least this many quotes, and one at more than this multiple or less than its inverse of the median, make an outlier.
@@ -169,16 +163,15 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     elif facts.need is not None and stock < facts.need:
         add(ids.INSUFFICIENT_STOCK, f"Distributors hold {stock:,} and the build needs {facts.need:,}.", "short")
     # Connectors on one account (shared credentials) are one holder: they list the same stock.
-    holders = {o.get("pool") or o["connector_id"] for o in offers if o["stock"] > 0 and not o["marketplace"]}
-    if len(holders) == 1 and (facts.distributors or 0) > 1:
+    if stock_rules.holders(offers) == 1 and (facts.distributors or 0) > 1:
         add(ids.SINGLE_SOURCE, "Only one distributor has this part in stock.", "single_source")
     lead = lead_time_of(offers)
     if lead is not None and lead > settings.lead_time_days:
         add(ids.LEAD_TIME_OVER_THRESHOLD, f"Lead time is {lead} days, over the {settings.lead_time_days} you accept.", "slow")
-    known = [o["rohs"] for o in offers if o.get("rohs") is not None]
-    if known and not any(known):
+    rohs = rohs_verdict(offers)
+    if rohs == "not_compliant":
         add(ids.ROHS_NONCOMPLIANT, "Distributors list this part as not RoHS compliant.", "rohs_false")
-    elif known and not all(known):
+    elif rohs == "disputed":
         add(ids.ROHS_DISPUTED, f"Distributors disagree on RoHS: {rohs_sides(offers)}.", "rohs_disputed")
     if facts.svhc_listed:
         add(ids.REACH_SVHC, f"A declared substance is on the REACH Candidate List: {', '.join(facts.svhc_listed)}.", "svhc_declared")

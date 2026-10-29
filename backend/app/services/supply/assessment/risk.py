@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.services.supply.assessment.checks import Facts, lead_time_of, stock_of
+from app.services.supply import stock as stock_rules
+from app.services.supply.assessment.checks import Facts, stock_of
+from app.services.supply.offer_rules import lead_time_of
 from app.services.supply.vocabulary import Lifecycle
 
 
@@ -47,10 +49,10 @@ def lifecycle(facts: Facts) -> SubScore:
 def sourcing(facts: Facts) -> SubScore:
     """How many distributors hold it. One is a single point of failure."""
 
-    holders = {o["connector_id"] for o in facts.offers if o["stock"] > 0 and not o["marketplace"]}
     if not facts.offers:
         return SubScore("sourcing", 1)
-    count = len(holders)
+    # Connectors on one account are one holder, as everywhere else.
+    count = stock_rules.holders(facts.offers)
     if count == 0:
         return SubScore("sourcing", 5, ("No distributor holds it.",))
     if count == 1:

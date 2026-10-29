@@ -13,10 +13,9 @@ from typing import Any
 
 import numpy as np
 
-from app.services.supply import forecast_stock, part_history
+from app.services.supply import counted, forecast_stock, part_history
 from app.services.supply.forecast_stock import Holder, OutageModel
 
-_COUNTED = ("exact", "manual")
 _CACHE_FOR = 600.0
 _pooled: tuple[float, date, tuple[dict[str, OutageModel | None], dict[str, float], dict[str, int]]] | None = None
 
@@ -34,7 +33,7 @@ def holders(conn, part_id: str, now: datetime, days: int = 90, *, borrow: bool =
             SELECT l.connector_id, MIN(o.lead_time_days) FILTER (WHERE o.lead_time_days > 0) AS lead
             FROM supply_listings l JOIN supply_offers o ON o.listing_id = l.id WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id
             """,
-            (part_id, list(_COUNTED)),
+            (part_id, list(counted.STATES)),
         ).fetchall()
     }
     rate = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
@@ -148,6 +147,6 @@ def listing_context(conn, part_id: str) -> dict[str, Any]:
 
     row = conn.execute(
         "SELECT COUNT(*) AS listings, COUNT(DISTINCT connector_id) AS connectors FROM supply_listings WHERE part_id = %s AND match_state = ANY(%s)",
-        (part_id, list(_COUNTED)),
+        (part_id, list(counted.STATES)),
     ).fetchone()
     return {"listings": int(row["listings"]), "connectors": int(row["connectors"])}

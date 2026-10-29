@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
+from app.services.supply import counted
 from app.services.supply.providers import registry
 
 
@@ -31,19 +32,6 @@ def pool_sql(connector: str = "c") -> str:
     """SQL for a row's stock pool: the account its connector is on (connectors on one set of credentials), else the connector."""
 
     return f"COALESCE(NULLIF({connector}.account_key, ''), {connector}.id)"
-
-
-def counted_listing_sql(listing: str = "l", connector: str = "c") -> str:
-    """SQL for "this listing counts toward stock": every listing, except where a pick limits what is read (the others are not read,
-    so their figures are old) and the part has a pick elsewhere. One place, so the queries that count stock agree."""
-
-    from app.services.supply import budget
-
-    limited = ", ".join(f"'{key}'" for key in budget.providers_limited_by_picks() if key.replace("_", "").isalnum())
-    return (
-        f"({connector}.provider <> ALL(ARRAY[{limited}]::text[]) OR NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk "
-        f"WHERE pk.part_id = {listing}.part_id AND pk.connector_id = {listing}.connector_id AND pk.listing_id <> {listing}.id))"
-    )
 
 
 def connector_stock(provider: str, rows: Iterable[Mapping[str, Any]]) -> int:
@@ -79,6 +67,20 @@ class PartStock:
     by_pool: dict[str, int] = field(default_factory=dict)
     # The oldest read the total rests on: of the counted rows that hold stock, or of every counted row when none does.
     as_of: datetime | None = None
+
+    @property
+    def holders(self) -> int:
+        """How many hold stock: pools with stock (connectors on one account are one holder)."""
+
+        return sum(1 for amount in self.by_pool.values() if amount > 0)
+
+
+def holders(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> int:
+    """How many hold stock of a part, from its counted offer rows (``connector_id``, ``stock``, ``marketplace``, and ``pool`` and
+    ``packaging`` where known): stock pools with stock, as ``aggregate`` counts them. The one rule for "held by one distributor"."""
+
+    return len({row.get("pool") or row["connector_id"] for row in rows
+                if int(row["stock"] or 0) > 0 and not row["marketplace"] and counts(row.get("packaging"), policy)})
 
 
 def aggregate(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> PartStock:
@@ -137,8 +139,8 @@ def part_stock(conn, part_id: str) -> PartStock:
         FROM supply_listings l
         JOIN supply_offers o ON o.listing_id = l.id
         JOIN supply_connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND c.enabled AND {counted}
-        """.replace("{counted}", counted_listing_sql()).replace("{pool}", pool_sql()),
+        WHERE l.part_id = %s AND {counted}
+        """.replace("{counted}", counted.listing_sql()).replace("{pool}", pool_sql()),
         (part_id,),
     ).fetchall()
     watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()

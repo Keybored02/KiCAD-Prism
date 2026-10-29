@@ -24,7 +24,7 @@ def create_supply_tables(conn) -> None:
     for area in _AREAS:
         for statement in area.TABLES:
             conn.execute(statement, prepare=False)
-    for area in (work, derived):
+    for area in (parts, work, derived):
         for statement in (*area.FUNCTIONS, *area.TRIGGERS):
             conn.execute(statement, prepare=False)
     seed(conn)

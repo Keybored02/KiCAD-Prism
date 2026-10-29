@@ -5,6 +5,8 @@ read requests), and a person's per-part choices (packaging picks, preferred dist
 
 from __future__ import annotations
 
+from app.services.supply import counted
+
 TABLES: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS supply_manufacturers (
@@ -226,3 +228,6 @@ TABLES: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_supply_read_request_work_part ON supply_read_request_work (part_id);
     """,
 )
+
+FUNCTIONS: tuple[str, ...] = (counted.FUNCTION,)
+TRIGGERS: tuple[str, ...] = ()

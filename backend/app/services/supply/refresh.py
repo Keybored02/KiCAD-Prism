@@ -59,7 +59,7 @@ def read_now(
         connector_ids = [
             row["connector_id"]
             for row in conn.execute(
-                "SELECT DISTINCT connector_id FROM supply_listings WHERE part_id = %s AND match_state IN ('exact', 'manual') "
+                "SELECT DISTINCT connector_id FROM supply_listings WHERE part_id = %s AND supply_counted(match_state) "
                 "ORDER BY connector_id",
                 (part_id,),
             ).fetchall()

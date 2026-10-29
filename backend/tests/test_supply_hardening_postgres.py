@@ -282,6 +282,26 @@ class HardeningTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertEqual(self.retention.compact_samples(conn, START), 0, "nothing left to do")
 
+    def test_what_counts_is_one_rule_for_the_list_and_the_part_sheet(self) -> None:
+        from app.services.supply import counted, parts_view, stock
+
+        with self.store.connection() as conn:
+            known = {state: conn.execute("SELECT supply_counted(%s) AS c", (state,)).fetchone()["c"]
+                     for state in ("exact", "manual", "near", "gone", "rejected", "manufacturer_unresolved")}
+        self.assertEqual({state for state, yes in known.items() if yes}, set(counted.STATES), "the database's copy of the counted states")
+        part = self.watch().part_id
+        on, off = self.connector(), self.connector("csv")
+        for connector_id, held in ((on, 40), (off, 500)):
+            listing = self.add_listing(part, connector_id, f"SKU-{held}")
+            with self.store.connection() as conn:
+                conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, currency) VALUES (%s, %s, %s, 'EUR')", (listing, START, held))
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_connectors SET enabled = FALSE WHERE id = %s", (off,))
+            listed = parts_view.summaries_for(conn, [part])[0]["stock"]
+            sheet = parts_view.part_detail(conn, part, now=START)["stock"]["total"]
+            alone = stock.part_stock(conn, part).total
+        self.assertEqual((listed, sheet, alone), (40, 40, 40), "a disabled connector's stock counts nowhere")
+
     def test_a_connector_can_keep_raw_samples_for_fewer_days(self) -> None:
         short = self.connector("fake", storefront="")
         self.connectors.update(short, actor="a@example.com", retention_days=10)

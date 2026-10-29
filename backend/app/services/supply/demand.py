@@ -45,7 +45,7 @@ def connector_rest(conn, connector_id: str, now: datetime, until: datetime) -> i
         JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
         LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND %s
         LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+        WHERE l.connector_id = %s AND supply_counted(l.match_state)
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
         """,

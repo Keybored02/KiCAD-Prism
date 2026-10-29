@@ -64,7 +64,9 @@ class PileTests(unittest.TestCase):
             stock_pooling="separate", credential_fields=(), factory=lambda config: None, default_daily_budget=100,
         ), replace=True)
         try:
-            sql = stock.counted_listing_sql()
+            from app.services.supply import counted
+
+            sql = counted.read_sql()
         finally:
             registry.unregister("pick_demo")
         self.assertIn("'pick_demo'", sql)

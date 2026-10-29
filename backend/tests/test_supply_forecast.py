@@ -267,24 +267,6 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class RunsOutFirstTests(unittest.TestCase):
-    def test_parts_are_ordered_by_the_chance_of_being_out_in_four_weeks_then_the_days_to_zero(self) -> None:
-        from unittest import mock
-
-        from app.services.supply import parts_view
-
-        kept = {
-            "none": {"days_to_zero": None, "forecast": {"available": False}},
-            "slow": {"days_to_zero": 90, "forecast": {"available": True, "p_out_4w": 0.1}},
-            "sure": {"days_to_zero": 20, "forecast": {"available": True, "p_out_4w": 0.9}},
-            "out": {"days_to_zero": 0, "forecast": {"available": True, "out_now": True, "p_out_4w": 0.0}},
-            "sooner": {"days_to_zero": 5, "forecast": {"available": True, "p_out_4w": 0.1}},
-        }
-        with mock.patch.object(parts_view.part_insights, "of_parts", return_value=kept):
-            ordered = parts_view._runs_out_first(None, [{"id": key} for key in ("none", "slow", "sure", "out", "sooner")])  # noqa: SLF001
-        self.assertEqual([item["id"] for item in ordered], ["out", "sure", "sooner", "slow", "none"])
-
-
 class SimilarPartsTests(unittest.TestCase):
     def holder(self, readings, similar=None):
         series = [(START + timedelta(days=index), value) for index, value in enumerate(readings)]

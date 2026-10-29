@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.services.supply import forecast_load, forecast_price, forecast_stock, forecasting, insights, part_history
+from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 CHECK_DAYS = 200
 _FAMILY = ("runout", "back_in", "can_buy_4w", "can_buy_8w", "price_30", "price_90")
@@ -124,7 +125,7 @@ class _Truth:
         self.ended = [
             row["at"].astimezone(timezone.utc).date() for row in conn.execute(
                 "SELECT at FROM supply_events WHERE part_id = %s AND kind = 'lifecycle_changed' AND payload->>'to' = ANY(%s)",
-                (part_id, ["nrnd", "last_time_buy", "obsolete"]),
+                (part_id, list(ENDING_LIFECYCLES)),
             ).fetchall()
         ]
 

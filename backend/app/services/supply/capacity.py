@@ -34,7 +34,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
             FROM supply_listings l
             JOIN supply_part_tiers w ON w.part_id = l.part_id
             LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-            WHERE l.match_state IN ('exact', 'manual')
+            WHERE supply_counted(l.match_state)
         ) listed GROUP BY connector_id, tier
         """,
         (_UNPOLLED_TIER,),
@@ -68,7 +68,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
             FROM supply_listings l JOIN supply_part_tiers w ON w.part_id = l.part_id
             JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
             JOIN supply_offers o ON o.listing_id = l.id
-            WHERE l.match_state IN ('exact', 'manual') AND NOT o.marketplace AND o.currency <> '' AND o.price_breaks <> '[]'::jsonb
+            WHERE supply_counted(l.match_state) AND NOT o.marketplace AND o.currency <> '' AND o.price_breaks <> '[]'::jsonb
             GROUP BY l.connector_id
             """
         ).fetchall()

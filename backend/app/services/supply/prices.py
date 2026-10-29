@@ -13,19 +13,34 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import pricing
+from app.services.supply import counted, pricing
 from app.services.supply.history import days_sql
 
 WINDOW_DAYS = 30
 CHART_DAYS = 90
 MIN_SPAN_DAYS = 7
 MAX_AGE_DAYS = 3
-_COUNTED = ("exact", "manual")
 
 DayPrice = tuple[date, Decimal, str]  # day, cheapest unit price, currency
 
 
-REFERENCE_QUANTITY = 100
+REFERENCE_QUANTITY = pricing.REFERENCE_QUANTITY
+
+
+def on_day(kept: Sequence[dict[str, Any]], day: date, quantity: int, read: dict[str, Any]) -> tuple[Decimal | None, str, int, bool]:
+    """A listing's unit price on a day at ``quantity``, in the currency it was quoted in: from the price breaks in force that day
+    (``kept``, from ``price_breaks.load``), else the day's reading at 100 pieces (``read``: ``price``, ``currency``, ``moq``). Also its
+    smallest order and whether the price is that estimate (a reading at 100 used for another quantity). The one rule for pricing a
+    listing on a day, so the price series, the part's chart and the last price seen agree."""
+
+    from app.services.supply import price_breaks
+
+    held = price_breaks.in_force(kept, day)
+    if held is not None:
+        price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity, up_to=held.get("up_to"))
+        return price, held["currency"], held["moq"], False
+    price = Decimal(read["price"]) if read["price"] is not None else None
+    return price, read["currency"], read["moq"] or 1, quantity != REFERENCE_QUANTITY
 
 
 def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> list[DayPrice]:
@@ -143,14 +158,9 @@ def _points_of(conn, part_ids: Sequence[str], now: datetime, days: int) -> dict[
         points: list[tuple[str, date, Decimal, bool, str]] = []
         estimated: list[date] = []
         for row in rows_of[part_id]:
-            held = price_breaks.in_force(kept.get(row["listing_id"], []), row["day"])
-            if held is not None:
-                price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity, up_to=held.get("up_to"))
-                currency, moq = held["currency"], held["moq"]
-            else:
-                price, currency, moq = row["price"], row["currency"], row["moq"]
-                if quantity != REFERENCE_QUANTITY:
-                    estimated.append(row["day"])
+            price, currency, moq, guessed = on_day(kept.get(row["listing_id"], []), row["day"], quantity, row)
+            if guessed:
+                estimated.append(row["day"])
             converted = rates.convert(price, currency, base) if price is not None else None
             if converted is not None and converted > 0:
                 points.append((row["listing_id"], row["day"], converted, moq <= quantity, currency))
@@ -167,28 +177,34 @@ def _daily_rows(conn, part_ids: Sequence[str], now: datetime, days: int) -> list
         FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND match_state = ANY(%(states)s)", "%(since)s")} d
         JOIN supply_listings l ON l.id = d.listing_id
         WHERE NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
-          AND NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
+          AND {counted.priced_sql()}
         """,
-        {"parts": list(part_ids), "states": list(_COUNTED), "since": (now - timedelta(days=days)).date()},
+        {"parts": list(part_ids), "states": list(counted.STATES), "since": (now - timedelta(days=days)).date()},
     ).fetchall()
 
 
-def last_in_stock(conn, part_id: str, base: str, rates) -> tuple[Decimal, date] | None:
-    """The cheapest price at 100 on the most recent day any counted listing had stock, in the base currency, and that day."""
+def last_in_stock(conn, part_id: str, base: str, rates, quantity: int = REFERENCE_QUANTITY) -> tuple[Decimal, date] | None:
+    """The cheapest price at ``quantity`` (``on_day``) on the most recent day any counted listing had stock, in the base currency,
+    and that day."""
+
+    from app.services.supply import price_breaks
 
     rows = conn.execute(
         f"""
-        SELECT d.day, d.currency, d.unit_price AS price
+        SELECT d.listing_id, d.day, d.currency, d.unit_price AS price, d.moq
         FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND match_state = ANY(%(states)s)")} d
         WHERE d.stock > 0 AND NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
         ORDER BY d.day DESC LIMIT 20
         """,
-        {"part": part_id, "states": list(_COUNTED)},
+        {"part": part_id, "states": list(counted.STATES)},
     ).fetchall()
     if not rows:
         return None
     day = rows[0]["day"]
-    converted = [rates.convert(Decimal(row["price"]), row["currency"], base) for row in rows if row["day"] == day]
+    rows = [row for row in rows if row["day"] == day]
+    kept = price_breaks.load(conn, [row["listing_id"] for row in rows])
+    quoted = [on_day(kept.get(row["listing_id"], []), day, quantity, row) for row in rows]
+    converted = [rates.convert(price, currency, base) for price, currency, _moq, _guessed in quoted if price is not None]
     known = [price for price in converted if price is not None and price > 0]
     return (min(known), day) if known else None
 

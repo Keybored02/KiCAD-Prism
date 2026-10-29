@@ -96,7 +96,7 @@ async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(requi
             part = parts.get_part(conn, part_id)
             offers = conn.execute(
                 "SELECT o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
-                "WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual')",
+                "WHERE l.part_id = %s AND supply_counted(l.match_state)",
                 (part.id,),
             ).fetchall()
             substances = compliance.declared(conn, part.id)

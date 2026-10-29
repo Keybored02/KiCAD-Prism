@@ -100,7 +100,7 @@ def _inputs(conn) -> dict[str, Any]:
     listed: dict[tuple[str, str], int] = {
         (row["part_id"], row["connector_id"]): int(row["n"])
         for row in conn.execute(
-            "SELECT part_id, connector_id, COUNT(*) AS n FROM supply_listings WHERE match_state IN ('exact', 'manual') "
+            "SELECT part_id, connector_id, COUNT(*) AS n FROM supply_listings WHERE supply_counted(match_state) "
             "GROUP BY part_id, connector_id"
         ).fetchall()
     }
@@ -137,7 +137,7 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
     conn.execute("SELECT pg_advisory_xact_lock(hashtext('supply-admission'))")
     # A pick on a listing that is no longer counted (gone, rejected) is dropped: the part is read at all its listings again.
     conn.execute(
-        "DELETE FROM supply_packaging_picks pk USING supply_listings l WHERE l.id = pk.listing_id AND l.match_state NOT IN ('exact', 'manual')"
+        "DELETE FROM supply_packaging_picks pk USING supply_listings l WHERE l.id = pk.listing_id AND NOT supply_counted(l.match_state)"
     )
     accounts, connectors = _accounts(conn)
     data = _inputs(conn)

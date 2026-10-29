@@ -165,7 +165,7 @@ def needs_choice(conn, part_ids: set[str] | None = None) -> list[dict[str, Any]]
     rows = conn.execute(
         """
         SELECT p.id, p.mpn, p.match_key, p.ask_maker, m.name AS maker, m.provisional FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id
-        WHERE m.provisional OR NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND l.match_state IN ('exact', 'manual'))
+        WHERE m.provisional OR NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND supply_counted(l.match_state))
         ORDER BY lower(p.mpn)
         """
     ).fetchall()
@@ -189,7 +189,7 @@ def _number_questions(conn, canon) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT p.id, p.mpn, p.match_key, m.name AS maker FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id
-        WHERE NOT m.provisional AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND l.match_state IN ('exact', 'manual'))
+        WHERE NOT m.provisional AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND supply_counted(l.match_state))
           AND EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND l.match_state = 'near')
         ORDER BY lower(p.mpn)
         """

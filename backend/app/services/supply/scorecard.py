@@ -16,6 +16,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any, Sequence
 
+from app.services.supply import counted
 from app.services.supply.history import days_sql
 
 MIN_EVENTS = 5
@@ -23,7 +24,6 @@ WINDOW_DAYS = 365
 STOCK_DAYS = 90
 ROUND_DAYS = 21
 ON_TIME_DAYS = 7
-_COUNTED = ("exact", "manual")
 
 
 def _median(values: Sequence[int]) -> int | None:
@@ -42,7 +42,7 @@ def _shared(conn) -> dict[str, dict[str, str]]:
     """Parts two or more distributors list: part id to {listing id: connector id}."""
 
     found: dict[str, dict[str, str]] = defaultdict(dict)
-    for row in conn.execute(_SHARED_LISTINGS, {"counted": list(_COUNTED)}).fetchall():
+    for row in conn.execute(_SHARED_LISTINGS, {"counted": list(counted.STATES)}).fetchall():
         found[row["part_id"]][row["listing_id"]] = row["connector_id"]
     return found
 
@@ -89,7 +89,7 @@ def _stock_share(conn, today: date) -> dict[str, tuple[int, int]]:
         WHERE NOT d.marketplace
         GROUP BY l.connector_id
         """,
-        {"counted": list(_COUNTED), "since": today - timedelta(days=STOCK_DAYS)},
+        {"counted": list(counted.STATES), "since": today - timedelta(days=STOCK_DAYS)},
     ).fetchall()
     return {row["connector_id"]: (int(row["held"]), int(row["seen"])) for row in rows}
 
@@ -179,7 +179,7 @@ def for_part(conn, part_id: str, today: date) -> list[dict[str, Any]]:
 
     listings = {row["id"]: row for row in conn.execute(
         "SELECT l.id, l.connector_id, c.display_name, c.provider FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
-        "WHERE l.part_id = %s AND l.match_state = ANY(%s)", (part_id, list(_COUNTED))).fetchall()}
+        "WHERE l.part_id = %s AND l.match_state = ANY(%s)", (part_id, list(counted.STATES))).fetchall()}
     if not listings:
         return []
     ids = list(listings)

@@ -115,7 +115,7 @@ def due_listings(
                    COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
                    COALESCE((SELECT pt.tier FROM supply_part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
             FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id LEFT JOIN supply_offers o ON o.listing_id = l.id
-            WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
+            WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND supply_counted(l.match_state)
               AND (%s::timestamptz IS NULL OR o.fetched_at IS NULL OR o.fetched_at < %s)
             ORDER BY l.part_id, l.sku LIMIT %s
             """,
@@ -136,7 +136,7 @@ def due_listings(
         JOIN supply_connectors c ON c.id = l.connector_id
         LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%s)
         LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+        WHERE l.connector_id = %s AND supply_counted(l.match_state)
           AND (NOT %s OR a.state = 'admitted')
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
@@ -187,7 +187,7 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
         JOIN supply_connectors c ON c.id = l.connector_id
         LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
         LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+        WHERE l.connector_id = %(connector)s AND supply_counted(l.match_state)
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id) AND {where}
         ORDER BY {order}
         LIMIT %(limit)s
@@ -280,7 +280,7 @@ def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[Du
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
                COALESCE((SELECT pt.tier FROM supply_part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
         FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual') AND NOT (l.id = ANY(%s))
+        WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND supply_counted(l.match_state) AND NOT (l.id = ANY(%s))
         ORDER BY l.sku
         """,
         (connector_id, part_ids, sorted(have)),
@@ -620,7 +620,7 @@ class Poller:
                 UPDATE supply_discovery_runs d SET found = 0 FROM supply_listings l
                 WHERE l.id = %s AND d.part_id = l.part_id AND d.connector_id = l.connector_id
                   AND NOT EXISTS (SELECT 1 FROM supply_listings o WHERE o.part_id = l.part_id AND o.connector_id = l.connector_id
-                                  AND o.id <> l.id AND o.match_state IN ('exact', 'manual'))
+                                  AND o.id <> l.id AND supply_counted(o.match_state))
                 """,
                 (row.id,),
             )

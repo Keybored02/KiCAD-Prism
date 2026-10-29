@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import insights, price_behaviour, prices, promises
+from app.services.supply import insights, offer_rules, price_behaviour, prices, promises
 
 SPARK_DAYS = 30
 PRICE_MOVE_PERCENT = 5
@@ -70,8 +70,7 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     watch = conn.execute("SELECT threshold FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     insight = parts_view.insight_from(days, watch["threshold"] if watch else None, now)
     offers = parts_view.offers_by_part(conn, [part_id]).get(part_id, [])
-    leads = [offer["lead_time_days"] for offer in offers if offer.get("lead_time_days")]
-    lead = min(leads) if leads else None
+    lead = offer_rules.lead_time_of(offers)
     price = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
     last = days[-1] if days else None
     band = _outlook_band(conn, part_id, offers, days, (price["trend"] or {}).get("change_percent"))
