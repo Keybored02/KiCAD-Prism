@@ -35,7 +35,7 @@ root first.
 | `maker_seeds.py` | The built-in spellings of large makers as rows (`maker_seeds`) an administrator edits; `makers.refresh` reads them. |
 | `maker_backfill.py` | Migration 56: sorts the listings that waited under the old rules again. |
 | `packaging_auto.py` | Picks the packaging of a tracked part by what its projects buy for (prototypes: smallest order, production: a reel). Never changes a person's pick. |
-| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states (a number the part is sold under and the same maker count; another maker's listing is `near`). Also `pin_listing`, `reject_listing`, `counted_listings`. |
+| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states (a number the part is sold under and the same maker count; another maker's listing is `near`). Also `pin_listing`, `reject_listing`. |
 | `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
 | `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
@@ -120,7 +120,7 @@ root first.
 | `backend/app/api/supply_release.py` | Release check and release snapshot endpoints (readers; projects follow the caller's role). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), what counts as fitted, and the `Prism ID` field. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `assessment/line_checks.py` | Findings about how a BOM line names its part: `manufacturer_missing` (found by number alone) and `not_in_library` (no catalog component has the pair). |
-| `health.py` | Per connector: calls against budget, last error, how many reads are late and the oldest read. Administrators only, at `/api/supply/health`. |
+| `connector_health.py` | Per connector: calls against budget, last error, how many reads are late and the oldest read. Administrators only, at `/api/supply/health`. |
 | `fx.py` | Exchange rates: the ECB daily file (fetched by the poll job, at most once in 20 hours) or rates an administrator enters; conversion goes through the euro and an unknown rate means no conversion. Used to compare offers and total a BOM in the base currency (a Supply setting, default EUR). |
 | `spreadsheet.py` | The first sheet of an Excel file (.xlsx, .xlsm) as rows of text, with size and unpacked-size limits. Used for uploaded BOMs (`POST /api/supply/bom/sheet`, stores nothing) and the ECHA candidate list. |
 | `compliance.py` | REACH: the ECHA Candidate List (loaded by an administrator from a CSV or Excel export), substances a supplier declared for a part as CAS numbers (checked digit by digit), and a part's REACH standing (affected, clear, unknown; silence is never clear). A distributor's REACH flag is read with the offer. Substances a distributor names (Mouser's `REACH-SVHC`) become declarations marked `distributor:<provider>`, kept apart from people's. |

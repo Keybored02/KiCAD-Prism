@@ -24,20 +24,9 @@ from app.services.supply.providers.base import (  # noqa: E402
     ProviderSpec,
 )
 from app.services.supply.providers.fake import FakeProvider  # noqa: E402
-from app.services.supply.vocabulary import Lifecycle, Packaging, Status, worst_status  # noqa: E402
+from app.services.supply.vocabulary import Lifecycle, Packaging  # noqa: E402
 
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
-
-
-class VocabularyTests(unittest.TestCase):
-    def test_worst_status_orders_by_severity(self) -> None:
-        self.assertEqual(worst_status([Status.OK, Status.WARNING]), Status.WARNING)
-        self.assertEqual(worst_status([Status.ERROR, Status.FATAL, Status.OK]), Status.FATAL)
-
-    def test_unknown_only_wins_when_nothing_else_is_present(self) -> None:
-        self.assertEqual(worst_status([]), Status.UNKNOWN)
-        self.assertEqual(worst_status([Status.UNKNOWN, Status.UNKNOWN]), Status.UNKNOWN)
-        self.assertEqual(worst_status([Status.UNKNOWN, Status.OK]), Status.OK)
 
 
 class ModelTests(unittest.TestCase):

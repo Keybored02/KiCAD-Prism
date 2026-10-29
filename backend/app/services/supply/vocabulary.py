@@ -8,7 +8,6 @@ provider text.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Iterable
 
 
 class Status(StrEnum):
@@ -58,24 +57,3 @@ class Packaging(StrEnum):
     # One listing sold as several packagings together (Mouser's usual case).
     SEVERAL = "several"
     UNKNOWN = "unknown"
-
-
-# Severity order, worst first. UNKNOWN is the absence of a finding, so it only
-# wins when nothing else is present.
-_STATUS_SEVERITY = {
-    Status.FATAL: 4,
-    Status.ERROR: 3,
-    Status.WARNING: 2,
-    Status.OK: 1,
-    Status.UNKNOWN: 0,
-}
-
-
-def worst_status(statuses: Iterable[Status]) -> Status:
-    """Return the most severe status, or ``UNKNOWN`` for an empty input."""
-
-    worst = Status.UNKNOWN
-    for status in statuses:
-        if _STATUS_SEVERITY[status] > _STATUS_SEVERITY[worst]:
-            worst = status
-    return worst
