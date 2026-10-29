@@ -1,16 +1,18 @@
 """What a person wants to hear about a tracked part: which alerts to mute, how big a price rise matters, and a target price.
 
-Rules are kept apart from the watch so a part tracked for another reason (a project) can carry them too.
+Rules are kept apart from the watch so a part tracked for another reason (a project) can carry them too. A muted kind is a standing
+``mute`` decision (``attention.py``); the figures are the part's row in ``supply_alert_rules``.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import parts
+from app.services.supply import attention, parts
 from app.services.supply.audit import actor_text, write_audit
 
 # Kinds a person may switch off. A lost part, a change notice and an obsolete part are facts and stay on.
@@ -43,18 +45,19 @@ class Rules:
 NONE = Rules()
 
 
-def _row_rules(row: Mapping[str, Any]) -> Rules:
-    return Rules(frozenset(row["muted"]), row["price_rise_percent"], row["target_price"], row["target_currency"], row["likely_out_percent"])
-
-
 def for_parts(conn, part_ids: Iterable[str]) -> dict[str, Rules]:
     ids = sorted(set(part_ids))
     if not ids:
         return {}
-    rows = conn.execute(
-        "SELECT part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent FROM supply_alert_rules WHERE part_id = ANY(%s)", (ids,)
-    ).fetchall()
-    return {row["part_id"]: _row_rules(row) for row in rows}
+    muted = {part_id: frozenset(item["kind"] for item in rows) for part_id, rows in attention.standing(conn, attention.PART, ids, attention.MUTE).items()}
+    found = {
+        row["part_id"]: Rules(muted.get(row["part_id"], frozenset()), row["price_rise_percent"], row["target_price"], row["target_currency"],
+                              row["likely_out_percent"])
+        for row in conn.execute(
+            "SELECT part_id, price_rise_percent, target_price, target_currency, likely_out_percent FROM supply_alert_rules WHERE part_id = ANY(%s)", (ids,)
+        ).fetchall()
+    }
+    return found | {part_id: Rules(kinds) for part_id, kinds in muted.items() if part_id not in found}
 
 
 def get(conn, part_id: str) -> Rules:
@@ -95,18 +98,23 @@ def save(conn, part_id: str, payload: Mapping[str, Any], actor: str) -> Rules:
     actor = actor_text(actor)
     parts.get_part(conn, part_id)
     rules = check(payload)
-    if rules == NONE:
+    before = get(conn, part_id).muted
+    for kind in before - rules.muted:
+        attention.withdraw(conn, attention.PART, part_id, kind, attention.MUTE)
+    for kind in rules.muted - before:
+        attention.stand(conn, attention.PART, part_id, kind, attention.MUTE, actor)
+    if dataclasses.replace(rules, muted=frozenset()) == NONE:
         conn.execute("DELETE FROM supply_alert_rules WHERE part_id = %s", (part_id,))
     else:
         conn.execute(
             """
-            INSERT INTO supply_alert_rules (part_id, muted, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (part_id) DO UPDATE SET muted = EXCLUDED.muted, price_rise_percent = EXCLUDED.price_rise_percent,
+            INSERT INTO supply_alert_rules (part_id, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (part_id) DO UPDATE SET price_rise_percent = EXCLUDED.price_rise_percent,
                 target_price = EXCLUDED.target_price, target_currency = EXCLUDED.target_currency,
                 likely_out_percent = EXCLUDED.likely_out_percent, updated_by = EXCLUDED.updated_by, updated_at = NOW()
             """,
-            (part_id, sorted(rules.muted), rules.price_rise_percent, rules.target_price, rules.target_currency, rules.likely_out_percent, actor),
+            (part_id, rules.price_rise_percent, rules.target_price, rules.target_currency, rules.likely_out_percent, actor),
         )
     write_audit(conn, actor, "alert_rules.save", part_id, rules.to_dto(), subject_kind="part")
     alerts.evaluate_parts(conn, [part_id], datetime.now(timezone.utc))

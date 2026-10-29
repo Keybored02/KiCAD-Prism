@@ -122,7 +122,7 @@ class PollingTests(unittest.TestCase):
         listing = self.add_listing(watch.part_id, cid, "SR-1")
         offer = Offer(provider="fake", sku="SR-1", mpn="ABC123", manufacturer="Acme", stock=40, fetched_at=self.clock.now)
         self.poller().record_search_offers(cid, [(listing, offer)])
-        (alert,) = self.rows("SELECT kind, seen_count FROM supply_alerts WHERE part_id = %s", watch.part_id)
+        (alert,) = self.rows("SELECT kind, seen_count FROM supply_attention WHERE part_id = %s", watch.part_id)
         self.assertEqual((alert["kind"], alert["seen_count"]), ("below_threshold", 1), "the first look is counted; the alert opens after the second")
 
     def test_watching_creates_the_part_and_is_idempotent(self) -> None:
