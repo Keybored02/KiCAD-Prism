@@ -252,23 +252,6 @@ class TrackingTests(unittest.TestCase):
             self.watches.update_watch(conn, record.id, ACTOR, tier=2, rate="weekly")
             self.assertEqual(conn.execute("SELECT next_poll_at FROM supply_poll_state WHERE listing_id = 'l1'").fetchone()["next_poll_at"], row["next_poll_at"])
 
-    def test_the_repair_pulls_a_weekly_part_planned_a_month_out_back_to_a_week_after_its_last_read(self) -> None:
-        from datetime import timedelta
-
-        from app.services.supply import schema_migrations
-
-        with self.store.connection() as conn:
-            conn.execute("INSERT INTO supply_connectors (id, provider, display_name) VALUES ('c1', 'fake', 'Sim')")
-            record, _ = self.watches.add_watch(conn, "Acme", "R-1", ACTOR, tier=2, rate="weekly")
-            conn.execute("INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'S1', %s, 'R-1', 'Acme', 'exact')", (record.part_id,))
-            conn.execute(
-                "INSERT INTO supply_poll_state (listing_id, tier, urgency, next_poll_at, last_polled_at, error_streak, missing_streak, last_error_code) "
-                "VALUES ('l1', 'monthly', 0, %s, %s, 0, 0, '')", (NOW + timedelta(days=25), NOW - timedelta(days=5)),
-            )
-            schema_migrations._m082_reschedule_raised_weekly_parts(conn)
-            row = conn.execute("SELECT tier, next_poll_at, last_polled_at FROM supply_poll_state WHERE listing_id = 'l1'").fetchone()
-            self.assertEqual((row["tier"], row["next_poll_at"]), ("weekly", row["last_polled_at"] + timedelta(days=7)))
-
     def test_recompute_writes_nothing_when_nothing_changed(self) -> None:
         self.project("p1", [component("R1", "Acme", "R-1")])
         self.track("p1")
@@ -284,27 +267,6 @@ class TrackingTests(unittest.TestCase):
             self.assertEqual(self.tracking.sync_projects(conn), {"parts_created": 1})
             self.assertEqual(self.tracking.sync_projects(conn), {"parts_created": 0})
         self.assertEqual(self.tier("Acme", "R-2")["tier"], 1)
-
-    def test_the_migration_puts_existing_watches_in_tier_two_and_turns_a_packaging_policy_into_a_pick(self) -> None:
-        from app.services.supply import schema_migrations
-
-        with self.store.connection() as conn:
-            connector = "mig-c"
-            conn.execute("INSERT INTO supply_connectors (id, provider, display_name) VALUES (%s, 'fake', 'Sim')", (connector,))
-            watch, _ = self.watches.add_watch(conn, "Acme", "OLD-1", ACTOR, packaging="tape_reel")
-            for sku, packaging in (("B-CT", "cut_tape"), ("A-REEL", "tape_reel"), ("C-REEL", "tape_reel")):
-                conn.execute(
-                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
-                    "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact', %s)", (sku, connector, sku, watch.part_id, packaging))
-            # Back to how the data looked before tiers: a watch with a packaging policy and nothing derived from it.
-            conn.execute("DELETE FROM supply_part_tiers")
-            conn.execute("DELETE FROM supply_packaging_picks")
-            conn.execute("UPDATE supply_watches SET origin = 'legacy'")
-            schema_migrations._m035_tracking(conn)
-            tier = self.tracking.tier_of(conn, watch.part_id)
-            picks = conn.execute("SELECT listing_id, picked_by FROM supply_packaging_picks").fetchall()
-        self.assertEqual((tier["tier"], tier["rate"], [r["kind"] for r in tier["reasons"]]), (2, "weekly", ["legacy"]))
-        self.assertEqual([(r["listing_id"], r["picked_by"]) for r in picks], [("A-REEL", "migration")], "the first listing of that packaging, by SKU")
 
     def test_a_part_without_a_manufacturer_is_tracked_and_its_maker_settled_later(self) -> None:
         self.project("p1", [component("R1", "", "R-1"), component("R2", "Acme", "R-2")])

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import Iterator
 
 from app.services.postgres_database import database
-from app.services.supply import schema_migrations
+from app.services.supply.schema import create_supply_tables
 
 CATALOG_SCHEMA = "catalog"
 
@@ -43,7 +43,7 @@ class SupplyStore:
                     conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
                     conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
                     conn.execute(f'SET search_path TO "{self.schema}", public')
-                    schema_migrations.create_supply_tables(conn)
+                    create_supply_tables(conn)
                     conn.commit()
             self._initialized = True
 

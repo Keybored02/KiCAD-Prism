@@ -498,11 +498,12 @@ def _retire_system_entries(conn: Any) -> None:
     )
     conn.execute("DROP INDEX IF EXISTS idx_components_identity_ipn")
 
+
 def _supply_tables(conn: Any) -> None:
     """The supply module's tables (stock, prices and their history from distributors), all prefixed ``supply_``."""
-    from app.services.supply.schema_migrations import create_supply_tables
+    from app.services.supply.schema import create_supply_tables
 
-    # The supply steps take a plain psycopg connection (they pass ``prepare=``); the ledger may hand the catalog's wrapper.
+    # The supply schema takes a plain psycopg connection (it passes ``prepare=``); the ledger may hand the catalog's wrapper.
     create_supply_tables(getattr(conn, "_connection", conn))
 
 
@@ -527,58 +528,6 @@ def _component_parts(conn: Any) -> None:
     )
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_component_parts_main ON component_parts (component_id) WHERE role = 'main'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_component_parts_part ON component_parts (part_id)")
-
-
-def _supply_ending_dismissals(conn: Any) -> None:
-    """Supply step 95 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
-    from app.services.supply.migration_steps.steps_c import _m095_ending_dismissals
-
-    _m095_ending_dismissals(getattr(conn, "_connection", conn))
-
-
-def _supply_project_rollups(conn: Any) -> None:
-    """Supply step 96 again, after the catalog's own tables exist (step 17 runs before them), so a rollup follows component parts,
-    inventory levels and components too."""
-    from app.services.supply.migration_steps.steps_c import _m096_project_rollups
-
-    _m096_project_rollups(getattr(conn, "_connection", conn))
-
-
-def _supply_restart_out_everywhere(conn: Any) -> None:
-    """Supply step 97 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
-    from app.services.supply.migration_steps.steps_c import _m097_restart_out_everywhere
-
-    _m097_restart_out_everywhere(getattr(conn, "_connection", conn))
-
-
-def _supply_price_up_to(conn: Any) -> None:
-    """Supply step 98 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
-    from app.services.supply.migration_steps.steps_c import _m098_price_up_to
-
-    _m098_price_up_to(getattr(conn, "_connection", conn))
-
-
-def _inventory_ignored(conn: Any) -> None:
-    """Unmatched local stock a person set aside (consumables, tools, anything that will never be a library component). Kept apart
-    from ``inventory_unmatched``, which every read replaces, so the choice holds across reads until someone restores it."""
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS inventory_ignored (
-            source_id TEXT NOT NULL REFERENCES inventory_sources(id) ON DELETE CASCADE,
-            remote_part TEXT NOT NULL,
-            ignored_by TEXT NOT NULL,
-            ignored_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            PRIMARY KEY (source_id, remote_part)
-        )
-        """
-    )
-
-
-def _supply_work_items(conn: Any) -> None:
-    """Supply step 99 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
-    from app.services.supply.migration_steps.steps_c import _m099_work_items
-
-    _m099_work_items(getattr(conn, "_connection", conn))
 
 
 def _inventory_sources(conn: Any) -> None:
@@ -648,6 +597,26 @@ def _inventory_sources(conn: Any) -> None:
         )
         """
     )
+    # Unmatched local stock a person set aside (consumables, tools): kept apart from ``inventory_unmatched``, which every
+    # read replaces, so the choice holds across reads until someone restores it.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_ignored (
+            source_id TEXT NOT NULL REFERENCES inventory_sources(id) ON DELETE CASCADE,
+            remote_part TEXT NOT NULL,
+            ignored_by TEXT NOT NULL,
+            ignored_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (source_id, remote_part)
+        )
+        """
+    )
+
+
+def _supply_catalog_triggers(conn: Any) -> None:
+    """The supply rollups' change marks on the catalog tables they read, which exist only from the steps before."""
+    from app.services.supply.schema import create_catalog_triggers
+
+    create_catalog_triggers(getattr(conn, "_connection", conn))
 
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
@@ -671,12 +640,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (17, "supply_tables", _supply_tables),
     (18, "component_parts", _component_parts),
     (19, "inventory_sources", _inventory_sources),
-    (20, "supply_ending_dismissals", _supply_ending_dismissals),
-    (21, "supply_project_rollups", _supply_project_rollups),
-    (22, "supply_restart_out_everywhere", _supply_restart_out_everywhere),
-    (23, "supply_price_up_to", _supply_price_up_to),
-    (24, "inventory_ignored", _inventory_ignored),
-    (25, "supply_work_items", _supply_work_items),
+    (20, "supply_catalog_triggers", _supply_catalog_triggers),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
