@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import accounts, alerts, compliance, facts, ledger, notice_budget, oauth, pcn, quota, trouble, usage
+from app.services.supply import accounts, alerts, compliance, ledger, notice_budget, oauth, pcn, quota, trouble, usage
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 
@@ -384,8 +384,7 @@ def _substances(service, connector, now, provider, limit) -> DetailsSummary:
         read += 1
         with service.store.connection() as conn:
             if found.stated:
-                facts.set_one(conn, row["part_id"], connector["provider"], "reach_svhc", "; ".join(found.entries) or "None listed", now)
-                changed += compliance.sync_distributor(conn, row["part_id"], connector["provider"], found.entries)
+                changed += compliance.record_distributor(conn, row["part_id"], connector["provider"], found.entries, now)
             _record(conn, row["id"], "substances", now, "stated" if found.stated else "not stated", failed=False)
             alerts.evaluate_parts(conn, [row["part_id"]], now)
     return DetailsSummary(read, changed)

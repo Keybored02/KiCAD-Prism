@@ -1,4 +1,4 @@
-"""Stored facts, the weekly details pass (DigiKey notices, Mouser substances), the DigiKey sign-in and its routes.
+"""Stored facts, the weekly details pass (DigiKey notices; Mouser substances, now read with offers), the DigiKey sign-in and its routes.
 
 Needs ``PRISM_DATABASE_URL``. Providers and DigiKey's token endpoint are stand-ins; nothing reaches the network.
 """
@@ -348,22 +348,12 @@ class DetailsTests(unittest.TestCase):
     # --- Mouser substances --------------------------------------------------
 
     def test_substances_mouser_names_become_its_declarations_and_follow_its_list(self) -> None:
-        from app.services.supply import compliance, details
-        from app.services.supply.models import Substances
+        from app.services.supply import compliance
 
         with self.store.connection() as conn:
             compliance.load_list(conn, LIST_CSV, "candidate.csv", ADMIN)
             compliance.declare(conn, self.part_a, "84-74-2", "supplier letter", ADMIN)
-        answers = [Substances(entries=("Lead (CAS 7439-92-1)", "Dibutyl phthalate (DBP)"), stated=True), Substances(entries=(), stated=True)]
-        seen = []
-
-        class Provider:
-            def substances(self, sku, manufacturer):
-                seen.append((sku, manufacturer))
-                return answers.pop(0)
-
-        details.run(self.connectors, self.mouser, now=NOW, provider=Provider())
-        self.assertEqual(seen, [("595-LM358DR", "Texas Instruments")])
+            compliance.record_distributor(conn, self.part_a, "mouser", ("Lead (CAS 7439-92-1)", "Dibutyl phthalate (DBP)"), NOW)
         declared = self.rows("SELECT cas, declared_by FROM supply_part_substances ORDER BY cas")
         self.assertEqual(declared, [{"cas": "7439-92-1", "declared_by": "distributor:mouser"}, {"cas": "84-74-2", "declared_by": ADMIN}],
                          "a person's declaration of the same substance is kept as theirs")
@@ -372,10 +362,14 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual((by_cas["7439-92-1"]["declared_by"], by_cas["7439-92-1"]["from_distributor"]), ("Mouser", True))
         self.assertEqual(by_cas["7439-92-1"]["listed_as"], "Lead")
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_detail_checks SET checked_at = %s", (NOW - timedelta(days=31),))
-        details.run(self.connectors, self.mouser, now=NOW, provider=Provider())
+            compliance.record_distributor(conn, self.part_a, "mouser", (), NOW)
         self.assertEqual(self.rows("SELECT cas FROM supply_part_substances"), [{"cas": "84-74-2"}], "what Mouser no longer lists goes")
         self.assertEqual(self.rows("SELECT value FROM supply_part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])
+
+    def test_mouser_has_no_weekly_substances_read(self) -> None:
+        from app.services.supply import details
+
+        self.assertEqual(details.run(self.connectors, self.mouser, now=NOW), details.DetailsSummary())
 
     # --- sign-in ------------------------------------------------------------
 

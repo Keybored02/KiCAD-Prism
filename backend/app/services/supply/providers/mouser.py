@@ -20,11 +20,11 @@ Compliance and trade. ``ROHSStatus`` and the ``ProductCompliance`` list (``USHTS
 ``ECCN`` and other codes, seen live) are kept as facts with each offer (``facts.py``); ``SuggestedReplacement``
 too. No extra call.
 
-Substances. Only version 2 of the API (``api.mouser.com/api/docs/V2``) has ``REACH-SVHC``, a list of strings, on
-each part. ``POST /api/v2/search/partnumberandmanufacturer`` takes the Mouser number and requires
-``manufacturerName`` in Mouser's own spelling (checked live: without it the answer is an error "Required:
-Manufacturer Name"), so it cannot batch parts of different makers and is not used for polling. It is read once a
-week per listing (``substances``), with the spelling discovery recorded. Its answers have not been recorded yet.
+Substances. ``REACH-SVHC``, a list of strings, is on each part in the version 1 description, so it is read with
+the offer and costs no call (``Offer.substances``); a part without it states nothing. Version 2's
+``search/partnumberandmanufacturer``, read once a week per listing before, is not used: it needs the manufacturer in
+Mouser's own spelling and refuses the one version 1 returns for some makers ("Panasonic Industry"), and in live calls on
+30 Oct 2026 neither version listed the field for any of five listings.
 
 Mouser's published limits (30 calls a minute, 1,000 a day) are not in the
 description; the default daily budget follows them, and calls from one adapter
@@ -37,14 +37,13 @@ from datetime import date, datetime
 from typing import Any, Mapping, Sequence
 
 from app.services.supply.identity import keep_family, match_key
-from app.services.supply.models import Alternate, Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
+from app.services.supply.models import Alternate, Incoming, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_BATCH,
     CAP_INCOMING,
     CAP_LIFECYCLE,
     CAP_OFFERS,
     CAP_SEARCH,
-    CAP_SUBSTANCES,
     AuthError,
     CredentialField,
     ProviderConfig,
@@ -59,7 +58,6 @@ from app.services.supply.vocabulary import Lifecycle, Packaging
 
 KEY = "mouser"
 SEARCH_URL = "https://api.mouser.com/api/v1/search/partnumber"
-SEARCH_V2_URL = "https://api.mouser.com/api/v2/search/partnumberandmanufacturer"
 ALLOWED_HOSTS = ("api.mouser.com",)
 MAX_BATCH = 10
 # Mouser's 30 calls a minute (published, and confirmed). Each gap is drawn at random from 0.75 to 1.5 times this (see pacing.py), so the average
@@ -142,25 +140,6 @@ class MouserProvider(HttpProvider):
                 if offer is not None:
                     offers.append(offer)
         return offers
-
-    def substances(self, sku: str, manufacturer: str) -> Substances:
-        """What Mouser's version 2 answer says about substances of very high concern for one Mouser number."""
-
-        if not manufacturer.strip():
-            return Substances()
-        answer = self._post(SEARCH_V2_URL, {"SearchByPartMfrNameRequest": {
-            "mouserPartNumber": sku, "manufacturerName": manufacturer.strip(), "partSearchOptions": "Exact",
-        }})
-        if not isinstance(answer, dict):
-            raise ProviderError("Mouser answered with something other than an object")
-        _raise_for_errors(answer.get("Errors") or [])
-        parts = [p for p in (answer.get("SearchResults") or {}).get("Parts") or [] if isinstance(p, dict)]
-        part = next((p for p in parts if str(p.get("MouserPartNumber") or "").upper() == sku.upper()), None)
-        if part is None or "REACH-SVHC" not in part:
-            return Substances()
-        raw = part.get("REACH-SVHC")
-        entries = tuple(" ".join(str(item).split())[:300] for item in (raw if isinstance(raw, list) else []) if str(item).strip())
-        return Substances(entries=entries, stated=isinstance(raw, list), facts=_trade_facts(part.get("TradeCompliance")))
 
     def get_part_data(self, match: PartMatch) -> PartData:
         part = next((item for item in self._search([match.sku]) if item.get("MouserPartNumber") == match.sku), None)
@@ -325,6 +304,13 @@ def _facts(part: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     return tuple((name, value) for name, value in pairs if value)
 
 
+def _substances(part: Mapping[str, Any]) -> tuple[str, ...] | None:
+    raw = part.get("REACH-SVHC")
+    if not isinstance(raw, list):
+        return None
+    return tuple(" ".join(str(item).split())[:300] for item in raw if str(item).strip())
+
+
 def _alternates(part: Mapping[str, Any]) -> tuple[Alternate, ...]:
     """Mouser's suggested replacement. It is given as a Mouser number, so it stays one (Mouser's own listing resolves it)."""
 
@@ -369,6 +355,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
         product_url=str(part.get("ProductDetailUrl") or ""),
         datasheet_url=str(part.get("DataSheetUrl") or ""),
         facts=_facts(part),
+        substances=_substances(part),
         alternates=_alternates(part),
     )
 
@@ -378,7 +365,7 @@ SPEC = ProviderSpec(
     hosts=ALLOWED_HOSTS,
     limits_storage=True,
     label="Mouser",
-    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING, CAP_SUBSTANCES}),
+    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING}),
     max_batch=MAX_BATCH,
     search_batch=MAX_BATCH,
     stock_pooling="separate",

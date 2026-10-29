@@ -30,11 +30,11 @@ class CostTests(unittest.TestCase):
         return budget.cost(registry.get_spec(provider), tier, rate, listings)
 
     def test_tier_one_costs_match_the_plan_table(self) -> None:
-        for provider, expected in (("digikey", 1.033), ("farnell", 0.25), ("mouser", 0.14), ("tme", 0.045)):
+        for provider, expected in (("digikey", 1.033), ("farnell", 0.25), ("mouser", 0.103), ("tme", 0.045)):
             self.assertAlmostEqual(self.cost(provider, 1, "daily", AVERAGE_LISTINGS[provider]), expected, delta=0.005, msg=provider)
 
     def test_a_packaging_pick_cuts_the_cost_of_a_provider_that_reads_each_listing(self) -> None:
-        for provider, expected in (("digikey", 1.033), ("farnell", 0.13), ("mouser", 0.14), ("tme", 0.04)):
+        for provider, expected in (("digikey", 1.033), ("farnell", 0.13), ("mouser", 0.103), ("tme", 0.04)):
             self.assertAlmostEqual(self.cost(provider, 1, "daily", 1), expected, delta=0.005, msg=provider)
 
     def test_tier_two_weekly_costs_after_a_pick_match_the_plan_table(self) -> None:
@@ -45,7 +45,7 @@ class CostTests(unittest.TestCase):
         held = {provider: int(900 / self.cost(provider, 1, "daily", 1)) for provider in ("digikey", "farnell", "mouser", "tme")}
         self.assertAlmostEqual(held["digikey"], 870, delta=10)
         self.assertAlmostEqual(held["farnell"], 6800, delta=100)
-        self.assertAlmostEqual(held["mouser"], 6600, delta=100)
+        self.assertAlmostEqual(held["mouser"], 8700, delta=100, msg="substances come with the offer: no call of their own")
 
     def test_a_part_the_provider_does_not_carry_costs_only_its_search(self) -> None:
         self.assertAlmostEqual(self.cost("digikey", 1, "daily", 0), 1 / 14, places=4, msg="searched again every two weeks")
