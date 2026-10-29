@@ -305,6 +305,7 @@ class Poller:
         self._store = store
         self._provider_for = provider_for or connectors.load_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self.now = self._clock
         # The rupture projection of a part, worked out once per poll: its listings are recorded one after another.
         self._rupture: dict[str, int | None] = {}
         # The provider's day for the connector being polled, which sets when a daily listing is next due.
