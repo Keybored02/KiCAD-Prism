@@ -49508,7 +49508,7 @@
     },
     "/api/v1/supply/tracking/projects/{project_id}/read": {
       "post": {
-        "description": "Read the project's BOM now; when its newest revision has no index yet, queue one (``reading``) and read it later.",
+        "description": "Read the project's BOM now, as a job's progress: ``running`` while its newest revision has no index yet (one is\nqueued and read later), else ``done`` with ``changed`` when the parts differ.",
         "operationId": "read_project_bom",
         "parameters": [
           {
@@ -49526,9 +49526,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
+                  "additionalProperties": true,
                   "title": "Response Read Project Bom",
                   "type": "object"
                 }

@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { ReleaseCheck, ReleaseSnapshot } from "@/types/supply";
+import type { JobProgress, ReleaseCheck, ReleaseSnapshot } from "@/types/supply";
 
 // Apart from supply-api so Release Studio does not pull in the whole supply client.
 
@@ -14,7 +14,7 @@ export function getReleaseCheck(projectId: string, buildId: string, signal?: Abo
   );
 }
 
-export type ReleaseSnapshotState = { state: "taken" | "queued" | "failed" | "none"; reason: string };
+export type ReleaseSnapshotState = JobProgress;
 
 /** Whether a published release has its supply snapshot, is waiting for it, or could not have one. */
 export function getReleaseSnapshotState(projectId: string, buildId: string, signal?: AbortSignal): Promise<ReleaseSnapshotState> {

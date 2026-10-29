@@ -9,7 +9,7 @@ import { PACKAGINGS } from "./watch-packaging";
 /** Watching a component: its own part, counted in the packaging chosen. */
 export function ComponentWatch({ componentId, canEdit, onChanged }: { componentId: string; canEdit: boolean; onChanged: () => void }) {
   const fetcher = useCallback((signal: AbortSignal) => getComponentWatch(componentId, signal), [componentId]);
-  const loaded = useLoaded<SupplyComponentWatch | null>(`${componentId}:watch`, fetcher, "Could not load the component watch");
+  const loaded = useLoaded<SupplyComponentWatch | null>(`components/${componentId}/watch`, fetcher, "Could not load the component watch");
   const [packaging, setPackaging] = useState<WatchPackaging | null>(null);
   const [error, setError] = useState("");
   if (loaded.status !== "ready") return null;

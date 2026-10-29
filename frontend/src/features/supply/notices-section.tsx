@@ -30,7 +30,7 @@ interface NoticesSectionProps {
  */
 export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => listPartNotices(part.id, signal), [part.id]);
-  const loaded = useLoaded<SupplyNotice[]>(`${part.id}:notices`, fetcher, "Could not load the notices");
+  const loaded = useLoaded<SupplyNotice[]>(`parts/${part.id}/notices`, fetcher, "Could not load the notices");
   const { busy, error, run } = useConnectorSubmit();
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<SupplyNoticeKind>("end_of_life");

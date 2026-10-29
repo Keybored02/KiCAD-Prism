@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { MoreHorizontal, Plus, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import type { InventorySource } from "@/types/supply";
 import { deleteInventorySource, listInventorySources, syncInventorySource, updateInventorySource } from "./inventory-api";
 import { formatDateTime } from "./supply-format";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 import { InventoryCategoryDialog, InventorySourceDialog } from "./inventory-source-dialogs";
 
 type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; source: InventorySource };
@@ -23,27 +24,25 @@ export function sourceState(source: InventorySource): { label: string; tone: "de
   return { label: "Reading", tone: "default" };
 }
 
+const load = () => invalidateSupply("inventory");
+
+async function toggle(source: InventorySource) {
+  try {
+    await updateInventorySource(source.id, { enabled: !source.enabled });
+  } catch (caught) {
+    toast.error(caught instanceof Error ? caught.message : "Could not save the source");
+  }
+}
+
 /** Library Manager > Connectors, local inventory: InvenTree-compatible servers whose stock fills the catalog. */
 export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
-  const [sources, setSources] = useState<InventorySource[] | null>(null);
-  const [failed, setFailed] = useState("");
+  const fetcher = useCallback((signal: AbortSignal) => listInventorySources(signal), []);
+  const loaded = useLoaded("inventory/sources", fetcher, "Could not load inventory sources");
+  const sources = loaded.data;
+  const failed = loaded.status === "error" ? loaded.error : "";
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setSources(await listInventorySources());
-      setFailed("");
-    } catch (caught) {
-      setFailed(caught instanceof Error ? caught.message : "Could not load inventory sources");
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const put = (source: InventorySource) => setSources((current) => {
-    const rest = (current ?? []).filter((item) => item.id !== source.id);
-    return [...rest, source].sort((a, b) => a.display_name.localeCompare(b.display_name));
-  });
 
   const readNow = async (source: InventorySource) => {
     setBusy(source.id);
@@ -60,18 +59,11 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
-  const toggle = async (source: InventorySource) => {
-    try {
-      put(await updateInventorySource(source.id, { enabled: !source.enabled }));
-    } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Could not save the source");
-    }
-  };
 
   const remove = async (source: InventorySource) => {
     try {
       await deleteInventorySource(source.id);
-      setSources((current) => (current ?? []).filter((item) => item.id !== source.id));
+      void load();
       setDialog(null);
       toast.success("Source deleted");
     } catch (caught) {
@@ -109,14 +101,14 @@ export function InventorySourcesSection({ isAdmin }: { isAdmin: boolean }) {
           open
           source={dialog.kind === "edit" ? dialog.source : null}
           onClose={() => setDialog(null)}
-          onSaved={(source) => { put(source); toast.success("Source saved"); if (dialog.kind === "create") setDialog({ kind: "category", source }); }}
+          onSaved={(source) => { void load(); toast.success("Source saved"); if (dialog.kind === "create") setDialog({ kind: "category", source }); }}
         />
       ) : null}
       <InventoryCategoryDialog
         key={dialog?.kind === "category" ? dialog.source.id : "none"}
         source={dialog?.kind === "category" ? dialog.source : null}
         onClose={() => setDialog(null)}
-        onSaved={(source) => { put(source); toast.success(`Following category ${source.category_id}`); }}
+        onSaved={(source) => { void load(); toast.success(`Following category ${source.category_id}`); }}
       />
       <ConfirmDialog
         open={dialog?.kind === "delete"}

@@ -26,7 +26,8 @@ const parts = [part("MAIN-1", { role: "main", approval: "approved" }), part("ALT
 describe("a component's parts", () => {
   it("lets a designer propose but not decide", async () => {
     getComponentParts.mockResolvedValue({ component_id: "c", parts });
-    proposeAlternate.mockResolvedValue({ component_id: "c", parts: [...parts, part("ALT-2")] });
+    // A write is followed by a fresh read of the parts.
+    proposeAlternate.mockImplementation(async () => { getComponentParts.mockResolvedValue({ component_id: "c", parts: [...parts, part("ALT-2")] }); });
     render(<ComponentPartsSection componentId="c" canPropose canDecide={false} />);
     expect(await screen.findByText("Main")).toBeTruthy();
     expect(screen.getByText("Waiting for QA")).toBeTruthy();
@@ -39,7 +40,7 @@ describe("a component's parts", () => {
 
   it("lets QA approve an alternate, and never the main part", async () => {
     getComponentParts.mockResolvedValue({ component_id: "c", parts });
-    decideAlternate.mockResolvedValue({ component_id: "c", parts: [parts[0], part("ALT-1", { approval: "approved" })] });
+    decideAlternate.mockImplementation(async () => { getComponentParts.mockResolvedValue({ component_id: "c", parts: [parts[0], part("ALT-1", { approval: "approved" })] }); });
     render(<ComponentPartsSection componentId="c" canPropose={false} canDecide />);
     fireEvent.click(await screen.findByRole("button", { name: "Approve ALT-1" }));
     await waitFor(() => expect(decideAlternate).toHaveBeenCalledWith("c", "ALT-1", true));

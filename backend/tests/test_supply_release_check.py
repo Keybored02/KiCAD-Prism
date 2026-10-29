@@ -633,15 +633,15 @@ class ReleaseCheckTests(unittest.TestCase):
                 mock.patch("app.services.supply.release_snapshot.catalog_read.component_ids_by_part", return_value={}):
             queue = mock.Mock()
             self.assertTrue(release_snapshot.queue("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com", job_service=queue))
-            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "queued")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "running")
             self.assertEqual(queue.enqueue.call_args.kwargs["artifact_key"], "supply-snapshot:bld_9")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken")
-            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "taken")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "done")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken", "asking twice is harmless")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_1")):
             response = self.request("prj_1/releases/bld_9/supply")
             status = self.request("prj_1/releases/bld_9/supply-status")
-        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "taken"))
+        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "done"))
 
     def test_a_build_without_a_bom_records_why_there_is_no_snapshot(self) -> None:
         from app.services.supply import release_snapshot, release_source
@@ -649,8 +649,8 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.services.supply.release_snapshot.supply_store", self.store), \
                 mock.patch("app.services.supply.release_snapshot.release_source.build_bom_text", side_effect=release_source.NoBuildBom("This build exported no BOM file.")):
             self.assertEqual(release_snapshot.take("prj_1", "bld_x", "vx", "c" * 40, "qa@example.com"), "failed")
-            self.assertEqual(self.status_of("prj_1", "bld_x"), {"state": "failed", "reason": "This build exported no BOM file."})
-        self.assertEqual(self.status_of("prj_1", "never"), {"state": "none", "reason": ""})
+            self.assertEqual(self.status_of("prj_1", "bld_x"), {"state": "failed", "done": 0, "total": 1, "failed": 1, "reason": "This build exported no BOM file."})
+        self.assertEqual(self.status_of("prj_1", "never"), {"state": "none", "done": 0, "total": 0, "failed": 0, "reason": ""})
 
     def test_queueing_never_raises_and_says_when_it_could_not(self) -> None:
         from app.services.supply import release_snapshot

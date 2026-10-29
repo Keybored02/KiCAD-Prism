@@ -1,18 +1,16 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import type { AssessmentSettings } from "@/types/supply";
-import { listSupplyConnectors } from "./supply-api";
-import { useLoaded } from "./use-loaded";
 import { VendorName } from "./vendor-name";
+import { useConnectorList } from "./use-supply-connectors";
 
 /** The distributors in the order a BOM is priced at them first, and whether to price that way at all. */
 export function PreferredDistributors({ draft, onChange }: { draft: AssessmentSettings; onChange: (next: AssessmentSettings) => void }) {
-  const fetcher = useCallback((signal: AbortSignal) => listSupplyConnectors(signal), []);
-  const { data } = useLoaded("preferred-distributors", fetcher, "Could not load the distributors");
+  const { data } = useConnectorList();
   const order = draft.distributor_order;
   const connectors = useMemo(() => {
     const kept = order ?? [];

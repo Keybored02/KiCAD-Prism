@@ -40,7 +40,7 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
 
 /** Supply > Tracking: the parts Prism follows, by tier, what waits for room or a packaging, and the BOM-file check. Browsing every
  * part is the catalog's job. The URL holds the scope, search and open part. */
-export function PartsView({ user, headerSlot, active = true }: { user: User | null; headerSlot?: HTMLElement | null; active?: boolean }) {
+export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");
   const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "followed";
@@ -50,7 +50,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const vendor = searchParams.get("partsVendor") ?? "";
   const sort = sortFromParam(searchParams.get("partsSort"));
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
-  const openPart = active ? searchParams.get("part") : null;
+  const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
   const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
