@@ -98,11 +98,12 @@ clock on a part's sheet shows its tier and why, and lets you change it.
 
 **Supply → Dashboard** shows what needs a person, top to bottom:
 
-- A red line when an inventory source or a distributor can't be read. Until it
-  reads again, the figures behind it may be old.
-- **Library components' parts are ending**: the components whose part is not
-  recommended for new designs, at last time buy, obsolete, dropped by every
-  distributor, or expected to end within two years. See step 6.
+- **Inbox**: up to eight lines, worst first, each opening where it is acted
+  on: a distributor or the stores feed that can't be read (until it reads
+  again the figures behind it may be old), components whose part is ending,
+  the nearest last-buy deadline in the next month, projects short of their
+  usual build or with unchecked lines, open alerts by kind, parts likely out
+  in four weeks, and, for QA and administrators, what waits for approval.
 - The tiles: **Tracked**, **At risk**, **Out of stock**, **End of life**,
   **Open alerts**, **Queued for calls**. Each opens the list of exactly those
   parts.
@@ -112,8 +113,11 @@ clock on a part's sheet shows its tier and why, and lets you change it.
 - **Projected stock**: parts by how soon they run out at the recent rate.
 - **Tracked projects**: each project's parts at risk, how many boards the
   stock covers and its cost per board.
-- **Alerts**, then **Recent changes** (new BOM revisions, parts added and
-  removed).
+- **Library components' parts are ending** (folded): the components whose
+  part is not recommended for new designs, at last time buy, obsolete, dropped
+  by every distributor, or expected to end within two years. See step 6.
+- **Alerts** (folded), then **Recent changes** (new BOM revisions, parts added
+  and removed).
 
 ## 5. Look into a part
 
