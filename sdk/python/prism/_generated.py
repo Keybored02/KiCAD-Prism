@@ -7126,12 +7126,13 @@ class GeneratedClient:
             query={"all_users": all_users},
         )
 
-    def list_unmatched_parts(self, source_id: str) -> list[UnmatchedPart]:
+    def list_unmatched_parts(self, source_id: str, *, q: str = '', limit: int | None = None, offset: int = 0) -> list[UnmatchedPart]:
         """List Unmatched Parts"""
         return self._request(
             "GET",
             "/api/v1/supply/inventory-sources/{source_id}/unmatched",
             path_params={"source_id": source_id},
+            query={"q": q, "limit": limit, "offset": offset},
         )
 
     def list_vendor_profiles(self, project_id: str) -> VendorProfileList:

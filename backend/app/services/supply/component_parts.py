@@ -111,9 +111,12 @@ def alternates_for(conn, leads: Mapping[str, Iterable[str]]) -> dict[str, list[s
     counted = counted_parts(conn, {component for components in named.values() for component in components})
     found: dict[str, list[str]] = {}
     for part_id, components in named.items():
-        others = [other for component in sorted(components) for other in counted.get(component, []) if other != part_id]
+        # Lines naming different components can land on one part (bought once for all of them): only an alternate every one of
+        # those components approved may stand in, so one component's approval never widens to another.
+        lists = [[other for other in counted.get(component, []) if other != part_id] for component in sorted(components)]
+        others = [other for other in dict.fromkeys(lists[0]) if all(other in rest for rest in lists[1:])] if lists else []
         if others:
-            found[part_id] = list(dict.fromkeys(others))
+            found[part_id] = others
     return found
 
 
@@ -143,6 +146,15 @@ def _set_main(conn, component_id: str, part_id: str | None) -> bool:
         return False
     if current:
         conn.execute("DELETE FROM component_parts WHERE component_id = %s AND role = 'main'", (component_id,))
+        # Alternates were approved against the old main part: QA looks at them again against the new one.
+        reopened = conn.execute(
+            "UPDATE component_parts SET approval = 'pending', decided_by = '', decided_at = NULL "
+            "WHERE component_id = %s AND role = 'alternate' AND approval = 'approved' AND part_id IS DISTINCT FROM %s",
+            (component_id, part_id),
+        ).rowcount
+        if reopened:
+            write_audit(conn, SYSTEM, "component.alternates_reopened", component_id,
+                        {"from": current["part_id"], "to": part_id, "alternates": int(reopened)}, subject_kind="component")
     if part_id is None:
         return current is not None
     # A part that was an alternate becomes the main part: the revision now names it.
@@ -320,7 +332,7 @@ def components_holding(conn, part_ids: Iterable[str]) -> dict[str, list[dict[str
         return {}
     rows = conn.execute(
         """
-        SELECT cp.part_id, c.id, r.name, r.manufacturer, r.mpn, r.release_status
+        SELECT cp.part_id, cp.role, c.id, r.name, r.manufacturer, r.mpn, r.release_status
         FROM component_parts cp JOIN components c ON c.id = cp.component_id JOIN component_revisions r ON r.id = c.current_revision_id
         WHERE cp.part_id = ANY(%s) AND cp.approval = 'approved' AND c.is_active = 1
         ORDER BY cp.part_id, cp.role = 'main' DESC, lower(r.name)
@@ -331,5 +343,6 @@ def components_holding(conn, part_ids: Iterable[str]) -> dict[str, list[dict[str
     for row in rows:
         found.setdefault(row["part_id"], []).append({
             "id": row["id"], "name": row["name"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "workflow_stage": row["release_status"],
+            "role": row["role"],
         })
     return found

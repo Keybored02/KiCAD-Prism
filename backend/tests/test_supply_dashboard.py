@@ -84,6 +84,19 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(len(found["items"][0]["spark"]), 9)
         self.assertEqual(found["items"][0]["runs_out_days"], 2)
 
+    def test_the_inbox_groups_open_alerts_by_kind_at_their_worst(self) -> None:
+        first, second = self.follow("A-1", [10, 0]), self.follow("B-1", [10, 5])
+        with self.store.connection() as conn:
+            for part_id, kind, severity, state in ((first, "out_of_stock", "error", "open"), (second, "out_of_stock", "warning", "open"),
+                                                   (second, "price_up", "warning", "open"), (first, "price_up", "warning", "acknowledged")):
+                conn.execute(
+                    "INSERT INTO supply_alerts (part_id, kind, severity, state, first_seen_at, last_event_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (part_id, kind, severity, state, NOW, NOW),
+                )
+            found = self.dashboard.build(conn, NOW, role="qa")["inbox"]["items"]
+        alerts = [(item["alert_kind"], item["severity"], item["count"]) for item in found if item["kind"] == "alerts"]
+        self.assertEqual(alerts, [("out_of_stock", "error", 2), ("price_up", "warning", 1)], "acknowledged ones wait for nobody")
+
     def test_the_dashboard_counts_the_runway_the_holders_and_each_figure_once_a_day(self) -> None:
         self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
         self.follow("STEADY-1", [500] * 9, holders=("c1", "c2"))

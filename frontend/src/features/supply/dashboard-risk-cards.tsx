@@ -70,7 +70,7 @@ export function RiskGridCard({ grid, onOpen }: { grid: SupplyDashboard["risk_gri
   );
 }
 
-const KIND: Record<SupplyDashboard["deadlines"][number]["kind"], string> = {
+export const DEADLINE_KIND: Record<SupplyDashboard["deadlines"][number]["kind"], string> = {
   last_time_buy: "Last time buy", last_time_ship: "Last ship", last_buy_date: "Last date to buy",
 };
 const DAY = 86_400_000;
@@ -96,7 +96,7 @@ export function DeadlinesCard({ deadlines, onOpenPart }: { deadlines: SupplyDash
             return (
               <li key={`${item.part_id}:${item.kind}:${item.date}`} className="flex items-baseline gap-3 py-1.5">
                 <button type="button" className="font-medium hover:underline" onClick={() => onOpenPart(item.part_id)}>{item.mpn}</button>
-                <span className="flex-1 truncate text-xs text-muted-foreground">{KIND[item.kind]}</span>
+                <span className="flex-1 truncate text-xs text-muted-foreground">{DEADLINE_KIND[item.kind]}</span>
                 <span title={item.date} className={cn("text-xs tabular-nums", days <= 90 ? "font-medium text-destructive" : "text-muted-foreground")}>
                   {days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}
                 </span>
