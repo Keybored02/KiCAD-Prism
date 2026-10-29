@@ -2099,6 +2099,11 @@ class HostKeyTrustResponse(TypedDict, total=True):
     trusted: bool
 
 
+class IgnoreRequest(TypedDict, total=True):
+    ignore: bool
+    remote_parts: list[str]
+
+
 class ImportAccessHelp(TypedDict, total=True):
     """What to do about a repository Prism cannot read."""
     account_key_url: str | None
@@ -5168,6 +5173,14 @@ class GeneratedClient:
             query={"variant": variant, "build_quantity": build_quantity},
         )
 
+    def count_unmatched_parts(self, source_id: str) -> dict[str, int]:
+        """Count Unmatched Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched/counts",
+            path_params={"source_id": source_id},
+        )
+
     def create_anchored_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
         """Create a comment anchored by design identity"""
         return self._request(
@@ -6656,6 +6669,15 @@ class GeneratedClient:
             "/api/v1/workspace/bootstrap",
         )
 
+    def ignore_unmatched_parts(self, source_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+        """Ignore Unmatched Parts"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched/ignore",
+            path_params={"source_id": source_id},
+            body=body,
+        )
+
     def impedance_template(self, project_id: str) -> Any:
         """Download the controlled-impedance template"""
         return self._request(
@@ -7126,13 +7148,13 @@ class GeneratedClient:
             query={"all_users": all_users},
         )
 
-    def list_unmatched_parts(self, source_id: str, *, q: str = '', limit: int | None = None, offset: int = 0) -> list[UnmatchedPart]:
+    def list_unmatched_parts(self, source_id: str, *, q: str = '', limit: int | None = None, offset: int = 0, group: str = '') -> list[UnmatchedPart]:
         """List Unmatched Parts"""
         return self._request(
             "GET",
             "/api/v1/supply/inventory-sources/{source_id}/unmatched",
             path_params={"source_id": source_id},
-            query={"q": q, "limit": limit, "offset": offset},
+            query={"q": q, "limit": limit, "offset": offset, "group": group},
         )
 
     def list_vendor_profiles(self, project_id: str) -> VendorProfileList:
