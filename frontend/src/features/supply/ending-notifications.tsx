@@ -78,7 +78,11 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
           {item.component.name || item.component.mpn}
         </button>
         <p className="truncate text-xs text-muted-foreground" title={item.reasons.map((reason) => `${reason.text} (${reason.source})`).join("; ")}>
-          {[item.reasons.map((reason) => reason.text).join(" · "), lastBuy, used].filter(Boolean).join(" · ")}
+          {[
+            item.role === "alternate" ? "Alternate" : "",
+            item.healthy ? `${item.healthy} healthy ${item.healthy === 1 ? "part" : "parts"}` : "",
+            item.reasons.map((reason) => reason.text).join(" · "), lastBuy, used,
+          ].filter(Boolean).join(" · ")}
         </p>
       </div>
       <span className="inline-flex shrink-0 items-center gap-1.5 tabular-nums" title="Distributor stock">
@@ -87,7 +91,7 @@ function Row({ item, canDecide, onOpen, onChanged }: { item: EndingPart; canDeci
       {canDecide ? (
         <span className="inline-flex shrink-0 gap-1">
           <Button size="sm" variant="outline" onClick={() => setDecision("mark")}>Not for new designs</Button>
-          <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>
+          {item.healthy ? null : <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>}
           <Button size="sm" variant="ghost" disabled={busy} onClick={dismiss}>Dismiss</Button>
         </span>
       ) : null}
@@ -114,15 +118,16 @@ export function EndingNotifications({ role, onOpenComponent }: { role: UserRole 
   const items = (loaded.data?.items ?? []).filter((item) => item.restriction === null && !item.dismissed);
   if (items.length === 0) return null;
   return (
-    <section className="border border-warning/40" aria-label="Ending parts">
-      <h3 className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm font-semibold">
+    // Folded by default: the Dashboard's inbox counts it, and opens it.
+    <details id="dashboard-ending" className="border border-warning/40" aria-label="Ending parts">
+      <summary className="flex cursor-pointer items-center gap-2 bg-warning/10 px-3 py-2 text-sm font-semibold">
         <Hourglass className="h-4 w-4 text-warning" aria-hidden />
         {items.length === 1 ? "1 library component's part is ending" : `${items.length} library components' parts are ending`}
-      </h3>
+      </summary>
       <ul className="divide-y">
         {items.map((item) => <Row key={item.component.id} item={item} canDecide={canDecide} onOpen={() => onOpenComponent(item.component.id)} onChanged={() => void loaded.refresh()} />)}
       </ul>
       {loaded.data && loaded.data.more > 0 ? <p className="border-t px-3 py-1.5 text-xs text-muted-foreground">{loaded.data.more} more ending parts are not listed.</p> : null}
-    </section>
+    </details>
   );
 }
