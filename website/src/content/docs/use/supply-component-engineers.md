@@ -134,13 +134,17 @@ threshold, the price rise that matters and a target price.
 ## 6. Act on ending parts
 
 When a library component's part is ending, the Dashboard lists it with the
-reasons, the last buy date, its stock and the projects that use it. QA decides:
+reasons, the last buy date, its stock and the projects that use it. When the
+ending part is one of the component's approved alternates, the row says
+**Alternate**, and it says how many of the component's other parts are
+healthy. QA decides:
 
 - **Not for new designs**: the component stays released and keeps working
   where it is placed, but the catalog marks it so nobody picks it for a new
   design.
 - **Retire**: the component is archived and leaves the KiCad library.
-  Symbols already placed stop resolving.
+  Symbols already placed stop resolving. Offered only when none of the
+  component's other approved parts is healthy.
 - **Dismiss**: hide it until its part gains a new reason.
 
 Before retiring, give designers a way forward: propose an alternate (below) or
@@ -156,6 +160,12 @@ it.
    **Manufacturer** and **Part number** and choose **Propose alternate**.
 2. A QA reviewer approves or rejects it on the same row. **Library Manager →
    Review** lists everything waiting.
+
+Approval is for the component's main part at the time. When the component's
+part number changes in the library, its approved alternates go back to
+waiting, so QA checks them against the new part. When BOM lines naming two
+components resolve to the same part, only alternates both components approved
+count for it.
 
 **Alternatives** on a part's sheet suggests candidates (from distributors, and
 graded against the part's parameters). It does not compare footprints or pins:

@@ -239,6 +239,10 @@ export interface EndingPart {
   restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
   /** Someone dismissed it for the reasons it has now. */
   dismissed: boolean;
+  /** Whether the ending part is the component's main part or an approved alternate. */
+  role?: "main" | "alternate";
+  /** The component's other approved parts that are not ending; retiring is offered only when none is left. */
+  healthy?: number;
 }
 
 export interface EndingParts {
