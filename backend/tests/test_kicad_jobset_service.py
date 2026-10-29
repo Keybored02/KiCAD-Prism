@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from git import Repo
+from support.repo import git, git_env, init_repo
 
 from app.services import git_remote_access, kicad_jobset_service, project_service
 from app.services.job_runtime import JobResult
@@ -241,11 +241,6 @@ class KicadJobsetServiceTests(unittest.TestCase):
     def test_multi_project_import_commits_only_its_own_subdirectory(self) -> None:
         # #985: a multi-project import's checkout is a subdirectory of the
         # clone. Opening Repo() on it failed, so outputs were never committed.
-        def git(cwd: Path, *args: str) -> str:
-            return subprocess.run(
-                ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
-            ).stdout
-
         def write_outputs(args, *, cwd, **_kwargs):
             outputs = Path(cwd) / "Design-Outputs"
             outputs.mkdir()
@@ -256,25 +251,23 @@ class KicadJobsetServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             remote = root / "remote.git"
-            subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+            git(None, "init", "-q", "--bare", "-b", "main", str(remote))
             clone = root / "clone"
-            subprocess.run(["git", "init", "-q", "-b", "main", str(clone)], check=True)
-            git(clone, "config", "user.email", "test@example.com")
-            git(clone, "config", "user.name", "Test")
-            project = clone / "boards" / "alpha"
-            sibling = clone / "boards" / "beta"
-            for directory in (project, sibling):
-                directory.mkdir(parents=True)
-                (directory / "board.kicad_pro").write_text("{}", encoding="utf-8")
-                (directory / "board.kicad_prl").write_text("{}", encoding="utf-8")
-            (project / "Outputs.kicad_jobset").write_text("{}", encoding="utf-8")
-            git(clone, "add", ".")
-            git(clone, "commit", "-q", "-m", "initial")
+            board = {"board.kicad_pro": "{}", "board.kicad_prl": "{}"}
+            init_repo(
+                clone,
+                {
+                    **{f"boards/alpha/{name}": body for name, body in board.items()},
+                    **{f"boards/beta/{name}": body for name, body in board.items()},
+                    "boards/alpha/Outputs.kicad_jobset": "{}",
+                },
+            )
             git(clone, "remote", "add", "origin", str(remote))
             git(clone, "push", "-q", "-u", "origin", "main")
-            (sibling / "board.kicad_prl").write_text("sibling edit", encoding="utf-8")
+            project = clone / "boards" / "alpha"
+            (clone / "boards" / "beta" / "board.kicad_prl").write_text("sibling edit", encoding="utf-8")
 
-            with mock.patch.object(git_remote_access, "git_env", return_value=None):
+            with mock.patch.object(git_remote_access, "git_env", return_value=git_env()):
                 result = kicad_jobset_service.execute_kicad_jobset(
                     self._context(),
                     project_path=project,
@@ -289,13 +282,13 @@ class KicadJobsetServiceTests(unittest.TestCase):
                 )
 
             self.assertEqual(result.warnings, ())
-            self.assertEqual(git(remote, "rev-parse", "main").strip(), result.generated_commit)
+            self.assertEqual(git(remote, "rev-parse", "main"), result.generated_commit)
             committed = git(clone, "show", "--name-only", "--format=", "HEAD").split()
             self.assertEqual(
                 sorted(committed),
                 ["boards/alpha/Design-Outputs/board.pdf", "boards/alpha/board.kicad_prl"],
             )
-            self.assertEqual(git(clone, "status", "--porcelain"), " M boards/beta/board.kicad_prl\n")
+            self.assertEqual(git(clone, "status", "--porcelain"), "M boards/beta/board.kicad_prl")
 
 
 if __name__ == "__main__":
