@@ -119,6 +119,7 @@ def apply(conn, source_id: str, found: Read, now: datetime) -> dict[str, int]:
     by_part: dict[int, list[StockRecord]] = {}
     for record in found.stock:
         by_part.setdefault(record.part, []).append(record)
+    ignored = {row["remote_part"] for row in conn.execute("SELECT remote_part FROM inventory_ignored WHERE source_id = %s", (source_id,)).fetchall()}
     stamp = now.isoformat()
     conn.execute("DELETE FROM inventory_levels WHERE source_id = %s", (source_id,))
     conn.execute("DELETE FROM inventory_unmatched WHERE source_id = %s", (source_id,))
@@ -127,7 +128,8 @@ def apply(conn, source_id: str, found: Read, now: datetime) -> dict[str, int]:
         part = found.parts.get(part_pk) or Part(pk=part_pk, name="", ipn="", units="")
         component_id, how = library.match(part, links.get(str(part_pk)))
         if component_id is None:
-            unmatched += 1
+            # A part set aside is still listed (under Ignored) but waits for nobody.
+            unmatched += 0 if str(part_pk) in ignored else 1
             first = part.mpns[0] if part.mpns else ("", "")
             conn.execute(
                 "INSERT INTO inventory_unmatched (source_id, remote_part, ipn, mpn, manufacturer, name, quantity, records, reason, seen_at) "
@@ -223,15 +225,23 @@ def link(conn, source_id: str, remote_part: str, component_id: str, actor: str) 
     )
     # Answered: it no longer needs a person, but stays listed as linked until a read lands its stock on the component (UX-04).
     if waiting and not relinked:
-        conn.execute("UPDATE inventory_sources SET unmatched = GREATEST(unmatched - 1, 0) WHERE id = %s", (source_id,))
+        conn.execute("UPDATE inventory_sources SET unmatched = %s WHERE id = %s", (unmatched_counts(conn, source_id)["waiting"], source_id))
     write_audit(conn, actor, "inventory_source.link", source_id, {"remote_part": remote_part, "component_id": component_id}, subject_kind="inventory_source")
 
 
-def unmatched(conn, source_id: str, *, query: str = "", limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+GROUPS = ("waiting", "no_component", "sap_code_shared", "mpn_shared", "linked", "ignored")
+
+
+def unmatched(
+    conn, source_id: str, *, query: str = "", limit: int | None = None, offset: int = 0, group: str = "",
+) -> list[dict[str, Any]]:
     """The source's unmatched parts with stock, those waiting for a person first and largest first. A part a person has linked since
     the last read stays, with the component it was linked to, until a read lands its stock there. ``query`` narrows to parts whose
-    IPN, MPN, maker or name contains it; ``limit`` and ``offset`` page the list."""
+    IPN, MPN, maker or name contains it; ``limit`` and ``offset`` page the list. ``group`` narrows to one of ``GROUPS``: those waiting,
+    those waiting for one reason, those linked, or those set aside. Without it, every part except those set aside."""
 
+    if group and group not in GROUPS:
+        raise sources.SourceError("That group is not one Prism knows.")
     like = f"%{query.strip()}%" if query.strip() else None
 
     return [dict(row) for row in conn.execute(
@@ -242,8 +252,67 @@ def unmatched(conn, source_id: str, *, query: str = "", limit: int | None = None
         LEFT JOIN inventory_links l ON l.source_id = u.source_id AND l.remote_part = u.remote_part
         LEFT JOIN components c ON c.id = l.component_id
         LEFT JOIN component_revisions r ON r.id = c.current_revision_id
+        LEFT JOIN inventory_ignored g ON g.source_id = u.source_id AND g.remote_part = u.remote_part
         WHERE u.source_id = %s
           AND (%s::text IS NULL OR u.ipn ILIKE %s OR u.mpn ILIKE %s OR u.manufacturer ILIKE %s OR u.name ILIKE %s)
+          AND CASE %s
+                WHEN 'ignored' THEN g.remote_part IS NOT NULL
+                WHEN 'linked' THEN g.remote_part IS NULL AND l.component_id IS NOT NULL
+                WHEN 'waiting' THEN g.remote_part IS NULL AND l.component_id IS NULL
+                WHEN '' THEN g.remote_part IS NULL
+                ELSE g.remote_part IS NULL AND l.component_id IS NULL AND u.reason = %s
+              END
         ORDER BY (l.component_id IS NOT NULL), u.quantity DESC, u.remote_part
         LIMIT %s OFFSET %s
-        """, (source_id, like, like, like, like, like, limit, max(offset, 0))).fetchall()]
+        """, (source_id, like, like, like, like, like, group, group, limit, max(offset, 0))).fetchall()]
+
+
+def unmatched_counts(conn, source_id: str) -> dict[str, int]:
+    """How many of the source's unmatched parts are in each of ``GROUPS``."""
+
+    row = conn.execute(
+        """
+        SELECT COUNT(*) FILTER (WHERE g.remote_part IS NULL AND l.remote_part IS NULL) AS waiting,
+               COUNT(*) FILTER (WHERE g.remote_part IS NULL AND l.remote_part IS NULL AND u.reason = 'no_component') AS no_component,
+               COUNT(*) FILTER (WHERE g.remote_part IS NULL AND l.remote_part IS NULL AND u.reason = 'sap_code_shared') AS sap_code_shared,
+               COUNT(*) FILTER (WHERE g.remote_part IS NULL AND l.remote_part IS NULL AND u.reason = 'mpn_shared') AS mpn_shared,
+               COUNT(*) FILTER (WHERE g.remote_part IS NULL AND l.remote_part IS NOT NULL) AS linked,
+               COUNT(*) FILTER (WHERE g.remote_part IS NOT NULL) AS ignored
+        FROM inventory_unmatched u
+        LEFT JOIN inventory_links l ON l.source_id = u.source_id AND l.remote_part = u.remote_part
+        LEFT JOIN inventory_ignored g ON g.source_id = u.source_id AND g.remote_part = u.remote_part
+        WHERE u.source_id = %s
+        """,
+        (source_id,),
+    ).fetchone()
+    return {name: int(row[name]) for name in GROUPS}
+
+
+MAX_AT_ONCE = 500
+
+
+def set_ignored(conn, source_id: str, remote_parts: list[str], ignore: bool, actor: str) -> int:
+    """Set unmatched parts aside, or bring them back. Only parts the source lists unmatched now are touched, so a stale selection
+    changes nothing it should not. Returns how many changed; the source's waiting count follows."""
+
+    actor = actor_text(actor)
+    sources.get(conn, source_id)
+    wanted = list(dict.fromkeys(str(part) for part in remote_parts))[:MAX_AT_ONCE]
+    if ignore:
+        changed = conn.execute(
+            "INSERT INTO inventory_ignored (source_id, remote_part, ignored_by) "
+            "SELECT u.source_id, u.remote_part, %s FROM inventory_unmatched u WHERE u.source_id = %s AND u.remote_part = ANY(%s) "
+            "ON CONFLICT DO NOTHING",
+            (actor, source_id, wanted),
+        ).rowcount
+    else:
+        changed = conn.execute(
+            "DELETE FROM inventory_ignored WHERE source_id = %s AND remote_part = ANY(%s)", (source_id, wanted),
+        ).rowcount
+    conn.execute(
+        "UPDATE inventory_sources SET unmatched = %s WHERE id = %s", (unmatched_counts(conn, source_id)["waiting"], source_id),
+    )
+    if changed:
+        write_audit(conn, actor, "inventory_source.ignore" if ignore else "inventory_source.restore", source_id,
+                    {"remote_parts": wanted[:50], "count": int(changed)}, subject_kind="inventory_source")
+    return int(changed or 0)

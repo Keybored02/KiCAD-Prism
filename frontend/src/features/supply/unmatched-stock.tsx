@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link2, LibraryBig } from "lucide-react";
+import { EyeOff, Link2, LibraryBig, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AsyncSearchPicker } from "@/components/workspace/async-search-picker";
 import { listComponents } from "@/components/workspace/catalog-client";
@@ -10,7 +11,7 @@ import { CreateComponentDialog } from "@/components/workspace/create-component-d
 import type { CatalogComponent } from "@/types/catalog";
 import type { InventorySource, InventoryUnmatchedPart } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
-import { linkUnmatchedPart, listInventorySources, listUnmatchedParts } from "./inventory-api";
+import { countUnmatchedParts, linkUnmatchedPart, listInventorySources, listUnmatchedParts, setUnmatchedIgnored, type UnmatchedGroup } from "./inventory-api";
 import { SearchBox } from "./search-box";
 
 const REASON: Record<InventoryUnmatchedPart["reason"], string> = {
@@ -93,26 +94,42 @@ interface Waiting {
 /** Rows asked for at a time, across every source. */
 export const UNMATCHED_PAGE = 50;
 
-/** The first `shown` unmatched parts with stock across every source, waiting ones first and largest first, narrowed by `query`;
- * null until loaded. `waiting` is how many wait for a person in all (each source's own count), `more` whether any were left out. */
-function useUnmatched(query: string, shown: number) {
-  const [state, setState] = useState<{ items: Waiting[]; waiting: number; more: boolean } | null>(null);
+const GROUPS: Array<{ key: UnmatchedGroup; label: string }> = [
+  { key: "waiting", label: "Waiting" },
+  { key: "no_component", label: REASON.no_component },
+  { key: "sap_code_shared", label: REASON.sap_code_shared },
+  { key: "mpn_shared", label: REASON.mpn_shared },
+  { key: "linked", label: "Linked" },
+  { key: "ignored", label: "Ignored" },
+];
+
+const EMPTY_COUNTS: Record<UnmatchedGroup, number> = { waiting: 0, no_component: 0, sap_code_shared: 0, mpn_shared: 0, linked: 0, ignored: 0 };
+
+/** The first `shown` unmatched parts with stock across every source in `group`, waiting ones first and largest first, narrowed by
+ * `query`; null until loaded. `counts` are each group's size across the sources, `more` whether any were left out. */
+function useUnmatched(query: string, shown: number, group: UnmatchedGroup) {
+  const [state, setState] = useState<{ items: Waiting[]; counts: Record<UnmatchedGroup, number>; more: boolean } | null>(null);
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       // A source whose parts were all linked counts none unmatched, but its linked rows stay until the next read.
       const sources = await listInventorySources(signal);
       // One row past the page tells whether a source has more.
-      const lists = await Promise.all(sources.map(async (source) => (
-        await listUnmatchedParts(source.id, signal, { q: query, limit: shown + 1 })).map((part) => ({ source, part }))));
+      const [lists, counted] = await Promise.all([
+        Promise.all(sources.map(async (source) => (
+          await listUnmatchedParts(source.id, signal, { q: query, limit: shown + 1, group })).map((part) => ({ source, part })))),
+        Promise.all(sources.map((source) => countUnmatchedParts(source.id, signal))),
+      ]);
+      const counts = { ...EMPTY_COUNTS };
+      for (const each of counted) for (const key of Object.keys(counts) as UnmatchedGroup[]) counts[key] += each[key] ?? 0;
       const all = lists.flat().sort((a, b) => Number(Boolean(a.part.linked_component_id)) - Number(Boolean(b.part.linked_component_id)) || b.part.quantity - a.part.quantity);
-      setState({ items: all.slice(0, shown), waiting: sources.reduce((sum, source) => sum + source.unmatched, 0), more: all.length > shown });
+      setState({ items: all.slice(0, shown), counts, more: all.length > shown });
     } catch (caught) {
       if (!signal?.aborted) {
-        setState({ items: [], waiting: 0, more: false });
+        setState({ items: [], counts: EMPTY_COUNTS, more: false });
         toast.error(caught instanceof Error ? caught.message : "Could not load the unmatched stock");
       }
     }
-  }, [query, shown]);
+  }, [query, shown, group]);
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
@@ -121,24 +138,85 @@ function useUnmatched(query: string, shown: number) {
   return { state, reload: () => void load() };
 }
 
-/** Library Manager > Review: stock a local inventory server holds for parts no component matched. QA and admins link them. */
+const keyOf = (item: Waiting) => `${item.source.id}/${item.part.remote_part}`;
+
+/** Library Manager > Review: stock a local inventory server holds for parts no component matched, by group. QA and admins link
+ * them one at a time, or set many aside at once (and bring them back from Ignored). */
 export function UnmatchedStockSection({ canDecide, onDecided }: { canDecide: boolean; onDecided?: () => void }) {
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(UNMATCHED_PAGE);
-  const { state, reload } = useUnmatched(query, shown);
-  if (!state || (state.items.length === 0 && !query)) return null;
-  const done = () => { reload(); onDecided?.(); };
+  const [group, setGroup] = useState<UnmatchedGroup>("waiting");
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { state, reload } = useUnmatched(query, shown, group);
+  const total = state ? Object.values(state.counts).reduce((sum, count) => sum + count, 0) : 0;
+  if (!state || (total === 0 && !query)) return null;
+  const done = () => { setPicked(new Set()); reload(); onDecided?.(); };
+  const shownKeys = state.items.map(keyOf);
+  const pickedItems = state.items.filter((item) => picked.has(keyOf(item)));
+  const restoring = group === "ignored";
+  const toggle = (key: string) => setPicked((now) => {
+    const next = new Set(now);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const choose = (next: UnmatchedGroup) => { setGroup(next); setShown(UNMATCHED_PAGE); setPicked(new Set()); };
+  // Each source is asked for its own parts, so a selection across sources is one call per source.
+  const apply = async () => {
+    setBusy(true);
+    try {
+      const bySource = new Map<string, string[]>();
+      for (const item of pickedItems) bySource.set(item.source.id, [...(bySource.get(item.source.id) ?? []), item.part.remote_part]);
+      const results = await Promise.all([...bySource].map(([sourceId, parts]) => setUnmatchedIgnored(sourceId, parts, !restoring)));
+      const changed = results.reduce((sum, result) => sum + result.changed, 0);
+      toast.success(`${restoring ? "Restored" : "Ignored"} ${changed.toLocaleString()}`);
+      setConfirming(false);
+      done();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Could not change the parts");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <CollapsibleSection id="review-unmatched-stock" title="Unmatched local stock" count={state.waiting}>
-      <div className="px-3 py-2">
+    <CollapsibleSection id="review-unmatched-stock" title="Unmatched local stock" count={state.counts.waiting}>
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <div role="group" aria-label="Unmatched stock groups" className="flex flex-wrap gap-1">
+          {GROUPS.map((item) => (
+            <Button
+              key={item.key} size="sm" variant={group === item.key ? "secondary" : "ghost"} aria-pressed={group === item.key}
+              onClick={() => choose(item.key)}
+            >
+              {item.label}<span className="ml-1 tabular-nums text-muted-foreground">{state.counts[item.key].toLocaleString()}</span>
+            </Button>
+          ))}
+        </div>
         <SearchBox
           initial={query} label="Search unmatched stock" placeholder="IPN, MPN, maker or name"
-          onSearch={(text) => { setQuery(text); setShown(UNMATCHED_PAGE); }}
+          onSearch={(text) => { setQuery(text); setShown(UNMATCHED_PAGE); setPicked(new Set()); }}
         />
       </div>
+      {canDecide && group !== "linked" && state.items.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 border-t px-3 py-1.5 text-sm">
+          <Checkbox
+            aria-label="Select every row shown"
+            checked={pickedItems.length > 0 && pickedItems.length === state.items.length ? true : pickedItems.length > 0 ? "indeterminate" : false}
+            onCheckedChange={(on) => setPicked(on === true ? new Set(shownKeys) : new Set())}
+          />
+          <span className="tabular-nums text-muted-foreground">{pickedItems.length.toLocaleString()} selected</span>
+          <Button size="sm" variant="outline" disabled={pickedItems.length === 0 || busy} onClick={() => (restoring ? void apply() : setConfirming(true))}>
+            {restoring ? <Undo2 className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            {restoring ? "Restore" : "Ignore"}
+          </Button>
+        </div>
+      ) : null}
       <ul className="divide-y">
-        {state.items.map(({ source, part }) => (
-          <UnmatchedRow key={`${source.id}/${part.remote_part}`} source={source} part={part} canDecide={canDecide} onLinked={done} />
+        {state.items.map((item) => (
+          <UnmatchedRow
+            key={keyOf(item)} source={item.source} part={item.part} canDecide={canDecide && !restoring} onLinked={done}
+            select={canDecide && group !== "linked" ? { checked: picked.has(keyOf(item)), onToggle: () => toggle(keyOf(item)) } : null}
+          />
         ))}
       </ul>
       {state.more ? (
@@ -146,11 +224,28 @@ export function UnmatchedStockSection({ canDecide, onDecided }: { canDecide: boo
           <Button size="sm" variant="outline" onClick={() => setShown((count) => count + UNMATCHED_PAGE)}>Load more</Button>
         </div>
       ) : null}
+      {confirming ? (
+        <Dialog open onOpenChange={(open) => { if (!open) setConfirming(false); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Ignore {pickedItems.length.toLocaleString()} unmatched {pickedItems.length === 1 ? "part" : "parts"}</DialogTitle>
+              <DialogDescription>{pickedItems.slice(0, 5).map((item) => item.part.name || item.part.mpn || item.part.remote_part).join(", ")}{pickedItems.length > 5 ? ` +${pickedItems.length - 5}` : ""}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+              <Button disabled={busy} onClick={() => void apply()}>Ignore</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </CollapsibleSection>
   );
 }
 
-function UnmatchedRow({ source, part, canDecide, onLinked }: { source: InventorySource; part: InventoryUnmatchedPart; canDecide: boolean; onLinked: () => void }) {
+function UnmatchedRow({ source, part, canDecide, onLinked, select }: {
+  source: InventorySource; part: InventoryUnmatchedPart; canDecide: boolean; onLinked: () => void;
+  select: { checked: boolean; onToggle: () => void } | null;
+}) {
   const [picking, setPicking] = useState(false);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -175,6 +270,7 @@ function UnmatchedRow({ source, part, canDecide, onLinked }: { source: Inventory
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+      {select ? <Checkbox aria-label={`Select ${part.name || part.mpn || part.remote_part}`} checked={select.checked} onCheckedChange={select.onToggle} /> : null}
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium" title={part.name}>{part.name || part.mpn || `Part ${part.remote_part}`}</p>
         <p className="truncate text-xs text-muted-foreground">{[source.display_name, identity, linked ? "" : REASON[part.reason]].filter(Boolean).join(" · ")}</p>

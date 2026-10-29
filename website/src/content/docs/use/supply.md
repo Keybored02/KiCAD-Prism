@@ -236,8 +236,17 @@ unchecked.
 - **Unmatched local stock**: inventory parts with stock that match no library
   component. **Link** ties one to a component after showing both side by side;
   when neither the MPN nor the SAP code agrees, the button reads **Link
-  anyway**. A linked part stays listed as **Linked** until the next read brings
-  its stock to the component. **Add** creates the component.
+  anyway**. A linked part stays listed under **Linked** until the next read
+  brings its stock to the component. **Add** creates the component.
+
+  The chips sort the list: **Waiting** (and each reason it waits:
+  **No component**, **SAP code on several components**, **MPN on several
+  components**), **Linked** and **Ignored**, each with its count across
+  every source. Search finds parts by IPN, MPN, maker or name, 50 at a time.
+  To set aside stock that will never be a library component, such as
+  consumables, tick the rows (or every row shown) and choose **Ignore**; Prism
+  asks before it changes anything. Ignored parts stay aside across reads and
+  don't count as waiting. Bring them back from **Ignored** with **Restore**.
 
 ## Ask an assistant
 

@@ -201,15 +201,16 @@ async def list_unmatched_parts(
     q: str = Query("", max_length=100),
     limit: int | None = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    group: str = Query("", max_length=32),
     _user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> list[UnmatchedPart]:
     """The source's unmatched parts, waiting ones first and largest first; ``q`` searches IPN, MPN, maker and name, ``limit`` and
-    ``offset`` page them. Without ``limit``, every one."""
+    ``offset`` page them, ``group`` narrows to one of waiting, a reason, linked or ignored. Without ``limit``, every one."""
 
     def read() -> list[UnmatchedPart]:
         with _store().connection() as conn:
             sources.get(conn, source_id)
-            return [UnmatchedPart(**row) for row in sync.unmatched(conn, source_id, query=q, limit=limit, offset=offset)]
+            return [UnmatchedPart(**row) for row in sync.unmatched(conn, source_id, query=q, limit=limit, offset=offset, group=group)]
 
     return await _run(read)
 
@@ -218,6 +219,38 @@ class LinkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     component_id: str = Field(min_length=1, max_length=200)
+
+
+@router.get("/{source_id}/unmatched/counts")
+async def count_unmatched_parts(source_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, int]:
+    """How many of the source's unmatched parts wait (in all and per reason), are linked, or were set aside."""
+
+    def read() -> dict[str, int]:
+        with _store().connection() as conn:
+            sources.get(conn, source_id)
+            return sync.unmatched_counts(conn, source_id)
+
+    return await _run(read)
+
+
+class IgnoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remote_parts: list[str] = Field(min_length=1, max_length=sync.MAX_AT_ONCE)
+    ignore: bool
+
+
+@router.post("/{source_id}/unmatched/ignore")
+async def ignore_unmatched_parts(
+    source_id: str, body: IgnoreRequest, approver: AuthenticatedUser = Depends(require_supply_approver),
+) -> dict[str, int]:
+    """Set unmatched parts aside (stock that will never be a library component), or bring them back."""
+
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            return {"changed": sync.set_ignored(conn, source_id, body.remote_parts, body.ignore, approver.email)}
+
+    return await _run(run)
 
 
 @router.post("/{source_id}/unmatched/{remote_part}/link")

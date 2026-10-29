@@ -396,6 +396,38 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual([row["component_id"] for row in self._levels(source_id)], [str(ti["id"])], "TI is Texas Instruments")
         self.assertNotEqual(str(ti["id"]), str(other["id"]))
 
+    def test_parts_set_aside_stay_aside_across_reads_and_come_back_on_restore(self) -> None:
+        from app.services.supply.inventory import sources, sync
+
+        source_id = self._source()
+        stock = [{"pk": 501, "part": 4, "quantity": 3, "status": 10}, {"pk": 502, "part": 3, "quantity": 8, "status": 10}]
+        self._sync(source_id, self._server("", "X", "Y", stock))
+        with self.store.connection() as conn:
+            before = sync.unmatched_counts(conn, source_id)
+            self.assertEqual(sync.set_ignored(conn, source_id, ["4", "4", "999"], True, AUTHOR), 1, "a part the source doesn't list is left alone")
+            after = sync.unmatched_counts(conn, source_id)
+            self.assertEqual((after["waiting"], after["ignored"]), (before["waiting"] - 1, 1))
+            self.assertEqual(sources.get(conn, source_id)["unmatched"], after["waiting"], "the source's count follows")
+            self.assertEqual([row["remote_part"] for row in sync.unmatched(conn, source_id, group="ignored")], ["4"])
+            self.assertNotIn("4", [row["remote_part"] for row in sync.unmatched(conn, source_id)])
+        self._sync(source_id, self._server("", "X", "Y", stock), NOW + timedelta(days=1))
+        with self.store.connection() as conn:
+            self.assertEqual(sync.unmatched_counts(conn, source_id)["ignored"], 1, "a read keeps it aside")
+            self.assertEqual(sources.get(conn, source_id)["unmatched"], after["waiting"])
+            self.assertEqual(sync.set_ignored(conn, source_id, ["4"], False, AUTHOR), 1)
+            self.assertEqual(sync.unmatched_counts(conn, source_id)["waiting"], before["waiting"])
+            reason = sync.unmatched(conn, source_id, group="no_component")
+            self.assertTrue(all(row["reason"] == "no_component" for row in reason))
+            with self.assertRaises(sources.SourceError):
+                sync.unmatched(conn, source_id, group="everything")
+        path = f"/api/supply/inventory-sources/{source_id}/unmatched"
+        refused = _request(self.app, "POST", f"{path}/ignore", user=self.users["designer"], body={"remote_parts": ["3"], "ignore": True})
+        self.assertEqual(refused.status, 403, "QA and administrators decide")
+        done = _request(self.app, "POST", f"{path}/ignore", user=self.users["qa"], body={"remote_parts": ["3"], "ignore": True})
+        self.assertEqual((done.status, done.json), (200, {"changed": 1}))
+        self.assertEqual(_request(self.app, "GET", f"{path}/counts", user=self.users["designer"]).json["ignored"], 1)
+        self.assertEqual([row["remote_part"] for row in _request(self.app, "GET", path, user=self.users["designer"], query="group=ignored").json], ["3"])
+
     def test_only_due_sources_are_read(self) -> None:
         from app.services.supply.inventory import sync
 
