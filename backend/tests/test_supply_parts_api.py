@@ -21,8 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from supply_api_helpers import request as _request  # noqa: E402
 
 from app.services.supply import pricing  # noqa: E402
-from app.services.supply.part_status import part_status, worst_lifecycle  # noqa: E402
-from app.services.supply.vocabulary import Lifecycle, Status  # noqa: E402
+from app.services.supply.vocabulary import Lifecycle, Status, worst_lifecycle  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 SEED_ACTOR = "seed@example.com"
@@ -30,17 +29,30 @@ START = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 
 
 class PartStatusTests(unittest.TestCase):
-    def test_status_from_stock_threshold_and_lifecycle(self) -> None:
+    def test_the_status_is_the_assessments_from_stock_threshold_lifecycle_and_problem(self) -> None:
+        from app.services.supply.assessment import service as assessment
+
+        def status(stock, threshold, lifecycle, problem=None) -> Status:
+            offers = [] if stock is None else [{
+                "connector_id": "c1", "connector_name": "A", "provider": "fake", "pool": None, "packaging": None, "stock": stock,
+                "marketplace": False, "discontinued": False, "lifecycle": lifecycle.value, "lead_time_days": None, "rohs": None,
+                "reach_affected": None, "price_breaks": [], "currency": "", "moq": 1, "order_multiple": 1, "fetched_at": START,
+            }]
+            item = {"id": "p", "lifecycle": lifecycle.value, "problem": problem, "watch": {"threshold": threshold} if threshold is not None else None}
+            return Status(assessment.assess_one(item, offers, [], START, distributors=1)["status"])
+
         active = Lifecycle.ACTIVE
-        self.assertEqual(part_status(None, None, active), Status.UNKNOWN)
-        self.assertEqual(part_status(5000, None, active), Status.OK)
-        self.assertEqual(part_status(0, None, active), Status.ERROR)
-        self.assertEqual(part_status(100, 100, active), Status.WARNING)
-        self.assertEqual(part_status(101, 100, active), Status.OK)
-        self.assertEqual(part_status(5000, None, Lifecycle.NRND), Status.WARNING)
-        self.assertEqual(part_status(5000, None, Lifecycle.LAST_TIME_BUY), Status.WARNING)
-        self.assertEqual(part_status(5000, None, Lifecycle.OBSOLETE), Status.FATAL)
-        self.assertEqual(part_status(0, None, Lifecycle.OBSOLETE), Status.FATAL, "obsolete outranks empty")
+        self.assertEqual(status(None, None, active), Status.UNKNOWN)
+        self.assertEqual(status(None, None, Lifecycle.UNKNOWN, "not_found"), Status.ERROR)
+        self.assertEqual(status(None, None, Lifecycle.UNKNOWN, "gone"), Status.ERROR)
+        self.assertEqual(status(5000, None, active), Status.OK)
+        self.assertEqual(status(0, None, active), Status.ERROR)
+        self.assertEqual(status(100, 100, active), Status.WARNING)
+        self.assertEqual(status(101, 100, active), Status.OK)
+        self.assertEqual(status(5000, None, Lifecycle.NRND), Status.WARNING)
+        self.assertEqual(status(5000, None, Lifecycle.LAST_TIME_BUY), Status.WARNING)
+        self.assertEqual(status(5000, None, Lifecycle.OBSOLETE), Status.FATAL)
+        self.assertEqual(status(0, None, Lifecycle.OBSOLETE), Status.FATAL, "obsolete outranks empty")
 
     def test_the_worst_lifecycle_is_shown(self) -> None:
         self.assertEqual(worst_lifecycle([Lifecycle.ACTIVE, Lifecycle.NRND]), Lifecycle.NRND)
@@ -99,6 +111,10 @@ class SupplyPartsApiTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
+        # Summaries are assessed at the time the fixtures read at, so their reads are not late.
+        patcher = mock.patch("app.services.supply.parts_view._now", return_value=START)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with self.store.connection() as conn:
             for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")

@@ -22,6 +22,7 @@ LAST_TIME_BUY = "last_time_buy"
 DISTRIBUTOR_DISCONTINUED = "distributor_discontinued"
 NO_DISTRIBUTOR_STOCK = "no_distributor_stock"
 INSUFFICIENT_STOCK = "insufficient_stock"
+BELOW_THRESHOLD = "below_threshold"
 LEAD_TIME_OVER_THRESHOLD = "lead_time_over_threshold"
 ROHS_NONCOMPLIANT = "rohs_noncompliant"
 ROHS_DISPUTED = "rohs_disputed"
@@ -44,6 +45,8 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     DISTRIBUTOR_DISCONTINUED: Status.WARNING,
     NO_DISTRIBUTOR_STOCK: Status.ERROR,
     INSUFFICIENT_STOCK: Status.ERROR,
+    # Stock at or under the level a person set on the part's watch.
+    BELOW_THRESHOLD: Status.WARNING,
     LEAD_TIME_OVER_THRESHOLD: Status.WARNING,
     ROHS_NONCOMPLIANT: Status.ERROR,
     # Distributors say both: neither is taken as the answer.
@@ -118,6 +121,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     DISTRIBUTOR_DISCONTINUED: "Every distributor dropped it",
     NO_DISTRIBUTOR_STOCK: "No distributor has it in stock",
     INSUFFICIENT_STOCK: "Stock does not cover the build",
+    BELOW_THRESHOLD: "Stock at or under the watch's level",
     LEAD_TIME_OVER_THRESHOLD: "Lead time over the limit",
     ROHS_NONCOMPLIANT: "Not RoHS compliant",
     ROHS_DISPUTED: "Distributors disagree on RoHS",
@@ -139,7 +143,7 @@ CHECK_AREA: Mapping[str, str] = MappingProxyType({
     OBSOLETE: "Lifecycle", NRND: "Lifecycle", LAST_TIME_BUY: "Lifecycle", DISTRIBUTOR_DISCONTINUED: "Lifecycle",
     LIFECYCLE_DISAGREEMENT: "Lifecycle", ENDING_WITHIN_2_YEARS: "Lifecycle",
     PART_NOT_FOUND: "Sourcing", SINGLE_SOURCE: "Sourcing", LEAD_TIME_OVER_THRESHOLD: "Sourcing", DATA_STALE: "Sourcing", PRICE_OUTLIER: "Sourcing",
-    NO_DISTRIBUTOR_STOCK: "Stock", INSUFFICIENT_STOCK: "Stock",
+    NO_DISTRIBUTOR_STOCK: "Stock", INSUFFICIENT_STOCK: "Stock", BELOW_THRESHOLD: "Stock",
     ROHS_NONCOMPLIANT: "Compliance", ROHS_DISPUTED: "Compliance", REACH_SVHC: "Compliance",
     MANUFACTURER_MISSING: "BOM line", NOT_IN_LIBRARY: "BOM line", PARAMETER_MISMATCH: "BOM line", PACKAGE_MISMATCH: "BOM line",
 })

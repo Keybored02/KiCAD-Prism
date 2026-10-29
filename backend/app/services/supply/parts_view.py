@@ -18,12 +18,9 @@ from app.services.supply import budget, counted, facts, forecasting, freshness, 
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 from app.services.supply.providers import registry
-from app.services.supply.part_status import (
-    PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
-)
 from app.services.supply.tiers import SCHEDULES
 from app.services.supply.offer_lines import in_base, offer_lines
-from app.services.supply.vocabulary import ENDING_LIFECYCLES, Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES, STATUS_ORDER, Lifecycle, worst_lifecycle
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
@@ -86,6 +83,22 @@ def _watch_dto(row) -> dict[str, Any] | None:
             "packaging": row["watch_packaging"] or "any"}
 
 
+# Why a part has no counted stock at all, when it should have; None when it is merely not read yet.
+PROBLEM_NOT_FOUND = "not_found"  # distributors were asked and none carries it
+PROBLEM_GONE = "gone"  # it had listings and every one has disappeared
+PROBLEM_LABEL = {PROBLEM_NOT_FOUND: "No distributor carries this part number", PROBLEM_GONE: "Every listing for this part has disappeared"}
+
+
+def problem_of(*, counted: bool, gone: bool, listed: bool, searched: bool) -> str | None:
+    """Why a part with nothing counted is in trouble, or None if it is merely not read yet (or candidates wait in Review)."""
+
+    if counted:
+        return None
+    if gone:
+        return PROBLEM_GONE
+    return PROBLEM_NOT_FOUND if searched and not listed else None
+
+
 def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     """Why a part with nothing counted is in trouble, per part."""
 
@@ -111,11 +124,8 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     result: dict[str, str | None] = {}
     for part_id in part_ids:
         fact = facts.get(part_id)
-        result[part_id] = part_problem(
-            has_counted=bool(fact and fact["counted"]),
-            has_gone=bool(fact and fact["gone"]),
-            has_listings=bool(fact and fact["listed"]),
-            was_searched=part_id in searched,
+        result[part_id] = problem_of(
+            counted=bool(fact and fact["counted"]), gone=bool(fact and fact["gone"]), listed=bool(fact and fact["listed"]), searched=part_id in searched,
         )
     return result
 
@@ -209,11 +219,17 @@ def _money(conn) -> tuple[str, fx.Rates, str]:
     return base, rates, hashlib.sha256(named.encode()).hexdigest()[:16]
 
 
+def _now() -> datetime:
+    """The time a summary's status is assessed at (a test sets its own clock)."""
+
+    return datetime.now(timezone.utc)
+
+
 def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Rates, str] | None = None) -> dict[str, dict[str, Any]]:
     problems = _problems(conn, [r["id"] for r in rows])
     base, rates, priced_with = money or _money(conn)
     quantities = price_quantity.of_parts(conn, [r["id"] for r in rows])
-    found = {}
+    found, counted = {}, {}
     for row in rows:
         here = [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
         price = headline_price.headline(
@@ -221,18 +237,29 @@ def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Ra
             lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates, quantities[part_id]),
         )
         summary = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
-        # Kept with the summary so the Dashboard counts statuses without the rest of the row; a watch change marks it stale.
-        summary["status"] = part_status(summary["stock"], row["threshold"], Lifecycle(summary["lifecycle"]), summary["problem"]).value
         summary["priced_with"] = priced_with
         found[row["id"]] = summary
+        counted[row["id"]] = here
+    # The part's status is its assessment's (without a build to cover), kept with the summary so lists filter and the Dashboard counts
+    # on it; it holds until what it read changes (``freshness``) or the clock changes it (``changes_at``).
+    from app.services.supply.assessment import service as assessment  # the assessment reads summaries, so it is imported here
+
+    items = [
+        {"id": row["id"], "lifecycle": found[row["id"]]["lifecycle"], "problem": found[row["id"]]["problem"],
+         "tracking": {"rate": row["tracking_rate"]} if row["tracking_rate"] else None,
+         "watch": {"threshold": row["threshold"]} if row["watch_id"] else None}
+        for row in rows
+    ]
+    for part_id, assessed in assessment.assess_summaries(conn, items, counted, {}, _now()).items():
+        found[part_id].update(status=assessed["status"], health=assessed["health"], changes_at=assessed["changes_at"])
     return found
 
 
 # Bumped whenever what a kept summary holds or how it is worked out changes: every kept one is then worked out again.
-SUMMARY_VERSION = 1
+SUMMARY_VERSION = 2
 _SUMMARY_FIELDS = (
-    "part_id text, status text, problem text, stock integer, listings integer, lifecycle text, dropped boolean, tier text, "
-    "unit_price numeric, as_of timestamptz, price jsonb, priced_with text"
+    "part_id text, status text, health real, changes_at timestamptz, problem text, stock integer, listings integer, lifecycle text, "
+    "dropped boolean, tier text, unit_price numeric, as_of timestamptz, price jsonb, priced_with text"
 )
 _PRICE_KEYS = ("unit_price", "currency", "price_quantity", "price_kind", "price_lead_days", "price_range", "price_native", "price_seen_day",
                "price_unrated", "price_test_data")
@@ -240,12 +267,14 @@ _PRICE_KEYS = ("unit_price", "currency", "price_quantity", "price_kind", "price_
 
 def _current_sql(priced_with: str, summary: str = "s") -> str:
     """SQL for "this kept summary is current": worked out by this code, in today's currency at today's rates (neither marks a part:
-    they change every price at once), and no change it did not see has marked it (``freshness``)."""
+    they change every price at once), no change it did not see has marked it (``freshness``), and the clock has not reached the time
+    its assessment changes by itself (``changes_at``: a read falling late, a last date to buy coming close)."""
 
     if not priced_with.isalnum():
         raise ValueError("not a pricing key")
     return (
         f"({summary}.version = {SUMMARY_VERSION} AND {summary}.priced_with = '{priced_with}' AND {summary}.snap > 0 "
+        f"AND ({summary}.changes_at IS NULL OR {summary}.changes_at > NOW()) "
         f"AND NOT {freshness.stale_sql('summary', f'ARRAY[{summary}.part_id]', summary)})"
     )
 
@@ -257,7 +286,7 @@ def _from_row(row) -> dict[str, Any]:
         "problem": row["problem"], "stock": row["stock"], "listings": row["listings"], "lifecycle": row["lifecycle"], "dropped": row["dropped"],
         **row["price"],
         "fetched_at": row["as_of"].isoformat() if row["as_of"] else None, "dated_by": "oldest", "tier": row["tier"], "status": row["status"],
-        "priced_with": row["priced_with"],
+        "health": row["health"], "changes_at": row["changes_at"].isoformat() if row["changes_at"] else None, "priced_with": row["priced_with"],
     }
 
 
@@ -274,25 +303,26 @@ def _keep(conn, found: dict[str, dict[str, Any]], seen: tuple[str, int]) -> None
 
     def records(part_ids: list[str]) -> str:
         return json.dumps([
-            {"part_id": part_id, **{key: found[part_id][key] for key in ("status", "problem", "stock", "listings", "lifecycle", "dropped", "tier", "unit_price", "priced_with")},
+            {"part_id": part_id, **{key: found[part_id][key] for key in ("status", "health", "changes_at", "problem", "stock", "listings", "lifecycle", "dropped", "tier", "unit_price", "priced_with")},
              "as_of": found[part_id]["fetched_at"], "price": {key: found[part_id][key] for key in _PRICE_KEYS}}
             for part_id in part_ids
         ])
 
-    columns = "status, problem, stock, listings, lifecycle, dropped, tier, unit_price, as_of, price, priced_with"
+    columns = "status, health, changes_at, problem, stock, listings, lifecycle, dropped, tier, unit_price, as_of, price, priced_with"
+    values = ", ".join("n." + name.strip() for name in columns.split(","))
     update = [part_id for part_id in ids if part_id in mine]
     insert = [part_id for part_id in ids if part_id not in mine and part_id not in held]
     if update:
         conn.execute(
             f"UPDATE supply_part_summaries s SET ({columns}, version, seen, snap, own, computed_at) = "
-            f"(n.status, n.problem, n.stock, n.listings, n.lifecycle, n.dropped, n.tier, n.unit_price, n.as_of, n.price, n.priced_with, %s, %s, %s, {freshness.OWN_SQL}, NOW()) "
+            f"({values}, %s, %s, %s, {freshness.OWN_SQL}, NOW()) "
             f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) WHERE s.part_id = n.part_id",
             (SUMMARY_VERSION, *seen, records(update)),
         )
     if insert:
         conn.execute(
             f"INSERT INTO supply_part_summaries (part_id, {columns}, version, seen, snap, own, computed_at) "
-            f"SELECT n.part_id, {', '.join('n.' + name.strip() for name in columns.split(','))}, %s, %s, %s, {freshness.OWN_SQL}, NOW() "
+            f"SELECT n.part_id, {values}, %s, %s, %s, {freshness.OWN_SQL}, NOW() "
             f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) ON CONFLICT DO NOTHING",
             (SUMMARY_VERSION, *seen, records(insert)),
         )
@@ -356,7 +386,6 @@ def _summaries(
     items = []
     for row in rows:
         mine = sums[row["id"]]
-        lifecycle = Lifecycle(mine["lifecycle"])
         items.append({
             "id": row["id"],
             "mpn": row["mpn"],
@@ -365,7 +394,6 @@ def _summaries(
             "manufacturer_provisional": bool(row["maker_provisional"]),
             "watch": _watch_dto(row),
             "tracking": _tracking_dto(row),
-            "status": part_status(mine["stock"], row["threshold"], lifecycle, mine["problem"]).value,
             **mine,
             "used_in": len(used.get(row["id"], ())),
             "jlc": jlc.get(row["id"]),
@@ -1101,7 +1129,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "packaging": _packaging_state(conn, part_id),
         "preferred_connector_id": preferences.get(conn, part_id),
         "trade": trade_marks.state(conn, part_id),
-        "status": part_status(kept["stock"], watch_row["threshold"], lifecycle, problem).value,
+        "status": kept["status"],
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),
         "stock": {

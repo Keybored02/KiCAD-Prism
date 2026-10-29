@@ -129,7 +129,7 @@ class SettingsApiTests(unittest.TestCase):
         response = self.call("GET", role="qa")
         self.assertEqual(response.status, 200)
         self.assertEqual(response.json["settings"], response.json["defaults"])
-        self.assertEqual(len(response.json["checks"]), 20)
+        self.assertEqual(len(response.json["checks"]), 21)
         self.assertEqual(response.json["currencies"], ["EUR"], "no rates yet: the euro, which needs none")
         self.assertEqual(self.call("GET", role="viewer").status, 403)
 

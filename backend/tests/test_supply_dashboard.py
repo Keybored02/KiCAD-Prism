@@ -38,6 +38,10 @@ class DashboardTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
+        # Summaries are assessed at the time the fixtures read at, so their reads are not late.
+        patcher = unittest.mock.patch("app.services.supply.parts_view._now", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.insights_page.forget()
         with self.store.connection() as conn:
             for table in ("supply_part_insights", "supply_figure_history", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_alerts"):
