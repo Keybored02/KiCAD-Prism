@@ -408,13 +408,13 @@ class ForecastDbTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertIsNone(inputs.similar_shares(conn, self.part_id, START))
 
-    def test_the_forecast_endpoint_and_the_track_record(self) -> None:
+    def test_the_forecast_endpoint_and_the_track_record_on_the_insights_read(self) -> None:
         self.falling(self.listing(self.cid, "FALL-SKU"), end=datetime.now(timezone.utc))
         reply = self.get(f"/api/supply/parts/{self.part_id}/forecast", "quantity=50")
         self.assertEqual(reply.status, 200, reply.text)
         self.assertEqual(reply.json["quantity"], 50)
         self.assertEqual(self.get("/api/supply/parts/nope/forecast").status, 404)
-        record = self.get("/api/supply/forecasts/track-record").json
+        record = self.get("/api/supply/forecasts/insights").json["track_record"]
         self.assertEqual({m["target"] for m in record["models"]}, {"runout", "back_in", "out_4w", "can_buy_4w", "can_buy_8w", "price_30", "price_90", "lead_90", "eol_12"})
         self.assertTrue(all(m["state"] == "learning" for m in record["models"]))
         self.assertEqual(self.get(f"/api/supply/parts/{self.part_id}/forecast", "quantity=0").status, 422)

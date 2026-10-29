@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_supply_reader
 from app.services.supply import parts
-from app.services.supply.forecast import store, views
+from app.services.supply.forecast import views
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -49,14 +49,5 @@ async def forecasts_insights(_user: AuthenticatedUser = Depends(require_supply_r
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return views.insights_page(conn)
-
-    return await _run(read)
-
-
-@router.get("/forecasts/track-record")
-async def track_record(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            return store.track_record(conn)
 
     return await _run(read)
