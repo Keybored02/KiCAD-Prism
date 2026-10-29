@@ -10,14 +10,12 @@ from __future__ import annotations
 from typing import Iterable
 
 from app.services.supply import freshness
-from app.services.supply.assessment import settings as rules
+from app.services.supply import settings as supply_settings
 from app.services.supply.audit import actor_text, write_audit
 
 
 def default(conn) -> int:
-    from app.services.supply.assessment import settings_store  # settings_store drops caches through this module
-
-    return settings_store.load(conn).price_quantity
+    return supply_settings.load(conn).pricing.quantity
 
 
 def of_parts(conn, part_ids: Iterable[str], fallback: int | None = None) -> dict[str, int]:
@@ -44,7 +42,7 @@ def set_for_part(conn, part_id: str, quantity: int | None, actor: str) -> dict[s
     """Give a part its own quantity, or take it back to the default with ``None``."""
 
     actor = actor_text(actor)
-    low, high = rules.PRICE_QUANTITY_RANGE
+    low, high = supply_settings.PRICE_QUANTITY_RANGE
     if quantity is not None and (isinstance(quantity, bool) or not isinstance(quantity, int) or not low <= quantity <= high):
         raise ValueError(f"The price quantity must be a whole number from {low:,} to {high:,}.")
     if conn.execute("SELECT 1 FROM supply_parts WHERE id = %s", (part_id,)).fetchone() is None:

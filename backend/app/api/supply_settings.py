@@ -1,4 +1,4 @@
-"""Supply settings API: what the assessment weighs.
+"""Supply settings API: what the assessment weighs, prices, alerts and spares (``supply/settings.py``).
 
 Everyone who can read supply data sees the settings and the defaults. Changing them is for administrators.
 """
@@ -14,8 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply import fx, maker_seeds, number_suffixes
+from app.services.supply import settings as workspace
 from app.services.supply.assessment import settings as rules
-from app.services.supply.assessment import settings_store
 
 router = APIRouter(prefix="/api/supply/settings", tags=["supply"])
 
@@ -34,7 +34,7 @@ class AssessmentSettingsBody(BaseModel):
     spares_others: float = 0.0
     alert_price_rise_percent: int = 20
     alert_likely_out_percent: int = 70
-    base_currency: str = Field(default_factory=lambda: rules.DEFAULTS.base_currency)
+    base_currency: str = Field(default_factory=lambda: workspace.DEFAULTS.pricing.base_currency)
     price_quantity: int = 100
     prefer_distributors: bool = False
     distributor_order: list[str] = []
@@ -52,16 +52,16 @@ def _currencies(conn, current: str) -> list[str]:
     return sorted({"EUR", current, *fx.latest(conn).per_eur})
 
 
-def _view(conn, current: rules.AssessmentSettings) -> dict[str, Any]:
+def _view(conn, current: workspace.Settings) -> dict[str, Any]:
     return {
-        "settings": rules.to_dto(current),
-        "defaults": rules.to_dto(rules.DEFAULTS),
+        "settings": workspace.to_dto(current),
+        "defaults": workspace.to_dto(workspace.DEFAULTS),
         "checks": [{"id": check, "label": label, "area": rules.CHECK_AREA[check]} for check, label in rules.CHECK_LABELS.items()],
         "ranges": {"lead_time_days": list(rules.LEAD_TIME_RANGE), "last_buy_error_days": list(rules.LAST_BUY_ERROR_RANGE), "late_hours": list(rules.LATE_HOURS_RANGE),
-                   "spares": list(rules.SPARES_RANGE), "alert_price_rise_percent": list(rules.ALERT_PRICE_RISE_RANGE),
-                   "alert_likely_out_percent": list(rules.ALERT_LIKELY_OUT_RANGE),
-                   "price_quantity": list(rules.PRICE_QUANTITY_RANGE)},
-        "currencies": _currencies(conn, current.base_currency),
+                   "spares": list(workspace.SPARES_RANGE), "alert_price_rise_percent": list(workspace.ALERT_PRICE_RISE_RANGE),
+                   "alert_likely_out_percent": list(workspace.ALERT_LIKELY_OUT_RANGE),
+                   "price_quantity": list(workspace.PRICE_QUANTITY_RANGE)},
+        "currencies": _currencies(conn, current.pricing.base_currency),
     }
 
 
@@ -147,7 +147,7 @@ async def remove_number_ending(key: str, admin: AuthenticatedUser = Depends(requ
 async def get_assessment_settings(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return _view(conn, settings_store.load(conn))
+            return _view(conn, workspace.load(conn))
 
     return await _run(read)
 
@@ -158,6 +158,6 @@ async def put_assessment_settings(
 ) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return _view(conn, settings_store.save(conn, body.model_dump(), admin.email))
+            return _view(conn, workspace.save_form(conn, body.model_dump(), admin.email))
 
     return await _run(run)

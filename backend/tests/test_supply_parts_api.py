@@ -676,15 +676,15 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(self.part_row("QTY2")["unit_price"], "0.2", "the list follows the part's quantity at once")
         detail = self.call("GET", f"/api/supply/parts/{part_id}").json["price"]
         self.assertEqual((detail["quantity"], detail["own"], detail["headline"]["unit_price"]), (1000, True, "0.2"))
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         def put_back() -> None:
             with self.store.connection() as conn:
-                settings_store.reset(conn, "admin@example.com")
+                supply_settings.reset(conn, "admin@example.com")
 
         self.addCleanup(put_back)
         with self.store.connection() as conn:
-            settings_store.save(conn, {"price_quantity": 1}, "admin@example.com")
+            supply_settings.save_form(conn, {"price_quantity": 1}, "admin@example.com")
         self.assertEqual(self.part_row("QTY2")["unit_price"], "0.2", "a part's own quantity wins over the default")
         self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": None})
         self.assertEqual(self.part_row("QTY2")["unit_price"], "0.5", "back on the default, now 1")
