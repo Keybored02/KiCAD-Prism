@@ -44935,6 +44935,7 @@
     },
     "/api/v1/supply/inventory-sources/{source_id}/unmatched": {
       "get": {
+        "description": "The source's unmatched parts, waiting ones first and largest first; ``q`` searches IPN, MPN, maker and name, ``limit`` and\n``offset`` page them. Without ``limit``, every one.",
         "operationId": "list_unmatched_parts",
         "parameters": [
           {
@@ -44944,6 +44945,46 @@
             "schema": {
               "title": "Source Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 100,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           }
         ],
