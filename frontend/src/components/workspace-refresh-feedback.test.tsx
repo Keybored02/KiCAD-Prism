@@ -41,9 +41,7 @@ describe("workspace refresh feedback", () => {
     clearWorkspaceDataCache();
     api.fetchJson.mockReset();
     workspaceJson.mockReset();
-    // The project cards' build answers come from Supply; they are not the workspace's reads.
-    api.fetchJson.mockImplementation((url: unknown, ...rest: unknown[]) =>
-      String(url).includes("/api/supply/projects/build-answers") ? Promise.resolve({ projects: {} }) : workspaceJson(url, ...rest));
+    api.fetchJson.mockImplementation((url: unknown, ...rest: unknown[]) => workspaceJson(url, ...rest));
     api.fetchApi.mockReset();
     api.fetchApi.mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));

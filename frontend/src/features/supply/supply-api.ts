@@ -47,7 +47,8 @@ import type {
   SupplyWatch,
   UpdateSupplyConnectorInput,
   UpdateWatchInput,
-  WatchPackaging, SupplyBuildAnswer } from "@/types/supply";
+  WatchPackaging,
+} from "@/types/supply";
 
 const BASE = "/api/supply";
 
@@ -338,11 +339,6 @@ export function listSupplyParts(scope: PartsScope, query: string, signal?: Abort
 /** The catalog component that has a part, or null data when the library has none. */
 export function getLibraryComponentOf(partId: string, signal?: AbortSignal): Promise<{ component_id: string | null }> {
   return fetchJson<{ component_id: string | null }>(`${BASE}/parts/${encodeURIComponent(partId)}/library-component`, { signal }, "Could not look the component up");
-}
-
-/** Each tracked project the caller may see, with its build answer at the usual build. */
-export async function getBuildAnswers(signal?: AbortSignal): Promise<Record<string, SupplyBuildAnswer>> {
-  return (await fetchJson<{ projects: Record<string, SupplyBuildAnswer> }>(`${BASE}/projects/build-answers`, { signal }, "Could not load the build answers")).projects;
 }
 
 export function getSupplyDashboard(signal?: AbortSignal): Promise<SupplyDashboard> {

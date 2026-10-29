@@ -4945,13 +4945,6 @@ class GeneratedClient:
             "/api/v1/supply/budget",
         )
 
-    def build_answers(self) -> dict[str, Any]:
-        """Build Answers"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/projects/build-answers",
-        )
-
     def build_usage(self) -> dict[str, int]:
         """Build Usage"""
         return self._request(

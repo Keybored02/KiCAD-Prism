@@ -64,8 +64,7 @@ project); the project's own tab is `project-supply-tab.tsx`, mounted by
 `frontend/src/pages/ProjectDetailPage.tsx`, with `project-headline.tsx`,
 `project-cost-*.tsx`, `project-parts-list.tsx`, `project-read-now.tsx`.
 Tracking a project is the `track-*.tsx` dialog steps and
-`use-track-project.ts`. The project cards' chip is `project-supply-chip.tsx`
-(`useBuildAnswers`).
+`use-track-project.ts`.
 
 **Insights** — `insights-view.tsx`, `insights-sections.tsx`,
 `insights-shown.ts` (which sections have data), `runway-*.tsx`,

@@ -47381,30 +47381,6 @@
         ]
       }
     },
-    "/api/v1/supply/projects/build-answers": {
-      "get": {
-        "description": "The build answer of each tracked project the caller may see, for the project cards. Never calls a distributor.",
-        "operationId": "build_answers",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Build Answers",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Build Answers",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
     "/api/v1/supply/projects/{project_id}/bom-comments": {
       "get": {
         "operationId": "list_comments",

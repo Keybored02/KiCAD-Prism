@@ -294,21 +294,6 @@ def refresh_rollups(conn) -> int:
     return worked
 
 
-def build_answers(conn) -> dict[str, dict[str, Any]]:
-    """Every tracked project's build answer at its usual build, from the rollup its page shows: what its card says."""
-
-    found: dict[str, dict[str, Any]] = {}
-    for project in tracking.list_tracked_projects(conn):
-        rollup = usual_rollup(conn, project, (project["variants"] or [""])[0])
-        if rollup is None:
-            continue
-        found[project["project_id"]] = {
-            "boards": rollup["can_build"], "build_quantity": int(project["build_quantity"]), "short": int(rollup["short"]),
-            "unchecked": int(rollup["not_tracked"]), "test_data": bool(rollup.get("test_data")),
-        }
-    return found
-
-
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
     """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the project's own
     spares when it is tracked and has them, else the workspace's."""
