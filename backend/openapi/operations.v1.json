@@ -139,11 +139,6 @@
     "path": "/api/v1/jobs/benchmark-metrics",
     "typed": true
   },
-  "bom_health": {
-    "method": "GET",
-    "path": "/api/v1/supply/projects/{project_id}/bom-health",
-    "typed": true
-  },
   "browse_library_assets": {
     "method": "GET",
     "path": "/api/v1/catalog/assets/browse",
@@ -254,11 +249,6 @@
     "path": "/api/v1/supply/parts/{part_id}/trade-mark",
     "typed": true
   },
-  "close_notice": {
-    "method": "POST",
-    "path": "/api/v1/supply/notices/{notice_id}/close",
-    "typed": true
-  },
   "compare_component_revisions": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/revisions/compare",
@@ -302,6 +292,11 @@
   "costing_zip": {
     "method": "GET",
     "path": "/api/v1/supply/projects/{project_id}/costing.zip",
+    "typed": true
+  },
+  "count_unmatched_parts": {
+    "method": "GET",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/unmatched/counts",
     "typed": true
   },
   "create_anchored_comment": {
@@ -394,6 +389,11 @@
     "path": "/api/v1/settings/webhooks",
     "typed": true
   },
+  "create_work_item": {
+    "method": "POST",
+    "path": "/api/v1/supply/work-items",
+    "typed": true
+  },
   "cross_reference_of": {
     "method": "GET",
     "path": "/api/v1/supply/parts/{part_id}/cross-reference",
@@ -417,6 +417,21 @@
   "decide_alternate": {
     "method": "POST",
     "path": "/api/v1/supply/components/{component_id}/alternates/{part_id}/decision",
+    "typed": true
+  },
+  "decide_dismissal": {
+    "method": "POST",
+    "path": "/api/v1/supply/ending/dismissals/{decision_id}/{verdict}",
+    "typed": true
+  },
+  "decide_mute": {
+    "method": "POST",
+    "path": "/api/v1/supply/mutes/{decision_id}/{verdict}",
+    "typed": true
+  },
+  "decide_work_item": {
+    "method": "POST",
+    "path": "/api/v1/supply/work-items/{item_id}/state",
     "typed": true
   },
   "declare_substance": {
@@ -804,6 +819,11 @@
     "path": "/api/v1/admin/trackers/connectors/{connector_id}",
     "typed": true
   },
+  "get_connector_push_token": {
+    "method": "GET",
+    "path": "/api/v1/supply/connectors/{target_id}/push-token",
+    "typed": true
+  },
   "get_current_session_user": {
     "method": "GET",
     "path": "/api/v1/auth/me",
@@ -867,6 +887,11 @@
   "get_inline_component": {
     "method": "GET",
     "path": "/api/v1/remote-provider/components/{component_id}/inline",
+    "typed": true
+  },
+  "get_inventory_source_push_token": {
+    "method": "GET",
+    "path": "/api/v1/supply/inventory-sources/{target_id}/push-token",
     "typed": true
   },
   "get_job": {
@@ -952,11 +977,6 @@
   "get_output_placement": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/placement",
-    "typed": true
-  },
-  "get_overview": {
-    "method": "GET",
-    "path": "/api/v1/supply/overview",
     "typed": true
   },
   "get_part": {
@@ -1209,6 +1229,11 @@
     "path": "/api/v1/workspace/bootstrap",
     "typed": true
   },
+  "ignore_unmatched_parts": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/unmatched/ignore",
+    "typed": true
+  },
   "impedance_template": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/impedance-template.csv",
@@ -1262,6 +1287,16 @@
   "insights_risk_csv": {
     "method": "GET",
     "path": "/api/v1/supply/insights/risk.csv",
+    "typed": true
+  },
+  "issue_connector_push_token": {
+    "method": "POST",
+    "path": "/api/v1/supply/connectors/{target_id}/push-token",
+    "typed": true
+  },
+  "issue_inventory_source_push_token": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources/{target_id}/push-token",
     "typed": true
   },
   "keep_usual_build": {
@@ -1534,6 +1569,11 @@
     "path": "/api/v1/settings/webhooks",
     "typed": true
   },
+  "list_work_items": {
+    "method": "GET",
+    "path": "/api/v1/supply/work-items",
+    "typed": true
+  },
   "live": {
     "method": "GET",
     "path": "/api/v1/health/live",
@@ -1567,11 +1607,6 @@
   "market_history": {
     "method": "GET",
     "path": "/api/v1/supply/market/history",
-    "typed": true
-  },
-  "market_overview": {
-    "method": "GET",
-    "path": "/api/v1/supply/market",
     "typed": true
   },
   "metadata_batch_report": {
@@ -1657,11 +1692,6 @@
   "other_maker": {
     "method": "POST",
     "path": "/api/v1/supply/review/choices/{part_id}/other",
-    "typed": true
-  },
-  "overview": {
-    "method": "GET",
-    "path": "/api/v1/supply/tracking",
     "typed": true
   },
   "part_compliance": {
@@ -1774,6 +1804,11 @@
     "path": "/api/v1/supply/projects/{project_id}/supply",
     "typed": true
   },
+  "project_parts_page": {
+    "method": "GET",
+    "path": "/api/v1/supply/projects/{project_id}/parts",
+    "typed": true
+  },
   "project_progress": {
     "method": "GET",
     "path": "/api/v1/supply/tracking/projects/{project_id}/progress",
@@ -1819,6 +1854,16 @@
     "path": "/api/v1/projects/{project_id}/comments/push",
     "typed": true
   },
+  "push_connector_offers": {
+    "method": "POST",
+    "path": "/api/v1/supply/connectors/{connector_id}/offers",
+    "typed": true
+  },
+  "push_inventory_levels": {
+    "method": "POST",
+    "path": "/api/v1/supply/inventory-sources/{source_id}/levels",
+    "typed": true
+  },
   "put_alert_rules": {
     "method": "PUT",
     "path": "/api/v1/supply/parts/{part_id}/alert-rules",
@@ -1852,6 +1897,11 @@
   "read_part_now": {
     "method": "POST",
     "path": "/api/v1/supply/parts/{part_id}/refresh",
+    "typed": true
+  },
+  "read_part_on_view": {
+    "method": "POST",
+    "path": "/api/v1/supply/parts/{part_id}/view-read",
     "typed": true
   },
   "read_project_bom": {
@@ -2089,6 +2139,16 @@
     "path": "/api/v1/admin/trackers/connectors/{connector_id}/revoke",
     "typed": true
   },
+  "revoke_connector_push_token": {
+    "method": "DELETE",
+    "path": "/api/v1/supply/connectors/{target_id}/push-token",
+    "typed": true
+  },
+  "revoke_inventory_source_push_token": {
+    "method": "DELETE",
+    "path": "/api/v1/supply/inventory-sources/{target_id}/push-token",
+    "typed": true
+  },
   "revoke_mcp_client": {
     "method": "DELETE",
     "path": "/api/v1/auth/mcp-clients/{grant_id}",
@@ -2199,11 +2259,6 @@
     "path": "/api/v1/supply/connectors/{connector_id}/credentials",
     "typed": true
   },
-  "set_datasheet_url": {
-    "method": "PUT",
-    "path": "/api/v1/supply/parts/{part_id}/datasheet-url",
-    "typed": true
-  },
   "set_model_alignment": {
     "method": "PUT",
     "path": "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
@@ -2252,11 +2307,6 @@
   "share_reply_to_tracker": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/share",
-    "typed": true
-  },
-  "signin_status": {
-    "method": "GET",
-    "path": "/api/v1/supply/connectors/{connector_id}/signin",
     "typed": true
   },
   "snooze_alert": {
@@ -2357,11 +2407,6 @@
   "track_project": {
     "method": "PUT",
     "path": "/api/v1/supply/tracking/projects/{project_id}",
-    "typed": true
-  },
-  "track_record": {
-    "method": "GET",
-    "path": "/api/v1/supply/forecasts/track-record",
     "typed": true
   },
   "tracker_webhook": {
@@ -2494,6 +2539,11 @@
     "path": "/api/v1/settings/webhooks/{webhook_id}",
     "typed": true
   },
+  "update_work_item": {
+    "method": "PATCH",
+    "path": "/api/v1/supply/work-items/{item_id}",
+    "typed": true
+  },
   "upload_comment_attachment": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comment-attachments",
@@ -2544,11 +2594,6 @@
     "path": "/api/v1/catalog/components/{component_id}/audit/verify",
     "typed": true
   },
-  "waiting": {
-    "method": "GET",
-    "path": "/api/v1/supply/packaging/waiting",
-    "typed": true
-  },
   "watch": {
     "method": "POST",
     "path": "/api/v1/supply/bom/watch",
@@ -2557,6 +2602,11 @@
   "withdraw_build_approval": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals/withdraw",
+    "typed": true
+  },
+  "work_item_history": {
+    "method": "GET",
+    "path": "/api/v1/supply/work-items/{item_id}/history",
     "typed": true
   },
   "workflow_summary": {
