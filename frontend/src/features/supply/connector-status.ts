@@ -1,4 +1,5 @@
 import { type SupplyConnector } from "@/types/supply";
+import { formatDay } from "./supply-format";
 
 export type ConnectorTone = "success" | "warning" | "destructive" | "outline";
 
@@ -30,7 +31,7 @@ export function clockTime(iso: string, now: number = Date.now()): string {
   const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86_400_000);
   if (days === 0) return time;
   if (days === 1) return `tomorrow ${time}`;
-  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+  return `${formatDay(iso)} ${time}`;
 }
 
 /** "Calls slowed until tomorrow 09:10", or empty when they are not. */
@@ -92,11 +93,4 @@ export function failureWords(code: string, server: string): string {
     default:
       return `Can't read ${server}'s answer`;
   }
-}
-
-/** A short local date and time for an ISO timestamp. */
-export function formatWhen(iso: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }

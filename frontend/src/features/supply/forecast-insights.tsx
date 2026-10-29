@@ -5,7 +5,7 @@ import { ChartCard } from "./chart-card";
 import { ComingUpCard } from "./dashboard-forecast";
 import { ModelChip } from "./forecast-chip";
 import { getForecastInsights } from "./supply-api";
-import { formatPrice } from "./supply-format";
+import { formatLeadTime, formatPrice } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
 const STATE_LABEL = { shown: "Shown", learning: "Learning", paused: "Paused" } as const;
@@ -28,7 +28,7 @@ function LeadTimes({ page }: { page: ForecastInsights }) {
               <span className="min-w-0 truncate">{row.scope.replace(/^category:/, "")}</span>
               <span className="shrink-0 tabular-nums">
                 <strong>{DIRECTION[row.direction]}</strong>{" "}
-                <span className="text-xs text-muted-foreground">{Math.round(row.now)} d now, {Math.round(row.low)} to {Math.round(row.high)} d in 3 months</span>
+                <span className="text-xs text-muted-foreground">{formatLeadTime(Math.round(row.now))} now, {formatLeadTime(Math.round(row.low))} to {formatLeadTime(Math.round(row.high))} in 3 months</span>
               </span>
             </li>
           ))}
@@ -40,7 +40,7 @@ function LeadTimes({ page }: { page: ForecastInsights }) {
 const METRIC = { out_of_stock: "out of stock", median_lead_time_days: "median lead time", dropped: "dropped by every distributor", lifecycle_risk: "reported as ending" } as const;
 
 function percent(metric: string, value: number): string {
-  return metric === "median_lead_time_days" ? `${Math.round(value)} days` : `${Math.round(value * 100)}%`;
+  return metric === "median_lead_time_days" ? formatLeadTime(Math.round(value)) : `${Math.round(value * 100)}%`;
 }
 
 function Warnings({ page }: { page: ForecastInsights }) {

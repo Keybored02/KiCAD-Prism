@@ -1,11 +1,6 @@
 import type { SupplyHeadlinePrice, SupplyListing, SupplyPartRow } from "@/types/supply";
 import { formatPrice } from "./supply-format";
 
-/** A lead time in the unit people think in: days under two weeks, weeks above. */
-export function leadText(days: number): string {
-  return days < 14 ? `${days} d` : `${Math.round(days / 7)} w`;
-}
-
 export function daysSince(day: string, now: number): number {
   return Math.max(0, Math.floor((now - Date.parse(`${day}T00:00:00Z`)) / 86_400_000));
 }

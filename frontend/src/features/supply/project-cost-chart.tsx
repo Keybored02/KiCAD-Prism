@@ -3,7 +3,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } 
 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { ProjectCostPoint } from "@/types/supply";
-import { formatDay } from "./chart-format";
+import { formatDay } from "./supply-format";
 import { formatAxisPrice, formatPrice } from "./supply-format";
 
 const CONFIG: ChartConfig = { cost: { label: "Cost of a board", color: "hsl(var(--primary))" } };
@@ -49,7 +49,7 @@ export function CostHistoryChart({ points, currency }: { points: ReadonlyArray<{
       <ChartContainer config={CONFIG} className="aspect-auto h-32 w-full">
         <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickFormatter={formatDay} />
+          <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickFormatter={(value) => formatDay(String(value))} />
           <YAxis width={56} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(value: number) => formatAxisPrice(value, currency)} />
           <Tooltip cursor={false} formatter={(value) => formatPrice(String(value), currency, 2)} labelFormatter={(label) => formatDay(String(label))} />
           <Line dataKey="cost" type="monotone" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={false} />

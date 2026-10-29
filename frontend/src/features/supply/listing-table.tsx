@@ -8,7 +8,7 @@ import { PackagingChip } from "./packaging-chip";
 import { TestDataChip } from "./test-data-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
+import { formatAgo, formatLeadTime, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
 export interface FollowChoice {
@@ -73,7 +73,7 @@ export function ListingTable({
                 <Fact label="Stock" value={formatStock(offer.stock)} />
                 <Fact label={`Price at ${firstBreak?.[0] ?? 1}`} value={firstBreak ? formatPrice(firstBreak[1], offer.currency) : "None"} />
                 <Fact label="Order" value={`Min ${offer.moq.toLocaleString()}${offer.order_multiple > 1 ? `, multiples of ${offer.order_multiple.toLocaleString()}` : ""}`} />
-                <Fact label="Lead time" value={offer.lead_time_days === null ? (offer.stock > 0 ? "In stock" : "Not given") : `${offer.lead_time_days} days`} />
+                <Fact label="Lead time" value={offer.lead_time_days === null ? (offer.stock > 0 ? "In stock" : "Not given") : formatLeadTime(offer.lead_time_days)} />
                 <Fact label="Read" value={formatAgo(offer.fetched_at)} />
                 {offer.incoming.length > 0 ? (
                   <Fact label="On order" value={offer.incoming.map(([quantity, date]) => `${quantity.toLocaleString()}${date ? ` due ${date}` : ""}`).join(", ")} />

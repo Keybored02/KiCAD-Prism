@@ -3,7 +3,7 @@ import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, Tooltip, XAxis
 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import type { PartForecast, PartHistory } from "@/types/supply";
-import { formatDay } from "./chart-format";
+import { formatDay } from "./supply-format";
 import { BAND_KEY, FORECAST_KEY, forecastKeyOf, historyRows, readingsDomain, TOTAL_KEY, withDistributorForecasts, withForecast, type HistoryKind } from "./part-history-model";
 import { formatPrice } from "./supply-format";
 
@@ -92,7 +92,7 @@ export default function PartHistoryChart({ history, kind, hidden, threshold = nu
       <ChartContainer config={config} className={`aspect-auto ${height} w-full`}>
         <ComposedChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickMargin={6} tickFormatter={formatDay} />
+          <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickMargin={6} tickFormatter={(value) => formatDay(String(value))} />
           <YAxis
             width={kind === "stock" ? 48 : 60} tickLine={false} axisLine={false} domain={domain ?? (kind === "stock" ? [0, "auto"] : ["auto", "auto"])} allowDataOverflow={domain !== null}
             tickFormatter={(value: number) => format(value)}

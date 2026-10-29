@@ -5,18 +5,14 @@ import { Button } from "@/components/ui/button";
 import type { SupplyBomLineResult } from "@/types/supply";
 import { AlternatesNote } from "./alternates-note";
 import { untrackedLabel, type RowSupply } from "./bom-supply";
+import { PriceAtQuantity } from "./price-at-quantity";
 import { JlcIcon, MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
-import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
+import { formatLeadTime, formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
 import { StoresCell } from "./stores-cell";
 import { TestDataChip } from "./test-data-chip";
 
 const MUTED = <span className="text-muted-foreground">{"-"}</span>;
-
-function leadTime(days: number | null | undefined): string {
-  if (days === null || days === undefined) return "";
-  return days % 7 === 0 && days >= 14 ? `${days / 7} wk` : `${days} d`;
-}
 
 function manufacturerHint(result: SupplyBomLineResult): string {
   if (result.manufacturer_match === "missing") return "Matched on the part number alone: this line names no manufacturer.";
@@ -67,7 +63,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
       );
     case "Unit price":
       if (result.bought_with) return <span className="text-muted-foreground" title="This part is on more than one line and is bought once">with another line</span>;
-      return buy ? <span>{formatPrice(buy.unit_price, buy.currency)}<span className="text-muted-foreground"> @ {buy.quantity.toLocaleString()}</span><TestDataChip show={buy.test_data} /></span> : MUTED;
+      return buy ? <span><PriceAtQuantity price={formatPrice(buy.unit_price, buy.currency)} quantity={buy.quantity} /><TestDataChip show={buy.test_data} /></span> : MUTED;
     case "Extended":
       if (result.bought_with) return MUTED;
       return buy ? (
@@ -83,7 +79,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
       if (result.bought_with) return MUTED;
       return buy ? <span className="truncate">{buy.connector_name}<TestDataChip show={buy.test_data} /></span> : MUTED;
     case "Lead time":
-      return leadTime(result.lead_time_days) ? <span>{leadTime(result.lead_time_days)}</span> : MUTED;
+      return formatLeadTime(result.lead_time_days) ? <span>{formatLeadTime(result.lead_time_days)}</span> : MUTED;
     default:
       return null;
   }

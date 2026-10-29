@@ -215,7 +215,7 @@ describe("the project Supply tab", () => {
     renderTab();
     const table = await screen.findByRole("region", { name: "Parts" });
     await within(table).findByText("GOOD-1");
-    expect(within(table).getAllByText(/@ 20/).length).toBeGreaterThan(0);
+    expect(within(table).getAllByText(/× 20/).length).toBeGreaterThan(0);
     expect(within(table).getByText(/20 × €0\.93/)).toBeTruthy();
   });
 

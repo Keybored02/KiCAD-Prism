@@ -1,4 +1,5 @@
 import type { ForecastChance, ForecastModelState } from "@/types/supply";
+import { formatDay } from "./supply-format";
 
 const DAY_MS = 86_400_000;
 const NEAR_DAYS = 14;
@@ -17,19 +18,13 @@ export function dateText(iso: string, today: string): string {
   const days = daysBetween(today, iso);
   if (days <= 0) return "today";
   if (days <= NEAR_DAYS) return days === 1 ? "tomorrow" : `in about ${days} days`;
-  return absoluteDate(iso, today);
-}
-
-/** A date as a date, however near: "2 Dec". */
-export function absoluteDate(iso: string, today: string): string {
-  const sameYear = iso.slice(0, 4) === today.slice(0, 4);
-  return new Date(utc(iso)).toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }), timeZone: "UTC" });
+  return formatDay(iso, today);
 }
 
 /** "on 14 Dec" beyond two weeks, "in about 5 days" within. */
 export function whenText(iso: string, today: string): string {
   const days = daysBetween(today, iso);
-  return days <= NEAR_DAYS ? dateText(iso, today) : `on ${absoluteDate(iso, today)}`;
+  return days <= NEAR_DAYS ? dateText(iso, today) : `on ${formatDay(iso, today)}`;
 }
 
 /** "around 14 Dec (between 2 Dec and 9 Jan)", or "in about 5 days (3 to 9 days)" when it is near. */
@@ -40,7 +35,7 @@ export function rangeText(low: string, median: string, high: string, today: stri
     return `${dateText(median, today)} (${a === b ? `${a}` : `${a} to ${b}`} days)`;
   }
   const lead = daysBetween(today, median) <= NEAR_DAYS ? dateText(median, today) : `around ${dateText(median, today)}`;
-  return `${lead} (between ${absoluteDate(low, today)} and ${absoluteDate(high, today)})`;
+  return `${lead} (between ${formatDay(low, today)} and ${formatDay(high, today)})`;
 }
 
 /** "Likely (78%)": the word, with its number. */

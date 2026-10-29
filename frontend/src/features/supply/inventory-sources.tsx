@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { InventorySource } from "@/types/supply";
-import { formatWhen } from "./connector-status";
 import { deleteInventorySource, listInventorySources, syncInventorySource, updateInventorySource } from "./inventory-api";
+import { formatDateTime } from "./supply-format";
 import { InventoryCategoryDialog, InventorySourceDialog } from "./inventory-source-dialogs";
 
 type Dialog = { kind: "create" } | { kind: "edit" | "category" | "delete"; source: InventorySource };
@@ -170,7 +170,7 @@ function SourceCard({ source, isAdmin, busy, onRead, onToggle, onOpen }: {
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted-foreground">Category</dt><dd>{source.category_id ?? "-"}</dd>
-        <dt className="text-muted-foreground">Last read</dt><dd>{formatWhen(source.last_sync_at) || "-"}{` · every ${source.interval_hours} h`}</dd>
+        <dt className="text-muted-foreground">Last read</dt><dd>{formatDateTime(source.last_sync_at) || "-"}{` · every ${source.interval_hours} h`}</dd>
         <dt className="text-muted-foreground">Parts</dt><dd>{`${source.matched.toLocaleString()} matched · ${source.unmatched.toLocaleString()} unmatched`}</dd>
       </dl>
       {source.last_status === "error" && source.last_error ? <p className="mt-2 truncate text-xs text-destructive" title={source.last_error}>{source.last_error}</p> : null}

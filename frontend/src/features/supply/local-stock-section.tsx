@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LocalStock } from "@/types/supply";
 import { getLocalStock } from "./component-supply-api";
-import { formatWhen } from "./connector-status";
 import { StoresCell } from "./stores-cell";
+import { formatDateTime } from "./supply-format";
 
 const number = (value: number | null, uom: string) => (value === null ? "-" : `${value.toLocaleString()}${uom ? ` ${uom}` : ""}`);
 
@@ -62,7 +62,7 @@ export function LocalStockSection({ componentId }: { componentId: string }) {
                 <td className="px-3 py-1.5 text-right tabular-nums">{number(row.quantity, row.uom)}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums">{row.allocated ? row.allocated.toLocaleString() : "-"}</td>
                 <td className="max-w-32 truncate px-3 py-1.5" title={row.batch}>{row.batch || "-"}</td>
-                <td className="max-w-40 truncate px-3 py-1.5" title={`Read ${formatWhen(row.fetched_at)}${row.stale ? ", last read failed" : ""}`}>
+                <td className="max-w-40 truncate px-3 py-1.5" title={`Read ${formatDateTime(row.fetched_at)}${row.stale ? ", last read failed" : ""}`}>
                   {row.source}{row.stale ? <Badge variant="destructive" className="ml-2">Stale</Badge> : null}
                 </td>
               </tr>

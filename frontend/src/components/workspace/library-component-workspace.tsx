@@ -720,7 +720,7 @@ export function LibraryComponentWorkspace({
         </div>
       </header>
 
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className={`min-h-0 flex-1${activeTab === "sourcing" ? " themed-scrollbar" : ""}`}>
         <main className="mx-auto w-full max-w-screen-2xl p-3">
           {activeTab === "overview" ? <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor} /> : null}
           {activeTab === "assets" ? (

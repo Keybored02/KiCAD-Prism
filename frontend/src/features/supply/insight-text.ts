@@ -1,4 +1,5 @@
 import type { SupplyInsight } from "@/types/supply";
+import { formatLeadTime } from "./supply-format";
 
 const CONFIDENCE_LABEL: Record<SupplyInsight["confidence"], string> = {
   none: "No confidence yet",
@@ -74,7 +75,7 @@ function behaviourLines(insight: SupplyInsight): string[] {
   }
   if (insight.concentration !== null && insight.concentration !== undefined && insight.concentration >= 0.8) lines.push("Nearly all of the stock is at one distributor.");
   const trend = insight.lead_time_trend;
-  if (trend) lines.push(`The quoted lead time went from ${trend.before} to ${trend.after} days since ${trend.since}.`);
+  if (trend) lines.push(`The quoted lead time went from ${formatLeadTime(trend.before)} to ${formatLeadTime(trend.after)} since ${trend.since}.`);
   for (const item of insight.anomalies ?? []) lines.push(`On ${item.day} stock fell from ${item.from.toLocaleString()} to ${item.to.toLocaleString()} in one step, which ordinary use does not do.`);
   const season = insight.seasonality;
   if (season) lines.push(`Over the year it runs highest in ${MONTHS[season.peak - 1]} and lowest in ${MONTHS[season.trough - 1]}.`);

@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Boxes, FolderKanban, LayoutDashboard, LineChart, ShieldAlert, type LucideIcon } from "lucide-react";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { getLibraryComponentOf } from "./supply-api";
@@ -95,16 +96,16 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       <Tabs
         value={view}
         onValueChange={(next) => { if (isSupplyView(next)) setView(next); }}
-        className="gap-0 px-3"
+        className="gap-0 px-3 py-1.5"
       >
-        <TabsList variant="line" className="h-10 gap-2" aria-label="Supply sections">
+        <StudioTabsList aria-label="Supply sections">
           {VIEWS.map(({ id, label, icon: Icon }) => (
-            <TabsTrigger key={id} value={id} className="gap-2 px-2 text-sm">
+            <StudioTabsTrigger key={id} value={id} className="gap-1.5">
               <Icon className="h-4 w-4" />
               {label}
-            </TabsTrigger>
+            </StudioTabsTrigger>
           ))}
-        </TabsList>
+        </StudioTabsList>
       </Tabs>
       </div>
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">

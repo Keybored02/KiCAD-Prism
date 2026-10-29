@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 import type { ReleaseSnapshot } from "@/types/supply";
 import { getReleaseSnapshot, getReleaseSnapshotState, releaseComplianceCsvUrl, type ReleaseSnapshotState } from "./release-check-api";
 import { StatusDot } from "./status-dot";
-import { STATUS_LABEL } from "./supply-format";
+import { formatDateTime, STATUS_LABEL } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
 /** How often a queued snapshot is asked about while the card is open. */
@@ -45,7 +45,7 @@ export function ReleaseSnapshotCard({ projectId, buildId }: { projectId: string;
         <span className="text-xs text-muted-foreground">{STATUS_LABEL[data.status]}</span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {data.assessment.tracked} of {data.assessment.parts} parts tracked, {data.assessment.needing_a_look} needed a look. Taken {new Date(data.created_at).toLocaleString()}.
+        {data.assessment.tracked} of {data.assessment.parts} parts tracked, {data.assessment.needing_a_look} needed a look. Taken {formatDateTime(data.created_at)}.
       </p>
       {data.compliance ? (
         <a className="text-xs underline" href={releaseComplianceCsvUrl(projectId, buildId)}>Compliance draft (CSV, a working document)</a>

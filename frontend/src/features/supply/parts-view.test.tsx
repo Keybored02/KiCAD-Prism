@@ -605,7 +605,7 @@ describe("the watch settings", () => {
     });
     renderView();
     const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;
-    expect(within(row).getByText(`at ${(3000).toLocaleString()}`)).toBeTruthy();
+    expect(within(row).getByText(`× ${(3000).toLocaleString()}`)).toBeTruthy();
   });
 
   it("suggests the manufacturers Prism knows when watching a new part", async () => {

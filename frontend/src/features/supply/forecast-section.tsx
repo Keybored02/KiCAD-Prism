@@ -4,7 +4,7 @@ import type { ForecastModelState, PartForecast } from "@/types/supply";
 import { ModelChip } from "./forecast-chip";
 import { HoverDetails } from "./hover-details";
 import { chanceText, dateText, isGrey, priceRange, rangeText, whenText } from "./forecast-text";
-import { formatPrice } from "./supply-format";
+import { formatLeadTime, formatPrice } from "./supply-format";
 
 function Line({ model, children, why }: { model: ForecastModelState | undefined; children: ReactNode; why: string }) {
   return (
@@ -56,7 +56,7 @@ function priceWhy(forecast: PartForecast): string {
 
 function backWhy(item: NonNullable<PartForecast["back"]>[number]): string {
   if (item.ratio !== null && item.quote_days) {
-    return `${item.name} quoted ${Math.round(item.quote_days / 7)} weeks; its real waits have run ${item.ratio.toFixed(1)} times the quote, so that is what is expected.`;
+    return `${item.name} quoted ${formatLeadTime(item.quote_days)}; its real waits have run ${item.ratio.toFixed(1)} times the quote, so that is what is expected.`;
   }
   const longer = item.beyond_share > 0.1 ? `; in ${Math.round(item.beyond_share * 100)}% of futures it is out longer than any seen` : "";
   return `Stock-outs of this kind have lasted this long before${longer}.`;
@@ -112,7 +112,7 @@ export function ForecastSection({ forecast, currency, titled = true }: {
       {(forecast.back ?? []).map((item) => (
         <Line key={item.connector_id} model={item.state} why={backWhy(item)}>
           {item.name} back <strong>{rangeText(item.low, item.median, item.high, today)}</strong>
-          {item.quote_days ? <span className="text-xs text-muted-foreground"> (quoted {Math.round(item.quote_days / 7)} weeks)</span> : null}
+          {item.quote_days ? <span className="text-xs text-muted-foreground"> (quoted {formatLeadTime(item.quote_days)})</span> : null}
         </Line>
       ))}
       {forecast.price ? (

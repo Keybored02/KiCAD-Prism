@@ -11,7 +11,7 @@ import {
 import type { SupplyAlert } from "@/types/supply";
 import { ALERT_STATE_LABEL, alertTitle, SNOOZE_CHOICES } from "./alert-text";
 import { StatusDot } from "./status-dot";
-import { formatAgo } from "./supply-format";
+import { formatAgo, formatDateTime } from "./supply-format";
 
 interface AlertRowProps {
   alert: SupplyAlert;
@@ -38,7 +38,7 @@ export function AlertRow({ alert, canAct, busy, onOpenPart, onAcknowledge, onSno
           {alert.state === "resolved"
             ? `Cleared ${formatAgo(alert.resolved_at)}`
             : alert.state === "snoozed"
-              ? `Snoozed until ${alert.snoozed_until ? new Date(alert.snoozed_until).toLocaleString() : "later"}`
+              ? `Snoozed until ${alert.snoozed_until ? formatDateTime(alert.snoozed_until) : "later"}`
               : alert.state === "acknowledged"
                 ? `Acknowledged by ${alert.acknowledged_by}`
                 : `Since ${formatAgo(alert.opened_at)}`}

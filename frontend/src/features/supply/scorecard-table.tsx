@@ -1,5 +1,6 @@
 import type { ScorecardRow, SupplyScorecard } from "@/types/supply";
 import { ChartCard } from "./chart-card";
+import { formatLeadTime } from "./supply-format";
 
 const dash = <span className="text-muted-foreground">-</span>;
 
@@ -21,7 +22,7 @@ function Row({ row, minEvents }: { row: ScorecardRow; minEvents: number }) {
         {kept.median_days_late === null ? null : <span className="block text-xs text-muted-foreground">late by {kept.median_days_late} d</span>}
       </td>
       <td className="py-1 text-right tabular-nums" title={row.wait.quoted_days === null ? `Needs ${minEvents} waits` : `Median over ${row.wait.n} waits`}>
-        {row.wait.quoted_days === null || row.wait.real_days === null ? dash : <>{row.wait.quoted_days} d said, {row.wait.real_days} d real</>}
+        {row.wait.quoted_days === null || row.wait.real_days === null ? dash : <>{formatLeadTime(row.wait.quoted_days)} said, {formatLeadTime(row.wait.real_days)} real</>}
       </td>
       <td className="py-1 text-right tabular-nums">{row.in_stock.share === null ? dash : `${Math.round(row.in_stock.share * 100)}%`}</td>
     </tr>

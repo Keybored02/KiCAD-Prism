@@ -25,7 +25,7 @@ describe("the distributor scorecard", () => {
     expect(screen.getByText("5 of 7")).toBeTruthy();
     expect(screen.getByText("6 of 8")).toBeTruthy();
     expect(screen.getByText("late by 12 d")).toBeTruthy();
-    expect(screen.getByText("14 d said, 25 d real")).toBeTruthy();
+    expect(screen.getByText("2 w said, 4 w real")).toBeTruthy();
     expect(screen.getByText("82%")).toBeTruthy();
     expect(screen.getByText("18 d out")).toBeTruthy();
   });
@@ -59,7 +59,7 @@ describe("the restock promises on a part", () => {
     );
     expect(screen.getByText("4,000 due 2026-11-02")).toBeTruthy();
     expect(screen.getByText("kept 2 of 3 here")).toBeTruthy();
-    expect(screen.getByText("back by 2026-10-01 (quoted 84 days), past that day")).toBeTruthy();
+    expect(screen.getByText("back by 2026-10-01 (quoted 12 w), past that day")).toBeTruthy();
     expect(screen.getByText("1 stock-out seen")).toBeTruthy();
   });
 

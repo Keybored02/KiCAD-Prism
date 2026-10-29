@@ -13,6 +13,7 @@ import type { InventorySource, InventoryUnmatchedPart } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
 import { countUnmatchedParts, linkUnmatchedPart, listInventorySources, listUnmatchedParts, setUnmatchedIgnored, type UnmatchedGroup } from "./inventory-api";
 import { SearchBox } from "./search-box";
+import { formatDay } from "./supply-format";
 
 const REASON: Record<InventoryUnmatchedPart["reason"], string> = {
   no_component: "No component",
@@ -38,7 +39,7 @@ function nextRead(source: InventorySource): string {
   const when = new Date(new Date(source.last_sync_at).getTime() + source.interval_hours * 3_600_000);
   if (Number.isNaN(when.getTime())) return "";
   const time = when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return new Date().toDateString() === when.toDateString() ? time : `${when.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+  return new Date().toDateString() === when.toDateString() ? time : `${formatDay(when.toISOString())} ${time}`;
 }
 
 /** The stores item next to the component it is about to be linked to, field by field. */

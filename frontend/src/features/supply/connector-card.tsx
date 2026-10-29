@@ -13,8 +13,9 @@ import { type BudgetConnector, type SupplyCapacity, type SupplyConnector } from 
 import { BudgetDetail } from "./budget-view";
 import { CallBudget, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
+import { formatDateTime } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
-import { clockTime, connectorState, errorCodeLabel, formatWhen, lastCallFailed, resting, slowedText } from "./connector-status";
+import { clockTime, connectorState, errorCodeLabel, lastCallFailed, resting, slowedText } from "./connector-status";
 
 export type ConnectorAction =
   | "edit"
@@ -105,9 +106,9 @@ function lastCallText(connector: SupplyConnector): string {
       const what = connector.last_error_code === "blocked" ? "Refused" : connector.last_error_code === "rate_limited" ? "Rate limited" : `Failed (${errorCodeLabel(connector.last_error_code)})`;
       return `${what} ${clockTime(connector.last_error_at)}, resting until ${clockTime(connector.cooldown_until as string)}`;
     }
-    return `Failed (${errorCodeLabel(connector.last_error_code)}) ${formatWhen(connector.last_error_at)}`;
+    return `Failed (${errorCodeLabel(connector.last_error_code)}) ${formatDateTime(connector.last_error_at)}`;
   }
-  return connector.last_ok_at ? `OK ${formatWhen(connector.last_ok_at)}` : "None yet";
+  return connector.last_ok_at ? `OK ${formatDateTime(connector.last_ok_at)}` : "None yet";
 }
 
 function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connector" | "onAction">) {

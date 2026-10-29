@@ -50,7 +50,7 @@ describe("the part sheet's Forecast section", () => {
     expect(screen.getByText("Likely (78%)")).toBeTruthy();
     expect(screen.getByText("around 14 Dec (between 2 Dec and 9 Jan 2027)")).toBeTruthy();
     expect(screen.getByText(/DigiKey back/)).toBeTruthy();
-    expect(screen.getByText("(quoted 6 weeks)")).toBeTruthy();
+    expect(screen.getByText("(quoted 6 w)")).toBeTruthy();
     expect(screen.getByText(/Out everywhere within 8 weeks:/)).toBeTruthy();
     expect(screen.getByText("Likely (82%)").tagName).toBe("STRONG");
     expect(screen.queryByText(/Chance of an end-of-life change/), "it sits under the outlook, not here").toBeNull();

@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { SupplyFact } from "@/types/supply";
+import { formatDateTime } from "./supply-format";
 import { VendorName } from "./vendor-name";
 
 /** What each distributor states about the part, as it wrote it: RoHS and REACH wording, tariff codes, last date to buy. */
@@ -20,7 +21,7 @@ export function ComplianceFacts({ facts }: { facts: readonly SupplyFact[] }) {
                 {fact.sources.map((source) => (
                   <li key={source.provider}>
                     <span className="break-words">{source.value}</span>
-                    <span className="ml-2 text-xs text-muted-foreground" title={`Seen ${new Date(source.observed_at).toLocaleString()}`}>
+                    <span className="ml-2 text-xs text-muted-foreground" title={`Seen ${formatDateTime(source.observed_at)}`}>
                       <VendorName provider={source.provider} name={source.source} />
                     </span>
                   </li>

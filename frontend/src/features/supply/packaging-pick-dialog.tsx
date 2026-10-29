@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { PackagingListing, PackagingOptions, PackagingSimilar } from "@/types/supply";
 import { PackagingChip } from "./packaging-chip";
 import { applySimilarPicks, clearPackagingPick, getPackagingOptions, pickPackaging } from "./packaging-api";
+import { PriceAtQuantity } from "./price-at-quantity";
+import { formatLeadTime } from "./supply-format";
 
 const money = (item: PackagingListing, quantity: string) => (item.prices[quantity] ? `${item.prices[quantity]} ${item.currency}` : "");
 
@@ -98,9 +100,9 @@ export function PackagingPickDialog({
                     {item.other_number ? <Chip tone="warning">Different number</Chip> : null}
                     <Chip><PackagingChip packaging={item.packaging} reelSize={item.reel_size} inferred={item.packaging_inferred} />{item.packaging === "unknown" ? "Packaging unknown" : null}</Chip>
                     {item.stock !== null ? <Chip>{item.stock.toLocaleString()} in stock</Chip> : null}
-                    {money(item, "100") ? <Chip>{money(item, "100")} at 100</Chip> : null}
+                    {money(item, "100") ? <Chip><PriceAtQuantity price={money(item, "100")} quantity={100} /></Chip> : null}
                     {item.moq !== null ? <Chip>min {item.moq}{(item.order_multiple ?? 1) > 1 ? ` in ${item.order_multiple}s` : ""}</Chip> : null}
-                    {item.lead_time_days !== null ? <Chip>{item.lead_time_days} days</Chip> : null}
+                    {item.lead_time_days !== null ? <Chip>{formatLeadTime(item.lead_time_days)}</Chip> : null}
                     {item.marketplace ? <Chip>Marketplace</Chip> : null}
                   </div>
                 </li>

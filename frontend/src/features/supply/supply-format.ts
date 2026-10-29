@@ -71,6 +71,37 @@ export function formatStock(stock: number | null): string {
   return stock === null ? "None yet" : stock.toLocaleString();
 }
 
+/** A lead time in the unit people think in: days under two weeks, whole weeks above. Empty for no quote. */
+export function formatLeadTime(days: number | null | undefined): string {
+  if (days === null || days === undefined) return "";
+  return days < 14 ? `${days} d` : `${Math.round(days / 7)} w`;
+}
+
+const PLAIN_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** A calendar day ("2026-03-01") or an ISO timestamp as "1 Mar", with the year when it is not `today`'s. */
+export function formatDay(iso: string, today?: string): string {
+  const parts = PLAIN_DAY.exec(iso);
+  const date = parts ? new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))) : new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const year = parts ? Number(parts[1]) : date.getFullYear();
+  const sameYear = year === Number((today ?? String(new Date().getFullYear())).slice(0, 4));
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+    ...(parts ? { timeZone: "UTC" } : {}),
+  });
+}
+
+/** An ISO timestamp as its local date and time, "1 Mar 2026, 10:00". Empty for no time. */
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 /** Shown under a part that has nothing counted, when something is wrong rather than merely unread. */
 export const PROBLEM_LABEL: Record<SupplyProblem, string> = {
   not_found: "No distributor carries this part number",
