@@ -100,7 +100,7 @@ clock on a part's sheet shows its tier and why, and lets you change it.
 
 - **Inbox**: up to eight lines, worst first, each opening where it is acted
   on: a distributor or the stores feed that can't be read (until it reads
-  again the figures behind it may be old), components whose part is ending,
+  again the figures behind it may be old), components whose part is ending (step 6),
   the nearest last-buy deadline in the next month, projects short of their
   usual build or with unchecked lines, open alerts by kind, parts likely out
   in four weeks, and, for QA and administrators, what waits for approval.
@@ -127,8 +127,9 @@ Any part row opens the part's sheet. Read it top to bottom:
   trend. **Read now** asks every distributor again (once every 15 minutes).
 - **Price**: the price at the part's price quantity, its history, and the
   pencil to change the quantity it is priced at.
-- **Outlook**: when the part may end (**Ended**, **Under 2 years**, **2 to 5
-  years**, **No signs of an end**) and the health score with each finding.
+- **Outlook**: whether the part is heading for its end (**Ended**,
+  **Ending**, **Warning signs**, **No signs of an end**), with every signal and
+  date behind it, and the health score with each finding.
 - **Product change notices**, **Listings** (each distributor's products for
   the part), **Alternatives**, **Compliance** (RoHS, REACH, export control).
 
@@ -171,9 +172,19 @@ waiting, so QA checks them against the new part. When BOM lines naming two
 components resolve to the same part, only alternates both components approved
 count for it.
 
-**Alternatives** on a part's sheet suggests candidates (from distributors, and
-graded against the part's parameters). It does not compare footprints or pins:
-check those before you propose one.
+**Alternatives** on a part's sheet suggests candidates with the same value,
+from distributors and from the parts Prism knows, graded by what distributors
+list:
+
+- **Ratings met**: every rating the part lists is listed for the candidate and
+  is the same or better, in the same package.
+- **Similar · N ratings unknown**: the candidate doesn't list some of the
+  part's ratings, so they can't be judged.
+- **Same value, other package**: the board would have to change.
+- **Fails a rating**: a rating is worse, such as a lower voltage. Listed last.
+
+No grade says two parts are interchangeable. Prism doesn't compare footprints,
+pins or operating conditions: check those before you propose one.
 
 ## 8. Clear the review queue
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.supply import discovery, parts, settle
+from app.services.supply import component_parts, discovery, parts, settle
 from app.services.supply.identity import alias_key, match_key
 
 # Another maker's listing of a number (near) is kept on the part and shown there; only the legacy waiting state is queued.
@@ -56,7 +56,7 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
 
 
 def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
-    """What QA and administrators have been asked to approve: waivers proposed on a finding."""
+    """What QA and administrators have been asked to approve: waivers proposed on a finding, and alternates proposed for a component."""
 
     waivers = conn.execute(
         """
@@ -66,7 +66,20 @@ def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
         """,
         (limit,),
     ).fetchall()
-    return {"waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers]}
+    alternates = conn.execute(
+        """
+        SELECT cp.component_id, r.name AS component_name, r.mpn AS component_mpn, cp.part_id, p.mpn, m.name AS manufacturer,
+               cp.created_by AS proposed_by, cp.created_at AS proposed_at
+        FROM component_parts cp JOIN supply_parts p ON p.id = cp.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN components c ON c.id = cp.component_id JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE cp.role = %s AND cp.approval = %s AND c.is_active = 1 ORDER BY cp.created_at LIMIT %s
+        """,
+        (component_parts.ALTERNATE, component_parts.PENDING, limit),
+    ).fetchall() if component_parts.library_present(conn) else []
+    return {
+        "waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers],
+        "alternates": [{**dict(row), "component_id": str(row["component_id"]), "proposed_at": row["proposed_at"].isoformat()} for row in alternates],
+    }
 
 
 def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:

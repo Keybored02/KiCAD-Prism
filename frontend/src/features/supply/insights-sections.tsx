@@ -72,10 +72,10 @@ const LIFECYCLE: Array<{ key: keyof SupplyInsightsPage["lifecycle"]["mix"]; labe
 ];
 const OUTLOOK: Array<{ key: keyof SupplyInsightsPage["lifecycle"]["outlook"]; label: string; tone: string }> = [
   { key: "ended", label: "Ended", tone: "bg-destructive" },
-  { key: "under_2_years", label: "Under 2 years", tone: "bg-destructive/70" },
-  { key: "2_to_5_years", label: "2 to 5 years", tone: "bg-warning" },
+  { key: "under_2_years", label: "Ending", tone: "bg-destructive/70" },
+  { key: "2_to_5_years", label: "Warning signs", tone: "bg-warning" },
   { key: "no_signs", label: "No signs of an end", tone: "bg-success" },
-  { key: "unknown", label: "Unknown", tone: GREY },
+  { key: "unknown", label: "Not enough to say", tone: GREY },
 ];
 
 /** How old the BOM is, when parts will end, and whether it can ship (RoHS and REACH). Unknown stays its own bar. */

@@ -83,7 +83,9 @@ def _parts(
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "short": bool(entry.get("short")),
-            "unit_price": buy.get("unit_price"), "buy_quantity": buy.get("quantity"), "test_data": bool(buy.get("test_data")), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
+            # The unit price in its offer's currency, and in the total's currency (what the line cost is made of) when converted.
+            "unit_price": buy.get("unit_price"), "unit_currency": buy.get("currency"),
+            "unit_price_in_total": _unit_in_total(buy) if converted else buy.get("unit_price"), "buy_quantity": buy.get("quantity"), "test_data": bool(buy.get("test_data")), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
             # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
             "line_cost": None if entry.get("bought_with") or not buy else (buy.get("in_base") if converted else buy.get("extended")),
             "alerts": alerts.get(part_id, 0),
@@ -93,6 +95,14 @@ def _parts(
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
     return parts, result["rollup"], curve
+
+
+def _unit_in_total(buy: dict[str, Any]) -> str | None:
+    """A purchase's unit price in the total's currency: its converted cost over the pieces bought."""
+
+    if not buy.get("in_base") or not buy.get("quantity"):
+        return None
+    return format((Decimal(buy["in_base"]) / int(buy["quantity"])).quantize(Decimal("0.0001")).normalize(), "f")
 
 
 def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[dict[str, Any]]:
