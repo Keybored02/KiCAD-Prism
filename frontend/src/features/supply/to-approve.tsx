@@ -6,6 +6,7 @@ import { partHref } from "./supply-views";
 import { CollapsibleSection } from "./collapsible-section";
 import { decideAlternate } from "./component-supply-api";
 import { decideDismissal } from "./ending-api";
+import { decideMute } from "./tracking-api";
 import { decideWaiver } from "./supply-api";
 import { formatAgo } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -42,7 +43,8 @@ export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToAppr
   const waivers = items?.waivers ?? [];
   const alternates = items?.alternates ?? [];
   const dismissals = items?.dismissals ?? [];
-  const count = waivers.length + alternates.length + dismissals.length;
+  const mutes = items?.mutes ?? [];
+  const count = waivers.length + alternates.length + dismissals.length + mutes.length;
   if (count === 0) return null;
   return (
     <CollapsibleSection id="review-to-approve" title="To approve" count={count}>
@@ -62,6 +64,14 @@ export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToAppr
             detail={`${item.reasons.map((reason) => reason.replace(/_/g, " ")).join(", ")} (${item.proposed_by}, ${formatAgo(item.proposed_at)})`}
             to={componentHref(item.component_id)}
             decide={(approve) => decideDismissal(item.id, approve)} canDecide={canDecide} onDecided={onDecided}
+          />
+        ))}
+        {mutes.map((item) => (
+          <Row
+            key={item.id} kind="Alert off" title={`${item.mpn}, ${item.manufacturer}`}
+            detail={`${item.kind.replace(/_/g, " ")} (${item.proposed_by}, ${formatAgo(item.proposed_at)})`}
+            to={partHref(item.part_id)}
+            decide={(approve) => decideMute(item.id, approve)} canDecide={canDecide} onDecided={onDecided}
           />
         ))}
         {waivers.map((item) => (

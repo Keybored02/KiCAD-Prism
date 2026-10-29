@@ -9,6 +9,7 @@ import { useLoaded } from "./use-loaded";
 export function reviewCountOf(review: SupplyReviewQueue): number {
   const approve = review.to_approve
     ? review.to_approve.waivers.length + (review.to_approve.alternates?.length ?? 0) + (review.to_approve.dismissals?.length ?? 0)
+      + (review.to_approve.mutes?.length ?? 0)
     : 0;
   const pinned = (review.other_numbers ?? []).length;
   const matched = review.matched ? review.matched.aliases.length + review.matched.parts.length : 0;

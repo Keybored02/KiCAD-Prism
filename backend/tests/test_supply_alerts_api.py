@@ -357,7 +357,30 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(self.call("PUT", path, body={"muted": ["part_lost"]}).status, 400, "a lost part is a fact, not an opinion")
         self.assertEqual(self.call("PUT", path, body={"muted": [], "price_rise_percent": 0}).status, 400)
         self.assertEqual(self.call("PUT", path, body={"muted": [], "target_price": "1.5"}).status, 400, "a price needs its currency")
-        self.assertEqual(self.call("PUT", path, body={}, role="qa").status, 403)
+        self.assertEqual(self.call("PUT", path, body={}, role="viewer").status, 403)
+
+    def test_a_designer_s_mute_waits_for_qa_and_the_alert_still_rises_meanwhile(self) -> None:
+        from app.services.supply import review
+
+        watch = self.watch(threshold=100)
+        self.listing(watch["part_id"], "A", stock=40)
+        path = f"/api/supply/parts/{watch['part_id']}/alert-rules"
+        asked = self.call("PUT", path, role="designer", body={"muted": ["below_threshold"]}).json
+        self.assertEqual((asked["muted"], asked["muting"]), ([], ["below_threshold"]))
+        # Saving the rules looked once, at the wall clock; the test keeps its own.
+        self.rows("DELETE FROM supply_attention RETURNING id")
+        self.assertEqual([item["kind"] for item in self.open_after_two_looks(watch["part_id"])], ["below_threshold"], "not muted yet")
+        again = self.call("PUT", path, role="designer", body={"muted": ["below_threshold"], "price_rise_percent": 30}).json
+        self.assertEqual(again["muting"], ["below_threshold"], "saving the other rules keeps the request")
+        with self.store.connection() as conn:
+            (waiting,) = review.to_approve(conn)["mutes"]
+        self.assertEqual((waiting["kind"], waiting["proposed_by"]), ("below_threshold", "designer@example.com"))
+        self.assertEqual(self.call("POST", f"/api/supply/mutes/{waiting['id']}/approve", role="designer").status, 403)
+        self.assertEqual(self.call("POST", f"/api/supply/mutes/{waiting['id']}/approve", role="qa").status, 204)
+        self.assertEqual(self.call("POST", f"/api/supply/mutes/{waiting['id']}/approve", role="qa").status, 409)
+        self.assertEqual(self.call("GET", path).json["muted"], ["below_threshold"])
+        self.assertEqual(self.listed(), [], "an approved mute clears the alert")
+        self.assertEqual(self.call("PUT", path, role="designer", body={"muted": []}).json["muted"], [], "switching one back on is anyone's")
 
     def test_a_part_can_ask_for_its_own_chance_before_it_is_called_likely_to_run_out(self) -> None:
         from app.services.supply import alert_rules, part_insights

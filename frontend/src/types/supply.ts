@@ -531,6 +531,8 @@ export interface SupplyToApprove {
   }>;
   /** Ending components someone asked QA to dismiss, with the reasons they were dismissed for. */
   dismissals?: Array<{ id: string; component_id: string; component_name: string; component_mpn: string; reasons: string[]; proposed_by: string; proposed_at: string }>;
+  /** Alerts someone asked QA to switch off on a part. */
+  mutes?: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; kind: string; proposed_by: string; proposed_at: string }>;
 }
 
 export interface SupplyMakerGroup {
@@ -1468,6 +1470,8 @@ export interface ScheduleSettings {
 /** What a person wants to hear about a part. */
 export interface AlertRules {
   muted: string[];
+  /** Kinds someone asked QA to switch off; they still raise alerts until approved. */
+  muting?: string[];
   price_rise_percent: number | null;
   /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
   likely_out_percent?: number | null;
