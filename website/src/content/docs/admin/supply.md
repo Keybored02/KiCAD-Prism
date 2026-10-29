@@ -203,7 +203,9 @@ stale on each component. See
 ## Look after it
 
 - `GET /api/supply/health` (administrators) lists calls against budget,
-  errors, late reads and the oldest read per connector.
+  errors, late reads and the oldest read per connector, and when each periodic
+  task (exchange rates, inventory reads, retention and the rest) last ran, last
+  worked and last failed, with its error.
 - Readings older than 60 days are rolled into one row per listing per day.
   Set **Keep raw samples (days)** in a connector's **Edit settings** to change
   that (1 to 365 days). For a provider whose terms limit how long its data may
