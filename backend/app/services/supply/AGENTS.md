@@ -25,6 +25,7 @@ root first.
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
+| `progress.py` | `job_progress`: the one shape of a job's progress (`state` running, done, failed or none; `done`, `total`, `failed`, `reason`), used by the project read, the first searches of a tracked project, a one-off check and a release's snapshot. |
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
 | `parts.py` | Manufacturers, their spellings, parts and the other numbers a part is sold under (added by the packaging endings, or by a person in Review). `ensure_part` refuses nobody (a maker nobody has checked is provisional). Functions on a connection; none commit. |
 | `makers.py` | `same_maker`: whether two spellings name one maker (same key, seeded spelling, starts with, whole words inside, initials, one lost letter). Never looks at a part number. |

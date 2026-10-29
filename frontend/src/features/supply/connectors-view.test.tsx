@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ApiHttpError } from "@/lib/api";
 import type { User } from "@/types/auth";
 import { capacityFixture, connectorFixture, providerFixture } from "./supply-test-fixtures";
+import { forgetServerState } from "@/lib/server-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "toast-id") } }));
 
@@ -90,6 +91,7 @@ describe("connectors list", () => {
     expect(await screen.findByText(/No distributor providers are installed/)).toBeTruthy();
     expect((screen.getByRole("button", { name: /Add connector/ }) as HTMLButtonElement).disabled).toBe(true);
     unmount();
+    forgetServerState([]);
 
     load([], [providerFixture()]);
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
@@ -112,7 +114,11 @@ describe("connectors list", () => {
 describe("adding a connector", () => {
   it("sends the form and shows the new connector", async () => {
     load([], [providerFixture()]);
-    mocked.createSupplyConnector.mockResolvedValue(connectorFixture({ id: "c2", display_name: "Demo distributor" }));
+    mocked.createSupplyConnector.mockImplementation(async () => {
+      const made = connectorFixture({ id: "c2", display_name: "Demo distributor" });
+      load([made]);
+      return made;
+    });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /Add connector/ }));
     const submit = await screen.findByRole("button", { name: "Add connector", hidden: false });
@@ -152,7 +158,7 @@ describe("adding a connector", () => {
 describe("changing a connector", () => {
   it("pauses with a reason", async () => {
     load();
-    mocked.pauseSupplyConnector.mockResolvedValue(connectorFixture({ paused_reason: "over budget" }));
+    mocked.pauseSupplyConnector.mockImplementation(async () => { load([connectorFixture({ paused_reason: "over budget" })]); return connectorFixture({ paused_reason: "over budget" }); });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pause" }));
@@ -168,7 +174,7 @@ describe("changing a connector", () => {
 
   it("offers resume for a paused connector and applies the result", async () => {
     load([connectorFixture({ paused_reason: "over budget" })]);
-    mocked.resumeSupplyConnector.mockResolvedValue(connectorFixture());
+    mocked.resumeSupplyConnector.mockImplementation(async () => { load(); return connectorFixture(); });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     expect(screen.queryByRole("menuitem", { name: "Pause" })).toBeNull();
@@ -205,7 +211,7 @@ describe("changing a connector", () => {
 
   it("deletes after confirmation", async () => {
     load();
-    mocked.deleteSupplyConnector.mockResolvedValue(undefined);
+    mocked.deleteSupplyConnector.mockImplementation(async () => { load([]); });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
@@ -295,6 +301,7 @@ describe("capacity notes", () => {
     const card = await screen.findByRole("article", { name: "Demo EU" });
     expect(within(card).queryByText(/needs about/)).toBeNull();
     cleanup();
+    forgetServerState([]);
     load();
     mocked.listSupplyCapacity.mockRejectedValue(new Error("down"));
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);

@@ -22,6 +22,7 @@ from typing import Any, Sequence
 
 from app.services.supply import clock, component_parts, parts
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.progress import job_progress
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.providers import registry
 
@@ -112,10 +113,10 @@ def progress(conn, request_id: str) -> dict[str, Any]:
         """,
         (request_id,),
     ).fetchone()
-    return {
-        "id": row["id"], "kind": row["kind"], "project_id": row["project_id"], "created_at": row["created_at"].isoformat(),
-        "finished": row["finished_at"] is not None, "parts": int(counts["total"]), "done": int(counts["done"]), "failed": int(counts["failed"]),
-    }
+    return job_progress(
+        "done" if row["finished_at"] is not None else "running", done=int(counts["done"]), total=int(counts["total"]), failed=int(counts["failed"]),
+        id=row["id"], kind=row["kind"], project_id=row["project_id"], created_at=row["created_at"].isoformat(),
+    )
 
 
 def pending_connectors(conn) -> list[str]:

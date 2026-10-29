@@ -1,8 +1,9 @@
 import { fetchJson } from "@/lib/api";
 import type { TrackLine } from "./track-lines-step";
 import type {
-  AlertRules, BudgetConnector, CheckProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, TrackProgress, TrackingPreview, TrackingRoom,
+  AlertRules, BudgetConnector, CheckProgress, JobProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, TrackProgress, TrackingPreview, TrackingRoom,
 } from "@/types/supply";
+import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply/tracking";
 const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
@@ -23,7 +24,7 @@ export interface ProjectChoice {
 }
 
 /** Say which of several parts a BOM line's maker spelling names. */
-export async function chooseTrackLine(projectId: string, partId: string, manufacturer: string): Promise<void> {
+async function chooseTrackLineRequest(projectId: string, partId: string, manufacturer: string): Promise<void> {
   await fetchJson(
     `${BASE}/projects/${encodeURIComponent(projectId)}/lines/choose`,
     { method: "POST", body: JSON.stringify({ part_id: partId, manufacturer }) },
@@ -40,8 +41,8 @@ export function getTrackProgress(projectId: string, signal?: AbortSignal): Promi
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/progress`, { signal }, "Could not read the progress");
 }
 
-/** Read the project's BOM now; "reading" when its newest revision is still being indexed. */
-export function readProjectBom(projectId: string): Promise<{ status: "updated" | "unchanged" | "reading" }> {
+/** Read the project's BOM now; "running" while its newest revision is still being indexed. */
+export function readProjectBom(projectId: string): Promise<JobProgress & { changed?: boolean }> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/read`, { method: "POST" }, "Could not read the project's BOM");
 }
 
@@ -53,16 +54,16 @@ export function previewTrackProject(projectId: string, choice: ProjectChoice, si
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/preview`, { ...json(choice), signal }, "Could not work out the cost");
 }
 
-export function trackProject(projectId: string, choice: ProjectChoice): Promise<TrackingPreview> {
+function trackProjectRequest(projectId: string, choice: ProjectChoice): Promise<TrackingPreview> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, put(choice), "Could not track the project");
 }
 
 /** Keep a build size as the tracked project's usual build. */
-export function keepUsualBuild(projectId: string, buildQuantity: number): Promise<{ project_id: string; build_quantity: number }> {
+function keepUsualBuildRequest(projectId: string, buildQuantity: number): Promise<{ project_id: string; build_quantity: number }> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/build`, put({ build_quantity: buildQuantity }), "Could not keep the usual build");
 }
 
-export async function untrackProject(projectId: string): Promise<void> {
+async function untrackProjectRequest(projectId: string): Promise<void> {
   await fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }, "Could not stop tracking the project");
 }
 
@@ -79,11 +80,11 @@ export function previewPartTier(partId: string, choice: TierChoice, signal?: Abo
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preview`, { ...json(choice), signal }, "Could not work out the cost");
 }
 
-export function setPartTier(partId: string, choice: TierChoice): Promise<TrackingPreview & { tier: PartTracking | null }> {
+function setPartTierRequest(partId: string, choice: TierChoice): Promise<TrackingPreview & { tier: PartTracking | null }> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}`, put(choice), "Could not set the tier");
 }
 
-export async function stopTrackingPart(partId: string): Promise<void> {
+async function stopTrackingPartRequest(partId: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}`, { method: "DELETE" }, "Could not stop tracking the part");
 }
 
@@ -109,7 +110,7 @@ export function getSchedule(signal?: AbortSignal): Promise<ScheduleSettings> {
   return fetchJson("/api/supply/schedule", { signal }, "Could not load the schedule");
 }
 
-export function saveSchedule(settings: ScheduleSettings): Promise<ScheduleSettings> {
+function saveScheduleRequest(settings: ScheduleSettings): Promise<ScheduleSettings> {
   return fetchJson("/api/supply/schedule", put(settings), "Could not save the schedule");
 }
 
@@ -117,7 +118,16 @@ export function getAlertRules(partId: string, signal?: AbortSignal): Promise<Ale
   return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, { signal }, "Could not load the alert rules");
 }
 
-export function saveAlertRules(partId: string, rules: AlertRules): Promise<AlertRules> {
+function saveAlertRulesRequest(partId: string, rules: AlertRules): Promise<AlertRules> {
   const { muted, price_rise_percent, likely_out_percent, target_price, target_currency } = rules;
   return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, put({ muted, price_rise_percent, likely_out_percent: likely_out_percent ?? null, target_price, target_currency }), "Could not save the alert rules");
 }
+
+export const chooseTrackLine = changesSupply(chooseTrackLineRequest);
+export const untrackProject = changesSupply(untrackProjectRequest);
+export const stopTrackingPart = changesSupply(stopTrackingPartRequest);
+export const trackProject = changesSupply(trackProjectRequest);
+export const keepUsualBuild = changesSupply(keepUsualBuildRequest);
+export const setPartTier = changesSupply(setPartTierRequest);
+export const saveSchedule = changesSupply(saveScheduleRequest);
+export const saveAlertRules = changesSupply(saveAlertRulesRequest);

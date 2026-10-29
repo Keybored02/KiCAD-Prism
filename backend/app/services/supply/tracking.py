@@ -22,6 +22,7 @@ from typing import Any, Iterable, Sequence
 from app.services.supply import admission, component_parts, packaging_auto, parts, usage
 from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.progress import job_progress
 from app.services.supply.identity import alias_key, match_key
 
 TIER_1, TIER_2 = 1, 2
@@ -262,10 +263,14 @@ def project_progress(conn, project_id: str) -> dict[str, Any]:
         (ids, ids),
     ).fetchall()
     rows = [
-        {"connector_id": row["id"], "name": row["display_name"], "parts": int(row["admitted"]), "searched": min(int(row["searched"]), int(row["admitted"]) or int(row["searched"]))}
+        {"connector_id": row["id"], "name": row["display_name"], "total": int(row["admitted"]), "done": min(int(row["searched"]), int(row["admitted"]) or int(row["searched"]))}
         for row in connectors if row["admitted"]
     ]
-    return {"parts": len(ids), "connectors": rows, "finished": all(item["searched"] >= item["parts"] for item in rows)}
+    finished = all(item["done"] >= item["total"] for item in rows)
+    return job_progress(
+        "done" if finished else "running", done=sum(item["done"] for item in rows), total=sum(item["total"] for item in rows),
+        parts=len(ids), connectors=rows,
+    )
 
 
 def choose_line(conn, part_id: str, written: str, actor: str) -> None:

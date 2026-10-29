@@ -8,7 +8,7 @@ import { CheckOnceButton } from "./check-once-button";
 import * as api from "./tracking-api";
 
 const mocked = vi.mocked(api);
-const progress = (done: number, finished = false) => ({ id: "r1", kind: "bom" as const, project_id: "p", created_at: "", finished, parts: 4, done, failed: 0 });
+const progress = (done: number, finished = false) => ({ id: "r1", kind: "bom" as const, project_id: "p", created_at: "", state: finished ? "done" as const : "running" as const, total: 4, done, failed: 0, reason: "" });
 
 beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -16,7 +16,8 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("check once", () => {
   it("starts a check of the unread lines, shows progress and refreshes when it finishes", async () => {
     mocked.startCheck.mockResolvedValue({ id: "r1", parts: 4, already_tracked: 0, skipped: [], progress: progress(0) });
-    mocked.getCheck.mockResolvedValueOnce(progress(2)).mockResolvedValueOnce(progress(4, true));
+    // The check is read once it starts, then every five seconds.
+    mocked.getCheck.mockResolvedValueOnce(progress(0)).mockResolvedValueOnce(progress(2)).mockResolvedValueOnce(progress(4, true));
     const finished = vi.fn();
     render(<CheckOnceButton projectId="p" lines={[{ manufacturer: "Acme", mpn: "A" }]} onFinished={finished} />);
     fireEvent.click(screen.getByRole("button", { name: /Check once \(1\)/ }));

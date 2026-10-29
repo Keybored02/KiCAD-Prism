@@ -13,7 +13,7 @@ import { useLoaded } from "./use-loaded";
 /** The supply check of a release build, loaded once for whoever shows it. Someone who cannot read supply data sees nothing. */
 export function useReleaseCheck(projectId: string, buildId: string) {
   const fetcher = useCallback((signal: AbortSignal) => getReleaseCheck(projectId, buildId, signal), [projectId, buildId]);
-  return useLoaded<ReleaseCheck>(`${projectId}@${buildId}`, fetcher, "Could not check the BOM");
+  return useLoaded<ReleaseCheck>(`releases/${projectId}/${buildId}/check`, fetcher, "Could not check the BOM");
 }
 
 /** One line: the status as a dot, the health, and how many parts need a look. */

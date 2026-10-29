@@ -18,6 +18,7 @@ vi.mock("./inventory-api", () => ({
 const counts = (over: Record<string, number> = {}) => ({ waiting: 0, no_component: 0, sap_code_shared: 0, mpn_shared: 0, linked: 0, ignored: 0, ...over });
 
 import { sameIdentity, UNMATCHED_PAGE, UnmatchedStockSection } from "./unmatched-stock";
+import { forgetServerState } from "@/lib/server-state";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 beforeEach(() => { countUnmatchedParts.mockImplementation(async () => counts({ waiting: 2, no_component: 2 })); });
@@ -48,6 +49,7 @@ describe("unmatched local stock", () => {
     expect(await screen.findByText("Part 1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     listInventorySources.mockResolvedValue([]);
     const { container } = render(<UnmatchedStockSection canDecide />);
     await Promise.resolve();

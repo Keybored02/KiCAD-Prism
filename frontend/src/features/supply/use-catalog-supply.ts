@@ -31,6 +31,6 @@ export function useCatalogSupply(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key],
   );
-  const loaded = useLoaded<Record<string, SupplyComponentStanding>>(key, fetcher, "Could not load supply status");
+  const loaded = useLoaded<Record<string, SupplyComponentStanding>>(key === null ? null : `catalog/standing/${key}`, fetcher, "Could not load supply status");
   return { standing: loaded.data ?? EMPTY, refresh: loaded.refresh };
 }

@@ -8,7 +8,7 @@ import { useLoaded } from "./use-loaded";
 /** The manufacturer's datasheet as an icon beside the title. It opens the address in the browser; Prism downloads nothing. */
 export function DatasheetLink({ partId }: { partId: string }) {
   const fetcher = useCallback((signal: AbortSignal) => getPartDatasheet(partId, signal), [partId]);
-  const loaded = useLoaded<{ url: string }>(`${partId}:datasheet`, fetcher, "Could not load the datasheet address");
+  const loaded = useLoaded<{ url: string }>(`parts/${partId}/datasheet`, fetcher, "Could not load the datasheet address");
   const url = loaded.data?.url;
   if (!url) return null;
   return (

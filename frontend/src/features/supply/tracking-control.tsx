@@ -31,7 +31,7 @@ export function TrackingControl({
   partId, canEdit, onChanged, needsPick = [],
 }: { partId: string; canEdit: boolean; onChanged: () => Promise<void> | void; needsPick?: ReadonlyArray<{ connector_id: string; connector: string; listings: number }> }) {
   const fetcher = useCallback((signal: AbortSignal) => getPartTracking(partId, signal), [partId]);
-  const loaded = useLoaded<{ tier: PartTracking | null; waiting_at: string[] }>(partId, fetcher, "Could not read the part's tracking");
+  const loaded = useLoaded<{ tier: PartTracking | null; waiting_at: string[] }>(`parts/${partId}/tracking`, fetcher, "Could not read the part's tracking");
   const [pending, setPending] = useState<{ value: string; choice: TierChoice; preview: TrackingPreview } | null>(null);
   const [error, setError] = useState("");
   const [picking, setPicking] = useState("");
