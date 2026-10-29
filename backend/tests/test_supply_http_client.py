@@ -211,6 +211,14 @@ class EgressTests(unittest.TestCase):
         for address in ("169.254.169.254", "0.0.0.0", "224.0.0.1", "fe80::1"):
             self._blocked("https://api.example.com/", private_hosts=("api.example.com",), resolve=_resolver(address))
 
+    def test_only_a_listed_private_host_may_name_a_port(self) -> None:
+        client, transport = _client(_response(200, {}), private_hosts=("api.example.com",), resolve=_resolver("10.20.30.40"))
+        client.request("GET", "https://api.example.com:8443/api/")
+        self.assertEqual(transport.calls[0]["url"], "https://api.example.com:8443/api/")
+        self._blocked("https://api.example.com:8443/")
+        self._blocked("https://api.example.com:8443/", private_hosts=("other.example.com",))
+        self._blocked("http://api.example.com:8080/", private_hosts=("api.example.com",), resolve=_resolver("10.20.30.40"))
+
     def test_the_private_host_setting_is_a_comma_list(self) -> None:
         from app.core.supply_config import SupplySettings
 
@@ -335,6 +343,21 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(seen["headers"]["Host"], "api.example.com")
         self.assertFalse(seen["allow_redirects"])
         self.assertEqual(response.headers["content-type"], "application/json")
+
+    def test_a_private_host_s_port_goes_on_the_address_and_in_the_host_header(self) -> None:
+        from app.services.supply.egress import ValidatedTarget
+
+        seen = {}
+
+        def fake_request(session, method, url, **kwargs):
+            seen.update(url=url, **kwargs)
+            return _FakeResponse(200, {"Content-Type": "application/json"})
+
+        target = ValidatedTarget(url="https://stock.example.internal:8443/api/?limit=1", host="stock.example.internal", addresses=("10.1.2.3",), port=8443)
+        with mock.patch.object(requests.Session, "request", fake_request):
+            http_client.RequestsTransport().send(method="GET", target=target, headers={}, body=None, timeout=(1, 1), max_bytes=100)
+        self.assertEqual(seen["url"], "https://10.1.2.3:8443/api/?limit=1")
+        self.assertEqual(seen["headers"]["Host"], "stock.example.internal:8443")
 
     def test_ipv6_addresses_are_bracketed(self) -> None:
         seen = {}

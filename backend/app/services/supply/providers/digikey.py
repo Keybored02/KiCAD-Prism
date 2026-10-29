@@ -234,7 +234,7 @@ class DigiKeyProvider(HttpProvider):
         return PartData(
             match=match,
             description=str((product.get("Description") or {}).get("ProductDescription") or ""),
-            datasheet_url=str(product.get("DatasheetUrl") or ""),
+            datasheet_url=normalise.link(product.get("DatasheetUrl")),
             category=str((product.get("Category") or {}).get("Name") or ""),
             package_name=str((variation.get("PackageType") or {}).get("Name") or ""),
             parameters=parameters,
@@ -253,7 +253,7 @@ def _match(product: Mapping[str, Any], sku: str) -> PartMatch:
         manufacturer=str((product.get("Manufacturer") or {}).get("Name") or ""),
         description=str((product.get("Description") or {}).get("ProductDescription") or ""),
         product_url=str(product.get("ProductUrl") or ""),
-        datasheet_url=str(product.get("DatasheetUrl") or ""),
+        datasheet_url=normalise.link(product.get("DatasheetUrl")),
         parameters=tuple(
             (str(item.get("ParameterText") or ""), str(item.get("ValueText") or ""))
             for item in product.get("Parameters") or []
@@ -403,7 +403,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         reach_affected=_reach((product.get("Classifications") or {}).get("ReachStatus")),
         marketplace=bool(variation.get("MarketPlace")),
         product_url=str(product.get("ProductUrl") or ""),
-        datasheet_url=str(product.get("DatasheetUrl") or ""),
+        datasheet_url=normalise.link(product.get("DatasheetUrl")),
         facts=_facts(product),
     )
 
