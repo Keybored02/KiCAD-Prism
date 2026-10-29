@@ -56,16 +56,34 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
 
 
 def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
-    """What QA and administrators have been asked to approve: waivers proposed on a finding, and alternates proposed for a component."""
+    """What QA and administrators have been asked to approve: waivers proposed on a finding, alternates proposed for a component,
+    ending components proposed for dismissal, and alerts someone asked to switch off on a part."""
 
     waivers = conn.execute(
         """
-        SELECT w.id, w.part_id, p.mpn, m.name AS manufacturer, w.check_id, w.scope, w.reason, w.proposed_by, w.proposed_at
-        FROM supply_waivers w JOIN supply_parts p ON p.id = w.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
-        WHERE w.state = 'proposed' ORDER BY w.proposed_at LIMIT %s
+        SELECT d.id, d.part_id, p.mpn, m.name AS manufacturer, d.kind AS check_id, d.scope, d.reason, d.made_by AS proposed_by, d.made_at AS proposed_at
+        FROM supply_attention_decisions d JOIN supply_parts p ON p.id = d.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        WHERE d.decision = 'waive' AND d.state = 'proposed' AND d.attention_id IS NULL ORDER BY d.made_at LIMIT %s
         """,
         (limit,),
     ).fetchall()
+    mutes = conn.execute(
+        """
+        SELECT d.id, d.part_id, p.mpn, m.name AS manufacturer, d.kind, d.made_by AS proposed_by, d.made_at AS proposed_at
+        FROM supply_attention_decisions d JOIN supply_parts p ON p.id = d.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        WHERE d.decision = 'mute' AND d.state = 'proposed' AND d.attention_id IS NULL ORDER BY d.made_at LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    dismissals = conn.execute(
+        """
+        SELECT d.id, d.component_id, r.name AS component_name, r.mpn AS component_mpn, d.scope AS reasons, d.made_by AS proposed_by,
+               d.made_at AS proposed_at
+        FROM supply_attention_decisions d JOIN components c ON c.id = d.component_id JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE d.decision = 'dismiss' AND d.state = 'proposed' AND d.attention_id IS NULL AND c.is_active = 1 ORDER BY d.made_at LIMIT %s
+        """,
+        (limit,),
+    ).fetchall() if component_parts.library_present(conn) else []
     alternates = conn.execute(
         """
         SELECT cp.component_id, r.name AS component_name, r.mpn AS component_mpn, cp.part_id, p.mpn, m.name AS manufacturer,
@@ -79,6 +97,9 @@ def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
     return {
         "waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers],
         "alternates": [{**dict(row), "component_id": str(row["component_id"]), "proposed_at": row["proposed_at"].isoformat()} for row in alternates],
+        "dismissals": [{**dict(row), "component_id": str(row["component_id"]), "reasons": row["reasons"].split(","),
+                        "proposed_at": row["proposed_at"].isoformat()} for row in dismissals],
+        "mutes": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in mutes],
     }
 
 

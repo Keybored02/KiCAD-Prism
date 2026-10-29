@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
+from app.api.supply_access import is_approver, require_supply_editor
+from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import alert_rules, alerts, overview
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
@@ -42,6 +43,10 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=409, detail={"code": "alert_state", "message": str(exc)}) from exc
     except alert_rules.RuleError as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_rules", "message": str(exc)}) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"code": "decided", "message": str(exc)}) from exc
 
 
 @router.get("/overview")
@@ -110,9 +115,21 @@ async def get_alert_rules(part_id: str, _user: AuthenticatedUser = Depends(requi
 
 
 @router.put("/parts/{part_id}/alert-rules")
-async def put_alert_rules(part_id: str, body: RulesRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
+async def put_alert_rules(part_id: str, body: RulesRequest, editor: AuthenticatedUser = Depends(require_supply_editor)) -> dict[str, Any]:
+    """Switching an alert off is an approver's; anyone else's waits in To approve (``muting``)."""
+
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return alert_rules.save(conn, part_id, body.model_dump(), writer.email).to_dto()
+            return alert_rules.save(conn, part_id, body.model_dump(), editor.email, approver=is_approver(editor)).to_dto()
 
     return await _run(run)
+
+
+@router.post("/mutes/{decision_id}/{verdict}", status_code=204)
+async def decide_mute(decision_id: str, verdict: Literal["approve", "reject"], approver: AuthenticatedUser = Depends(require_supply_approver)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            alert_rules.decide_mute(conn, decision_id, approver.email, approve=verdict == "approve")
+
+    await _run(run)
+    return Response(status_code=204)

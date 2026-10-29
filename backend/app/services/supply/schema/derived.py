@@ -92,7 +92,7 @@ SOURCES: tuple[Source, ...] = (
     Source("summary", "supply_part_price_quantity", "part_id"),
     # Its status is its assessment's (``assessment.service``): its waivers, what is declared and stated for it, the notices on it,
     # the rate it is read at, its outlook, and the settings, the distributors Prism reads and the REACH list every part shares.
-    Source("summary", "supply_waivers", "part_id"),
+    Source("summary", "supply_attention_decisions", "part_id"),
     Source("summary", "supply_alert_rules", "part_id"),
     Source("summary", "supply_part_substances", "part_id"),
     Source("summary", "supply_part_facts", "part_id"),

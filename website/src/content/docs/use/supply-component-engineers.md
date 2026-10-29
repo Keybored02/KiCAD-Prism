@@ -150,7 +150,8 @@ healthy. QA decides:
 - **Retire**: the component is archived and leaves the KiCad library.
   Symbols already placed stop resolving. Offered only when none of the
   component's other approved parts is healthy.
-- **Dismiss**: hide it until its part gains a new reason.
+- **Dismiss**: hide it until its part gains a new reason. A designer's
+  request to dismiss waits for QA in **Review → To approve**.
 
 Before retiring, give designers a way forward: propose an alternate (below) or
 a replacement component.

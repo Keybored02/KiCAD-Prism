@@ -13,15 +13,15 @@ Three decisions, all for QA and administrators, kept outside the revision (suppl
 * ``not_for_new_designs``: the component stays released and keeps resolving where it is placed; it is marked, not hidden.
 * ``retired``: recorded after the component was archived through the catalog's own workflow (which takes it out of the export).
   Retiring is allowed while tracked projects still use the part: the dialog shows them first.
-* dismissed (``supply_ending_dismissals``): nothing to do for now. It holds while the reasons stay the same; a new reason
-  brings the component back.
+* dismissed (a standing ``dismiss`` decision, ``attention.py``): nothing to do for now. It holds while the reasons stay the
+  same; a new reason brings the component back. Anyone who writes supply data may propose it; an approver's stands at once.
 """
 
 from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import catalog_read, component_parts, facts, outlook, parts_view, usage
+from app.services.supply import attention, catalog_read, component_parts, facts, outlook, parts_view, usage
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.vocabulary import ENDING_LIFECYCLES, Lifecycle
@@ -179,10 +179,17 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
         row["healthy"] = sum(1 for other in counted.get(row["component"]["id"], []) if other != row["part_id"] and other not in why)
     marks = restrictions_of(conn, [row["component"]["id"] for row in rows])
     dismissed = dismissals_of(conn, [row["component"]["id"] for row in rows])
+    asked = {
+        component_id: entries[-1]["scope"]
+        for component_id, entries in attention.standing(conn, attention.COMPONENT, [row["component"]["id"] for row in rows], attention.DISMISS, [ENDING]).items()
+        if entries[-1]["state"] == attention.PROPOSED
+    }
     kept = []
     for row in rows:
         row["restriction"] = marks.get(row["component"]["id"])
         row["dismissed"] = dismissed.get(row["component"]["id"]) == reasons_key(row["reasons"])
+        # Someone asked QA to dismiss it for these reasons.
+        row["dismissal_waiting"] = asked.get(row["component"]["id"]) == reasons_key(row["reasons"])
         if row["restriction"] and row["restriction"]["level"] == "retired":
             continue
         kept.append(row)
@@ -195,24 +202,37 @@ def reasons_key(reasons: Sequence[Mapping[str, Any]]) -> str:
     return ",".join(sorted({str(reason["kind"]) for reason in reasons}))
 
 
+# The attention kind an ending component's dismissal is about.
+ENDING = "ending"
+
+
 def dismissals_of(conn, component_ids: Sequence[str]) -> dict[str, str]:
-    ids = list({item for item in component_ids if item})
-    if not ids:
-        return {}
-    return {row["component_id"]: row["reasons"] for row in conn.execute(
-        "SELECT component_id, reasons FROM supply_ending_dismissals WHERE component_id = ANY(%s)", (ids,)).fetchall()}
+    """The reasons each component's approved dismissal was made for."""
+
+    return {
+        component_id: rows[-1]["scope"]
+        for component_id, rows in attention.standing(conn, attention.COMPONENT, component_ids, attention.DISMISS, [ENDING]).items()
+        if rows[-1]["state"] == attention.APPROVED
+    }
 
 
-def dismiss(conn, component_id: str, reason_kinds: Sequence[str], actor: str) -> None:
-    """Nothing to do about this component for these reasons. A new reason brings it back."""
+def dismiss(conn, component_id: str, reason_kinds: Sequence[str], actor: str, *, approver: bool) -> dict[str, str]:
+    """Nothing to do about this component for these reasons; a new reason brings it back. An approver's dismissal stands, anyone
+    else's waits for one (``attention.state_for``)."""
 
     actor = actor_text(actor)
     key = reasons_key([{"kind": kind} for kind in reason_kinds])
     if not key:
         raise ValueError("Say which reasons are dismissed.")
-    conn.execute(
-        "INSERT INTO supply_ending_dismissals (component_id, reasons, dismissed_by) VALUES (%s, %s, %s) "
-        "ON CONFLICT (component_id) DO UPDATE SET reasons = EXCLUDED.reasons, dismissed_by = EXCLUDED.dismissed_by, dismissed_at = NOW()",
-        (component_id, key, actor),
-    )
-    write_audit(conn, actor, "component.ending.dismiss", component_id, {"reasons": key}, subject_kind="component")
+    state = attention.state_for(attention.DISMISS, approver=approver)
+    decision_id = attention.stand(conn, attention.COMPONENT, component_id, ENDING, attention.DISMISS, actor, scope=key, state=state)
+    write_audit(conn, actor, "component.ending.dismiss", component_id, {"reasons": key, "state": state}, subject_kind="component")
+    return {"id": decision_id, "state": state}
+
+
+def decide_dismissal(conn, decision_id: str, actor: str, *, approve: bool) -> None:
+    actor = actor_text(actor)
+    row = attention.proposal(conn, decision_id, attention.DISMISS)
+    attention.settle(conn, row, actor, approve=approve)
+    write_audit(conn, actor, "component.ending.dismiss_" + ("approve" if approve else "reject"), row["component_id"], {"reasons": row["scope"]},
+                subject_kind="component")
