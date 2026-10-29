@@ -200,24 +200,25 @@ def set_tier(conn, part_id: str, tier: int, rate: str, actor: str) -> WatchRecor
 
 
 def stop_tracking(conn, part_id: str, actor: str) -> bool:
-    """Take a part out of a person's tracking. It stays followed for any other reason (a project, a component)."""
+    """Stop following a part by choice: a person's watch on it, and the watches of the components whose main part it is. It stays
+    followed for a tracked project. False when there was neither."""
+
+    from app.services.supply import component_watches
 
     existing = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
-    if existing is None:
-        return False
-    remove_watch(conn, existing["id"], actor)
-    return True
+    components = component_watches.remove_for_part(conn, part_id, actor)
+    if existing is not None:
+        remove_watch(conn, existing["id"], actor)
+    elif components:
+        tracking.recompute(conn, [part_id])
+        alerts.evaluate_parts(conn, [part_id], datetime.now(timezone.utc))
+    return existing is not None or bool(components)
 
 
 def remove_watch(conn, watch_id: str, actor: str) -> None:
     actor = actor_text(actor)
     current = get_watch(conn, watch_id)
     conn.execute("DELETE FROM supply_watches WHERE id = %s", (watch_id,))
-    if current.origin == "component":
-        # A watch a component asked for comes back with the next sync unless the component watch goes too.
-        from app.services.supply import component_watches
-
-        component_watches.forget_part(conn, current.part_id)
     tracking.recompute(conn, [current.part_id])
     # Without a watch every condition is false, so its alerts clear.
     alerts.evaluate_parts(conn, [current.part_id], datetime.now(timezone.utc))

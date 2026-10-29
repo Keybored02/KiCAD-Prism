@@ -114,6 +114,10 @@ a tracked project, someone's choice, or a watched component.
 - **New revisions:** a tracked project's BOM is read again every 15 minutes.
   Parts a revision adds are tracked at tier 1; parts it removes stop being
   tracked unless something else keeps them.
+- **Watched components:** a watched component follows its current part. When
+  the component's maker or part number changes, the new part is followed and
+  the old one is not. Stopping the watch drops the part to the tier of
+  whatever else follows it.
 
 ## Check whether a project can be built
 

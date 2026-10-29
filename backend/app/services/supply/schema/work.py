@@ -201,7 +201,7 @@ TABLES: tuple[str, ...] = (
         packaging TEXT NOT NULL DEFAULT 'any' CHECK (packaging IN ('any', 'cut_tape', 'tape_reel', 'tray', 'tube', 'bulk')),
         tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2)),
         rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly')),
-        origin TEXT NOT NULL DEFAULT 'person' CHECK (origin IN ('person', 'component', 'legacy'))
+        origin TEXT NOT NULL DEFAULT 'person' CHECK (origin IN ('person', 'legacy'))
     );
     """,
     """

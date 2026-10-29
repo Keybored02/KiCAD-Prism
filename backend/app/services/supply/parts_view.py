@@ -841,8 +841,7 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     rows = _day_rows(conn, part_id, now - timedelta(days=HISTORY_DAYS))
     if not rows:
         return []
-    watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
-    policy = watch["packaging"] if watch else "any"
+    policy = stock.packaging_of(conn, part_id)
     by_day: dict[date, list] = defaultdict(list)
     last_day: dict[str, date] = {}
     gone: set[str] = set()

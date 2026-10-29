@@ -357,6 +357,47 @@ class ComponentPartsTests(unittest.TestCase):
                 conn.execute(insert, (component_id,))
             conn.rollback()
 
+    def test_a_component_watch_is_a_reason_to_follow_its_main_part_and_stopping_it_lowers_the_part(self) -> None:
+        from app.services.supply import component_watches, stock, tracking
+
+        component_id = str(self._component()["id"])
+        with self.store.connection() as conn:
+            component_watches.set_watch(conn, component_id, AUTHOR, packaging="tape_reel", tier=1, rate="daily")
+            main = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            got = tracking.tier_of(conn, main)
+            self.assertEqual((got["tier"], got["rate"], got["reasons"]), (1, "daily", [{"kind": "component", "ref": component_id}]))
+            self.assertIsNone(conn.execute("SELECT 1 FROM supply_watches WHERE part_id = %s", (main,)).fetchone(), "no part watch is made")
+            self.assertEqual(stock.packaging_of(conn, main), "tape_reel")
+            component_watches.remove_watch(conn, component_id, AUTHOR)
+            self.assertIsNone(tracking.tier_of(conn, main), "nothing else follows it")
+            self.assertEqual(stock.packaging_of(conn, main), "any")
+
+    def test_a_watched_component_follows_its_new_part_and_stopping_that_part_stops_the_watch(self) -> None:
+        from app.services.supply import component_watches, tracking, watches
+
+        component = self._component()
+        component_id = str(component["id"])
+        with self.store.connection() as conn:
+            component_watches.set_watch(conn, component_id, AUTHOR)
+            old = self.cp.parts_of(conn, component_id)[0]["part_id"]
+        self.catalog.update_component_metadata(component_id, {"mpn": f"{component['mpn']}-B"}, actor=AUTHOR, expected_revision_id=component["revision_id"])
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id])
+            new = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            tracking.recompute(conn, [old, new])
+            self.assertIsNone(tracking.tier_of(conn, old), "the old number is no longer the component's")
+            self.assertEqual(tracking.tier_of(conn, new)["reasons"], [{"kind": "component", "ref": component_id}])
+            self.assertTrue(watches.stop_tracking(conn, new, AUTHOR))
+            self.assertIsNone(component_watches.get(conn, component_id))
+            self.assertIsNone(tracking.tier_of(conn, new))
+            self.assertFalse(watches.stop_tracking(conn, new, AUTHOR), "nothing left to stop")
+
+    def test_a_component_without_a_part_number_cannot_be_watched(self) -> None:
+        from app.services.supply import component_watches
+
+        with self.store.connection() as conn, self.assertRaises(component_watches.ComponentWatchError):
+            component_watches.set_watch(conn, "no-such-component", AUTHOR)
+
     def test_a_dismissal_holds_only_for_the_reasons_it_was_made_for(self) -> None:
         from app.services.supply import ending_parts
 
