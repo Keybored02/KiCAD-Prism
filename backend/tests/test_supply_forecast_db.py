@@ -404,19 +404,28 @@ class ForecastDbTests(unittest.TestCase):
 
     # --- the alert ----------------------------------------------------------
 
-    def test_the_likely_out_alert_waits_for_a_shown_model_and_two_runs_in_a_row(self) -> None:
-        from app.services.supply import alerts, forecasting
+    def test_likely_out_waits_for_a_shown_model_and_reads_the_newest_run(self) -> None:
+        import json
 
+        from app.services.supply.assessment import service as assessment
+
+        listing = self.listing(self.cid, "A")
+        self.readings(listing, [500], START, fetched_at=START)
+
+        def likely(chance: float) -> bool:
+            with self.store.connection() as conn:
+                data = {"forecast": {"available": True, "out_now": False, "p_out_4w": chance}}
+                conn.execute(
+                    "INSERT INTO supply_part_insights (part_id, computed_at, data) VALUES (%s, %s, %s::jsonb) "
+                    "ON CONFLICT (part_id) DO UPDATE SET data = EXCLUDED.data", (self.part_id, START, json.dumps(data)))
+                found = assessment.assess_parts(conn, [self.part_id], now=START)[self.part_id]["findings"]
+            return "likely_out" in {f["check"] for f in found}
+
+        self.assertFalse(likely(0.9), "the model is still learning")
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_part_tiers SET rate = 'daily' WHERE part_id = %s", (self.part_id,))
-            for offset, probability in ((1, 0.8), (0, 0.9)):
-                forecasting.store(conn, "part", self.part_id, "out_4w", (START - timedelta(days=offset)).date(), 28, model="t", probability=probability)
-            self.assertEqual(alerts._likely_out(conn, [self.part_id]), {}, "the model is still learning")
             conn.execute("INSERT INTO supply_forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
-            self.assertEqual(alerts._likely_out(conn, [self.part_id])[self.part_id]["chance"], 0.8)
-            forecasting.store(conn, "part", self.part_id, "out_4w", (START + timedelta(days=1)).date(), 28, model="t", probability=0.2)
-            self.assertIsNone(alerts._likely_out(conn, [self.part_id])[self.part_id]["chance"], "one calm run clears it")
-
+        self.assertTrue(likely(0.9), "over the workspace's 70%")
+        self.assertFalse(likely(0.2), "one calm run clears it")
 
 
 if __name__ == "__main__":

@@ -1,17 +1,20 @@
 """Risk sub-scores: 1 is good, 5 is bad, each with the reasons behind it.
 
-Pure functions over the same ``Facts`` the checks read. A sub-score with no data scores 1 with no
-reasons; health does not punish what Prism cannot see, and ``status`` says "unknown" when there is
-nothing to go on.
+Pure functions over the same ``Facts`` the checks read and the findings they made: what a check already
+decided (nothing in stock, RoHS, REACH) is read from its finding, so a waiver that quiets the finding
+quiets the score too. A sub-score with no data scores 1 with no reasons; health does not punish what
+Prism cannot see, and ``status`` says "unknown" when there is nothing to go on.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 from app.services.supply import stock as stock_rules
-from app.services.supply.assessment.checks import Facts, stock_of
-from app.services.supply.offer_rules import lead_time_of, rohs_verdict
+from app.services.supply.assessment import settings as ids
+from app.services.supply.assessment.checks import Facts, Finding, stock_of
+from app.services.supply.offer_rules import lead_time_of
 from app.services.supply.vocabulary import Lifecycle
 
 
@@ -60,14 +63,16 @@ def sourcing(facts: Facts) -> SubScore:
     return SubScore("sourcing", 2 if count == 2 else 1, (f"{count} distributors hold it.",) if count == 2 else ())
 
 
-def inventory(facts: Facts) -> SubScore:
+def inventory(facts: Facts, found: set[str]) -> SubScore:
     """Stock against what is needed, or against nothing when no build asks for it."""
 
     stock = stock_of(facts.offers)
     if stock is None:
         return SubScore("inventory", 1)
-    if stock == 0:
+    if ids.NO_DISTRIBUTOR_STOCK in found:
         return SubScore("inventory", 5, ("Nothing in stock.",))
+    if stock == 0:
+        return SubScore("inventory", 1)
     if facts.need is None or facts.need == 0:
         return SubScore("inventory", 1)
     cover = stock / facts.need
@@ -93,16 +98,18 @@ def market(facts: Facts) -> SubScore:
     return SubScore("market", score, (f"Lead time {lead} days.",) if score > 1 else ())
 
 
-def compliance(facts: Facts) -> SubScore:
-    rohs = rohs_verdict(facts.offers, facts.rohs_stated)
-    if rohs == "not_compliant":
+def compliance(found: set[str]) -> SubScore:
+    if ids.ROHS_NONCOMPLIANT in found:
         return SubScore("compliance", 5, ("Listed as not RoHS compliant.",))
-    if rohs == "disputed":
+    if ids.ROHS_DISPUTED in found:
         return SubScore("compliance", 3, ("Distributors disagree on RoHS.",))
-    if facts.svhc_listed or any(o.get("reach_affected") for o in facts.offers):
+    if ids.REACH_SVHC in found:
         return SubScore("compliance", 3, ("Affected by REACH.",))
     return SubScore("compliance", 1)
 
 
-def sub_scores(facts: Facts) -> list[SubScore]:
-    return [lifecycle(facts), sourcing(facts), inventory(facts), market(facts), compliance(facts)]
+def sub_scores(facts: Facts, findings: Sequence[Finding]) -> list[SubScore]:
+    """The five sub-scores, from the facts and the findings a held waiver does not quiet."""
+
+    found = {f.check for f in findings if not (f.waiver and f.waiver.get("holds"))}
+    return [lifecycle(facts), sourcing(facts), inventory(facts, found), market(facts), compliance(found)]

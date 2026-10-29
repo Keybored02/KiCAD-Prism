@@ -70,8 +70,8 @@ class DashboardTests(unittest.TestCase):
         falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])
         steady = self.follow("STEADY-1", [500] * 9, holders=("c1", "c2"))
         with self.store.connection() as conn:
-            self.assertEqual(self.part_insights.renew(conn, NOW), 2)
-            self.assertEqual(self.part_insights.renew(conn, NOW), 0, "fresh")
+            self.assertEqual(len(self.part_insights.renew(conn, NOW)), 2)
+            self.assertEqual(len(self.part_insights.renew(conn, NOW)), 0, "fresh")
             kept = self.part_insights.of_parts(conn, [falling, steady])
             self.assertEqual((kept[falling]["trend"], kept[falling]["holders"], kept[falling]["lead_days"]), ("falling", 1, 30))
             self.assertEqual(kept[falling]["days_to_zero"], 2)
@@ -91,20 +91,20 @@ class DashboardTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.part_insights.renew(conn, NOW)
         with self.store.connection() as conn:
-            self.assertEqual(self.part_insights.renew(conn, NOW), 0, "fresh")
+            self.assertEqual(len(self.part_insights.renew(conn, NOW)), 0, "fresh")
             conn.execute("UPDATE supply_offers SET stock = 400 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (stale,))
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_part_insights SET computed_at = %s WHERE part_id = %s", (NOW - timedelta(days=2), later))
         with self.store.connection() as conn, unittest.mock.patch.object(self.part_insights, "refresh", wraps=self.part_insights.refresh) as refresh:
-            self.assertEqual(self.part_insights.renew(conn, NOW), 2, "a marked part and one older than a day")
+            self.assertEqual(len(self.part_insights.renew(conn, NOW)), 2, "a marked part and one older than a day")
             self.assertEqual([call.args[1] for call in refresh.call_args_list], [stale, later], "marked first")
         with self.store.connection() as conn:
             fx.store(conn, date(2026, 3, 1), {"USD": Decimal("1.08")}, "manual")
         with self.store.connection() as conn:
             self.assertEqual(sorted(row["part_id"] for row in self.part_insights.read_all(conn)), sorted([stale, later]), "still readable")
             self.dashboard.build(conn)
-            self.assertEqual(self.part_insights.renew(conn, NOW), 2, "new rates mark every part")
-            self.assertEqual(self.part_insights.renew(conn, NOW, seconds=0), 0, "a run stops when its time is up")
+            self.assertEqual(len(self.part_insights.renew(conn, NOW)), 2, "new rates mark every part")
+            self.assertEqual(len(self.part_insights.renew(conn, NOW, seconds=0)), 0, "a run stops when its time is up")
 
     def test_the_parts_list_narrows_to_a_finding_and_carries_the_trend_line(self) -> None:
         falling = self.follow("FALL-1", [1000, 900, 800, 700, 600, 500, 400, 300, 200])

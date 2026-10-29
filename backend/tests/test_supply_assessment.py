@@ -114,7 +114,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(ids(checks.evaluate(facts([offer(rohs=False)]), DEFAULTS)), ["rohs_noncompliant"])
         (disputed,) = checks.evaluate(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)]), DEFAULTS)
         self.assertEqual((disputed.check, disputed.text), ("rohs_disputed", "Distributors disagree on RoHS: c2 says compliant; c1 says not."))
-        self.assertEqual(risk.compliance(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)])).score, 3, "not the best score")
+        self.assertEqual(risk.compliance({disputed.check}).score, 3, "not the best score")
         self.assertEqual(ids(checks.evaluate(facts([offer(fetched_at=NOW - timedelta(hours=100))]), DEFAULTS)), ["data_stale"])
 
     def test_a_read_is_late_by_the_parts_own_schedule(self) -> None:
@@ -138,7 +138,8 @@ class CheckTests(unittest.TestCase):
 
 class RiskTests(unittest.TestCase):
     def scores(self, *args, **kwargs):
-        return {s.name: s.score for s in risk.sub_scores(facts(*args, **kwargs))}
+        found = facts(*args, **kwargs)
+        return {s.name: s.score for s in risk.sub_scores(found, checks.evaluate(found, DEFAULTS))}
 
     def test_a_good_part_scores_one_everywhere(self) -> None:
         two = [offer(), offer(connector_id="c2"), offer(connector_id="c3")]
@@ -192,10 +193,11 @@ class OutlookFindingTests(unittest.TestCase):
         self.assertNotIn("ending_within_2_years", dropped)
 
     def test_a_part_with_a_last_date_to_buy_no_longer_scores_near_ten(self) -> None:
-        sub_scores = risk.sub_scores(facts(outlook="under_2_years"))
         found = checks.evaluate(facts(outlook="under_2_years"), DEFAULTS)
+        sub_scores = risk.sub_scores(facts(outlook="under_2_years"), found)
         result = health.health(found, sub_scores, DEFAULTS, has_data=True)
-        quiet = health.health(checks.evaluate(facts(), DEFAULTS), risk.sub_scores(facts()), DEFAULTS, has_data=True)
+        calm = checks.evaluate(facts(), DEFAULTS)
+        quiet = health.health(calm, risk.sub_scores(facts(), calm), DEFAULTS, has_data=True)
         self.assertLess(result.score, quiet.score - 1)
         self.assertEqual(result.status, Status.WARNING)
 
@@ -252,7 +254,7 @@ class LastBuyDateTests(unittest.TestCase):
 class HealthTests(unittest.TestCase):
     def assess(self, f):
         found = checks.evaluate(f, DEFAULTS)
-        return found, health.health(found, risk.sub_scores(f), DEFAULTS, has_data=bool(f.offers))
+        return found, health.health(found, risk.sub_scores(f, found), DEFAULTS, has_data=bool(f.offers))
 
     def test_a_part_with_nothing_wrong_is_ok_and_not_ten_when_one_distributor_holds_it(self) -> None:
         _, result = self.assess(facts())
@@ -264,7 +266,7 @@ class HealthTests(unittest.TestCase):
         found, result = self.assess(facts(lifecycle=Lifecycle.OBSOLETE))
         self.assertEqual((result.score, result.status), (0.0, Status.FATAL))
         waived = waivers.apply(found, [{"id": "w", "check_id": "obsolete", "scope": "obsolete", "reason": "x", "state": "approved", "proposed_by": "a", "decided_by": "b"}])
-        again = health.health(waived, risk.sub_scores(facts(lifecycle=Lifecycle.OBSOLETE)), DEFAULTS, has_data=True)
+        again = health.health(waived, risk.sub_scores(facts(lifecycle=Lifecycle.OBSOLETE), waived), DEFAULTS, has_data=True)
         self.assertNotEqual(again.status, Status.FATAL)
         self.assertGreater(again.score, 0)
 

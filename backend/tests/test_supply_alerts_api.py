@@ -105,8 +105,15 @@ class SupplyAlertsTests(unittest.TestCase):
                 conn.execute("UPDATE supply_offers SET lifecycle = %s WHERE listing_id = %s", (lifecycle, listing_id))
 
     def evaluate(self, *part_ids: str, after: timedelta = timedelta(0)) -> None:
+        """Look again, as housekeeping does once it has renewed what the history says about the parts."""
+
+        from app.services.supply import part_insights
+
         self.now = START + after
         with self.store.connection() as conn:
+            for part_id in part_ids:
+                if conn.execute("SELECT 1 FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone():
+                    part_insights.refresh(conn, part_id, self.now)
             self.alerts.evaluate_parts(conn, part_ids, self.now)
 
     def listed(self, **query) -> list[dict]:
@@ -291,6 +298,8 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(self.listed(), [], "30% is under the workspace's 40%")
         path = f"/api/supply/parts/{rising['part_id']}/alert-rules"
         self.assertEqual(self.call("PUT", path, body={"muted": [], "price_rise_percent": 25}).status, 200)
+        # Saving the rule looks at the part at the wall clock, months after these readings: start from the test's own clock.
+        self.rows("DELETE FROM supply_alerts RETURNING id")
         for later in (timedelta(hours=2), timedelta(hours=3)):
             self.evaluate(rising["part_id"], after=later)
         self.assertEqual([item["kind"] for item in self.listed()], ["price_up"], "the part asked for 25%")
@@ -351,26 +360,32 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(self.call("PUT", path, body={}, role="qa").status, 403)
 
     def test_a_part_can_ask_for_its_own_chance_before_it_is_called_likely_to_run_out(self) -> None:
-        from datetime import date
-
-        from app.services.supply import alerts
+        from app.services.supply import alert_rules, part_insights
 
         watch = self.watch()
         path = f"/api/supply/parts/{watch['part_id']}/alert-rules"
         for bad in (10, 100, "x"):
             self.assertEqual(self.call("PUT", path, body={"muted": [], "likely_out_percent": bad}).status, 422 if bad == "x" else 400, bad)
         self.assertEqual(self.call("PUT", path, body={"muted": [], "likely_out_percent": 85}).json["likely_out_percent"], 85)
-        with self.store.connection() as conn:
-            conn.execute("UPDATE supply_part_tiers SET rate = 'daily' WHERE part_id = %s", (watch["part_id"],))
-            conn.execute("INSERT INTO supply_forecast_models (target, state) VALUES ('out_4w', 'shown') ON CONFLICT (target) DO UPDATE SET state = 'shown'")
-            for day in (date(2026, 3, 1), date(2026, 3, 2)):
-                conn.execute(
-                    "INSERT INTO supply_forecasts (subject_kind, subject_id, scope, target, made_on, horizon_days, probability, model) VALUES ('part', %s, '', 'out_4w', %s, 28, 0.8, 'm')",
-                    (watch["part_id"], day),
-                )
-            self.assertEqual(alerts._likely_out(conn, [watch["part_id"]])[watch["part_id"]]["chance"], 0.8, "at the default 70%")  # noqa: SLF001
-            self.assertIsNone(alerts._likely_out(conn, [watch["part_id"]], {watch["part_id"]: 85})[watch["part_id"]]["chance"], "not at 85%")  # noqa: SLF001
-            self.assertEqual(alerts._likely_out(conn, [watch["part_id"]], {watch["part_id"]: 75})[watch["part_id"]]["chance"], 0.8)  # noqa: SLF001
+        from app.services.supply.assessment import service as assessment
+
+        item = {"id": watch["part_id"], "lifecycle": "active", "problem": None}
+        offer = {"connector_id": "c1", "connector_name": "A", "provider": "fake", "pool": None, "packaging": None, "stock": 500,
+                 "marketplace": False, "discontinued": False, "lifecycle": "active", "lead_time_days": None, "rohs": None, "reach_affected": None,
+                 "price_breaks": [], "currency": "", "moq": 1, "order_multiple": 1, "fetched_at": START}
+
+        def likely(percent: int | None) -> bool:
+            rules = alert_rules.Rules(frozenset(), None, None, "", percent)
+            found = assessment.assess_one(item, [offer], [], START, out_chance=0.8, rules=rules)["findings"]
+            return "likely_out" in {f["check"] for f in found}
+
+        self.assertTrue(likely(None), "0.8 is over the workspace's 70%")
+        self.assertFalse(likely(85), "not at the part's own 85%")
+        self.assertTrue(likely(75))
+        insight = {"forecast": {"available": True, "out_now": False, "p_out_4w": 0.8}}
+        self.assertEqual(part_insights.out_chance(insight), 0.8)
+        self.assertTrue(part_insights.KINDS["likely_out_4w"](insight), "the Insights list uses the same chance")
+        self.assertFalse(part_insights.KINDS["likely_out_4w"](insight | {"likely_at": 0.85}))
 
     def test_a_price_over_the_target_is_an_alert_until_it_comes_down(self) -> None:
         watch = self.watch()

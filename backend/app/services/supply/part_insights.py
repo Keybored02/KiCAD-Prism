@@ -50,17 +50,28 @@ KINDS: dict[str, Callable[[dict[str, Any]], bool]] = {
     **{f"outlook_{band}": (lambda d, band=band: (d.get("outlook_band") or "unknown") == band) for band in OUTLOOK_BANDS},
     **{f"lead_{bucket}": (lambda d, bucket=bucket: lead_bucket(d.get("lead_days")) == bucket) for bucket in (*(name for name, _ in LEAD_BUCKETS), "over_26w", "none")},
 }
-LIKELY = 0.5
+def out_chance(facts: dict[str, Any] | None, key: str = "p_out_4w") -> float | None:
+    """The forecast's chance of being out everywhere (within 4 weeks, or 8 with ``p_out_8w``) of a part that has stock; None without one."""
+
+    forecast = (facts or {}).get("forecast") or {}
+    if not forecast.get("available") or forecast.get("out_now") or forecast.get(key) is None:
+        return None
+    return float(forecast[key])
 
 
 def _likely_out(facts: dict[str, Any], key: str) -> bool:
-    forecast = facts.get("forecast") or {}
-    return bool(forecast.get("available")) and not forecast.get("out_now") and (forecast.get(key) or 0) >= LIKELY
+    """Likely out: the forecast's chance at least the one kept with the facts, the workspace's or the part's own (the
+    ``likely_out`` check's threshold too)."""
+
+    chance = out_chance(facts, key)
+    return chance is not None and chance >= facts.get("likely_at", DEFAULT_LIKELY_AT)
 
 
 # Kept facts are renewed when a mark says what they are made from changed (``freshness``), and at least this often, since their
 # trends move with the clock. A run renews as many as it can in ``RENEW_SECONDS`` (one part takes about 90 ms): missing first,
 # then marked, then the oldest.
+# The chance that is "likely out" until the workspace's setting is kept with the facts (``AssessmentSettings.alert_likely_out_percent``).
+DEFAULT_LIKELY_AT = 0.7
 RENEW_AFTER = timedelta(hours=20)
 RENEW_SECONDS = 60.0
 _RENEW_BATCH = 100
@@ -104,6 +115,8 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
         "lead_gap_days": insights.lead_gap_days(insight, lead),
         "lead_time_trend": parts_view.lead_time_trend(conn, part_id, now),
         "price_change_percent": (price["trend"] or {}).get("change_percent"),
+        "price_trend": price["trend"],
+        "likely_at": _likely_at(conn, part_id),
         "forecast": forecast,
         "stock": last["stock"] if last else None,
         "holders": last["sources"] if last else None,
@@ -115,6 +128,16 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
             "arrivals": {"on_time": arrivals["on_time"], "resolved": arrivals["arrived"] + arrivals["slipped"]} if arrivals and arrivals["on_time"] is not None else None,
         },
     }
+
+
+def _likely_at(conn, part_id: str) -> float:
+    """The chance that makes the part likely out: its own rule's, else the workspace's (``alert_rules``, assessment settings)."""
+
+    from app.services.supply import alert_rules
+    from app.services.supply.assessment import settings_store
+
+    own = alert_rules.for_parts(conn, [part_id]).get(part_id)
+    return ((own.likely_out_percent if own else None) or settings_store.load(conn).alert_likely_out_percent) / 100
 
 
 def _forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
@@ -163,12 +186,12 @@ def refresh(conn, part_id: str, now: datetime) -> None:
     )
 
 
-def renew(conn, now: datetime | None = None, seconds: float = RENEW_SECONDS) -> int:
+def renew(conn, now: datetime | None = None, seconds: float = RENEW_SECONDS) -> list[str]:
     """Work out the facts again for the tracked parts that have none, that a mark made stale or that are older than ``RENEW_AFTER``,
-    in that order, until ``seconds`` have gone. Returns how many."""
+    in that order, until ``seconds`` have gone. Returns the parts renewed."""
 
     now = now or datetime.now(timezone.utc)
-    stop, done, tried = time.monotonic() + seconds, 0, set()
+    stop, done, tried = time.monotonic() + seconds, [], set()
     while time.monotonic() < stop:
         rows = conn.execute(
             f"""
@@ -186,7 +209,7 @@ def renew(conn, now: datetime | None = None, seconds: float = RENEW_SECONDS) -> 
                 break
             refresh(conn, row["part_id"], now)
             tried.add(row["part_id"])
-            done += 1
+            done.append(row["part_id"])
     return done
 
 

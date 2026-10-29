@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, budget, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
+    accounts, alerts, budget, dashboard, demand, details, forecast_run, fx, ledger, market, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.connectors import ConnectorService
@@ -480,7 +480,9 @@ def _renew_insights(conn) -> None:
 
     try:
         with conn.transaction():
-            part_insights.renew(conn)
+            renewed = part_insights.renew(conn)
+            # The drain, the price trend and the forecast the alerts read are these: say what they say now.
+            alerts.evaluate_parts(conn, renewed, datetime.now(timezone.utc))
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).info("Insights not renewed", exc_info=True)
     try:

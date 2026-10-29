@@ -7,8 +7,10 @@ a settled fact. A condition that clears resolves its alert by itself. A person c
 acknowledge an alert (it stays listed, quieter) or snooze it; a worse severity wakes
 either of them up.
 
-Evaluation happens when a part has just been read, when its watch changes, and when
-it stops being watched. Functions work on a connection and do not commit.
+The lines are the tracked part's assessment findings (``ALERT_OF_CHECK``), so an alert says
+what the status says, at the severity the workspace set for the check, and a held waiver
+quiets it. Evaluation happens when a part has just been read, when its watch changes, and
+when it stops being watched. Functions work on a connection and do not commit.
 """
 
 from __future__ import annotations
@@ -16,13 +18,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import alert_rules, insights, parts_view, pcn, prices
-from app.services.supply.assessment import settings_store
+from app.services.supply import alert_rules
+from app.services.supply.assessment import settings as checks_ids
 from app.services.supply.audit import actor_text, write_audit
-from app.services.supply.vocabulary import Lifecycle, Status
+from app.services.supply.vocabulary import Status
 
 HOLD = timedelta(minutes=30)
 MAX_SNOOZE_HOURS = 24 * 30
@@ -42,14 +43,10 @@ KINDS = (
     OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, PCN,
     TARGET_PRICE_MISSED, ASSESSMENT_WORSE, LIKELY_OUT,
 )
-# The chance of being out everywhere within four weeks that raises the alert, on two runs in a row (a shown model only).
-LIKELY_OUT_CHANCE = 0.7
 
 # Assessment statuses from best to worst; "unknown" is not a state to compare.
 _STATUS_ORDER = ("ok", "warning", "error", "fatal")
 
-# The cheapest price rising by this much over the window is worth a look.
-PRICE_RISE_PERCENT = 20
 
 # Open on the first look: these are facts that do not flicker, unlike a stock reading.
 _IMMEDIATE = frozenset({PART_LOST, PCN})
@@ -72,103 +69,56 @@ class Condition:
     detail: Mapping[str, Any]
 
 
-def conditions_for(
-    item: Mapping[str, Any],
-    insight: Mapping[str, Any] | None = None,
-    price: Mapping[str, Any] | None = None,
-    notice: Mapping[str, Any] | None = None,
-    rules: alert_rules.Rules = alert_rules.NONE,
-    assessed: str | None = None,
-    mark: str | None = None,
-    likely: Mapping[str, Any] | None = None,
-    price_rise_default: int = PRICE_RISE_PERCENT,
+# The alert each check's finding raises. A lifecycle alert says the worst of the lifecycle findings.
+ALERT_OF_CHECK: Mapping[str, str] = {
+    checks_ids.PART_NOT_FOUND: PART_LOST,
+    checks_ids.NO_DISTRIBUTOR_STOCK: OUT_OF_STOCK,
+    checks_ids.BELOW_THRESHOLD: BELOW_THRESHOLD,
+    checks_ids.RUNS_OUT_SOON: RUPTURE_SOON,
+    checks_ids.LIKELY_OUT: LIKELY_OUT,
+    checks_ids.PRICE_UP: PRICE_UP,
+    checks_ids.CHANGE_NOTICE: PCN,
+    checks_ids.TARGET_PRICE_MISSED: TARGET_PRICE_MISSED,
+    checks_ids.OBSOLETE: LIFECYCLE,
+    checks_ids.LAST_TIME_BUY: LIFECYCLE,
+    checks_ids.NRND: LIFECYCLE,
+    checks_ids.DISTRIBUTOR_DISCONTINUED: LIFECYCLE,
+}
+
+
+def conditions_from(
+    findings: Iterable[Mapping[str, Any]], assessed: str | None = None, mark: str | None = None, muted: Iterable[str] = (),
 ) -> dict[str, Condition]:
-    """The lines a tracked part has crossed, from its summary row and, when there are any, its insight and price trend."""
+    """The lines a tracked part has crossed: its assessment's findings that raise an alert (``ALERT_OF_CHECK``), unwaived and above
+    a note, and a status worse than the one it is judged against (``mark``), when no other alert already says as much."""
 
     found: dict[str, Condition] = {}
-    if item["tracking"] is None:
-        return found
-    threshold = item["watch"]["threshold"] if item["watch"] else None
-    stock = item["stock"]
-    if item["problem"]:
-        found[PART_LOST] = Condition(Status.ERROR.value, {"problem": item["problem"]})
-    if stock is not None:
-        if stock == 0:
-            found[OUT_OF_STOCK] = Condition(Status.ERROR.value, {"stock": 0})
-        elif threshold is not None and stock <= threshold:
-            found[BELOW_THRESHOLD] = Condition(Status.WARNING.value, {"stock": stock, "threshold": threshold})
-    if insight is not None and stock and BELOW_THRESHOLD not in found:
-        days = insights.rupture_expected_within(dict(insight))
-        if days is not None:
-            found[RUPTURE_SOON] = Condition(Status.WARNING.value, {
-                "days_to_zero": days, "decrease_per_day": insight["decrease_per_day"], "confidence": insight["confidence"],
-            })
-    if likely is not None:
-        # Once the forecast model has earned its place it replaces the straight-line warning.
-        found.pop(RUPTURE_SOON, None)
-        if likely["chance"] is not None:
-            found[LIKELY_OUT] = Condition(Status.WARNING.value, {"chance": likely["chance"], "weeks": 4})
-    if price is not None and price["change_percent"] >= (rules.price_rise_percent or price_rise_default):
-        found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
-    if notice is not None:
-        found[PCN] = Condition(Status.ERROR.value if notice["soon"] else Status.WARNING.value, dict(notice))
-    lifecycle = item["lifecycle"]
-    if lifecycle == Lifecycle.OBSOLETE.value:
-        found[LIFECYCLE] = Condition(Status.FATAL.value, {"lifecycle": lifecycle})
-    elif lifecycle in (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value):
-        found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle})
-    elif item.get("dropped"):
-        found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle, "dropped": True})
-    target = rules.target_price
-    if target is not None and item.get("unit_price") and item.get("currency") == rules.target_currency:
-        if Decimal(item["unit_price"]) > target:
-            found[TARGET_PRICE_MISSED] = Condition(Status.WARNING.value, {
-                "price": item["unit_price"], "target": format(target.normalize(), "f"), "currency": rules.target_currency,
-                "quantity": item.get("price_quantity"),
-            })
+    for finding in findings:
+        kind = ALERT_OF_CHECK.get(finding["check"])
+        if kind is None or finding["severity"] not in _SEVERITY_RANK or (finding.get("waiver") or {}).get("holds"):
+            continue
+        before = found.get(kind)
+        if before is None or _SEVERITY_RANK[finding["severity"]] < _SEVERITY_RANK[before.severity]:
+            found[kind] = Condition(finding["severity"], dict(finding.get("detail") or {}))
     if assessed in _STATUS_ORDER and mark in _STATUS_ORDER and _STATUS_ORDER.index(assessed) > _STATUS_ORDER.index(mark):
-        found[ASSESSMENT_WORSE] = Condition(
-            Status.ERROR.value if assessed in ("error", "fatal") else Status.WARNING.value,
-            {"was": mark, "now": assessed, "to": assessed},
-        )
-    # A worse assessment says something new only when no alert already says as much.
-    worse = found.get(ASSESSMENT_WORSE)
-    if worse is not None and any(
-        _SEVERITY_RANK[other.severity] <= _SEVERITY_RANK[worse.severity] for kind, other in found.items() if kind != ASSESSMENT_WORSE
-    ):
-        del found[ASSESSMENT_WORSE]
-    return {kind: condition for kind, condition in found.items() if kind not in rules.muted}
+        worse = Condition(Status.ERROR.value if assessed in ("error", "fatal") else Status.WARNING.value, {"was": mark, "now": assessed, "to": assessed})
+        if not any(_SEVERITY_RANK[other.severity] <= _SEVERITY_RANK[worse.severity] for other in found.values()):
+            found[ASSESSMENT_WORSE] = worse
+    return {kind: condition for kind, condition in found.items() if kind not in set(muted)}
 
 
 def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
-    """Bring the alerts of these parts in line with how they stand now."""
+    """Bring the alerts of these parts in line with how they stand now: the tracked ones' assessments, the others none."""
 
     ids = sorted(set(part_ids))
     if not ids:
         return
-    current = {}
     rules = alert_rules.for_parts(conn, ids)
-    assessed, marks = _assessment_states(conn, ids, now)
-    defaults = settings_store.load(conn)
-    likely = _likely_out(
-        conn, ids, {part_id: rule.likely_out_percent for part_id, rule in rules.items() if rule.likely_out_percent},
-        defaults.alert_likely_out_percent / 100,
-    )
-    for item in parts_view.summaries_for(conn, ids):
-        tracked = item["tracking"] is not None
-        # A projection needs history, which costs queries: only for tracked parts with stock to lose.
-        insight = None
-        if tracked and item["stock"]:
-            insight = parts_view.insight_from(
-                parts_view.history(conn, item["id"], now), item["watch"]["threshold"] if item["watch"] else None, now
-            )
-        # The move over the last 30 days, read from 90 so a listing last read before the 30 still holds its price at their start.
-        price = prices.view(prices.daily_cheapest(conn, item["id"], now, prices.CHART_DAYS), now.date())["trend"] if tracked else None
-        notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if tracked else None
-        current[item["id"]] = conditions_for(
-            item, insight, price, notice, rules.get(item["id"], alert_rules.NONE), assessed.get(item["id"]), marks.get(item["id"]),
-            likely.get(item["id"]) if tracked else None, defaults.alert_price_rise_percent,
-        )
+    result, marks = _assessment_states(conn, ids, now)
+    current = {
+        part_id: conditions_from(entry["findings"], entry["status"], marks.get(part_id), rules.get(part_id, alert_rules.NONE).muted)
+        for part_id, entry in result.items()
+    }
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
         "SELECT * FROM supply_alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)
@@ -189,34 +139,9 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
                 _update(conn, row, kind, condition, now)
 
 
-def _likely_out(conn, ids: list[str], percent: dict[str, int] | None = None, default: float = LIKELY_OUT_CHANCE) -> dict[str, dict[str, Any]]:
-    """For tracked daily parts, once the four-week model is shown: the chance they are out everywhere within four weeks, if the last two
-    runs both said at least the part's own chance (``percent``, else the workspace's ``default``); else None, which clears the alert. Empty
-    while the model is learning."""
-
-    from app.services.supply import forecasting
-
-    state = conn.execute("SELECT state FROM supply_forecast_models WHERE target = 'out_4w'").fetchone()
-    if not state or state["state"] != forecasting.SHOWN:
-        return {}
-    found: dict[str, dict[str, Any]] = {}
-    for row in conn.execute(
-        """
-        SELECT f.subject_id, (array_agg(f.probability ORDER BY f.made_on DESC))[1:2] AS lately
-        FROM supply_forecasts f JOIN supply_part_tiers pt ON pt.part_id = f.subject_id AND pt.rate = 'daily'
-        WHERE f.subject_kind = 'part' AND f.target = 'out_4w' AND f.subject_id = ANY(%s) GROUP BY f.subject_id
-        """,
-        (ids,),
-    ).fetchall():
-        lately = [float(value) for value in row["lately"]]
-        needed = (percent or {}).get(row["subject_id"], 0) / 100 or default
-        found[row["subject_id"]] = {"chance": min(lately) if len(lately) == 2 and min(lately) >= needed else None}
-    return found
-
-
-def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, str], dict[str, str]]:
-    """How each tracked part's assessment stands, and the status it is judged against. A part is marked the first time it is
-    assessed, and the mark follows it down when it improves; a worsening is an alert until someone acknowledges it."""
+def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    """Each tracked part's assessment, and the status it is judged against. A part is marked the first time it is assessed, and the
+    mark follows it down when it improves; a worsening is an alert until someone acknowledges it."""
 
     from app.services.supply.assessment import service as assessment
 
@@ -238,7 +163,7 @@ def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, s
                 (part_id, status),
             )
             marks[part_id] = status
-    return states, marks
+    return result, marks
 
 
 def _begin(conn, part_id: str, kind: str, condition: Condition, now: datetime) -> None:

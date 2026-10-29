@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import compliance, facts as stated_facts, fx, part_insights, parts_view, price_quantity, pricing
+from app.services.supply import alert_rules, compliance, facts as stated_facts, forecasting, fx, part_insights, parts_view, pcn, price_quantity, pricing
 from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
@@ -54,6 +54,11 @@ def assess_one(
     last_buy: date | None = None,
     rohs_stated: Sequence[str] = (),
     wanted: int = pricing.REFERENCE_QUANTITY,
+    *,
+    insight: Mapping[str, Any] | None = None,
+    out_chance: float | None = None,
+    rules: alert_rules.Rules = alert_rules.NONE,
+    notices: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
@@ -61,10 +66,17 @@ def assess_one(
         svhc_listed=svhc_listed, prices=_quotes(offers, wanted, settings.base_currency, rates), outlook=outlook,
         last_buy=last_buy, rate=str((item.get("tracking") or {}).get("rate") or ""), rohs_stated=rohs_stated,
         threshold=(item.get("watch") or {}).get("threshold"),
+        insight=insight, out_chance=out_chance,
+        # A part's own rule wins over the workspace's (``alert_rules``).
+        likely_at=(rules.likely_out_percent or settings.alert_likely_out_percent) / 100,
+        price_rise_percent=rules.price_rise_percent or settings.alert_price_rise_percent,
+        notice=pcn.alert_detail(notices, now.date()), notice_changes=pcn.next_change(notices, now.date()),
+        price=(item["unit_price"], item.get("currency") or "", item.get("price_quantity")) if item.get("unit_price") else None,
+        target=(rules.target_price, rules.target_currency) if rules.target_price is not None else None,
     )
     # Findings from outside the part (a component's) are waived like the part's own.
     findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
-    scores = risk.sub_scores(facts)
+    scores = risk.sub_scores(facts, findings)
     result = health.health(findings, scores, settings, has_data=bool(offers))
     return {
         "part_id": item["id"],
@@ -72,7 +84,8 @@ def assess_one(
         "status": result.status.value,
         "need": need,
         "findings": [
-            {"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope, "waiver": dict(f.waiver) if f.waiver else None}
+            {"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope, "waiver": dict(f.waiver) if f.waiver else None,
+             "detail": dict(f.detail)}
             for f in findings
         ],
         "sub_scores": [{"name": s.name, "score": s.score, "reasons": list(s.reasons)} for s in scores],
@@ -123,16 +136,23 @@ def assess_summaries(
     distributors = distributor_count(conn)
     listed = compliance.listed_substances(conn, [item["id"] for item in items])
     rates = fx.latest(conn)
-    # The outlook band is kept by housekeeping with the part's other insights, so a read here costs one query.
-    bands = {part_id: data.get("outlook_band") or "" for part_id, data in part_insights.of_parts(conn, [item["id"] for item in items]).items()}
+    ids = [item["id"] for item in items]
+    # What the history says (the outlook band, the drain, the price trend, the forecast) is kept by housekeeping with the part's
+    # other insights, so a read here costs one query.
+    kept = part_insights.of_parts(conn, ids)
+    shown = forecasting.shown(forecasting.model_states(conn), "out_4w")
+    rules = alert_rules.for_parts(conn, ids)
+    notices = pcn.for_parts(conn, ids)
     last_buys = last_buy_dates(conn, [item["id"] for item in items])
     rohs_said = stated_facts.rohs_stated(conn, [item["id"] for item in items])
     quantities = price_quantity.of_parts(conn, [item["id"] for item in items])
     return {
         item["id"]: assess_one(
             item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors,
-            (extras or {}).get(item["id"], ()), listed.get(item["id"], ()), rates, bands.get(item["id"], ""), last_buys.get(item["id"]),
-            rohs_said.get(item["id"], ()), quantities[item["id"]],
+            (extras or {}).get(item["id"], ()), listed.get(item["id"], ()), rates, (kept.get(item["id"]) or {}).get("outlook_band") or "",
+            last_buys.get(item["id"]), rohs_said.get(item["id"], ()), quantities[item["id"]],
+            insight=kept.get(item["id"]), out_chance=part_insights.out_chance(kept.get(item["id"])) if shown else None,
+            rules=rules.get(item["id"], alert_rules.NONE), notices=notices.get(item["id"], ()),
         )
         for item in items
     }
