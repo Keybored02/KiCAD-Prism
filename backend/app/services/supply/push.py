@@ -17,9 +17,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Mapping, Sequence
 
+from app.services.supply import clock
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.csv_format import CsvOfferRow
 from app.services.supply.csv_offers import CsvOfferStore
@@ -65,11 +66,11 @@ def issue_token(conn, target_kind: str, target_id: str, actor: str) -> str:
     token = TOKEN_PREFIX + "".join(secrets.choice(_BASE62) for _ in range(TOKEN_RANDOM_LENGTH))
     conn.execute(
         """
-        INSERT INTO supply_push_tokens (target_kind, target_id, token_hash, prefix, created_by) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_push_tokens (target_kind, target_id, token_hash, prefix, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (target_kind, target_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, prefix = EXCLUDED.prefix,
-            created_by = EXCLUDED.created_by, created_at = NOW(), last_used_at = NULL
+            created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at, last_used_at = NULL
         """,
-        (target_kind, target_id, _hash(token), token[:DISPLAY_PREFIX_LENGTH], actor_text(actor)),
+        (target_kind, target_id, _hash(token), token[:DISPLAY_PREFIX_LENGTH], actor_text(actor), clock.now()),
     )
     write_audit(conn, actor, "push_token.issue", target_id, {"prefix": token[:DISPLAY_PREFIX_LENGTH]}, subject_kind=target_kind)
     return token
@@ -102,7 +103,9 @@ def check_token(conn, target_kind: str, target_id: str, token: str) -> str | Non
     ).fetchone()
     if row is None or not hmac.compare_digest(row["token_hash"], _hash(token)):
         return None
-    conn.execute("UPDATE supply_push_tokens SET last_used_at = NOW() WHERE target_kind = %s AND target_id = %s", (target_kind, target_id))
+    conn.execute(
+        "UPDATE supply_push_tokens SET last_used_at = %s WHERE target_kind = %s AND target_id = %s", (clock.now(), target_kind, target_id),
+    )
     return str(row["prefix"])
 
 
@@ -125,17 +128,17 @@ def require_file_fed(connector: Mapping[str, Any]) -> ProviderSpec:
     return spec
 
 
-def read_again(conn, connector_id: str) -> None:
+def read_again(conn, connector_id: str, now: datetime | None = None) -> None:
     """Make every listing of the connector due now, so a listing the new rows no longer hold is found missing on the next
     scan instead of standing until its own next read. Its last read was stamped by the poller's clock, so it is due whatever
     clock the poller runs on."""
 
     conn.execute(
         """
-        UPDATE supply_poll_state SET next_poll_at = LEAST(next_poll_at, COALESCE(last_polled_at, next_poll_at), NOW())
+        UPDATE supply_poll_state SET next_poll_at = LEAST(next_poll_at, COALESCE(last_polled_at, next_poll_at), %s)
         WHERE listing_id IN (SELECT id FROM supply_listings WHERE connector_id = %s)
         """,
-        (connector_id,),
+        (now or clock.now(), connector_id),
     )
 
 
@@ -156,7 +159,7 @@ def push_offers(
     with store.connection() as conn:
         keep = offers.replace_all if replace else offers.upsert
         info = keep(conn, connector_id, rows, filename=filename.strip()[:200], actor=actor)
-        conn.execute("UPDATE supply_connectors SET last_ok_at = NOW(), last_error_code = '' WHERE id = %s", (connector_id,))
+        conn.execute("UPDATE supply_connectors SET last_ok_at = %s, last_error_code = '' WHERE id = %s", (clock.now(), connector_id))
         # New rows may carry parts Prism has not matched here yet, and listings marked gone can come back: searched afresh.
         conn.execute("DELETE FROM supply_discovery_runs WHERE connector_id = %s", (connector_id,))
         if replace:
@@ -220,7 +223,7 @@ def push_levels(store: SupplyStore, source_id: str, items: Sequence[Mapping[str,
     """Replace the push source's stock with ``items``, matched to components as a read is. Returns the counts."""
 
     found = levels_read(items)
-    moment = now or datetime.now(timezone.utc)
+    moment = now or clock.now()
     with store.connection() as conn:
         row = sources.get(conn, source_id)
         spec = inventory_registry.get_spec(row["kind"])

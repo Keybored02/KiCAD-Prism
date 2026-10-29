@@ -370,15 +370,15 @@ class ConnectorService:
         with self._store.connection() as conn:
             if error_code is None:
                 conn.execute(
-                    "UPDATE supply_connectors SET last_ok_at = NOW(), last_error_code = '', error_streak = 0, block_streak = 0 WHERE id = %s",
-                    (connector_id,),
+                    "UPDATE supply_connectors SET last_ok_at = %s, last_error_code = '', error_streak = 0, block_streak = 0 WHERE id = %s",
+                    (self._clock(), connector_id),
                 )
-                limits.note_ok(conn, connector_id, datetime.now(timezone.utc))
+                limits.note_ok(conn, connector_id, self._clock())
             else:
                 conn.execute(
-                    "UPDATE supply_connectors SET last_error_code = %s, last_error_at = NOW(), error_streak = error_streak + 1 "
+                    "UPDATE supply_connectors SET last_error_code = %s, last_error_at = %s, error_streak = error_streak + 1 "
                     "WHERE id = %s",
-                    (error_code[:64], connector_id),
+                    (error_code[:64], self._clock(), connector_id),
                 )
 
     def keyring(self):

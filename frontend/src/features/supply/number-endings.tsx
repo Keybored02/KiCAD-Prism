@@ -11,7 +11,7 @@ import { useLoaded } from "./use-loaded";
 /** The endings makers put on a base number. A packaging ending (a reel, a tube) is the same part and counts; a grade (automotive) is another part and waits for a click. */
 export function NumberEndings({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback(async (signal: AbortSignal) => (await listNumberEndings(signal)).endings, []);
-  const loaded = useLoaded("number-endings", fetcher, "Could not load the endings");
+  const loaded = useLoaded("settings/number-endings", fetcher, "Could not load the endings");
   const { busy, error, run } = useConnectorSubmit();
   const [ending, setEnding] = useState("");
   const [kind, setKind] = useState<"packaging" | "grade">("packaging");

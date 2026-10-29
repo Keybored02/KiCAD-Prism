@@ -11,7 +11,7 @@ import { useLoaded } from "./use-loaded";
 /** What Prism would pick at each distributor that lists several packagings, and the calls it saves, before it does. */
 export function OnePerDistributor({ partId, onClose, onDone }: { partId: string; onClose: () => void; onDone: () => Promise<void> | void }) {
   const fetcher = useCallback((signal: AbortSignal) => getAutoProposals(partId, signal), [partId]);
-  const { data, status, error } = useLoaded(`auto-picks:${partId}`, fetcher, "Could not work out the picks");
+  const { data, status, error } = useLoaded(`parts/${partId}/auto-picks`, fetcher, "Could not work out the picks");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
   const apply = () => {

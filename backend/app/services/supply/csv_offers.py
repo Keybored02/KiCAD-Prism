@@ -8,6 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Sequence
 
+from app.services.supply import clock
 from app.services.supply.csv_format import CsvOfferRow
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.models import Incoming, Offer, PartMatch, PriceBreak
@@ -41,11 +42,11 @@ _INSERT = """
         connector_id, sku, mpn, match_key, manufacturer, stock, currency, moq, order_multiple,
         packaging, lead_time_days, lifecycle, discontinued, rohs, product_url,
         incoming_qty, incoming_date, price_breaks, jlc_library, jlc_preferred, fetched_at
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, NOW())
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
 """
 
 
-def _values(connector_id: str, row: CsvOfferRow) -> tuple:
+def _values(connector_id: str, row: CsvOfferRow, now: datetime) -> tuple:
     return (
         connector_id, row.sku, row.mpn, match_key(row.mpn), row.manufacturer, row.stock,
         row.currency, row.moq, row.order_multiple, row.packaging.value, row.lead_time_days,
@@ -53,7 +54,7 @@ def _values(connector_id: str, row: CsvOfferRow) -> tuple:
         row.incoming.quantity if row.incoming else None,
         row.incoming.expected if row.incoming else None,
         json.dumps([[brk.quantity, str(brk.unit_price)] for brk in row.price_breaks]),
-        row.jlc_library, row.jlc_preferred,
+        row.jlc_library, row.jlc_preferred, now,
     )
 
 
@@ -69,31 +70,33 @@ class CsvOfferStore:
     ) -> CsvImportInfo:
         """Swap the connector's offers for ``rows``, in the caller's transaction."""
 
+        now = clock.now()
         conn.execute("DELETE FROM supply_csv_offers WHERE connector_id = %s", (connector_id,))
         with conn.cursor() as cursor:
-            cursor.executemany(_INSERT, [_values(connector_id, row) for row in rows])
-        return self._stamp(conn, connector_id, filename, actor, len(rows))
+            cursor.executemany(_INSERT, [_values(connector_id, row, now) for row in rows])
+        return self._stamp(conn, connector_id, filename, actor, len(rows), now)
 
     def upsert(self, conn, connector_id: str, rows: Sequence[CsvOfferRow], *, filename: str, actor: str) -> CsvImportInfo:
         """Replace the connector's rows with these SKUs and keep the rest, in the caller's transaction."""
 
+        now = clock.now()
         conn.execute("DELETE FROM supply_csv_offers WHERE connector_id = %s AND sku = ANY(%s)", (connector_id, [row.sku for row in rows]))
         with conn.cursor() as cursor:
-            cursor.executemany(_INSERT, [_values(connector_id, row) for row in rows])
+            cursor.executemany(_INSERT, [_values(connector_id, row, now) for row in rows])
         count = conn.execute("SELECT COUNT(*) AS n FROM supply_csv_offers WHERE connector_id = %s", (connector_id,)).fetchone()["n"]
-        return self._stamp(conn, connector_id, filename, actor, int(count))
+        return self._stamp(conn, connector_id, filename, actor, int(count), now)
 
-    def _stamp(self, conn, connector_id: str, filename: str, actor: str, count: int) -> CsvImportInfo:
+    def _stamp(self, conn, connector_id: str, filename: str, actor: str, count: int, now: datetime) -> CsvImportInfo:
         saved = conn.execute(
             """
             INSERT INTO supply_csv_imports (connector_id, filename, imported_by, imported_at, row_count)
-            VALUES (%s, %s, %s, NOW(), %s)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (connector_id) DO UPDATE SET
                 filename = EXCLUDED.filename, imported_by = EXCLUDED.imported_by,
                 imported_at = EXCLUDED.imported_at, row_count = EXCLUDED.row_count
             RETURNING filename, imported_by, imported_at, row_count
             """,
-            (connector_id, filename, actor, count),
+            (connector_id, filename, actor, now, count),
         ).fetchone()
         return _info(saved)
 

@@ -327,21 +327,21 @@ class ReleaseCheckTests(unittest.TestCase):
 
     def test_the_workspaces_spares_are_the_pages_unless_it_names_its_own(self) -> None:
         from app.services.supply import usage
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         self.part("GOOD-1", stock=5000)
         project = SimpleNamespace(id="prj_56", name="Fifty six")
         with self.store.connection() as conn:
             usage.store_project(conn, "prj_56", "Fifty six", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
-            settings_store.save(conn, {"spares_mode": "flat", "spares_percent": 10}, "admin@example.com")
+            supply_settings.save_form(conn, {"spares_mode": "flat", "spares_percent": 10}, "admin@example.com")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             page = self.request("prj_56/supply", query="build_quantity=10").json
             own = self.request("prj_56/supply", query="build_quantity=10&spares=0").json
         self.assertEqual((page["attrition_percent"], page["parts"][0]["need"]), (10.0, 11), "10 pieces and 10%")
         self.assertEqual((own["attrition_percent"], own["parts"][0]["need"]), (0.0, 10))
         with self.store.connection() as conn:
-            settings_store.save(conn, {"spares_mode": "package"}, "admin@example.com")
-            self.assertIsNone(settings_store.load(conn).default_attrition())
+            supply_settings.save_form(conn, {"spares_mode": "package"}, "admin@example.com")
+            self.assertIsNone(supply_settings.load(conn).spares.default_attrition())
 
     def test_the_cost_curve_equals_single_lookups_and_the_money_goes_to_the_biggest_lines(self) -> None:
         from app.services.supply import bom_lookup, usage
@@ -633,15 +633,15 @@ class ReleaseCheckTests(unittest.TestCase):
                 mock.patch("app.services.supply.release_snapshot.catalog_read.component_ids_by_part", return_value={}):
             queue = mock.Mock()
             self.assertTrue(release_snapshot.queue("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com", job_service=queue))
-            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "queued")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "running")
             self.assertEqual(queue.enqueue.call_args.kwargs["artifact_key"], "supply-snapshot:bld_9")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken")
-            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "taken")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "done")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken", "asking twice is harmless")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_1")):
             response = self.request("prj_1/releases/bld_9/supply")
             status = self.request("prj_1/releases/bld_9/supply-status")
-        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "taken"))
+        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "done"))
 
     def test_a_build_without_a_bom_records_why_there_is_no_snapshot(self) -> None:
         from app.services.supply import release_snapshot, release_source
@@ -649,8 +649,8 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.services.supply.release_snapshot.supply_store", self.store), \
                 mock.patch("app.services.supply.release_snapshot.release_source.build_bom_text", side_effect=release_source.NoBuildBom("This build exported no BOM file.")):
             self.assertEqual(release_snapshot.take("prj_1", "bld_x", "vx", "c" * 40, "qa@example.com"), "failed")
-            self.assertEqual(self.status_of("prj_1", "bld_x"), {"state": "failed", "reason": "This build exported no BOM file."})
-        self.assertEqual(self.status_of("prj_1", "never"), {"state": "none", "reason": ""})
+            self.assertEqual(self.status_of("prj_1", "bld_x"), {"state": "failed", "done": 0, "total": 1, "failed": 1, "reason": "This build exported no BOM file."})
+        self.assertEqual(self.status_of("prj_1", "never"), {"state": "none", "done": 0, "total": 0, "failed": 0, "reason": ""})
 
     def test_queueing_never_raises_and_says_when_it_could_not(self) -> None:
         from app.services.supply import release_snapshot

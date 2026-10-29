@@ -56,7 +56,7 @@ const NAV: ReadonlyArray<{ title: string; ids: readonly GroupId[] }> = [
 
 function Body({ user }: { user: User | null }) {
   const fetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
-  const loaded = useLoaded<AssessmentSettingsView>("assessment-settings", fetcher, "Could not load the settings");
+  const loaded = useLoaded<AssessmentSettingsView>("settings/assessment", fetcher, "Could not load the settings");
   const [group, setGroup] = useState<GroupId>("costing");
   const [saved, setSaved] = useState<AssessmentSettingsView | null>(null);
   if (loaded.status === "loading") return <div className="flex-1 p-6"><Skeleton className="h-60 w-full" aria-label="Loading the settings" /></div>;

@@ -16,7 +16,7 @@ from typing import Any, Callable, Literal, Mapping
 
 from app.services.supply import budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
-from app.services.supply.assessment import settings_store
+from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import store
 from app.services.supply.providers import registry
 from app.services.supply.tiers import SCHEDULES
@@ -214,7 +214,7 @@ def _offer_summary(offers_here: list[dict], policy: str, problem: str | None, pr
 def _money(conn) -> tuple[str, fx.Rates, str]:
     """The workspace currency, the exchange rates, and a key naming both: a kept summary priced with another key is stale."""
 
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
     named = ",".join([base, str(rates.day), *(f"{currency}={rate}" for currency, rate in sorted(rates.per_eur.items()))])
     return base, rates, hashlib.sha256(named.encode()).hexdigest()[:16]
@@ -761,7 +761,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
     offers = offers_by_part(conn, ids)
     shown = offers_by_part(conn, ids, every_listing=True)
     quantities = price_quantity.of_parts(conn, ids)
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
     waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM supply_admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
@@ -1007,7 +1007,7 @@ def _price_block(conn, part_id: str, now: datetime, kept: Mapping[str, Any]) -> 
     series, meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
     block = prices.view(series, now.date())
     chosen = price_quantity.of_part(conn, part_id)
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": {key: kept[key] for key in _PRICE_KEYS}}
 
 

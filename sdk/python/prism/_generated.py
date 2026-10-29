@@ -7881,7 +7881,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def read_project_bom(self, project_id: str) -> dict[str, str]:
+    def read_project_bom(self, project_id: str) -> dict[str, Any]:
         """Read Project Bom"""
         return self._request(
             "POST",

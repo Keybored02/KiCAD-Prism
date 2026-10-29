@@ -8,5 +8,5 @@ import { useLoaded } from "./use-loaded";
 export function usePartForecast(partId: string, quantity: number | null, base: number | undefined) {
   const fetcher = useCallback((signal: AbortSignal) => getPartForecast(partId, quantity, signal), [partId, quantity]);
   // The part's own price quantity is part of the key: changing it on the sheet asks again.
-  return useLoaded<PartForecast>(`forecast:${partId}:${quantity ?? "own"}:${base ?? ""}`, fetcher, "Could not load the forecast");
+  return useLoaded<PartForecast>(`parts/${partId}/forecast/${quantity ?? "own"}|${base ?? ""}`, fetcher, "Could not load the forecast");
 }

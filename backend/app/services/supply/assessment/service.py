@@ -11,8 +11,8 @@ from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import alert_rules, compliance, facts as stated_facts, fx, part_insights, parts_view, pcn, price_quantity, pricing
-from app.services.supply.assessment import checks, health, risk, settings_store, waivers
-from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
+from app.services.supply import settings as supply_settings
+from app.services.supply.assessment import checks, health, risk, waivers
 from app.services.supply.forecast import store
 from app.services.supply.vocabulary import Lifecycle
 
@@ -46,7 +46,7 @@ def assess_one(
     part_waivers: Sequence[Mapping[str, Any]],
     now: datetime,
     need: int | None = None,
-    settings: AssessmentSettings = DEFAULTS,
+    settings: supply_settings.Settings = supply_settings.DEFAULTS,
     distributors: int | None = None,
     extras: Sequence[checks.Finding] = (),
     svhc_listed: Sequence[str] = (),
@@ -64,21 +64,21 @@ def assess_one(
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
-        svhc_listed=svhc_listed, prices=_quotes(offers, wanted, settings.base_currency, rates), outlook=outlook,
+        svhc_listed=svhc_listed, prices=_quotes(offers, wanted, settings.pricing.base_currency, rates), outlook=outlook,
         last_buy=last_buy, rate=str((item.get("tracking") or {}).get("rate") or ""), rohs_stated=rohs_stated,
         threshold=(item.get("watch") or {}).get("threshold"),
         insight=insight, out_chance=out_chance,
         # A part's own rule wins over the workspace's (``alert_rules``).
-        likely_at=(rules.likely_out_percent or settings.alert_likely_out_percent) / 100,
-        price_rise_percent=rules.price_rise_percent or settings.alert_price_rise_percent,
+        likely_at=(rules.likely_out_percent or settings.alerts.likely_out_percent) / 100,
+        price_rise_percent=rules.price_rise_percent or settings.alerts.price_rise_percent,
         notice=pcn.alert_detail(notices, now.date()), notice_changes=pcn.next_change(notices, now.date()),
         price=(item["unit_price"], item.get("currency") or "", item.get("price_quantity")) if item.get("unit_price") else None,
         target=(rules.target_price, rules.target_currency) if rules.target_price is not None else None,
     )
     # Findings from outside the part (a component's) are waived like the part's own.
-    findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
+    findings = waivers.apply([*checks.evaluate(facts, settings.assessment), *extras], part_waivers)
     scores = risk.sub_scores(facts, findings)
-    result = health.health(findings, scores, settings, has_data=bool(offers))
+    result = health.health(findings, scores, settings.assessment, has_data=bool(offers))
     return {
         "part_id": item["id"],
         "health": result.score,
@@ -91,7 +91,7 @@ def assess_one(
         ],
         "sub_scores": [{"name": s.name, "score": s.score, "reasons": list(s.reasons)} for s in scores],
         # When the clock alone changes the answer, so a kept one knows until when it holds.
-        "changes_at": (lambda moment: moment.isoformat() if moment else None)(checks.changes_at(facts, settings)),
+        "changes_at": (lambda moment: moment.isoformat() if moment else None)(checks.changes_at(facts, settings.assessment)),
     }
 
 
@@ -124,7 +124,7 @@ def assess_summaries(
     offers: Mapping[str, Sequence[Mapping[str, Any]]],
     needs: Mapping[str, int | None],
     now: datetime,
-    settings: AssessmentSettings | None = None,
+    settings: supply_settings.Settings | None = None,
     extras: Mapping[str, Sequence[checks.Finding]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Assess parts whose summaries and offers a caller already loaded, by the workspace's settings.
@@ -132,7 +132,7 @@ def assess_summaries(
     ``extras`` are findings from outside the part (a component's, say); a waiver on the part covers them like its own.
     """
 
-    settings = settings or settings_store.load(conn)
+    settings = settings or supply_settings.load(conn)
     held = waivers.for_parts(conn, [item["id"] for item in items])
     distributors = distributor_count(conn)
     listed = compliance.listed_substances(conn, [item["id"] for item in items])
@@ -164,7 +164,7 @@ def assess_parts(
     part_ids: Sequence[str],
     needs: Mapping[str, int | None] | None = None,
     now: datetime | None = None,
-    settings: AssessmentSettings | None = None,
+    settings: supply_settings.Settings | None = None,
 ) -> dict[str, dict[str, Any]]:
     items, offers = parts_view.summaries_with_offers(conn, list(part_ids))
     return assess_summaries(conn, items, offers, needs or {}, now or datetime.now(timezone.utc), settings)

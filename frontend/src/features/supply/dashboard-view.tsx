@@ -40,10 +40,10 @@ function showAlerts() {
 }
 
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
-export function DashboardView({ user, active = true }: { user: User | null; active?: boolean }) {
+export function DashboardView({ user }: { user: User | null }) {
   const overview = useSupplyOverview();
   const dashboardFetcher = useCallback((signal: AbortSignal) => getSupplyDashboard(signal), []);
-  const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard", "supply");
+  const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard");
   const { go, openPart } = useSupplyNavigation();
   const navigate = useNavigate();
   const [alertKind, setAlertKind] = useState("");
@@ -118,7 +118,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
           ) : null}
         </div>
       </div>
-      <OpenPartSheet user={user} active={active} onChanged={() => void overview.refresh()} />
+      <OpenPartSheet user={user} onChanged={() => void overview.refresh()} />
     </div>
   );
 }

@@ -14,6 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.services.supply import settings as workspace  # noqa: E402
 from app.services.supply.assessment import settings as rules  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
@@ -22,11 +23,17 @@ POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 class ValidationTests(unittest.TestCase):
     def good(self) -> dict:
-        return copy.deepcopy(rules.to_dto(rules.DEFAULTS))
+        return copy.deepcopy(workspace.to_dto(workspace.DEFAULTS))
 
     def test_the_defaults_are_valid_and_round_trip(self) -> None:
-        stored = rules.validate(self.good())
-        self.assertEqual(rules.to_dto(rules.from_dto(stored)), self.good())
+        stored = workspace.validate_form(self.good())
+        self.assertEqual(set(stored), set(workspace.FORM))
+        loaded = workspace.Settings(**{name: workspace.SECTIONS[name].from_dto(value) for name, value in stored.items()})
+        self.assertEqual(workspace.to_dto(loaded), self.good())
+        schedule = workspace.SECTIONS["schedule"]
+        self.assertEqual(schedule.to_dto(schedule.from_dto(schedule.check({"spare": {"library": False}}))), {"spare": {
+            "waiting": True, "tier2_early": True, "notices": True, "library": False}})
+        self.assertEqual(schedule.from_dto(schedule.check({"spare": {"notices": False}})).kinds(), ["waiting", "tier2_early", "library"])
 
     def test_a_deployment_chooses_the_currency_a_workspace_starts_in(self) -> None:
         from pydantic import ValidationError
@@ -40,18 +47,26 @@ class ValidationTests(unittest.TestCase):
                 SupplySettings(_env_file=None, SUPPLY_BASE_CURRENCY=bad)
 
     def test_spares_and_alert_defaults_are_kept_and_the_spares_become_a_table_or_a_percent(self) -> None:
-        flat = rules.from_dto(rules.validate({**self.good(), "spares_percent": 5}))
-        self.assertEqual((flat.default_attrition(), flat.spares_table()), (5.0, {"small_passive": 2.0, "other": 0.0}))
-        package = rules.from_dto(rules.validate({**self.good(), "spares_mode": "package", "spares_small_passives": 3, "spares_others": 1}))
-        self.assertEqual((package.default_attrition(), package.spares_table()), (None, {"small_passive": 3.0, "other": 1.0}))
+        def spares(change: dict) -> workspace.Spares:
+            return workspace.SECTIONS["spares"].from_dto(workspace.validate_form({**self.good(), **change})["spares"])
+
+        flat = spares({"spares_percent": 5})
+        self.assertEqual((flat.default_attrition(), flat.table()), (5.0, {"small_passive": 2.0, "other": 0.0}))
+        package = spares({"spares_mode": "package", "spares_small_passives": 3, "spares_others": 1})
+        self.assertEqual((package.default_attrition(), package.table()), (None, {"small_passive": 3.0, "other": 1.0}))
         for bad, message in (
             ({"spares_mode": "lots"}, "one percent for every part or by kind of part"),
             ({"spares_percent": 101}, "spares must be a percent"),
             ({"alert_price_rise_percent": 0}, "price rise that raises an alert must be a whole number from 1 to 500"),
             ({"alert_likely_out_percent": 49}, "chance of running out that raises an alert must be a whole number from 50 to 99"),
+            ({"spare": {"waiting": "yes"}}, None),
         ):
-            with self.assertRaises(ValueError) as caught:
-                rules.validate({**self.good(), **bad})
+            if message is None:
+                with self.assertRaises(workspace.SettingsError):
+                    workspace.SECTIONS["schedule"].check(bad)
+                continue
+            with self.assertRaises(workspace.SettingsError) as caught:
+                workspace.validate_form({**self.good(), **bad})
             self.assertIn(message, str(caught.exception).replace("The spares", "spares"), bad)
 
     def test_every_check_is_listed_under_one_area(self) -> None:
@@ -65,7 +80,6 @@ class ValidationTests(unittest.TestCase):
         cases = [
             ({"lead_time_days": 0}, "lead time limit must be a whole number from 1 to 730"),
             ({"lead_time_days": "84"}, "lead time limit must be a whole number"),
-            ({"base_currency": "euro"}, "base currency must be a three letter code"),
             ({"late_hours": 100000}, "late read limit must be a whole number from 1 to 720"),
             ({"severity": {"nrnd": "loud"}}, "severity of nrnd must be one of"),
             ({"severity": {"made_up": "error"}}, "Unknown check: made_up"),
@@ -74,6 +88,9 @@ class ValidationTests(unittest.TestCase):
             with self.assertRaises(ValueError) as caught:
                 rules.validate(payload)
             self.assertIn(message, str(caught.exception), payload)
+        with self.assertRaises(workspace.SettingsError) as caught:
+            workspace.validate_form({"base_currency": "euro"})
+        self.assertIn("base currency must be a three letter code", str(caught.exception))
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply API tests")
@@ -123,7 +140,7 @@ class SettingsApiTests(unittest.TestCase):
         return _request(self.app, method, "/api/supply/settings/assessment", user=self.users[role], body=body)
 
     def payload(self, **change) -> dict:
-        return rules.to_dto(rules.DEFAULTS) | change
+        return workspace.to_dto(workspace.DEFAULTS) | change
 
     def test_readers_see_the_settings_and_the_defaults(self) -> None:
         response = self.call("GET", role="qa")
@@ -159,8 +176,21 @@ class SettingsApiTests(unittest.TestCase):
         self.assertEqual(self.call("GET", role="designer").json["settings"]["lead_time_days"], 30)
         with self.store.connection() as conn:
             row = conn.execute("SELECT actor, detail FROM supply_audit_events WHERE action = 'settings.assessment'").fetchone()
+            keys = {item["key"]: item["value"] for item in conn.execute("SELECT key, value FROM supply_settings").fetchall()}
+            unchanged = conn.execute("SELECT count(*) AS n FROM supply_audit_events WHERE action = 'settings.pricing'").fetchone()["n"]
         self.assertEqual(row["actor"], "admin@example.com")
         self.assertEqual(row["detail"]["before"]["lead_time_days"], 84)
+        self.assertEqual(set(keys), set(workspace.FORM), "one row per section")
+        self.assertEqual(keys["assessment"]["lead_time_days"], 30)
+        self.assertNotIn("base_currency", keys["assessment"])
+        self.assertEqual(unchanged, 0, "a section that did not change is not audited")
+
+    def test_a_stored_section_that_no_longer_fits_is_its_default_and_the_others_still_load(self) -> None:
+        self.call("PUT", self.payload(lead_time_days=30, alert_price_rise_percent=40))
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_settings SET value = '{\"alert_price_rise_percent\": \"lots\"}'::jsonb WHERE key = 'alerts'")
+            loaded = workspace.load(conn)
+        self.assertEqual((loaded.assessment.lead_time_days, loaded.alerts.price_rise_percent), (30, 20))
 
     def test_a_workspace_costs_in_rupees_once_there_is_a_rate(self) -> None:
         from decimal import Decimal
@@ -182,11 +212,11 @@ class SettingsApiTests(unittest.TestCase):
         self.assertEqual((bad.status, bad.json["detail"]["code"]), (400, "invalid_settings"))
 
     def test_reset_returns_to_the_defaults(self) -> None:
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         self.call("PUT", self.payload(lead_time_days=30))
         with self.store.connection() as conn:
-            self.assertEqual(settings_store.reset(conn, "admin@example.com").lead_time_days, 84)
+            self.assertEqual(supply_settings.reset(conn, "admin@example.com").assessment.lead_time_days, 84)
         self.assertEqual(self.call("GET").json["settings"]["lead_time_days"], 84)
 
     def test_the_assessment_follows_the_settings(self) -> None:

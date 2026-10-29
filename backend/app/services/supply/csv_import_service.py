@@ -102,7 +102,7 @@ def refresh_catalogues(conn, now: datetime, *, fetch_for=_fetcher) -> int:
         conn.execute("UPDATE supply_csv_offers SET fetched_at = %s WHERE connector_id = %s", (now, row["id"]))
         conn.execute("UPDATE supply_connectors SET last_ok_at = %s, last_error_code = '' WHERE id = %s", (now, row["id"]))
         conn.execute("DELETE FROM supply_discovery_runs WHERE connector_id = %s", (row["id"],))
-        read_again(conn, row["id"])
+        read_again(conn, row["id"], now)
         write_audit(conn, "system", "connector.catalogue_import", row["id"], {"rows": len(rows), "built": created})
         conn.commit()
         done += 1

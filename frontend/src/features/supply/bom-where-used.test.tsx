@@ -12,6 +12,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import BomWhereUsed from "./bom-where-used";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 
@@ -49,6 +50,7 @@ describe("Also in project BOMs", () => {
     await waitFor(() => expect(mocked.getSupplyPart).toHaveBeenCalled());
     expect(screen.queryByRole("region", { name: "In project BOMs" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     mocked.findSupplyPart.mockResolvedValue(null);
     renderIt();
     await waitFor(() => expect(mocked.findSupplyPart).toHaveBeenCalledTimes(2));

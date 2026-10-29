@@ -14,6 +14,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import { OutlookSection } from "./outlook-section";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 
@@ -126,6 +127,7 @@ describe("the outlook and health line", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
     await waitFor(() => expect(mocked.decideWaiver).toHaveBeenCalledWith("w1", true));
     cleanup();
+    forgetServerState([]);
     renderIt("designer");
     await openDetails();
     await screen.findByText(/Waiting for QA/);
@@ -140,6 +142,7 @@ describe("the outlook and health line", () => {
     expect(await screen.findByText("Waived by qa@example.com: We hold stock")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
     cleanup();
+    forgetServerState([]);
     mocked.getSupplyAssessment.mockResolvedValue(assessment({ findings: [finding({ waiver: { ...waiver, holds: false, outdated: true } })] }));
     renderIt("designer");
     await openDetails();
@@ -153,6 +156,7 @@ describe("the outlook and health line", () => {
     await screen.findByText(/does not recommend/);
     expect(screen.queryByRole("button", { name: "Waive" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     mocked.decideWaiver.mockRejectedValue(new Error("Could not save the decision"));
     mocked.getSupplyAssessment.mockResolvedValue(assessment({ findings: [finding({ waiver: { ...waiver, state: "proposed", holds: false } })] }));
     renderIt("admin");

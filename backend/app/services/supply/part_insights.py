@@ -70,7 +70,7 @@ def _likely_out(facts: dict[str, Any], key: str) -> bool:
 # Kept facts are renewed when a mark says what they are made from changed (``freshness``), and at least this often, since their
 # trends move with the clock. A run renews as many as it can in ``RENEW_SECONDS`` (one part takes about 90 ms): missing first,
 # then marked, then the oldest.
-# The chance that is "likely out" until the workspace's setting is kept with the facts (``AssessmentSettings.alert_likely_out_percent``).
+# The chance that is "likely out" until the workspace's setting is kept with the facts (``settings.Alerts.likely_out_percent``).
 DEFAULT_LIKELY_AT = 0.7
 RENEW_AFTER = timedelta(hours=20)
 RENEW_SECONDS = 60.0
@@ -134,10 +134,10 @@ def _likely_at(conn, part_id: str) -> float:
     """The chance that makes the part likely out: its own rule's, else the workspace's (``alert_rules``, assessment settings)."""
 
     from app.services.supply import alert_rules
-    from app.services.supply.assessment import settings_store
+    from app.services.supply import settings as supply_settings
 
     own = alert_rules.for_parts(conn, [part_id]).get(part_id)
-    return ((own.likely_out_percent if own else None) or settings_store.load(conn).alert_likely_out_percent) / 100
+    return ((own.likely_out_percent if own else None) or supply_settings.load(conn).alerts.likely_out_percent) / 100
 
 
 def _forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:

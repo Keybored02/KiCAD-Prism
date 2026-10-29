@@ -19,7 +19,7 @@ export function PartHistoryDialog({ partId, threshold, forecast = null, onClose 
   const shownForecast = withForecast ? forecast : null;
   const days = TIMEFRAMES.find((item) => item.id === timeframe)?.days ?? 90;
   const fetcher = useCallback((signal: AbortSignal) => getPartHistory(partId, days, signal), [partId, days]);
-  const { data, status, error } = useLoaded<PartHistory>(`part-history:${partId}:${days}`, fetcher, "Could not load the history");
+  const { data, status, error } = useLoaded<PartHistory>(`parts/${partId}/history/${days}`, fetcher, "Could not load the history");
   const { hidden, pick } = useHidden();
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>

@@ -40,10 +40,18 @@ Dashboard, Tracking, Projects, Insights, each lazy-loaded), `supply-views.ts`
 `ending-api.ts`, `fill-api.ts`, `packaging-api.ts`, `release-check-api.ts`,
 `catalog-supply-api.ts` and `component-supply-api.ts` cover their areas.
 Types are hand-written in `frontend/src/types/supply.ts`; change them with the
-backend's response. `use-loaded.ts` loads by key and, with `cacheAs`, starts
-from what `loaded-cache.ts` kept for the tab's lifetime so a return to Supply
-doesn't flash a skeleton. `frontend/src/test/setup.ts` clears that cache
-between tests.
+backend's response. Every read goes through `useLoaded` (`use-loaded.ts`), on
+the app's server state (`@/lib/server-state`): a key names one resource
+(`connectors`, `parts/<id>/notices`, `projects/<id>/tracking`), so screens that
+show it share one answer and one request, and a return to a page starts from
+what it showed. Never fetch in a raw `useEffect`. Polling is `refreshEvery`
+with `refreshWhile` (`isRunning` for a job's progress, the backend's one
+`JobProgress` shape). Writes in the `*-api.ts` modules are wrapped in
+`changesSupply` (`supply-writes.ts`), which reads again every supply resource
+on screen; a test that mocks an API module sets what the next read returns.
+Only the shown Supply tab is mounted. `frontend/src/test/setup.ts` forgets the
+store between tests; a test that renders twice calls `forgetServerState([])`
+between.
 
 **Dashboard** — `dashboard-view.tsx` with `dashboard-tiles.tsx`,
 `dashboard-charts.tsx`, `dashboard-risk-cards.tsx`, `dashboard-forecast.tsx`,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -6,21 +6,16 @@ import type { LocalStock } from "@/types/supply";
 import { getLocalStock } from "./component-supply-api";
 import { StoresCell } from "./stores-cell";
 import { formatDateTime } from "./supply-format";
+import { useLoaded } from "./use-loaded";
 
 const number = (value: number | null, uom: string) => (value === null ? "-" : `${value.toLocaleString()}${uom ? ` ${uom}` : ""}`);
 
 /** What the local inventory holds for a component: usable now, held, at a vendor, and each record. Nothing when it holds none. */
 export function LocalStockSection({ componentId }: { componentId: string }) {
-  const [stock, setStock] = useState<LocalStock | null>(null);
-  const [failed, setFailed] = useState("");
-
-  useEffect(() => {
-    const controller = new AbortController();
-    getLocalStock(componentId, controller.signal).then(setStock, (caught) => {
-      if (!controller.signal.aborted) setFailed(caught instanceof Error ? caught.message : "Could not load the local stock");
-    });
-    return () => controller.abort();
-  }, [componentId]);
+  const fetcher = useCallback((signal: AbortSignal) => getLocalStock(componentId, signal), [componentId]);
+  const loaded = useLoaded<LocalStock>(`components/${componentId}/local-stock`, fetcher, "Could not load the local stock");
+  const stock = loaded.data;
+  const failed = loaded.status === "error" ? loaded.error : "";
 
   if (failed) return <p className="text-sm text-destructive">{failed}</p>;
   if (!stock) return <Skeleton className="h-16 w-full" aria-label="Loading the local stock" />;
