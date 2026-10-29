@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { SupplyToApprove } from "@/types/supply";
 import { partHref } from "./supply-views";
 import { CollapsibleSection } from "./collapsible-section";
+import { decideAlternate } from "./component-supply-api";
 import { decideWaiver } from "./supply-api";
 import { formatAgo } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -31,13 +32,27 @@ function Row({ kind, title, detail, to, decide, canDecide, onDecided }: {
   );
 }
 
-/** Waivers people proposed and QA decides on, with a link to where each lives. */
+function componentHref(componentId: string): string {
+  return `/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`;
+}
+
+/** Waivers and alternates people proposed and QA decides on, with a link to where each lives. */
 export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToApprove | undefined; canDecide: boolean; onDecided: () => Promise<void> }) {
   const waivers = items?.waivers ?? [];
-  if (waivers.length === 0) return null;
+  const alternates = items?.alternates ?? [];
+  if (waivers.length + alternates.length === 0) return null;
   return (
-    <CollapsibleSection id="review-to-approve" title="To approve" count={waivers.length}>
+    <CollapsibleSection id="review-to-approve" title="To approve" count={waivers.length + alternates.length}>
       <ul className="divide-y">
+        {alternates.map((item) => (
+          <Row
+            key={`${item.component_id}:${item.part_id}`} kind="Alternate"
+            title={`${item.mpn}, ${item.manufacturer} for ${item.component_name || item.component_mpn}`}
+            detail={`${item.proposed_by}, ${formatAgo(item.proposed_at)}`}
+            to={componentHref(item.component_id)}
+            decide={async (approve) => { await decideAlternate(item.component_id, item.part_id, approve); }} canDecide={canDecide} onDecided={onDecided}
+          />
+        ))}
         {waivers.map((item) => (
           <Row
             key={item.id} kind="Waiver" title={`${item.mpn}, ${item.manufacturer}`} detail={`${item.reason} (${item.proposed_by}, ${formatAgo(item.proposed_at)})`}
