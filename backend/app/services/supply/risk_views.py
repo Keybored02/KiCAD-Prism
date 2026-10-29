@@ -8,10 +8,10 @@ category and never folded into "fine". Reads only, from the summaries, the facts
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import compliance, facts, fx, part_insights, parts_view, price_quantity, pricing, trade
+from app.services.supply import clock, compliance, facts, fx, part_insights, parts_view, price_quantity, pricing, trade
 from app.services.supply import settings as supply_settings
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
@@ -336,4 +336,4 @@ def trade_overview(conn, tracked: Sequence[str]) -> dict[str, Any]:
 
 
 def today() -> date:
-    return datetime.now().date()
+    return clock.now().date()

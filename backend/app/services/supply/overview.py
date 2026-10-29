@@ -6,14 +6,14 @@ figures and the list never disagree.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
-from app.services.supply import alerts, parts_view
+from app.services.supply import alerts, clock, parts_view
 
 
 def build_overview(conn, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     items, _total = parts_view.ranked_parts(conn, scope="watched")
     read_times = [item["fetched_at"] for item in items if item["fetched_at"]]
     connectors = conn.execute("SELECT COUNT(*) AS n FROM supply_connectors WHERE enabled").fetchone()["n"]

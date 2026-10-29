@@ -11,9 +11,10 @@ storage has them deleted). A part is tried once every fifteen minutes, whoever l
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import poller, parts, retention, trouble
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorService
@@ -52,7 +53,7 @@ def read_now(
     reader: poller.Poller | None = None,
 ) -> dict[str, Any]:
     actor = actor_text(actor)
-    now = (clock or (lambda: datetime.now(timezone.utc)))()
+    now = (clock or supply_clock.now)()
     store = connectors.store
     with store.connection() as conn:
         parts.get_part(conn, part_id)
@@ -100,7 +101,7 @@ def read_on_view(
     """Read the parts someone opened that nothing follows and whose prices have aged past the read window, from the interactive
     reserve. Returns how many listings were read."""
 
-    now = (clock or (lambda: datetime.now(timezone.utc)))()
+    now = (clock or supply_clock.now)()
     stale = now - retention.READ_WINDOW
     store = connectors.store
     wanted = list(dict.fromkeys(str(part_id) for part_id in part_ids if part_id))[:VIEW_MAX_PARTS]

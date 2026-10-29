@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping
 
-from app.services.supply import attention, budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import attention, budget, clock, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import store
@@ -223,7 +223,7 @@ def _money(conn) -> tuple[str, fx.Rates, str]:
 def _now() -> datetime:
     """The time a summary's status is assessed at (a test sets its own clock)."""
 
-    return datetime.now(timezone.utc)
+    return clock.now()
 
 
 def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Rates, str] | None = None) -> dict[str, dict[str, Any]]:
@@ -269,13 +269,14 @@ _PRICE_KEYS = ("unit_price", "currency", "price_quantity", "price_kind", "price_
 def _current_sql(priced_with: str, summary: str = "s") -> str:
     """SQL for "this kept summary is current": worked out by this code, in today's currency at today's rates (neither marks a part:
     they change every price at once), no change it did not see has marked it (``freshness``), and the clock has not reached the time
-    its assessment changes by itself (``changes_at``: a read falling late, a last date to buy coming close)."""
+    its assessment changes by itself (``changes_at``: a read falling late, a last date to buy coming close). Takes the clock's time as
+    its one parameter, after any the caller's SQL has before it."""
 
     if not priced_with.isalnum():
         raise ValueError("not a pricing key")
     return (
         f"({summary}.version = {SUMMARY_VERSION} AND {summary}.priced_with = '{priced_with}' AND {summary}.snap > 0 "
-        f"AND ({summary}.changes_at IS NULL OR {summary}.changes_at > NOW()) "
+        f"AND ({summary}.changes_at IS NULL OR {summary}.changes_at > %s) "
         f"AND NOT {freshness.stale_sql('summary', f'ARRAY[{summary}.part_id]', summary)})"
     )
 
@@ -316,16 +317,16 @@ def _keep(conn, found: dict[str, dict[str, Any]], seen: tuple[str, int]) -> None
     if update:
         conn.execute(
             f"UPDATE supply_part_summaries s SET ({columns}, version, seen, snap, own, computed_at) = "
-            f"({values}, %s, %s, %s, {freshness.OWN_SQL}, NOW()) "
+            f"({values}, %s, %s, %s, {freshness.OWN_SQL}, %s) "
             f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) WHERE s.part_id = n.part_id",
-            (SUMMARY_VERSION, *seen, records(update)),
+            (SUMMARY_VERSION, *seen, clock.now(), records(update)),
         )
     if insert:
         conn.execute(
             f"INSERT INTO supply_part_summaries (part_id, {columns}, version, seen, snap, own, computed_at) "
-            f"SELECT n.part_id, {values}, %s, %s, %s, {freshness.OWN_SQL}, NOW() "
+            f"SELECT n.part_id, {values}, %s, %s, %s, {freshness.OWN_SQL}, %s "
             f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) ON CONFLICT DO NOTHING",
-            (SUMMARY_VERSION, *seen, records(insert)),
+            (SUMMARY_VERSION, *seen, clock.now(), records(insert)),
         )
 
 
@@ -340,7 +341,7 @@ def _cached(
     money = money or _money(conn)
     fresh = {
         row["part_id"]: _from_row(row) for row in conn.execute(
-            f"SELECT s.* FROM supply_part_summaries s WHERE s.part_id = ANY(%s) AND {_current_sql(money[2])}", ([r["id"] for r in rows],),
+            f"SELECT s.* FROM supply_part_summaries s WHERE s.part_id = ANY(%s) AND {_current_sql(money[2])}", ([r["id"] for r in rows], clock.now()),
         ).fetchall()
     }
     todo = [r for r in rows if r["id"] not in fresh]
@@ -363,7 +364,7 @@ def _bring_up_to_date(conn, where: str, params: list[Any]) -> str:
         seen = freshness.seen(conn)
         rows = conn.execute(
             _ROW_SELECT + f"LEFT JOIN supply_part_summaries s ON s.part_id = p.id WHERE {where} AND NOT COALESCE({_current_sql(money[2])}, FALSE) "
-            f"LIMIT {_BATCH}", params,
+            f"LIMIT {_BATCH}", [*params, clock.now()],
         ).fetchall()
         if rows:
             _keep(conn, _computed(conn, rows, offers_by_part(conn, [r["id"] for r in rows]), money), seen)
@@ -604,7 +605,7 @@ def _row_facts(conn, groups: list[dict[str, Any]]) -> dict[str, Any]:
     costed = [(project_id, variants[project_id]) for project_id, rollup in rollups.items()
               if rollup and rollup["cost_per_board"] is not None and rollup["currency"]]
     members = list({item["id"] for group in groups for item in group["members"]})
-    alerts = attention.open_counts(conn, datetime.now(timezone.utc), attention.PART, members)
+    alerts = attention.open_counts(conn, clock.now(), attention.PART, members)
     return {"read_at": read_at, "tracked": tracked, "variants": variants, "rollups": rollups,
             "series": cost_history.series_of(conn, costed, 120), "alerts": alerts}
 
@@ -1023,7 +1024,7 @@ def _page_url(provider: str, sku: str, read_url: str | None) -> str:
 
 
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     part = parts.get_part(conn, part_id)
     watch_row = conn.execute(
         "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "

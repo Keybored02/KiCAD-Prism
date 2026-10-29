@@ -7,10 +7,10 @@ of them, so housekeeping keeps one row per tracked part (``part_insights``) and 
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from app.services.supply import freshness, insights, offer_rules, price_behaviour, prices, promises
+from app.services.supply import clock, freshness, insights, offer_rules, price_behaviour, prices, promises
 
 SPARK_DAYS = 30
 PRICE_MOVE_PERCENT = 5
@@ -190,7 +190,7 @@ def renew(conn, now: datetime | None = None, seconds: float = RENEW_SECONDS) -> 
     """Work out the facts again for the tracked parts that have none, that a mark made stale or that are older than ``RENEW_AFTER``,
     in that order, until ``seconds`` have gone. Returns the parts renewed."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     stop, done, tried = time.monotonic() + seconds, [], set()
     while time.monotonic() < stop:
         rows = conn.execute(

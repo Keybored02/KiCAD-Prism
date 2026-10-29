@@ -7,7 +7,6 @@ write access (admin, designer). Alerts are in-app only; nothing is sent anywhere
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any, Callable, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -16,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api.supply_access import is_approver, require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
-from app.services.supply import alert_rules, alerts, overview
+from app.services.supply import alert_rules, alerts, clock, overview
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -64,7 +63,7 @@ async def list_alerts(
     _user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
+        now = clock.now()
         with _store().connection() as conn:
             return {"items": alerts.list_alerts(conn, now, include_resolved=include_resolved)}
 
@@ -75,7 +74,7 @@ async def list_alerts(
 async def acknowledge_alert(alert_id: int, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
     def run() -> None:
         with _store().connection() as conn:
-            alerts.acknowledge(conn, alert_id, writer.email, datetime.now(timezone.utc))
+            alerts.acknowledge(conn, alert_id, writer.email, clock.now())
 
     await _run(run)
     return Response(status_code=204)
@@ -87,7 +86,7 @@ async def snooze_alert(
 ) -> Response:
     def run() -> None:
         with _store().connection() as conn:
-            alerts.snooze(conn, alert_id, body.hours, writer.email, datetime.now(timezone.utc))
+            alerts.snooze(conn, alert_id, body.hours, writer.email, clock.now())
 
     await _run(run)
     return Response(status_code=204)

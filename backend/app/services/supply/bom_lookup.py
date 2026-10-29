@@ -26,13 +26,12 @@ connector, as a person's decision.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
 import math
 import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import attrition, component_parts, ending_parts, fx, offer_rules, parts, parts_view, preferences, pricing, usage, watches
+from app.services.supply import attrition, clock, component_parts, ending_parts, fx, offer_rules, parts, parts_view, preferences, pricing, usage, watches
 from app.services.supply import settings as supply_settings
 from app.services.supply.assessment import line_checks
 from app.services.supply.assessment import health as health_rules
@@ -471,7 +470,7 @@ def price(conn, loaded: Loaded, build_quantity: int, attrition_percent: float | 
     needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in loaded.per_board.items()}
     # An alternate is assessed for the whole need of its line, as it would be bought instead.
     assessed_needs = needs | {other: needs[part_id] for part_id, others in loaded.alternates.items() for other in others}
-    assessed = assessment.assess_summaries(conn, loaded.items, loaded.offers, assessed_needs, datetime.now(timezone.utc), loaded.settings, loaded.extras)
+    assessed = assessment.assess_summaries(conn, loaded.items, loaded.offers, assessed_needs, clock.now(), loaded.settings, loaded.extras)
     results = _entries(loaded, build_quantity, attrition_percent, percents, needs, assessed)
     shown = {part_id: assessed[_pick(loaded, part_id, assessed)] for part_id in loaded.per_board}
     return {
@@ -668,11 +667,11 @@ def _link_lcsc(conn, connector_id: str, sku: str, part_id: str, mpn: str, manufa
     listing_id = uuid.uuid4().hex
     created = conn.execute(
         """
-        INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, matched_by)
-        VALUES (%s, %s, %s, %s, %s, %s, 'manual', %s, 'bom')
+        INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, matched_by, first_seen_at)
+        VALUES (%s, %s, %s, %s, %s, %s, 'manual', %s, 'bom', %s)
         ON CONFLICT (connector_id, sku) DO NOTHING RETURNING id
         """,
-        (listing_id, connector_id, sku, part_id, mpn, manufacturer, LCSC_REASON),
+        (listing_id, connector_id, sku, part_id, mpn, manufacturer, LCSC_REASON, clock.now()),
     ).fetchone()
     if created:
         write_audit(conn, actor, "listing.seed", listing_id,

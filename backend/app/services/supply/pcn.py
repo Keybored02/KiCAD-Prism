@@ -14,10 +14,10 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts
+from app.services.supply import clock, parts
 from app.services.supply.audit import actor_text, write_audit
 
 KINDS = ("end_of_life", "nrnd", "last_time_buy", "change")
@@ -161,7 +161,7 @@ def close(conn, notice_id: str, actor: str) -> None:
         raise NoticeNotFound(notice_id)
     if row["state"] == "closed":
         return
-    conn.execute("UPDATE supply_pcns SET state = 'closed', closed_by = %s, closed_at = NOW() WHERE id = %s", (actor, notice_id))
+    conn.execute("UPDATE supply_pcns SET state = 'closed', closed_by = %s, closed_at = %s WHERE id = %s", (actor, clock.now(), notice_id))
     write_audit(conn, actor, "pcn.close", notice_id, {}, subject_kind="pcn")
 
 
@@ -251,4 +251,4 @@ def next_change(notices: Sequence[Mapping[str, Any]], today: date) -> date | Non
 
 
 def today() -> date:
-    return datetime.now(timezone.utc).date()
+    return clock.now().date()

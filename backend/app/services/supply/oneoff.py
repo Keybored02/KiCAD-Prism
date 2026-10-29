@@ -72,7 +72,8 @@ def request(
     if not connectors:
         raise RequestError("There is no distributor to ask.")
     request_id = uuid.uuid4().hex
-    conn.execute("INSERT INTO supply_read_requests (id, kind, project_id, requested_by) VALUES (%s, %s, %s, %s)", (request_id, kind, project_id, actor))
+    conn.execute("INSERT INTO supply_read_requests (id, kind, project_id, requested_by, created_at) VALUES (%s, %s, %s, %s, %s)",
+                 (request_id, kind, project_id, actor, clock.now()))
     part_ids: list[str] = []
     tracked = 0
     for maker, mpn in distinct.values():

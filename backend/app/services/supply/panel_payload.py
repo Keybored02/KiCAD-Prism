@@ -10,11 +10,11 @@ supply data, and a component Prism does not track simply has no summary.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode
 
-from app.services.supply import bom_lookup, insights, parts_view, price_quantity, pricing
+from app.services.supply import bom_lookup, clock, insights, parts_view, price_quantity, pricing
 from app.services.supply.assessment import service as assessment
 from app.services.supply.bom_lookup import BomLine
 from app.services.supply.forecast import views
@@ -123,7 +123,7 @@ def _risks(assessed: Mapping[str, Any], insight: Mapping[str, Any]) -> list[str]
 def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, now: datetime | None = None) -> dict[str, Any] | None:
     """Everything the panel shows for one component, or None when Prism does not track its part."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     component_id = str(component["id"])
     part_id = _resolve(conn, [component]).get(component_id)
     if part_id is None:

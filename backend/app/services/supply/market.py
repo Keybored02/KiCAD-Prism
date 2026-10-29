@@ -20,7 +20,7 @@ from decimal import Decimal
 from statistics import median
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import offer_rules, parts_view, price_breaks, price_quantity, pricing
+from app.services.supply import clock, offer_rules, parts_view, price_breaks, price_quantity, pricing
 from app.services.supply.history import days_sql
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
@@ -171,7 +171,7 @@ def _price_index(conn, kind: str, name: str, ids: Sequence[str], today: date) ->
 def snapshot(conn, today: date | None = None) -> int:
     """Store today's indices unless they were stored already. Returns how many values were written."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     if conn.execute("SELECT 1 FROM supply_market_indices WHERE day = %s LIMIT 1", (today,)).fetchone():
         return 0
     written = 0
@@ -195,7 +195,7 @@ def snapshot(conn, today: date | None = None) -> int:
 def overview(conn, today: date | None = None) -> dict[str, Any]:
     """The latest snapshot per scope, each metric with its value a month earlier when that was stored."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     latest_day = conn.execute("SELECT MAX(day) AS day FROM supply_market_indices").fetchone()["day"]
     if latest_day is None:
         return {"day": None, "scopes": []}
@@ -259,7 +259,7 @@ def history(conn, metric: str, today: date | None = None) -> dict[str, Any]:
 
     if metric not in METRICS:
         raise ValueError("unknown metric")
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     rows = conn.execute(
         "SELECT day, scope_kind, scope_value, value, sample_size FROM supply_market_indices "
         "WHERE metric = %s AND day >= %s ORDER BY day",

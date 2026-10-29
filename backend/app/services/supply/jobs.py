@@ -9,9 +9,10 @@ provider cannot pile up jobs.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Mapping
 
+from app.services.supply import clock
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
     accounts, budget, demand, details, ledger, library_match, notice_budget, oauth, oneoff, quota, substitutes, tasks,
@@ -281,7 +282,7 @@ def schedule_due_supply_jobs(
     if job_service is None:
         from app.services.job_service import jobs as job_service
     store.initialize()
-    moment = now or datetime.now(timezone.utc)
+    moment = now or clock.now()
     with store.connection() as conn:
         connector_ids = connectors_with_work(conn, moment)
         tasks_due = bool(tasks.due(conn, moment))
@@ -380,7 +381,7 @@ def run_supply_poll_job(context: Any) -> Any:
     for connector_id in connector_ids:
         try:
             with connectors.store.connection() as conn:
-                refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
+                refresh_scheduled(conn, connector_id, clock.now())
         except Exception:  # noqa: BLE001 - without the figure no call counts as free; the job's own work goes on
             logging.getLogger(__name__).warning("Scheduled work not counted", exc_info=True)
         context.progress(stage="supply-poll", message="Reading stock and prices", percent=10, force=True)
@@ -394,7 +395,7 @@ def run_supply_poll_job(context: Any) -> Any:
         if polled.stopped in (None, "nothing_due", "budget"):
             try:
                 with connectors.store.connection() as conn:
-                    refresh_scheduled(conn, connector_id, datetime.now(timezone.utc))
+                    refresh_scheduled(conn, connector_id, clock.now())
             except Exception:  # noqa: BLE001
                 logging.getLogger(__name__).warning("Scheduled work not counted", exc_info=True)
             spare_calls += _spend_spare(connectors, connector_id, poller=poller, discoverer=discoverer)[0]

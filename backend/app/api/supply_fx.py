@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
-from app.services.supply import fx
+from app.services.supply import clock, fx
 from app.services.supply.providers.base import ProviderError
 
 router = APIRouter(prefix="/api/supply/fx", tags=["supply"])
@@ -33,7 +33,7 @@ def _store():
 
 
 def _view(rates: fx.Rates) -> dict[str, Any]:
-    today = datetime.now(timezone.utc).date()
+    today = clock.now().date()
     return {
         "day": rates.day.isoformat() if rates.day else None,
         "currencies": sorted(rates.per_eur),

@@ -15,8 +15,10 @@ from __future__ import annotations
 import random
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
+
+from app.services.supply import clock
 
 JITTER_LOW = 0.75
 JITTER_HIGH = 1.5
@@ -41,7 +43,7 @@ class Pacer:
         sleep: Callable[[float], None] = time.sleep,
         rng: Callable[[], float] = random.random,
         key: str = "",
-        wall: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        wall: Callable[[], datetime] = clock.now,
     ) -> None:
         if target_seconds < 0:
             raise ValueError("the target gap must not be negative")
@@ -133,7 +135,7 @@ def slow_down(account: str) -> None:
         pacer.slow_down()
     if _store is not None and account:
         try:
-            now = pacer._wall() if pacer is not None else datetime.now(timezone.utc)
+            now = pacer._wall() if pacer is not None else clock.now()
             until = now + timedelta(seconds=SLOW_FOR_SECONDS)
             with _store.connection() as conn:
                 conn.execute(

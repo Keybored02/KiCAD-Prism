@@ -16,9 +16,10 @@ Reactions to trouble:
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Callable, Sequence
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import accounts, alerts, budget, ledger, persist, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
@@ -296,7 +297,7 @@ class Poller:
         self._connectors = connectors
         self._store = store
         self._provider_for = provider_for or connectors.load_provider
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
         self.now = self._clock
         # The rupture projection of a part, worked out once per poll: its listings are recorded one after another.
         # The provider's day for the connector being polled, which sets when a daily listing is next due.

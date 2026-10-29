@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import attention, parts
+from app.services.supply import attention, clock, parts
 from app.services.supply.audit import actor_text, write_audit
 
 # Kinds a person may switch off. A lost part, a change notice and an obsolete part are facts and stay on.
@@ -116,17 +115,17 @@ def save(conn, part_id: str, payload: Mapping[str, Any], actor: str, *, approver
     else:
         conn.execute(
             """
-            INSERT INTO supply_alert_rules (part_id, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO supply_alert_rules (part_id, price_rise_percent, target_price, target_currency, likely_out_percent, updated_by, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (part_id) DO UPDATE SET price_rise_percent = EXCLUDED.price_rise_percent,
                 target_price = EXCLUDED.target_price, target_currency = EXCLUDED.target_currency,
-                likely_out_percent = EXCLUDED.likely_out_percent, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                likely_out_percent = EXCLUDED.likely_out_percent, updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at
             """,
-            (part_id, rules.price_rise_percent, rules.target_price, rules.target_currency, rules.likely_out_percent, actor),
+            (part_id, rules.price_rise_percent, rules.target_price, rules.target_currency, rules.likely_out_percent, actor, clock.now()),
         )
     saved = get(conn, part_id)
     write_audit(conn, actor, "alert_rules.save", part_id, saved.to_dto(), subject_kind="part")
-    alerts.evaluate_parts(conn, [part_id], datetime.now(timezone.utc))
+    alerts.evaluate_parts(conn, [part_id], clock.now())
     return saved
 
 
@@ -139,4 +138,4 @@ def decide_mute(conn, decision_id: str, actor: str, *, approve: bool) -> None:
     row = attention.proposal(conn, decision_id, attention.MUTE)
     attention.settle(conn, row, actor, approve=approve)
     write_audit(conn, actor, "alert_rules.mute_" + ("approve" if approve else "reject"), row["part_id"], {"kind": row["kind"]}, subject_kind="part")
-    alerts.evaluate_parts(conn, [row["part_id"]], datetime.now(timezone.utc))
+    alerts.evaluate_parts(conn, [row["part_id"]], clock.now())

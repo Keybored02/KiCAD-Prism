@@ -15,7 +15,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import counted, facts, offer_rules, parts, spreadsheet
+from app.services.supply import clock, counted, facts, offer_rules, parts, spreadsheet
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_LIST_BYTES = 5 * 1024 * 1024
@@ -132,11 +132,11 @@ def load_list(conn, text: str, source_name: str, actor: str) -> dict[str, Any]:
         )
     conn.execute(
         """
-        INSERT INTO supply_svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, NOW(), %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE SET loaded_at = NOW(), loaded_by = EXCLUDED.loaded_by,
+        INSERT INTO supply_svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET loaded_at = EXCLUDED.loaded_at, loaded_by = EXCLUDED.loaded_by,
             source_name = EXCLUDED.source_name, substances = EXCLUDED.substances
         """,
-        (actor, source_name[:200], len(substances)),
+        (clock.now(), actor, source_name[:200], len(substances)),
     )
     write_audit(conn, actor, "svhc.load", "1", {"source": source_name[:200], "substances": len(substances)}, subject_kind="compliance")
     return list_info(conn)
@@ -163,10 +163,10 @@ def declare(conn, part_id: str, cas: str, note: str, actor: str) -> None:
         raise ComplianceError(f"A part can have at most {MAX_PER_PART} declared substances.")
     conn.execute(
         """
-        INSERT INTO supply_part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id, cas) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
+        INSERT INTO supply_part_substances (part_id, cas, note, declared_by, declared_at) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id, cas) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = EXCLUDED.declared_at
         """,
-        (part_id, cas, note.strip()[:200], actor),
+        (part_id, cas, note.strip()[:200], actor, clock.now()),
     )
     write_audit(conn, actor, "svhc.declare", part_id, {"cas": cas}, subject_kind="part")
 
@@ -201,10 +201,10 @@ def sync_distributor(conn, part_id: str, provider: str, entries: Sequence[str]) 
     for number, text in list(found.items())[:MAX_PER_PART]:
         added += conn.execute(
             """
-            INSERT INTO supply_part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
+            INSERT INTO supply_part_substances (part_id, cas, note, declared_by, declared_at) VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (part_id, cas) DO NOTHING RETURNING cas
             """,
-            (part_id, number, text, source),
+            (part_id, number, text, source, clock.now()),
         ).fetchone() is not None
     return removed + added
 
@@ -321,10 +321,10 @@ def add_exemption(conn, part_id: str, code: str, note: str, actor: str) -> None:
         raise ComplianceError(f"A part can have at most {MAX_EXEMPTIONS} exemptions.")
     conn.execute(
         """
-        INSERT INTO supply_rohs_exemptions (part_id, code, note, declared_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id, code) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
+        INSERT INTO supply_rohs_exemptions (part_id, code, note, declared_by, declared_at) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id, code) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = EXCLUDED.declared_at
         """,
-        (part_id, code, note.strip()[:200], actor),
+        (part_id, code, note.strip()[:200], actor, clock.now()),
     )
     write_audit(conn, actor, "rohs.exemption", part_id, {"code": code}, subject_kind="part")
 

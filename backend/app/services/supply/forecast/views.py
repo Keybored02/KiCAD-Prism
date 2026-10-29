@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from app.services.supply import part_insights
+from app.services.supply import clock, part_insights
 from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import inputs, models, run, store
 
@@ -40,7 +40,7 @@ def _borrowed(state: dict[str, Any], stock: dict[str, Any]) -> dict[str, Any]:
 def part(conn, part_id: str, now: datetime | None = None, quantity: int | None = None) -> dict[str, Any]:
     """Everything the part sheet's Forecast section and chart bands need."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     today = now.astimezone(timezone.utc).date()
     states = store.model_states(conn)
 
@@ -109,7 +109,7 @@ def _rows(conn) -> list[dict[str, Any]]:
 def dashboard(conn, today: date | None = None) -> dict[str, Any]:
     """The tile ("likely out in 4 weeks") and the next ten expected events."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     states = store.model_states(conn)
     rows = _rows(conn)
     # Likely out by the one rule the likely_out check and the Insights lists use (the part's or the workspace's chance).
@@ -153,7 +153,7 @@ def panel_line(conn, part_id: str) -> dict[str, str] | None:
 def insights_page(conn, today: date | None = None) -> dict[str, Any]:
     """The Insights Forecasts section: coming up, lead times ahead, early warnings, prices ahead, lifecycle, and the track record."""
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     board = dashboard(conn, today)
     families = inputs.outlook(conn, today)
     movers = []

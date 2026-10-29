@@ -22,6 +22,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.services.supply import clock
+
 
 PART, COMPONENT = "part", "component"
 PENDING, OPEN, RESOLVED = "pending", "open", "resolved"
@@ -139,9 +141,9 @@ def decide_row(conn, attention_id: int, decision: str, actor: str, *, until: dat
     conn.execute(
         """
         INSERT INTO supply_attention_decisions (id, attention_id, part_id, component_id, kind, scope, decision, until, made_by, decided_by, decided_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (uuid.uuid4().hex, attention_id, row["part_id"], row["component_id"], row["kind"], row["scope"], decision, until, actor, actor),
+        (uuid.uuid4().hex, attention_id, row["part_id"], row["component_id"], row["kind"], row["scope"], decision, until, actor, actor, clock.now()),
     )
 
 
@@ -215,9 +217,9 @@ def stand(conn, subject_kind: str, subject_id: str, kind: str, decision: str, ac
     conn.execute(
         f"""
         INSERT INTO supply_attention_decisions (id, {col}, kind, scope, decision, state, reason, made_by, decided_by, decided_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s THEN NOW() END)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s THEN %s::timestamptz END)
         """,
-        (decision_id, subject_id, kind, scope, decision, state, reason, actor, actor if approved else "", approved),
+        (decision_id, subject_id, kind, scope, decision, state, reason, actor, actor if approved else "", approved, clock.now()),
     )
     return decision_id
 
@@ -261,8 +263,8 @@ def settle(conn, row: Mapping[str, Any], actor: str, *, approve: bool) -> None:
     if row["state"] != PROPOSED:
         raise ValueError("Only a proposal that is waiting can be decided.")
     conn.execute(
-        "UPDATE supply_attention_decisions SET state = %s, decided_by = %s, decided_at = NOW() WHERE id = %s",
-        (APPROVED if approve else REJECTED, actor, row["id"]),
+        "UPDATE supply_attention_decisions SET state = %s, decided_by = %s, decided_at = %s WHERE id = %s",
+        (APPROVED if approve else REJECTED, actor, clock.now(), row["id"]),
     )
 
 

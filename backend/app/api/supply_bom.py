@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import admission, bom_lookup, catalog_read, project_bom, spreadsheet, usage
+from app.services.supply import admission, bom_lookup, catalog_read, clock, project_bom, spreadsheet, usage
 from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
@@ -112,7 +111,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
         }
         with _store().connection() as conn:
             return usage.refresh(
-                conn, projects, project_bom.existing_index, datetime.now(timezone.utc), visible, catalog_read.identities,
+                conn, projects, project_bom.existing_index, clock.now(), visible, catalog_read.identities,
             )
 
     return await _run(run)

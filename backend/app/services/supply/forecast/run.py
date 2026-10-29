@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from app.services.supply import insights, part_history
+from app.services.supply import clock, insights, part_history
 from app.services.supply.forecast import inputs, models, store
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
@@ -203,7 +203,7 @@ def check_due(conn, now: datetime, limit: int = 2000) -> int:
 def run_checks(conn, now: datetime | None = None) -> dict[str, Any]:
     """Check what is due, drop what is old, and work the models' states out again."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     checked = check_due(conn, now)
     store.forget_old(conn, now.astimezone(timezone.utc).date())
     return {"checked": checked, "states": store.update_models(conn, now)}

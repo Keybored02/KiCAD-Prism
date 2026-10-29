@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from app.services.supply import clock
 from app.services.supply.store import SupplyStore
 
 logger = logging.getLogger(__name__)
@@ -206,7 +207,7 @@ def run_one(store: SupplyStore, name: str, now: datetime | None = None, *, force
     """Run one task if it is due (or ``force``), in its own transaction. Returns whether it ran and worked."""
 
     task = BY_NAME[name]
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     if not _claim(store, task, now, force):
         return False
     try:
@@ -217,18 +218,18 @@ def run_one(store: SupplyStore, name: str, now: datetime | None = None, *, force
         with store.connection() as conn:
             conn.execute(
                 "UPDATE supply_task_runs SET last_error = %s, last_error_at = %s WHERE name = %s",
-                (f"{type(exc).__name__}: {exc}"[:MAX_ERROR], datetime.now(timezone.utc), name),
+                (f"{type(exc).__name__}: {exc}"[:MAX_ERROR], clock.now(), name),
             )
         return False
     with store.connection() as conn:
-        conn.execute("UPDATE supply_task_runs SET last_ok_at = %s, last_error = '' WHERE name = %s", (datetime.now(timezone.utc), name))
+        conn.execute("UPDATE supply_task_runs SET last_ok_at = %s, last_error = '' WHERE name = %s", (clock.now(), name))
     return True
 
 
 def run_due(store: SupplyStore, now: datetime | None = None, *, force: bool = False) -> dict[str, bool]:
     """Run the tasks due now (every task with ``force``), in order. Returns each one's outcome."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     with store.connection() as conn:
         names = [task.name for task in TASKS] if force else due(conn, now)
     return {name: run_one(store, name, now, force=force) for name in names}

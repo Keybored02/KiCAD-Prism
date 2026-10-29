@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import attention, catalog_read, component_parts, facts, outlook, parts_view, usage
+from app.services.supply import attention, catalog_read, clock, component_parts, facts, outlook, parts_view, usage
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.vocabulary import ENDING_LIFECYCLES, Lifecycle
@@ -77,11 +77,11 @@ def set_restriction(conn, component_id: str, level: str, reason: str, replacemen
         raise ValueError("A component cannot replace itself.")
     conn.execute(
         """
-        INSERT INTO supply_component_restrictions (component_id, level, reason, replacement_component_id, set_by) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_component_restrictions (component_id, level, reason, replacement_component_id, set_by, set_at) VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (component_id) DO UPDATE SET level = EXCLUDED.level, reason = EXCLUDED.reason,
-            replacement_component_id = EXCLUDED.replacement_component_id, set_by = EXCLUDED.set_by, set_at = NOW()
+            replacement_component_id = EXCLUDED.replacement_component_id, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
         """,
-        (component_id, level, reason, replacement_component_id, actor),
+        (component_id, level, reason, replacement_component_id, actor, clock.now()),
     )
     write_audit(conn, actor, "component.restriction", component_id, {"level": level, "reason": reason, "replacement": replacement_component_id}, subject_kind="component")
     return restrictions_of(conn, [component_id])[component_id]

@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
-from app.services.supply import budget
+from app.services.supply import budget, clock
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import ProviderSpec
 
@@ -130,7 +130,7 @@ def part_cost(spec: ProviderSpec, part_id: str, connector_id: str, data: dict[st
 def sync(conn, now: datetime | None = None) -> dict[str, int]:
     """Bring ``admissions`` in line with the tiers, the budgets and the listings. Returns how many pairs changed."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     # One writer at a time: two runs would admit the same pair twice, or both promote into the same free room.
     conn.execute("SELECT pg_advisory_xact_lock(hashtext('supply-admission'))")
     # A pick on a listing that is no longer counted (gone, rejected) is dropped: the part is read at all its listings again.

@@ -16,10 +16,11 @@ The DigiKey app must list ``redirect_uri()`` as its callback address, which must
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from app.services.supply import clock
 from app.core.config import settings
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
@@ -63,7 +64,7 @@ def start(service, connector_id: str, actor: str, now: datetime | None = None) -
     """The DigiKey address to send the browser to. Records a one-time state bound to the connector and the person."""
 
     actor = actor_text(actor)
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     connector = service.get(connector_id)
     if connector["provider"] not in SUPPORTED:
         raise SignInError("Only DigiKey connectors take a sign-in.")
@@ -116,7 +117,7 @@ def finish(
     """Trade the code DigiKey sent back for tokens and keep them. Returns the connector id."""
 
     actor = actor_text(actor)
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     if not state or not code:
         raise SignInError("DigiKey did not send a code back.", "no_code")
     with service.store.connection() as conn:
@@ -145,7 +146,7 @@ def finish(
 def access_token(service, connector_id: str, now: datetime | None = None, client: Any | None = None) -> str:
     """A current access token for the connector's grant, refreshed when it is about to run out."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     # The mark is written after the locked transaction ends: raising inside it would roll the mark back.
     failure = ""
     with service.store.connection() as conn:
@@ -195,7 +196,7 @@ def mark_refused(store, connector_id: str) -> None:
 def status(conn, connector_id: str, now: datetime | None = None) -> dict[str, Any]:
     """Whether someone is signed in for the connector, who, and until when. Never the tokens."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     row = conn.execute(
         "SELECT granted_by, granted_at, refresh_expires_at, last_error FROM supply_connector_grants WHERE connector_id = %s",
         (connector_id,),

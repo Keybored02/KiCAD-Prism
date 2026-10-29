@@ -16,10 +16,9 @@ Functions on a connection; none commit. ``recompute`` is the one place ``part_ti
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
-from app.services.supply import admission, component_parts, packaging_auto, parts, usage
+from app.services.supply import admission, clock, component_parts, packaging_auto, parts, usage
 from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.progress import job_progress
@@ -465,7 +464,7 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
         elif (row["tier"], row["rate"], row["reasons"]) != (tier, rate, stored):
             conn.execute(
                 "UPDATE supply_part_tiers SET tier = %s, rate = %s, reasons = %s::jsonb, updated_at = %s WHERE part_id = %s",
-                (tier, rate, _json(stored), datetime.now(timezone.utc), part_id),
+                (tier, rate, _json(stored), clock.now(), part_id),
             )
             changed += 1
             reschedule(conn, part_id, rate)

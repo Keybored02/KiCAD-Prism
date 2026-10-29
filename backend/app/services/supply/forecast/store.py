@@ -16,8 +16,10 @@ from __future__ import annotations
 import json
 import statistics
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
+
+from app.services.supply import clock
 
 LEARNING, SHOWN, PAUSED = "learning", "shown", "paused"
 RANGE, CHANCE = "range", "chance"
@@ -149,7 +151,7 @@ def _checks(conn, target: str) -> list[dict[str, Any]]:
 def update_models(conn, now: datetime | None = None) -> dict[str, str]:
     """Work each model's state out again from its checks. Returns the state of each target."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     states: dict[str, str] = {}
     for name, target in TARGETS.items():
         rows = _checks(conn, name)
