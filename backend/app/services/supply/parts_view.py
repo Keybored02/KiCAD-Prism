@@ -138,7 +138,7 @@ def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) ->
         """
         SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name, {pool} AS pool,
                o.stock, o.marketplace, o.packaging, o.reel_size, o.packaging_inferred, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
-               o.order_multiple, o.lead_time_days, o.product_url, ps.tier,
+               o.order_multiple, o.lead_time_days, o.product_url, o.price_up_to, ps.tier,
                EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
         FROM supply_listings l
         JOIN supply_offers o ON o.listing_id = l.id

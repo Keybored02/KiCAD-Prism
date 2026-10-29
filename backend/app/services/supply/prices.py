@@ -144,7 +144,7 @@ def _points_of(conn, part_ids: Sequence[str], now: datetime, days: int) -> dict[
         for row in rows_of[part_id]:
             held = price_breaks.in_force(kept.get(row["listing_id"], []), row["day"])
             if held is not None:
-                price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity)
+                price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity, up_to=held.get("up_to"))
                 currency, moq = held["currency"], held["moq"]
             else:
                 price, currency, moq = row["price"], row["currency"], row["moq"]
