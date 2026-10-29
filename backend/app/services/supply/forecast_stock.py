@@ -264,7 +264,8 @@ def forecast(holders: Sequence[Holder], outage: Mapping[str, OutageModel | None]
     for week in range(1, 13):
         day = min(week * 7, HORIZON_DAYS)
         weeks.append(float((sim.stock[:, :, day] >= max(quantity, 1)).any(axis=0).mean()))
-    out_everywhere = {w: float((total[:, min(w * 7, HORIZON_DAYS)] <= 0).mean()) for w in (4, 8)}
+    # Out everywhere on any day of the weeks, not only on their last day: a stock-out in week two is one, restocked or not.
+    out_everywhere = {w: float(zero[:, : min(w * 7, HORIZON_DAYS) + 1].any(axis=1).mean()) for w in (4, 8)}
     back = []
     for holder, draw in zip(live, sim.back_days):
         if draw is not None:

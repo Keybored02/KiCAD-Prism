@@ -32,8 +32,28 @@ export function syncInventorySource(id: string): Promise<InventorySyncResult> {
   return fetchJson<InventorySyncResult>(path(id, "sync"), { method: "POST" }, "Could not read the server");
 }
 
-export function listUnmatchedParts(id: string, signal?: AbortSignal): Promise<InventoryUnmatchedPart[]> {
-  return fetchJson<InventoryUnmatchedPart[]>(path(id, "unmatched"), { signal }, "Could not load the unmatched stock");
+/** The groups unmatched stock is sorted into: waiting (in all, or for one reason), linked, or set aside. */
+export type UnmatchedGroup = "waiting" | "no_component" | "sap_code_shared" | "mpn_shared" | "linked" | "ignored";
+
+export function listUnmatchedParts(
+  id: string, signal?: AbortSignal, page: { q?: string; limit?: number; offset?: number; group?: UnmatchedGroup | "" } = {},
+): Promise<InventoryUnmatchedPart[]> {
+  const query = new URLSearchParams();
+  if (page.q) query.set("q", page.q);
+  if (page.group) query.set("group", page.group);
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  if (page.offset) query.set("offset", String(page.offset));
+  const suffix = query.toString() ? `?${query}` : "";
+  return fetchJson<InventoryUnmatchedPart[]>(`${path(id, "unmatched")}${suffix}`, { signal }, "Could not load the unmatched stock");
+}
+
+export function countUnmatchedParts(id: string, signal?: AbortSignal): Promise<Record<UnmatchedGroup, number>> {
+  return fetchJson<Record<UnmatchedGroup, number>>(path(id, "unmatched", "counts"), { signal }, "Could not count the unmatched stock");
+}
+
+/** Sets unmatched parts aside, or brings them back. Returns how many changed. */
+export function setUnmatchedIgnored(id: string, remoteParts: string[], ignore: boolean): Promise<{ changed: number }> {
+  return fetchJson<{ changed: number }>(path(id, "unmatched", "ignore"), { method: "POST", body: JSON.stringify({ remote_parts: remoteParts, ignore }) }, ignore ? "Could not ignore the parts" : "Could not restore the parts");
 }
 
 /** Says which component a server part is; the source is read again, so its stock lands at once. */

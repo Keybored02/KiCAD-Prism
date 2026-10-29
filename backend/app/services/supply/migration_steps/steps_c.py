@@ -621,6 +621,34 @@ def _m096_project_rollups(conn) -> None:
             )
 
 
+def _m097_restart_out_everywhere(conn) -> None:
+    """"Out everywhere within 4 weeks" was worked out, and checked, as out on the 28th day; it is now out on any day of the four weeks.
+    The forecasts and checks made under the old meaning no longer count towards its track record, which starts again."""
+
+    conn.execute(
+        """
+        DELETE FROM supply_forecasts WHERE target = 'out_4w';
+        UPDATE supply_forecast_models SET state = 'learning', checks = 0, coverage = NULL, since = NULL, reason = '', updated_at = NOW()
+            WHERE target = 'out_4w';
+        UPDATE supply_part_insights SET computed_at = '-infinity'::timestamptz;
+        """,
+        prepare=False,
+    )
+
+
+def _m098_price_up_to(conn) -> None:
+    """The largest quantity an offer's price holds for, when a distributor quotes one quantity only (Avnet): a larger order gets no
+    price from it rather than the quote's. Kept with the price breaks' history too."""
+
+    conn.execute(
+        """
+        ALTER TABLE supply_offers ADD COLUMN IF NOT EXISTS price_up_to INTEGER;
+        ALTER TABLE supply_price_breaks_history ADD COLUMN IF NOT EXISTS price_up_to INTEGER;
+        """,
+        prepare=False,
+    )
+
+
 def _m099_work_items(conn) -> None:
     """A record of an engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it
     touches, QA's disposition and when to look again. Its history is the audit trail (``subject_kind = 'work_item'``)."""

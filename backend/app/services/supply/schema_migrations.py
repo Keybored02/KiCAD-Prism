@@ -112,6 +112,8 @@ from app.services.supply.migration_steps.steps_c import (  # noqa: F401
     _m094_csv_jlc_class,
     _m095_ending_dismissals,
     _m096_project_rollups,
+    _m097_restart_out_everywhere,
+    _m098_price_up_to,
     _m099_work_items,
     _m078_forget_cached_prices,
     _m079_forecasts,
@@ -214,7 +216,8 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (94, "csv_jlc_class", _m094_csv_jlc_class),
     (95, "ending_dismissals", _m095_ending_dismissals),
     (96, "project_rollups", _m096_project_rollups),
-    # 97 and 98 are on other branches; the ledger runs any step it has not, whatever its number.
+    (97, "restart_out_everywhere", _m097_restart_out_everywhere),
+    (98, "price_up_to", _m098_price_up_to),
     (99, "work_items", _m099_work_items),
 ]
 

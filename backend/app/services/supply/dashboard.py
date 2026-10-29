@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import alerts, component_parts, ending_parts, forecast_overview, inbox, part_insights, parts_view, risk_views
+from app.services.supply import alerts, component_parts, ending_parts, forecast_overview, inbox, part_insights, parts_view, risk_views, usage
 from app.services.supply.vocabulary import Status
 
 FIGURE_DAYS = 30
@@ -71,19 +71,20 @@ def _alerts_by_day(conn, today: date) -> list[dict[str, Any]]:
     return list(by_day.values())
 
 
-def _project_costs(conn, today: date) -> list[dict[str, Any]]:
-    """The cost of one board a day for each tracked project (the base design), 90 days."""
+def _project_costs(conn, today: date, visible: set[str] | None) -> list[dict[str, Any]]:
+    """The cost of one board a day for each tracked project ``visible`` names (the base design), 90 days."""
 
     from app.services.supply import cost_history
 
-    projects = conn.execute(
+    projects = [project for project in conn.execute(
         "SELECT DISTINCT h.project_id, COALESCE(u.project_name, h.project_id) AS project_name FROM supply_bom_cost_history h "
         "LEFT JOIN supply_bom_usage_projects u ON u.project_id = h.project_id WHERE h.variant = '' AND h.day >= %s ORDER BY 1",
         (today - timedelta(days=COST_DAYS),),
-    ).fetchall()
+    ).fetchall() if visible is None or project["project_id"] in visible]
+    series = cost_history.series_of(conn, [(project["project_id"], "") for project in projects], COST_DAYS)
     found: list[dict[str, Any]] = []
     for project in projects:
-        kept, _left_out = cost_history.series(conn, project["project_id"], "", COST_DAYS)
+        kept, _left_out = series.get((project["project_id"], ""), ([], []))
         if kept:
             found.append({
                 "project_id": project["project_id"], "project_name": project["project_name"], "currency": kept[-1]["currency"],
@@ -126,6 +127,7 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
     """Everything the Dashboard page draws."""
 
     now = now or datetime.now(timezone.utc)
+    visible = usage.visible_project_ids(role)
     # Every tracked part, uncapped: the tiles, charts and project rows are counts over all of them, from the kept summaries.
     items = parts_view.tracked_states(conn)
     figures = _figures_now(conn, now, items)
@@ -150,7 +152,7 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
     built = {
         "risk_grid": risk_views.risk_grid(items, kept),
         "deadlines": risk_views.deadlines(conn, tracked_ids, now.date()),
-        "projects": parts_view.tracked_project_rows(conn, items, kept, role),
+        "projects": parts_view.tracked_project_rows(conn, items, kept, role, visible=visible),
         "figures": figures,
         "ending_components": ending_parts.undecided_count(conn, items),
         "forecast": forecast_overview.dashboard(conn, now.date()),
@@ -159,7 +161,7 @@ def build(conn, now: datetime | None = None, role: str | None = None, actor: str
         "runway": {name: runway.get(name, 0) for name in ("out_now", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings")},
         "holders": {name: holders.get(name, 0) for name in ("none", "one", "two", "three_plus", "unknown")},
         "alerts_by_day": _alerts_by_day(conn, now.date()),
-        "project_costs": _project_costs(conn, now.date()),
+        "project_costs": _project_costs(conn, now.date(), visible),
         "insights_ready": len(kept),
         "failing_feeds": failing_feeds(conn),
     }

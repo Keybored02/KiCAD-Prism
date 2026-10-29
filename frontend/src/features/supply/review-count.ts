@@ -7,7 +7,7 @@ import { useLoaded } from "./use-loaded";
 /** The sum of the counters on the Review page's sections that need a decision. "Several listings at a distributor" is a choice that
  * saves calls, not a task, so it is not in the total (its section still shows its own count). */
 export function reviewCountOf(review: SupplyReviewQueue): number {
-  const approve = review.to_approve ? review.to_approve.waivers.length : 0;
+  const approve = review.to_approve ? review.to_approve.waivers.length + (review.to_approve.alternates?.length ?? 0) : 0;
   const pinned = (review.other_numbers ?? []).length;
   const matched = review.matched ? review.matched.aliases.length + review.matched.parts.length : 0;
   return review.counts.unresolved + review.counts.near + review.counts.aliases + (review.choices?.length ?? 0) + approve + pinned + matched;

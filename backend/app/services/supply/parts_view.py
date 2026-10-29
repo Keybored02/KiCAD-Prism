@@ -136,17 +136,17 @@ def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) ->
         return offers
     for row in conn.execute(
         """
-        SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
+        SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name, {pool} AS pool,
                o.stock, o.marketplace, o.packaging, o.reel_size, o.packaging_inferred, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
-               o.order_multiple, o.lead_time_days, o.product_url, ps.tier,
+               o.order_multiple, o.lead_time_days, o.product_url, o.price_up_to, ps.tier,
                EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
         FROM supply_listings l
         JOIN supply_offers o ON o.listing_id = l.id
         JOIN supply_connectors c ON c.id = l.connector_id
         LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
+        WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s) AND c.enabled
           AND (%s OR {counted})
-        """.replace("{counted}", stock.counted_listing_sql()),
+        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
         (part_ids, list(_COUNTED), every_listing),
     ).fetchall():
         offers[row["part_id"]].append(dict(row))
@@ -188,7 +188,9 @@ def _offer_summary(offers_here: list[dict], policy: str, problem: str | None, pr
         # Every distributor that lists it has stopped selling it.
         "dropped": bool(offers_here) and all(o["discontinued"] for o in offers_here),
         **price,
-        "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
+        # As old as the oldest read the total rests on: a fresh zero from one distributor doesn't make another's old stock current.
+        "fetched_at": combined.as_of.isoformat() if combined and combined.as_of else None,
+        "dated_by": "oldest",
         "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
     }
 
@@ -232,7 +234,7 @@ def _cached(conn, rows) -> dict[str, dict[str, Any]]:
         r["part_id"]: r["data"] for r in conn.execute(
             """
             SELECT s.part_id, s.data FROM supply_part_summaries s
-            WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data' AND s.data ? 'status'
+            WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data' AND s.data ? 'status' AND s.data ? 'dated_by'
               AND s.data->>'priced_with' = %s
               AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
             """,
@@ -366,10 +368,19 @@ def tracked_states(conn) -> list[dict[str, Any]]:
     return [{"id": row["id"], **{key: sums[row["id"]][key] for key in ("status", "stock", "lifecycle", "dropped")}} for row in rows]
 
 
-def tracked_project_rows(conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None) -> list[dict[str, Any]]:
-    """The Dashboard's row for each tracked project ``role`` may see: its parts' status counts and its kept usual-build rollup."""
+_EVERY = object()
 
-    tracked = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_tracked_projects").fetchall()]
+
+def tracked_project_rows(
+    conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None, *, visible: Any = _EVERY,
+) -> list[dict[str, Any]]:
+    """The Dashboard's row for each tracked project ``role`` may see: its parts' status counts and its kept usual-build rollup.
+    ``visible`` is ``usage.visible_project_ids(role)`` when the caller has it already."""
+
+    if visible is _EVERY:
+        visible = usage.visible_project_ids(role)
+    tracked = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_tracked_projects").fetchall()
+               if visible is None or row["project_id"] in visible]
     if not tracked:
         return []
     of = _projects_of(conn, [state["id"] for state in states], role)
@@ -693,24 +704,24 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
     raw = conn.execute(
         """
         SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, l.connector_id, c.provider, l.match_state, l.packaging,
+               s.listing_id, l.connector_id, l.sku, c.provider, {pool} AS pool, l.match_state, l.packaging,
                (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.marketplace
         FROM supply_samples s
         JOIN supply_listings l ON l.id = s.listing_id
         JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s AND {counted}
         ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        """.replace("{counted}", stock.counted_listing_sql()),
+        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
         (part_id, states, since),
     ).fetchall()
     rolled = conn.execute(
         """
-        SELECT d.listing_id, l.connector_id, c.provider, l.match_state, l.packaging, d.day, d.last_stock AS stock, d.marketplace
+        SELECT d.listing_id, l.connector_id, l.sku, c.provider, {pool} AS pool, l.match_state, l.packaging, d.day, d.last_stock AS stock, d.marketplace
         FROM supply_samples_daily d
         JOIN supply_listings l ON l.id = d.listing_id
         JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s AND {counted}
-        """.replace("{counted}", stock.counted_listing_sql()),
+        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
         (part_id, states, since.date()),
     ).fetchall()
     merged = {(r["listing_id"], r["day"]): dict(r) for r in rolled}
@@ -746,14 +757,15 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     while day <= end:
         for row in by_day.get(day, []):
             last[row["listing_id"]] = {
-                "connector_id": row["connector_id"], "provider": row["provider"], "stock": row["stock"],
+                "connector_id": row["connector_id"], "provider": row["provider"], "stock": row["stock"], "pool": row["pool"], "sku": row["sku"],
                 "marketplace": bool(row["marketplace"]), "fetched_at": day, "packaging": row["packaging"],
             }
         for listing_id in gone:
             if last_day[listing_id] < day:
                 last.pop(listing_id, None)
         combined = stock.aggregate(last.values(), policy)
-        holding = [amount for amount in combined.by_connector.values() if amount > 0]
+        # Holders and concentration count stock pools: connectors on one account hold one shelf.
+        holding = [amount for amount in combined.by_pool.values() if amount > 0]
         series.append({
             "day": day.isoformat(), "stock": combined.total, "listings": combined.listings, "sources": len(holding),
             "concentration": sum((amount / combined.total) ** 2 for amount in holding) if combined.total > 0 else None,

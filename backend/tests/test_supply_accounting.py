@@ -264,6 +264,13 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual((account.ledger_id, set(account.members)), (uk, {uk, de}))
         self.assertTrue(account.shared)
 
+    def test_deleting_the_accounts_oldest_connector_keeps_todays_spend(self) -> None:
+        uk, de = self.make("uk"), self.make("de")
+        self.assertTrue(self.spend(de, units=3))
+        self.assertEqual(self.spent(uk), 3, "the oldest connector holds the account's ledger")
+        self.connectors.delete(uk, actor=ACTOR)
+        self.assertEqual(self.spent(de), 3, "the calls spent today still count")
+
     def test_a_different_key_is_a_different_account(self) -> None:
         a = self.make("uk", key="KEY-1")
         b = self.make("de", key="KEY-2")

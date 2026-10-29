@@ -20,7 +20,7 @@ class OutlookTests(unittest.TestCase):
     def test_a_healthy_part_has_no_signs_of_an_end_never_a_promise_of_years(self) -> None:
         result = read()
         self.assertEqual((result["band"], result["signals"], result["method"]), ("no_signs", [], "rule-based"))
-        self.assertEqual(result["label"], "No signs of an end of life")
+        self.assertEqual(result["label"], "No signs of an end")
 
     def test_obsolete_is_ended_and_a_last_time_buy_is_under_two_years(self) -> None:
         self.assertEqual(read(Lifecycle.OBSOLETE)["band"], "ended")

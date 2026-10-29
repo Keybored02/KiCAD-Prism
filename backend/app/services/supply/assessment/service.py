@@ -32,7 +32,7 @@ def _quotes(offers: Sequence[Mapping[str, Any]], base: str, rates: fx.Rates | No
     for offer in offers:
         if offer["marketplace"] or not offer.get("price_breaks") or not offer.get("currency"):
             continue
-        price = pricing.unit_price_at([(int(q), Decimal(str(p))) for q, p in offer["price_breaks"]], moq=offer["moq"], order_multiple=offer["order_multiple"])
+        price = pricing.unit_price_at([(int(q), Decimal(str(p))) for q, p in offer["price_breaks"]], moq=offer["moq"], order_multiple=offer["order_multiple"], up_to=offer.get("price_up_to"))
         if price is None:
             continue
         converted = price if offer["currency"] == base else (rates.convert(price, offer["currency"], base) if rates else None)

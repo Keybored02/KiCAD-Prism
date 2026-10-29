@@ -47,6 +47,17 @@ VISIBLE = "(%s::text IS NULL OR %s = ANY(up.visible_roles))"
 ALL_ROLES: tuple[str, ...] = ("admin", "designer", "qa")
 
 
+def visible_project_ids(role: str | None) -> set[str] | None:
+    """The projects ``role`` may see, by the workspace's folder rules (the same rule a project's own page applies). None, meaning every
+    project, for internal callers that pass no role. Aggregate answers filter by this before they read a project's name or settings."""
+
+    if role is None:
+        return None
+    from app.services.workspace_service import workspace
+
+    return {str(row["id"]) for row in workspace.get_all_projects(role)}
+
+
 def role_params(role: str | None) -> list[str | None]:
     return [role, role]
 

@@ -141,10 +141,15 @@ class InvenTreeClient:
             answer = self._get(path, {**params, "limit": str(PAGE), "offset": str(offset)})
             if not isinstance(answer, dict) or not isinstance(answer.get("results"), list) or not isinstance(answer.get("count"), int):
                 raise InvenTreeError(f"/api/{path} did not answer a paged list.")
-            rows = [row for row in answer["results"] if isinstance(row, dict)]
+            rows = answer["results"]
+            # A short or malformed answer is a failed read, never a smaller inventory: the last good stock is kept.
+            if not all(isinstance(row, dict) for row in rows):
+                raise InvenTreeError(f"/api/{path} answered rows that are not records.")
+            if not rows and offset < answer["count"]:
+                raise InvenTreeError(f"/api/{path} stopped at {offset:,} of {answer['count']:,} rows.")
             yield from rows
             offset += len(rows)
-            if not rows or offset >= answer["count"]:
+            if offset >= answer["count"]:
                 return
         raise InvenTreeError(f"/api/{path} has more than {MAX_PAGES * PAGE:,} rows.")
 

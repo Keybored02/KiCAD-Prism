@@ -279,6 +279,28 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(float(good["line_cost"]), 10.0, "20 pieces at 0.50")
         self.assertEqual(good["alerts"], 0)
 
+    def test_a_line_bought_in_another_currency_gives_its_unit_price_in_both(self) -> None:
+        from app.services.supply import usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_56", name="Fifty six")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_fx_rates")
+
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'USD', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("INSERT INTO supply_fx_rates (day, currency, per_eur, source) VALUES (CURRENT_DATE, 'USD', 1.25, 'manual')")
+            usage.store_project(conn, "prj_56", "Fifty six", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            page = self.request("prj_56/supply", query="build_quantity=20").json
+        (line,) = page["parts"]
+        self.assertEqual(page["rollup"]["currency"], "EUR")
+        self.assertEqual((line["unit_price"], line["unit_currency"]), ("0.5", "USD"), "as the distributor quotes it")
+        self.assertEqual((float(line["unit_price_in_total"]), float(line["line_cost"])), (0.4, 8.0), "20 at 0.40 EUR")
+
     def test_a_tracked_projects_cost_is_stored_once_a_day_and_shown_on_its_page(self) -> None:
         from app.services.supply import project_supply, usage
 
@@ -753,6 +775,35 @@ class KeptRollupTests(unittest.TestCase):
             (dash,) = [item for item in dashboard.build(conn, NOW)["projects"] if item["project_id"] == "prj_k3"]
         self.assertEqual((row["stats"]["boards"], row["stats"]["cost_per_board"]), (fresh["can_build"], format(Decimal(fresh["cost_per_board"]), "f")))
         self.assertEqual((dash["count"], dash["statuses"], dash["stats"]), (row["count"], row["statuses"], row["stats"]), "the Dashboard row is the Projects row")
+
+    def test_a_project_the_caller_may_not_see_is_left_out_of_the_dashboard(self) -> None:
+        import json
+
+        from app.services.supply import dashboard, usage
+
+        self.part("GOOD-1", stock=5000)
+        self.track("prj_seen", [component("R1", "Acme", "GOOD-1")])
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_bom_cost_history WHERE project_id IN ('prj_seen', 'prj_hidden')")
+
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            usage.store_project(conn, "prj_hidden", "Private customer board", "rev1", lines([component("R1", "Acme", "GOOD-1")]), NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_hidden', '{\"\"}', 'a@example.com', 10)")
+            for project_id in ("prj_seen", "prj_hidden"):
+                conn.execute(
+                    "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, build_quantity) "
+                    "VALUES (%s, '', %s, 1, 'EUR', 1, 1, 10)", (project_id, NOW.date()),
+                )
+            with mock.patch.object(usage, "visible_project_ids", return_value={"prj_seen"}):
+                built = dashboard.build(conn, NOW, role="designer")
+            everyone = dashboard.build(conn, NOW)
+        self.assertEqual([row["project_id"] for row in built["projects"]], ["prj_seen"])
+        self.assertEqual([row["project_id"] for row in built["project_costs"]], ["prj_seen"])
+        self.assertNotIn("Private customer board", json.dumps(built, default=str))
+        self.assertEqual(sorted(row["project_id"] for row in everyone["projects"]), ["prj_hidden", "prj_seen"], "internal callers see all")
 
     def test_trimming_keeps_the_marks_a_kept_rollup_still_depends_on(self) -> None:
         from app.services.supply import retention

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from statistics import median
 from typing import Any
 
-from app.services.supply import market, part_insights, parts_view, risk_views, scorecard
+from app.services.supply import market, outlook, part_insights, parts_view, risk_views, scorecard
 
 TREND_POINTS = 30
 
@@ -22,7 +22,7 @@ SCATTER_MAX = 500
 _RISKY_START = ("=", "+", "-", "@", "\t", "\r")
 
 RISK_HEADER = (
-    "Manufacturer", "MPN", "Status", "Lifecycle", "Ends", "Stock", "Distributors holding", "Days to zero", "Lead time (days)",
+    "Manufacturer", "MPN", "Status", "Lifecycle", "Outlook", "Stock", "Distributors holding", "Days to zero", "Lead time (days)",
     "Chance out in 4 weeks", "Price change (%)", "Findings",
 )
 
@@ -33,7 +33,7 @@ _FINDING_TEXT = {
     "lead_up": "Lead time rising", "unusual_drop": "Unusual drop", "price_moving": "Price moving",
 }
 
-_OUTLOOK_TEXT = {"ended": "Ended", "under_2_years": "Under 2 years", "2_to_5_years": "2 to 5 years", "no_signs": "No signs", "unknown": "Unknown"}
+_OUTLOOK_TEXT = outlook.LABELS
 
 
 def _distributors(rows: list[dict[str, Any]]) -> dict[str, Any]:

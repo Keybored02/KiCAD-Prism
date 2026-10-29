@@ -46,8 +46,8 @@ def check(conn, lines: Sequence[usage.UsageLine], now: datetime | None = None, w
 
 def _assess(conn, lines: Sequence[usage.UsageLine], now: datetime) -> dict[str, Any]:
     bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity, prism_id=line.prism_id, lcsc=line.lcsc) for line in lines]
+    # The lines carry the shipped identity (``release_bom.lines_from_csv``); the library is read only for the components' alternates.
     known = bom_lookup.library_identities(bom, bom_lookup.library_readers(conn).get("identities"))
-    bom = bom_lookup.with_library_identity(bom, known)
     resolved = bom_lookup.resolve_lines(bom, conn)
     needs: dict[str, int] = {}
     for line in bom:

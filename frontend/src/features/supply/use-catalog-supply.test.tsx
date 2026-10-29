@@ -27,6 +27,14 @@ describe("supply status in the catalog", () => {
     expect(mocked.getComponentsStatus.mock.calls[0][0]).toEqual([{ id: "c1", manufacturer: "Acme", mpn: "ABC-1" }]);
   });
 
+  it("asks again when a row keeps its id but its maker or number is edited", async () => {
+    const { result, rerender } = renderHook(({ shown }) => useCatalogSupply(shown, "designer"), { initialProps: { shown: rows } });
+    await waitFor(() => expect(result.current.standing.c1).toBeTruthy());
+    rerender({ shown: [{ id: "c1", manufacturer: "Acme", mpn: "ABC-2" }, rows[1]] });
+    await waitFor(() => expect(mocked.getComponentsStatus).toHaveBeenCalledTimes(2));
+    expect(mocked.getComponentsStatus.mock.calls[1][0]).toEqual([{ id: "c1", manufacturer: "Acme", mpn: "ABC-2" }]);
+  });
+
   it("asks nothing for a role without supply access", () => {
     const { result } = renderHook(() => useCatalogSupply(rows, "viewer"));
     expect(result.current.standing).toEqual({});

@@ -231,6 +231,26 @@ class ComponentPartsTests(unittest.TestCase):
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector,))
         self.assertEqual(left, {recent.id, library.id}, "only the week-old check of a non-library number is gone")
 
+    def test_a_proposed_alternate_waits_in_review_until_qa_decides(self) -> None:
+        from app.services.supply import review
+
+        component = self._component()
+        component_id = str(component["id"])
+        other = self._component()
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id, str(other["id"])])
+            proposed = self.cp.propose_alternate(conn, component_id, other["manufacturer"], other["mpn"], AUTHOR)
+
+            def waiting() -> list[tuple[str, str]]:
+                return [(item["component_id"], item["part_id"]) for item in review.to_approve(conn)["alternates"]
+                        if item["component_id"] == component_id]
+
+            self.assertEqual(waiting(), [(component_id, proposed["part_id"])])
+            (item,) = [item for item in review.to_approve(conn)["alternates"] if item["component_id"] == component_id]
+            self.assertEqual((item["mpn"], item["proposed_by"]), (other["mpn"], AUTHOR))
+            self.cp.decide(conn, component_id, proposed["part_id"], True, "qa@example.com")
+            self.assertEqual(waiting(), [], "decided")
+
     def test_a_new_main_part_sends_approved_alternates_back_to_qa(self) -> None:
         component = self._component()
         component_id = str(component["id"])

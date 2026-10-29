@@ -37,6 +37,40 @@ class PricingTests(unittest.TestCase):
         self.assertEqual(pricing.unit_price_at([(500, D("0.10"))], moq=500), D("0.10"))
 
 
+class QuotedQuantityTests(unittest.TestCase):
+    def test_a_price_quoted_up_to_a_quantity_does_not_price_a_larger_order(self) -> None:
+        quoted = [(1, D("0.50"))]
+        self.assertEqual(pricing.unit_price_at(quoted, wanted=1, up_to=1), D("0.50"))
+        self.assertIsNone(pricing.unit_price_at(quoted, wanted=100, up_to=1), "Avnet quoted one piece, not a hundred")
+        self.assertIsNone(pricing.unit_price_at(quoted, wanted=1, moq=10, up_to=1), "the minimum order is past the quote")
+        self.assertEqual(pricing.unit_price_at(quoted, wanted=100), D("0.50"), "without a limit the last break holds")
+
+    def test_an_offer_can_only_limit_its_price_at_or_above_its_last_break(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.supply.models import Offer, PriceBreak
+
+        now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        Offer(provider="avnet", sku="S", mpn="M", manufacturer="A", stock=1, fetched_at=now, currency="EUR",
+              price_breaks=(PriceBreak(10, D("1")),), price_up_to=10)
+        with self.assertRaises(ValueError):
+            Offer(provider="avnet", sku="S", mpn="M", manufacturer="A", stock=1, fetched_at=now, currency="EUR",
+                  price_breaks=(PriceBreak(10, D("1")),), price_up_to=5)
+        with self.assertRaises(ValueError):
+            Offer(provider="avnet", sku="S", mpn="M", manufacturer="A", stock=1, fetched_at=now, price_up_to=5)
+
+    def test_a_headline_and_a_purchase_leave_a_quote_out_beyond_its_quantity(self) -> None:
+        from app.services.supply import bom_lookup, headline_price
+        from app.services.supply.fx import Rates
+
+        offer = {"marketplace": False, "currency": "EUR", "price_breaks": [[1, "0.50"]], "moq": 1, "order_multiple": 1, "price_up_to": 1,
+                 "stock": 5000, "connector_id": "c1", "connector_name": "Avnet", "provider": "avnet", "sku": "S", "product_url": ""}
+        rates = Rates(None, {})
+        self.assertIsNotNone(headline_price.quote(offer, 1, "EUR", rates))
+        self.assertIsNone(headline_price.quote(offer, 100, "EUR", rates))
+        self.assertIsNone(bom_lookup._best_purchase([offer], 100, rates, "EUR"), "no price for 100 from a quote for one")  # noqa: SLF001
+
+
 class StatusProblemTests(unittest.TestCase):
     def test_a_problem_makes_an_unread_part_an_error(self) -> None:
         self.assertEqual(part_status(None, None, Lifecycle.UNKNOWN), Status.UNKNOWN)

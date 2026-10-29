@@ -6,7 +6,8 @@ pool (cut tape and reel drawn from the same shelf): the provider declares
 whether its stock is ``pooled`` (take the largest of all its listings) or ``separate``.
 Of a ``separate`` provider, cut tape, custom reel (Digi-Reel, MouseReel, a re-reel) and any packaging not known are one pile and
 the largest counts, so a guess never doubles stock; a full reel, a tray or a tube is a pile of its own and adds.
-Across connectors the figures add, because they are different warehouses.
+Across connectors the figures add, because they are different warehouses, except connectors on one account (shared
+credentials, such as two storefronts of one distributor): they are one stock pool, so a SKU both list counts once (``pool``).
 """
 
 from __future__ import annotations
@@ -24,6 +25,12 @@ POLICIES = ("any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk
 
 # Packagings cut from the same stock, and those not known (counted with the largest, never added): of these only the largest figure counts.
 ONE_PILE = frozenset({"cut_tape", "custom_reel", "unknown", "other", "several", None, ""})
+
+
+def pool_sql(connector: str = "c") -> str:
+    """SQL for a row's stock pool: the account its connector is on (connectors on one set of credentials), else the connector."""
+
+    return f"COALESCE(NULLIF({connector}.account_key, ''), {connector}.id)"
 
 
 def counted_listing_sql(listing: str = "l", connector: str = "c") -> str:
@@ -68,6 +75,10 @@ class PartStock:
     by_connector: dict[str, int] = field(default_factory=dict)
     listings: int = 0
     newest_fetched_at: datetime | None = None
+    # Stock per pool (an account, else a connector): connectors on one account are one holder.
+    by_pool: dict[str, int] = field(default_factory=dict)
+    # The oldest read the total rests on: of the counted rows that hold stock, or of every counted row when none does.
+    as_of: datetime | None = None
 
 
 def aggregate(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> PartStock:
@@ -88,18 +99,46 @@ def aggregate(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> PartSto
         providers[row["connector_id"]] = row["provider"]
 
     by_connector = {connector_id: connector_stock(providers[connector_id], held) for connector_id, held in pools.items()}
-    return PartStock(sum(by_connector.values()), by_connector, counted, newest)
+    # The total counts each pool once: connectors on one account list the same shelf, a SKU by its largest figure.
+    shared: dict[str, list[Mapping[str, Any]]] = {}
+    for connector_id, held in pools.items():
+        shared.setdefault(held[0].get("pool") or connector_id, []).extend(held)
+    by_pool = {pool: connector_stock(str(held[0]["provider"]), _one_per_sku(held)) for pool, held in shared.items()}
+    return PartStock(
+        sum(by_pool.values()), by_connector, counted, newest, by_pool=by_pool, as_of=as_of(row for held in pools.values() for row in held),
+    )
+
+
+def _one_per_sku(rows: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The rows of one pool with a SKU listed by several of its connectors kept once, at its largest figure."""
+
+    if len({row["connector_id"] for row in rows}) < 2:
+        return rows
+    kept: dict[Any, Mapping[str, Any]] = {}
+    for index, row in enumerate(rows):
+        key = row.get("sku") or ("", index)
+        if key not in kept or int(row["stock"]) > int(kept[key]["stock"]):
+            kept[key] = row
+    return list(kept.values())
+
+
+def as_of(rows: Iterable[Mapping[str, Any]]) -> datetime | None:
+    """When a total of these counted rows was true as a whole: the oldest read of a row holding stock, else the oldest of all."""
+
+    rows = [row for row in rows if row.get("fetched_at") is not None]
+    holding = [row["fetched_at"] for row in rows if int(row.get("stock") or 0) > 0]
+    return min(holding or [row["fetched_at"] for row in rows], default=None)
 
 
 def part_stock(conn, part_id: str) -> PartStock:
     rows = conn.execute(
         """
-        SELECT l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at, o.packaging
+        SELECT l.connector_id, l.sku, c.provider, {pool} AS pool, o.stock, o.marketplace, o.fetched_at, o.packaging
         FROM supply_listings l
         JOIN supply_offers o ON o.listing_id = l.id
         JOIN supply_connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND {counted}
-        """.replace("{counted}", counted_listing_sql()),
+        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND c.enabled AND {counted}
+        """.replace("{counted}", counted_listing_sql()).replace("{pool}", pool_sql()),
         (part_id,),
     ).fetchall()
     watch = conn.execute("SELECT packaging FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
