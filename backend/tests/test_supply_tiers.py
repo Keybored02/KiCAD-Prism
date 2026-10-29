@@ -104,6 +104,22 @@ class ScheduleTests(unittest.TestCase):
             self.assertGreater(len(set(whens.values())), slots // 2, "parts spread over the slots")
             self.assertEqual(tiers.next_poll_at(NOW, schedule, part_key="p1", account_key="acct"), whens["p1"], "stable for a part")
 
+    def test_a_calm_listing_is_read_at_half_its_rate_until_it_changes_or_turns_urgent(self) -> None:
+        calm, recent = NOW - timedelta(days=8), NOW - timedelta(days=3)
+        self.assertEqual(tiers.stretch("daily", Urgency.NORMAL, calm, NOW), 2, "no change for a week of daily reads")
+        self.assertEqual(tiers.stretch("daily", Urgency.NORMAL, recent, NOW), 1, "changed three days ago")
+        self.assertEqual(tiers.stretch("daily", Urgency.WARM, calm, NOW), 1, "near its threshold, or ending")
+        self.assertEqual(tiers.stretch("daily", Urgency.NORMAL, None, NOW), 1)
+        self.assertEqual(tiers.stretch("weekly", Urgency.NORMAL, calm, NOW), 1, "a week is one weekly read, not seven")
+        self.assertEqual(tiers.stretch("weekly", Urgency.NORMAL, NOW - timedelta(days=50), NOW), 2)
+        daily = tiers.next_poll_at(NOW, "daily", account_key="acct")
+        self.assertEqual((tiers.next_poll_at(NOW, "daily", account_key="acct", stretch=2) - daily).days, 1, "every second provider day")
+        for schedule in ("weekly", "monthly"):
+            slots, least = tiers.SLOTS[schedule], tiers.MIN_WAIT_DAYS[schedule]
+            waits = [(tiers.next_poll_at(NOW, schedule, part_key=f"p{i}", account_key="acct", stretch=2) - NOW).total_seconds() / 86400 for i in range(200)]
+            self.assertGreaterEqual(min(waits), 2 * least - 1, schedule)
+            self.assertLess(max(waits), 2 * least + slots + 1, schedule)
+
     def test_a_retry_follows_the_backoff_and_ignores_the_schedule(self) -> None:
         for streak in (1, 2, 3, 6, 12):
             wait = tiers.retry_at(NOW, streak, key="x") - NOW
