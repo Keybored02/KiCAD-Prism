@@ -14,6 +14,7 @@ import statistics
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
+from app.services.supply import insights
 from app.services.supply import stock as stock_rules
 from app.services.supply.offer_rules import lead_time_of, rohs_verdict  # functions here name their figure "stock"
 from app.services.supply.stock import as_of
@@ -50,6 +51,19 @@ class Facts:
     rohs_stated: Sequence[str] = ()
     # The stock level a person set on the part's watch, at or under which it needs a look.
     threshold: int | None = None
+    # The facts kept from the part's history (``part_insights``): the drain, its confidence, the price trend. None when none are kept.
+    insight: Mapping[str, Any] | None = None
+    # The forecast's chance of being out everywhere within four weeks, when its model is shown; and the chance that is "likely".
+    out_chance: float | None = None
+    likely_at: float = 0.7
+    # The rise of the cheapest price, in percent, that needs a look.
+    price_rise_percent: int = 20
+    # The most pressing open change notice (``pcn.alert_detail``), and when the clock alone changes it (``pcn.next_change``).
+    notice: Mapping[str, Any] | None = None
+    notice_changes: date | None = None
+    # The part's list price (unit price, currency, quantity) and the target a person set for it (price, currency).
+    price: tuple[str, str, int | None] | None = None
+    target: tuple[Decimal, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +76,8 @@ class Finding:
     scope: str
     # Set by waivers.apply.
     waiver: Mapping[str, Any] | None = field(default=None, compare=False)
+    # The figures behind it, for an alert to show.
+    detail: Mapping[str, Any] = field(default_factory=dict, compare=False)
 
 
 
@@ -131,6 +147,49 @@ def _passed_text(facts: Facts, held: int) -> str:
     return " The last date to buy has passed" + (f"; distributors still have {held:,}." if held > 0 else " and no distributor has stock.")
 
 
+def _coming(facts: Facts, add) -> None:
+    """What is coming for a part that has stock: the forecast's chance of running out, once its model is shown, else the drain the
+    history shows."""
+
+    if facts.out_chance is not None:
+        if facts.out_chance >= facts.likely_at:
+            add(ids.LIKELY_OUT, f"The forecast gives a {round(facts.out_chance * 100)}% chance of being out everywhere within 4 weeks.",
+                "likely_out", {"chance": facts.out_chance, "weeks": 4})
+        return
+    days = insights.rupture_expected_within(dict(facts.insight)) if facts.insight else None
+    if days is not None:
+        add(ids.RUNS_OUT_SOON, f"At the recent rate stock could run out in about {days} days.", "runs_out_soon", {
+            "days_to_zero": days, "decrease_per_day": facts.insight["decrease_per_day"], "confidence": facts.insight["confidence"],
+        })
+
+
+def _price_up(facts: Facts, add) -> None:
+    trend = (facts.insight or {}).get("price_trend")
+    if trend and trend.get("change_percent") is not None and trend["change_percent"] >= facts.price_rise_percent:
+        add(ids.PRICE_UP, f"The cheapest price rose {trend['change_percent']}% in {trend.get('days', 0)} days.", "price_up", dict(trend))
+
+
+def _notice(facts: Facts, settings: AssessmentSettings, add) -> None:
+    """An open change notice: an error when the last time buy it gives is close, whatever the check's own severity below that."""
+
+    if facts.notice is None:
+        return
+    configured = settings.severity_of(ids.CHANGE_NOTICE)
+    severity = Status.ERROR if facts.notice["soon"] and configured is not Status.OK and _RANK[configured] < _RANK[Status.ERROR] else configured
+    add(ids.CHANGE_NOTICE, f"{facts.notice.get('kind_label') or 'Notice'}: {facts.notice['title']}.", "change_notice", dict(facts.notice), severity)
+
+
+def _target(facts: Facts, add) -> None:
+    if facts.target is None or facts.price is None:
+        return
+    target, currency = facts.target
+    price, priced_in, quantity = facts.price
+    if price and priced_in == currency and Decimal(price) > target:
+        shown = format(target.normalize(), "f")
+        add(ids.TARGET_PRICE_MISSED, f"The price {price} {currency} is over the target of {shown}.", "target_price_missed",
+            {"price": price, "target": shown, "currency": currency, "quantity": quantity})
+
+
 def changes_at(facts: Facts, settings: AssessmentSettings) -> datetime | None:
     """The next time the clock alone changes what ``evaluate`` finds: a read becoming late, the last date to buy coming within
     ``last_buy_error_days`` or passing. None when nothing waits on the clock. A kept assessment is current until then."""
@@ -140,9 +199,10 @@ def changes_at(facts: Facts, settings: AssessmentSettings) -> datetime | None:
     oldest = as_of(usable) if usable else None
     if oldest is not None:
         times.append(oldest + timedelta(hours=READ_EVERY_HOURS.get(facts.rate, READ_EVERY_HOURS["daily"]) + settings.late_hours, seconds=1))
+    days = [facts.notice_changes] if facts.notice_changes else []
     if facts.last_buy is not None:
-        for day in (facts.last_buy - timedelta(days=settings.last_buy_error_days), facts.last_buy + timedelta(days=1)):
-            times.append(datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc))
+        days += [facts.last_buy - timedelta(days=settings.last_buy_error_days), facts.last_buy + timedelta(days=1)]
+    times += [datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) for day in days]
     later = [moment for moment in times if moment > facts.now]
     return min(later) if later else None
 
@@ -152,38 +212,45 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
 
     held = stock_of(facts.offers) or 0
 
-    def add(check: str, text: str, scope: str) -> None:
+    def add(check: str, text: str, scope: str, detail: Mapping[str, Any] | None = None, severity: Status | None = None) -> None:
         dated = check in _DATED
         found.append(Finding(
-            check, _by_last_buy(settings.severity_of(check), facts, settings, held) if dated else settings.severity_of(check),
-            text + (_passed_text(facts, held) if dated else ""), scope,
+            check, severity or (_by_last_buy(settings.severity_of(check), facts, settings, held) if dated else settings.severity_of(check)),
+            text + (_passed_text(facts, held) if dated else ""), scope, detail=detail or {},
         ))
 
     if facts.problem:
-        add(ids.PART_NOT_FOUND, "No distributor carries this part number.", "not_found")
+        add(ids.PART_NOT_FOUND, "No distributor carries this part number.", "not_found", {"problem": facts.problem})
     if facts.lifecycle is Lifecycle.OBSOLETE:
-        add(ids.OBSOLETE, "The manufacturer lists this part as obsolete.", "obsolete")
+        add(ids.OBSOLETE, "The manufacturer lists this part as obsolete.", "obsolete", {"lifecycle": facts.lifecycle.value})
     elif facts.lifecycle is Lifecycle.LAST_TIME_BUY:
-        add(ids.LAST_TIME_BUY, "The manufacturer has announced a last time buy.", "last_time_buy")
+        add(ids.LAST_TIME_BUY, "The manufacturer has announced a last time buy.", "last_time_buy", {"lifecycle": facts.lifecycle.value})
     elif facts.lifecycle is Lifecycle.NRND:
-        add(ids.NRND, "The manufacturer does not recommend this part for new designs.", "nrnd")
+        add(ids.NRND, "The manufacturer does not recommend this part for new designs.", "nrnd", {"lifecycle": facts.lifecycle.value})
 
     offers = list(facts.offers)
     # A lifecycle word or every distributor dropping the part already says it; the outlook adds what notices and last dates to buy say. An "ended" outlook is only ever an obsolete part, which is already said.
     said = facts.lifecycle in (Lifecycle.OBSOLETE, Lifecycle.LAST_TIME_BUY) or (bool(offers) and all(o["discontinued"] for o in offers))
     if facts.outlook == "under_2_years" and not said:
         add(ids.ENDING_WITHIN_2_YEARS, "A notice or a last date to buy says this part is ending.", "ending_within_2_years")
+    _notice(facts, settings, add)
+    _target(facts, add)
     if not offers:
         return found
     stock = stock_of(offers) or 0
     if offers and all(o["discontinued"] for o in offers):
-        add(ids.DISTRIBUTOR_DISCONTINUED, "Every distributor that lists this part has stopped selling it.", "dropped")
+        add(ids.DISTRIBUTOR_DISCONTINUED, "Every distributor that lists this part has stopped selling it.", "dropped",
+            {"lifecycle": facts.lifecycle.value, "dropped": True})
     if stock == 0:
-        add(ids.NO_DISTRIBUTOR_STOCK, "No distributor has this part in stock.", "no_stock")
+        add(ids.NO_DISTRIBUTOR_STOCK, "No distributor has this part in stock.", "no_stock", {"stock": 0})
     elif facts.need is not None and stock < facts.need:
         add(ids.INSUFFICIENT_STOCK, f"Distributors hold {stock:,} and the build needs {facts.need:,}.", "short")
     elif facts.threshold is not None and stock <= facts.threshold:
-        add(ids.BELOW_THRESHOLD, f"Distributors hold {stock:,}, at or under the {facts.threshold:,} set on the watch.", "below_threshold")
+        add(ids.BELOW_THRESHOLD, f"Distributors hold {stock:,}, at or under the {facts.threshold:,} set on the watch.", "below_threshold",
+            {"stock": stock, "threshold": facts.threshold})
+    if stock > 0 and not any(f.check == ids.BELOW_THRESHOLD for f in found):
+        _coming(facts, add)
+    _price_up(facts, add)
     # Connectors on one account (shared credentials) are one holder: they list the same stock.
     if stock_rules.holders(offers) == 1 and (facts.distributors or 0) > 1:
         add(ids.SINGLE_SOURCE, "Only one distributor has this part in stock.", "single_source")

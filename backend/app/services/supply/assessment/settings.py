@@ -23,6 +23,11 @@ DISTRIBUTOR_DISCONTINUED = "distributor_discontinued"
 NO_DISTRIBUTOR_STOCK = "no_distributor_stock"
 INSUFFICIENT_STOCK = "insufficient_stock"
 BELOW_THRESHOLD = "below_threshold"
+RUNS_OUT_SOON = "runs_out_soon"
+LIKELY_OUT = "likely_out"
+PRICE_UP = "price_up"
+TARGET_PRICE_MISSED = "target_price_missed"
+CHANGE_NOTICE = "change_notice"
 LEAD_TIME_OVER_THRESHOLD = "lead_time_over_threshold"
 ROHS_NONCOMPLIANT = "rohs_noncompliant"
 ROHS_DISPUTED = "rohs_disputed"
@@ -47,6 +52,14 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     INSUFFICIENT_STOCK: Status.ERROR,
     # Stock at or under the level a person set on the part's watch.
     BELOW_THRESHOLD: Status.WARNING,
+    # What the stock history and the forecast say is coming: a drain that empties it within the horizon, or the forecast's chance.
+    RUNS_OUT_SOON: Status.WARNING,
+    LIKELY_OUT: Status.WARNING,
+    # The cheapest price rising past the part's limit, or over the target a person set for it.
+    PRICE_UP: Status.WARNING,
+    TARGET_PRICE_MISSED: Status.WARNING,
+    # An open change notice on the part; an error when its last time buy is close.
+    CHANGE_NOTICE: Status.WARNING,
     LEAD_TIME_OVER_THRESHOLD: Status.WARNING,
     ROHS_NONCOMPLIANT: Status.ERROR,
     # Distributors say both: neither is taken as the answer.
@@ -81,8 +94,8 @@ class AssessmentSettings:
     spares_percent: float = 0.0
     spares_small_passives: float = 2.0
     spares_others: float = 0.0
-    # The cheapest price rising by this many percent raises a "price up" alert, and the chance of running out within four weeks that
-    # raises "likely to run out"; a part's own rule wins (``alert_rules``).
+    # The cheapest price rising by this many percent is the ``price_up`` finding, and the forecast's chance of running out within four
+    # weeks the ``likely_out`` one (and the Insights list of parts likely out); a part's own rule wins (``alert_rules``).
     alert_price_rise_percent: int = 20
     alert_likely_out_percent: int = 70
     # Prices in other currencies are converted to this one to be compared and totalled.
@@ -122,6 +135,11 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     NO_DISTRIBUTOR_STOCK: "No distributor has it in stock",
     INSUFFICIENT_STOCK: "Stock does not cover the build",
     BELOW_THRESHOLD: "Stock at or under the watch's level",
+    RUNS_OUT_SOON: "Stock could run out soon at the recent rate",
+    LIKELY_OUT: "Likely out of stock everywhere within 4 weeks",
+    PRICE_UP: "The cheapest price rose",
+    TARGET_PRICE_MISSED: "The price is over the target",
+    CHANGE_NOTICE: "A change notice is open",
     LEAD_TIME_OVER_THRESHOLD: "Lead time over the limit",
     ROHS_NONCOMPLIANT: "Not RoHS compliant",
     ROHS_DISPUTED: "Distributors disagree on RoHS",
@@ -143,7 +161,8 @@ CHECK_AREA: Mapping[str, str] = MappingProxyType({
     OBSOLETE: "Lifecycle", NRND: "Lifecycle", LAST_TIME_BUY: "Lifecycle", DISTRIBUTOR_DISCONTINUED: "Lifecycle",
     LIFECYCLE_DISAGREEMENT: "Lifecycle", ENDING_WITHIN_2_YEARS: "Lifecycle",
     PART_NOT_FOUND: "Sourcing", SINGLE_SOURCE: "Sourcing", LEAD_TIME_OVER_THRESHOLD: "Sourcing", DATA_STALE: "Sourcing", PRICE_OUTLIER: "Sourcing",
-    NO_DISTRIBUTOR_STOCK: "Stock", INSUFFICIENT_STOCK: "Stock", BELOW_THRESHOLD: "Stock",
+    NO_DISTRIBUTOR_STOCK: "Stock", INSUFFICIENT_STOCK: "Stock", BELOW_THRESHOLD: "Stock", RUNS_OUT_SOON: "Stock", LIKELY_OUT: "Stock",
+    PRICE_UP: "Sourcing", TARGET_PRICE_MISSED: "Sourcing", CHANGE_NOTICE: "Lifecycle",
     ROHS_NONCOMPLIANT: "Compliance", ROHS_DISPUTED: "Compliance", REACH_SVHC: "Compliance",
     MANUFACTURER_MISSING: "BOM line", NOT_IN_LIBRARY: "BOM line", PARAMETER_MISMATCH: "BOM line", PACKAGE_MISMATCH: "BOM line",
 })

@@ -256,7 +256,7 @@ def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Ra
 
 
 # Bumped whenever what a kept summary holds or how it is worked out changes: every kept one is then worked out again.
-SUMMARY_VERSION = 2
+SUMMARY_VERSION = 3
 _SUMMARY_FIELDS = (
     "part_id text, status text, health real, changes_at timestamptz, problem text, stock integer, listings integer, lifecycle text, "
     "dropped boolean, tier text, unit_price numeric, as_of timestamptz, price jsonb, priced_with text"

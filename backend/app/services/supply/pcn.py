@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import parts
@@ -168,30 +168,38 @@ def close(conn, notice_id: str, actor: str) -> None:
 def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[str, Any]]:
     """A part's notices, the soonest last-time-buy first."""
 
+    return for_parts(conn, [part_id], include_closed=include_closed).get(part_id, [])
+
+
+def for_parts(conn, part_ids: Sequence[str], *, include_closed: bool = False) -> dict[str, list[dict[str, Any]]]:
+    """Each part's notices, the soonest last-time-buy first; parts with none are left out."""
+
+    if not part_ids:
+        return {}
     rows = conn.execute(
         """
-        SELECT n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
+        SELECT pp.part_id, n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
                n.source, n.published_on,
                (SELECT COUNT(*) FROM supply_pcn_parts x WHERE x.pcn_id = n.id) AS parts
         FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id
-        WHERE pp.part_id = %s AND (n.state = 'open' OR %s)
-        ORDER BY n.last_time_buy NULLS LAST, n.published_on DESC NULLS LAST, n.created_at DESC
+        WHERE pp.part_id = ANY(%s) AND (n.state = 'open' OR %s)
+        ORDER BY pp.part_id, n.last_time_buy NULLS LAST, n.published_on DESC NULLS LAST, n.created_at DESC
         """,
-        (part_id, include_closed),
+        (list(part_ids), include_closed),
     ).fetchall()
 
     def day(value: date | None) -> str | None:
         return value.isoformat() if value else None
 
-    return [
-        {
+    found: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        found.setdefault(r["part_id"], []).append({
             "id": r["id"], "title": r["title"], "kind": r["kind"], "kind_label": KIND_LABEL[r["kind"]], "notice_url": r["notice_url"],
             "last_time_buy": day(r["last_time_buy"]), "last_time_ship": day(r["last_time_ship"]), "notes": r["notes"],
             "state": r["state"], "created_by": r["created_by"], "created_at": r["created_at"].isoformat(), "parts": int(r["parts"]),
             "source": r["source"], "source_label": SOURCE_LABEL.get(r["source"], r["source"]), "published_on": day(r["published_on"]),
-        }
-        for r in rows
-    ]
+        })
+    return found
 
 
 def _is_new(notice: Mapping[str, Any], today: date) -> bool:
@@ -222,6 +230,24 @@ def alert_detail(notices: Sequence[Mapping[str, Any]], today: date) -> dict[str,
         "title": chosen["title"], "kind": chosen["kind"], "kind_label": chosen["kind_label"],
         "last_time_buy": chosen["last_time_buy"], "last_time_ship": chosen["last_time_ship"], "soon": soon,
     }
+
+
+def next_change(notices: Sequence[Mapping[str, Any]], today: date) -> date | None:
+    """The next day ``alert_detail`` can say something else by the clock alone: an ending notice's last time buy coming within
+    ``SOON_DAYS``, a new notice no longer new. None when nothing waits on the clock."""
+
+    days = []
+    for notice in notices:
+        if notice["state"] != "open":
+            continue
+        if notice["kind"] in ENDING and notice["last_time_buy"]:
+            days.append(date.fromisoformat(notice["last_time_buy"]) - timedelta(days=SOON_DAYS))
+        if notice.get("created_at"):
+            days.append(datetime.fromisoformat(notice["created_at"]).date() + timedelta(days=NEW_FOR_DAYS + 1))
+        if notice.get("published_on"):
+            days.append(date.fromisoformat(notice["published_on"]) + timedelta(days=RECENT_RELEASE_DAYS + 1))
+    later = [day for day in days if day > today]
+    return min(later) if later else None
 
 
 def today() -> date:
