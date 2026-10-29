@@ -5,54 +5,59 @@ that makes live forecasts, and the forecast is kept as if made that day. The che
 Stock-outs recorded later are not used (the outage models are left out), so a backtest is harder on the model than the live run.
 
     cd backend
-    python -m app.services.supply.forecast_backtest --since 2026-10-11
+    python scripts/forecast_backtest.py --since 2026-10-11
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+import sys
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
-from app.services.supply import forecast_load, forecast_stock, forecasting, forecast_run
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.services.supply.forecast import inputs, models, store  # noqa: E402
+from app.services.supply.forecast import run as forecast_run  # noqa: E402
 
 MIN_DAYS = 8
 
 
-def _slice(holders: list[forecast_stock.Holder], until: date) -> list[forecast_stock.Holder]:
+def _slice(holders: list[models.Holder], until: date) -> list[models.Holder]:
     cut = []
     for holder in holders:
         series = [(day, stock) for day, stock in holder.series if day <= until]
         if series:
-            cut.append(forecast_stock.Holder(holder.connector_id, holder.name, holder.provider, series, holder.quote_days, holder.weekly))
+            cut.append(models.Holder(holder.connector_id, holder.name, holder.provider, series, holder.quote_days, holder.weekly))
     return cut
 
 
 def part(conn, part_id: str, since: date, now: datetime) -> int:
     """Make the stock forecasts of one part for every day from ``since`` to yesterday. Returns how many forecasts were kept."""
 
-    holders = forecast_load.holders(conn, part_id, now, 200)
+    holders = inputs.holders(conn, part_id, now, 200)
     if not holders:
         return 0
-    quantity = forecast_load.default_quantity(conn, part_id)
-    weekly = forecast_load.is_weekly(conn, part_id)
+    quantity = inputs.default_quantity(conn, part_id)
+    weekly = inputs.is_weekly(conn, part_id)
     kept = 0
     day = since
     yesterday = now.astimezone(timezone.utc).date() - timedelta(days=1)
     while day <= yesterday:
         cut = _slice(holders, day)
-        found = forecast_stock.forecast(cut, {}, {}, quantity, weekly=weekly)
+        found = models.stock_forecast(cut, {}, {}, quantity, weekly=weekly)
         if found.get("available"):
             run = found["runout"]
             if run:
-                forecasting.store(conn, "part", part_id, "runout", day, max(math.ceil(run["high"]), 1), model="backtest", median=run["median"],
-                                  low=run["low"], high=run["high"], probability=run["probability"], inputs={"backtest": True})
+                store.store(conn, "part", part_id, "runout", day, max(math.ceil(run["high"]), 1), model="backtest", median=run["median"],
+                            low=run["low"], high=run["high"], probability=run["probability"], inputs={"backtest": True})
                 kept += 1
-            forecasting.store(conn, "part", part_id, "out_4w", day, 28, model="backtest", probability=found["out_everywhere"][4], inputs={"backtest": True})
+            store.store(conn, "part", part_id, "out_4w", day, 28, model="backtest", probability=found["out_everywhere"][4], inputs={"backtest": True})
             for target, weeks in (("can_buy_4w", 4), ("can_buy_8w", 8)):
-                forecasting.store(conn, "part", part_id, target, day, weeks * 7, model="backtest", quantity=quantity,
-                                  probability=found["weeks"][weeks - 1], inputs={"backtest": True})
+                store.store(conn, "part", part_id, target, day, weeks * 7, model="backtest", quantity=quantity,
+                            probability=found["weeks"][weeks - 1], inputs={"backtest": True})
             kept += 3
         day += timedelta(days=1)
     return kept

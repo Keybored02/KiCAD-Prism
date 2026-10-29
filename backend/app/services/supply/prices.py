@@ -8,7 +8,6 @@ when the readings span a week or more and the latest one is recent, so a part no
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Sequence
@@ -207,19 +206,6 @@ def last_in_stock(conn, part_id: str, base: str, rates, quantity: int = REFERENC
     converted = [rates.convert(price, currency, base) for price, currency, _moq, _guessed in quoted if price is not None]
     known = [price for price in converted if price is not None and price > 0]
     return (min(known), day) if known else None
-
-
-def series(points: Sequence[DayPrice]) -> list[DayPrice]:
-    """One price per day, for the currency that has the most days, oldest first."""
-
-    if not points:
-        return []
-    currency = Counter(currency for _, _, currency in points).most_common(1)[0][0]
-    cheapest: dict[date, Decimal] = {}
-    for day, price, code in points:
-        if code == currency and price > 0:
-            cheapest[day] = min(price, cheapest.get(day, price))
-    return [(day, cheapest[day], currency) for day in sorted(cheapest)]
 
 
 def view(points: Sequence[DayPrice], today: date) -> dict[str, Any]:

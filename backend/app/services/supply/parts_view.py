@@ -14,9 +14,10 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping
 
-from app.services.supply import budget, counted, facts, forecasting, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import budget, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
+from app.services.supply.forecast import store
 from app.services.supply.providers import registry
 from app.services.supply.tiers import SCHEDULES
 from app.services.supply.offer_lines import in_base, offer_lines
@@ -740,7 +741,7 @@ def list_parts(
         for item in page
     ]
     more = offset + limit < total
-    states = forecasting.model_states(conn)
+    states = store.model_states(conn)
     return {
         "items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None,
         "forecast_state": {name: states[name]["state"] for name in ("runout", "out_4w", "can_buy_4w", "can_buy_8w")},

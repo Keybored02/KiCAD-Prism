@@ -35,7 +35,7 @@ root first.
 | `maker_seeds.py` | The built-in spellings of large makers as rows (`maker_seeds`) an administrator edits; `makers.refresh` reads them. |
 | `maker_backfill.py` | Migration 56: sorts the listings that waited under the old rules again. |
 | `packaging_auto.py` | Picks the packaging of a tracked part by what its projects buy for (prototypes: smallest order, production: a reel). Never changes a person's pick. |
-| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states (a number the part is sold under and the same maker count; another maker's listing is `near`). Also `pin_listing`, `reject_listing`, `counted_listings`. |
+| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states (a number the part is sold under and the same maker count; another maker's listing is `near`). Also `pin_listing`, `reject_listing`. |
 | `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
 | `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
@@ -76,11 +76,11 @@ root first.
 | `stock_events.py` | Stock-outs and restocks as the poller sees them, with the lead time quoted at the stock-out; a restock ends the open stock-out. |
 | `scorecard.py` | Per distributor, on parts two or more list: stock-outs, restocked first, promises kept (quoted lead times and Mouser's dated arrivals), wait said against real, days in stock (counted in the database). Withheld under five events. Also each distributor's open promise on one part. |
 | `ending_parts.py` | Library components whose part is ending, with the reasons, last buy date, stock and projects; and the decision kept for each (`component_restrictions`: not for new designs, retired). Proposes only. Components come from `component_parts` (main part or approved alternate). A dismissal (`supply_ending_dismissals`) hides a component until its part gains a new reason. The list shows as notifications on the Supply Dashboard, with the decisions inline. |
-| `forecasting.py` | Forecasts as kept: stored when made, checked when their day comes, each model's state (learning, shown, paused) from its checks, the words for a chance, the track record. |
-| `forecast_stock.py` | Runout, return from a stock-out and the chance of buying by week, from a simulation of 2,000 futures per distributor (drain from the slopes since the last restock, time out from Kaplan-Meier, restock sizes seen). Pure. |
-| `forecast_price.py` | A part's price in 30 and 90 days from repricing events (Poisson rate shrunk to the pooled rate, sizes seen). Pure. |
-| `forecast_market.py`, `forecast_lifecycle.py` | Lead times by family three months ahead and early warnings from the market series; the pooled monthly rate of changes into an ending lifecycle and the lag from a first sign to a last time buy. |
-| `forecast_load.py`, `forecast_run.py`, `forecast_view.py`, `forecast_overview.py`, `forecast_backtest.py` | Reading the inputs, the daily make-and-check run (called from housekeeping and `part_insights`), the part forecast as the screens get it, the Dashboard and Insights roll-ups and the panel line, and the replay of past days. |
+| `forecast/models.py` | Pure model maths: the stock simulation (drain since the last restock, Kaplan-Meier time out of stock, 2,000 futures per distributor), price repricing in 30 and 90 days, the lifecycle rate and chance, and a family's lead-time trend and early warnings. |
+| `forecast/inputs.py` | Reads the readings and pooled figures the models take: holders and their similar-part drains, outage models and quote ratios, repricing moves, lifecycle rates and signs, and market series. Each cache has its own `forget`. |
+| `forecast/store.py` | Forecasts as kept: stored when made, checked when their day comes, each model's state (learning, shown, paused) from its checks, the words for a chance, the track record. |
+| `forecast/run.py` | The daily make-and-check run, called from housekeeping and `part_insights`. `backend/scripts/forecast_backtest.py` replays past days. |
+| `forecast/views.py` | The part forecast as the screens get it, the Dashboard and Insights roll-ups, the panel line, and the Parts list's likely-out filters. |
 | `preferences.py` | A person's preferred distributor for a part (`part_preferences`); it orders and marks, and prices the BOM when the setting is on. |
 | `trade_marks.py` | Whether a part is export controlled: what distributors state, and a person's mark that wins. |
 | `risk_views.py` | The Dashboard and Insights risk views: lifecycle against availability, deadlines, distributor coverage, lifecycle and compliance mixes, lead times, price movers, trade. |
@@ -120,7 +120,7 @@ root first.
 | `backend/app/api/supply_release.py` | Release check and release snapshot endpoints (readers; projects follow the caller's role). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), what counts as fitted, and the `Prism ID` field. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `assessment/line_checks.py` | Findings about how a BOM line names its part: `manufacturer_missing` (found by number alone) and `not_in_library` (no catalog component has the pair). |
-| `health.py` | Per connector: calls against budget, last error, how many reads are late and the oldest read. Administrators only, at `/api/supply/health`. |
+| `connector_health.py` | Per connector: calls against budget, last error, how many reads are late and the oldest read. Administrators only, at `/api/supply/health`. |
 | `fx.py` | Exchange rates: the ECB daily file (fetched by the poll job, at most once in 20 hours) or rates an administrator enters; conversion goes through the euro and an unknown rate means no conversion. Used to compare offers and total a BOM in the base currency (a Supply setting, default EUR). |
 | `spreadsheet.py` | The first sheet of an Excel file (.xlsx, .xlsm) as rows of text, with size and unpacked-size limits. Used for uploaded BOMs (`POST /api/supply/bom/sheet`, stores nothing) and the ECHA candidate list. |
 | `compliance.py` | REACH: the ECHA Candidate List (loaded by an administrator from a CSV or Excel export), substances a supplier declared for a part as CAS numbers (checked digit by digit), and a part's REACH standing (affected, clear, unknown; silence is never clear). A distributor's REACH flag is read with the offer. Substances a distributor names (Mouser's `REACH-SVHC`) become declarations marked `distributor:<provider>`, kept apart from people's. |
