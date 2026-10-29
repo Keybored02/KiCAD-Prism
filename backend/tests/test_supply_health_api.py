@@ -84,6 +84,7 @@ class SupplyHealthTests(unittest.TestCase):
             self.assertEqual(_request(self.app, "GET", "/api/supply/health", user=self.users[role]).status, 403, role)
         response = _request(self.app, "GET", "/api/supply/health", user=self.users["admin"])
         self.assertEqual((response.status, len(response.json["connectors"])), (200, 1))
+        self.assertIn("inventory", [task["name"] for task in response.json["tasks"]])
 
 
 if __name__ == "__main__":
