@@ -349,6 +349,28 @@ class SupplyPartsApiTests(unittest.TestCase):
         finally:
             registry.unregister("demo_chart")
 
+    def test_the_chart_total_counts_two_storefronts_of_one_account_once(self) -> None:
+        from app.services.supply import part_history
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        registry.register(ProviderSpec(
+            key="demo_store_b", label="Store B", capabilities=frozenset({"offers"}), max_batch=10, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config)), replace=True)
+        self.addCleanup(registry.unregister, "demo_store_b")
+        first, second = self.fake_connector(display_name="Store A"), self.fake_connector(display_name="Store B", provider="demo_store_b")
+        self.watch_via_api("POOL-1")
+        part = self.part_row("POOL-1")["id"]
+        now = datetime.now(timezone.utc)
+        listings = [self.insert_listing(part, cid, "PO-1", stock=1000, price="0.50") for cid in (first, second)]
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_connectors SET account_key = 'one-account' WHERE id = ANY(%s)", ([first, second],))
+            for listing in listings:
+                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 1000, 0.5, 'EUR')", (listing, now))
+            data = part_history.build(conn, part, now, 7)
+        self.assertEqual(data["total"][-1][1], 1000, "one shelf listed by two storefronts")
+        self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"])
+
     def test_stock_history_leaves_out_a_listing_a_pick_stopped_reading_at_a_pick_limited_provider(self) -> None:
         from app.services.supply import parts_view
 
