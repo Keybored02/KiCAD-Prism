@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 
 def request(app, method: str, path: str, *, user, body=None, raw: bytes | None = None, query: str = "",
-            content_type: str = "application/json"):
+            content_type: str = "application/json", headers: dict[str, str] | None = None):
     from app.core.security import get_current_user
 
     payload = raw if raw is not None else (b"" if body is None else json.dumps(body).encode())
@@ -30,7 +30,8 @@ def request(app, method: str, path: str, *, user, body=None, raw: bytes | None =
         asyncio.run(app({
             "type": "http", "http_version": "1.1", "method": method, "scheme": "http",
             "path": path, "raw_path": path.encode(), "query_string": query.encode(),
-            "headers": [(b"content-type", content_type.encode()), (b"content-length", str(len(payload)).encode())],
+            "headers": [(b"content-type", content_type.encode()), (b"content-length", str(len(payload)).encode()),
+                        *((name.lower().encode(), value.encode()) for name, value in (headers or {}).items())],
             "client": ("test", 1), "server": ("test", 80), "root_path": "",
         }, receive, send))
     finally:

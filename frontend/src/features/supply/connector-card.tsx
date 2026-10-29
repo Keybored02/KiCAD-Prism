@@ -28,6 +28,7 @@ export type ConnectorAction =
   | "apply-reset"
   | "csv-upload"
   | "csv-clear"
+  | "push-token"
   | "delete";
 
 interface ConnectorCardProps {
@@ -131,6 +132,7 @@ function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connec
         {connector.csv_fed ? (
           <>
             <DropdownMenuItem onClick={() => onAction("csv-upload", connector)}>Upload CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAction("push-token", connector)}>Push token</DropdownMenuItem>
             {connector.csv_import ? (
               <DropdownMenuItem onClick={() => onAction("csv-clear", connector)}>Remove uploaded data</DropdownMenuItem>
             ) : null}

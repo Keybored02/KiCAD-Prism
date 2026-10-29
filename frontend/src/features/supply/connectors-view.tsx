@@ -17,6 +17,7 @@ import { CreateConnectorDialog } from "./create-connector-dialog";
 import { CsvUploadDialog } from "./csv-upload-dialog";
 import { EditConnectorDialog } from "./edit-connector-dialog";
 import { PauseConnectorDialog } from "./pause-connector-dialog";
+import { PushTokenDialog } from "./push-token-dialog";
 import { clearSupplyCsv, deleteSupplyConnector, testSupplyConnector } from "./supply-api";
 import { isQuickAction, useQuickConnectorActions } from "./use-connector-actions";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -178,6 +179,13 @@ export function SupplyConnectorsView({ user, headerSlot, after }: { user: User |
             description: ignored.length > 0 ? `Ignored columns: ${ignored.join(", ")}` : undefined,
           });
         }}
+      />
+      <PushTokenDialog
+        key={dialog?.kind === "push-token" ? dialog.id : "none"}
+        target="connector"
+        id={dialog?.kind === "push-token" && target ? target.id : null}
+        name={target?.display_name ?? ""}
+        onClose={closeDialog}
       />
       <ConfirmDialog
         open={dialog?.kind === "csv-clear" && target !== null}
