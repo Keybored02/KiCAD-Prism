@@ -25142,6 +25142,17 @@
       "app__api__supply_connectors__UpdateConnectorRequest": {
         "additionalProperties": false,
         "properties": {
+          "catalogue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalogue"
+          },
           "currency": {
             "anyOf": [
               {

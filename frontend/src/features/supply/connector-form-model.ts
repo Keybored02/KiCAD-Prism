@@ -80,6 +80,8 @@ export interface EditValues {
   keep: string;
   /** Prices of parts not in use are kept past the read window. */
   keepUnused: boolean;
+  /** Offers come from the published catalogue. */
+  catalogue: boolean;
   /** When the provider's day begins, and in which time zone: its budget resets then. */
   resetTime: string;
   resetTz: string;
@@ -95,6 +97,7 @@ export function valuesOf(connector: SupplyConnector): EditValues {
     retention: connector.retention_days === null ? "" : String(connector.retention_days),
     keep: connector.keep_days === null ? "" : String(connector.keep_days),
     keepUnused: connector.keep_unused,
+    catalogue: connector.catalogue,
     resetTime: connector.reset_time ?? "00:00",
     resetTz: connector.reset_tz ?? "UTC",
   };
@@ -113,6 +116,7 @@ export function changesFrom(connector: SupplyConnector, values: EditValues): Upd
   const keep = values.keep.trim() === "" ? null : Number(values.keep);
   if (keep !== connector.keep_days) changes.keep_days = keep;
   if (values.keepUnused !== connector.keep_unused) changes.keep_unused = values.keepUnused;
+  if (values.catalogue !== connector.catalogue) changes.catalogue = values.catalogue;
   if (values.resetTime.trim() !== (connector.reset_time ?? "00:00")) changes.reset_time = values.resetTime.trim();
   if (values.resetTz.trim() !== (connector.reset_tz ?? "UTC")) changes.reset_tz = values.resetTz.trim();
   return changes;

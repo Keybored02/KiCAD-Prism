@@ -130,6 +130,16 @@ function EditForm({ connector, storefronts = [], onClose, onSaved }: { connector
           />
           <p className="text-[11px] text-muted-foreground">Set it if the provider&apos;s terms limit how long its data may be stored.</p>
         </div>
+        {connector.catalogue_available ? (
+          <div className="col-span-2 flex items-center justify-between gap-3">
+            <Label htmlFor="edit-connector-catalogue">Read the jlcparts catalogue</Label>
+            <Switch
+              id="edit-connector-catalogue"
+              checked={values.catalogue}
+              onCheckedChange={(checked) => update({ catalogue: checked })}
+            />
+          </div>
+        ) : null}
         {connector.limits_storage ? (
           <div className="col-span-2 flex items-center justify-between gap-3">
             <Label htmlFor="edit-connector-keep-unused">Keep prices of parts not in use</Label>

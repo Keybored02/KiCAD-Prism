@@ -49,7 +49,7 @@ developer portal.
 | **Avnet** | **Client ID**, **Client secret**, **Scope**, **Subscription key** | From the Avnet API portal once Avnet approves your subscription. Avnet answers by part number only, with one price for the quantity it names (one piece, or its minimum order): Prism prices no larger order from it. |
 | **Arrow** | **Login**, **API key**, **Address of this server** | The Pricing & Availability API. The address is the public IP address Arrow sees Prism's calls come from. The storefront picks the regions to keep (**ALL** keeps every region). Prices stay in each region's currency and Prism converts them. Reads 100 parts a call. |
 | **LCSC** | none | Offers come from a file you upload (below). Prism makes no calls. |
-| **JLCPCB (assembly)** | none | From an uploaded file, read only for projects built at JLCPCB. Its stock is for its own assembly and never counts in a total. |
+| **JLCPCB (assembly)** | none | From an uploaded file or the jlcparts catalogue, read only for projects built at JLCPCB. Its stock is for its own assembly and never counts in a total. |
 | **CSV import** | none | From an uploaded file, for air-gapped installs and distributors without an API. |
 
 ### Upload offers from a file
@@ -60,6 +60,23 @@ prices in columns named for their quantity (`price_1`, `price_10`,
 `price_100`); **Download a template** in the dialog gives a starting file. The
 limit is 5 MB. Each upload replaces the previous one, and if any row is wrong
 nothing is imported: the dialog lists each problem by line and column.
+
+### Read JLCPCB from the jlcparts catalogue
+
+Instead of uploading a file, a JLCPCB connector can read
+[jlcparts](https://github.com/yaqwsx/jlcparts), a community copy of JLCPCB's
+assembly parts library that is rebuilt three times a day. Turn on **Read the
+jlcparts catalogue** in the connector's **Edit settings**.
+- Prism reads the catalogue twice a day and keeps only the parts it already
+  knows: library parts, followed parts and checked parts.
+- Prices are in US dollars. Each part keeps its Basic, Extended or Preferred
+  class.
+- Each read replaces the offers, just like an upload.
+- If a read fails, the connector card shows the error and the last offers
+  stay.
+
+jlcparts is not JLCPCB's own service. Check that its use fits your terms with
+JLCPCB before you turn it on.
 **Remove uploaded data** deletes the offers; stock history already collected
 stays.
 

@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.job_kinds import SUPPLY_RESOURCE, JobKind
 from app.services.supply import (
-    accounts, alerts, budget, dashboard, demand, details, fx, ledger, market, library_match, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
+    accounts, alerts, budget, csv_import_service, dashboard, demand, details, fx, ledger, market, library_match, notice_budget, oauth, oneoff, packaging_auto, part_insights, parts_view, project_bom, project_supply, quota, retention,
     schedule_settings, substitutes, tracking,
 )
 from app.services.supply.forecast import run as forecast_run
@@ -278,7 +278,7 @@ def housekeeping(store: SupplyStore) -> int:
         # Each step commits: a step's change marks are then seen by what the next one keeps (``freshness``), and no step holds the
         # others' rows.
         for step in (
-            _refresh_rates, _snapshot_market, _snapshot_costs, _snapshot_figures, _sync_component_watches, _refresh_project_boms,
+            _refresh_rates, _read_catalogues, _snapshot_market, _snapshot_costs, _snapshot_figures, _sync_component_watches, _refresh_project_boms,
             _sync_tracking, _pick_packagings, _renew_insights, refresh_rollups,
         ):
             step(conn)
@@ -381,6 +381,12 @@ def _read_details(connectors: ConnectorService, connector_id: str) -> str | None
     except Exception:  # noqa: BLE001 - substitutes are a favour; the notices and the job do not depend on them
         logging.getLogger(__name__).info("Substitutes not asked for", exc_info=True)
     return stopped
+
+
+def _read_catalogues(conn) -> None:
+    """Published catalogues standing in for offers files, for the connectors whose administrator turned one on (``jlc_catalogue``)."""
+
+    csv_import_service.refresh_catalogues(conn, datetime.now(timezone.utc))
 
 
 def _snapshot_market(conn) -> None:

@@ -192,6 +192,36 @@ class HardeningTests(unittest.TestCase):
             cid, b"sku,mpn,manufacturer,stock\nC1,ABC123,Acme,10\n", actor=ACTOR, filename="f.csv")
         self.assertEqual(self.rows("SELECT 1 FROM supply_discovery_runs"), [])
 
+    def test_a_connector_that_reads_the_jlcparts_catalogue_imports_the_known_parts_twice_a_day(self) -> None:
+        from app.services.supply import csv_import_service
+        from test_supply_jlc_catalogue import files
+
+        jlc = self.connector("jlcpcb")
+        with self.assertRaises(Exception):
+            self.connectors.update(self.connector("csv"), actor=ACTOR, catalogue=True)
+        self.assertEqual((self.connectors.get(jlc)["catalogue"], self.connectors.get(jlc)["catalogue_available"]), (False, True))
+        self.watch("NE555DR")
+        published = files()
+        fetch_for = lambda base: published.__getitem__  # noqa: E731
+        with self.store.connection() as conn:
+            self.assertEqual(csv_import_service.refresh_catalogues(conn, START, fetch_for=fetch_for), 0, "off until an administrator turns it on")
+        self.connectors.update(jlc, actor=ACTOR, catalogue=True)
+        with self.store.connection() as conn:
+            self.assertEqual(csv_import_service.refresh_catalogues(conn, START, fetch_for=fetch_for), 1)
+            self.assertEqual(csv_import_service.refresh_catalogues(conn, START + timedelta(hours=1), fetch_for=fetch_for), 0, "not due yet")
+        self.assertEqual([(r["sku"], r["jlc_preferred"]) for r in self.rows("SELECT sku, jlc_preferred FROM supply_csv_offers WHERE connector_id = %s", jlc)], [("C7593", True)])
+        self.assertEqual(self.connectors.get(jlc)["csv_import"]["filename"], "jlcparts 2026-10-29T10:26:45+00:00")
+
+        def broken(base):
+            def fetch(name):
+                raise RuntimeError("offline")
+            return fetch
+
+        with self.store.connection() as conn:
+            self.assertEqual(csv_import_service.refresh_catalogues(conn, START + timedelta(hours=13), fetch_for=broken), 0)
+        self.assertEqual(self.connectors.get(jlc)["last_error_code"], "catalogue")
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_csv_offers WHERE connector_id = %s", jlc)), 1, "the old offers stand")
+
     # --- budget and cooldown ----------------------------------------------
 
     def test_keeping_part_of_the_pool_leaves_it_for_people(self) -> None:
