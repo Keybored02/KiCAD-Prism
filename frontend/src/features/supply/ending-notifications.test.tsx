@@ -62,6 +62,14 @@ describe("ending parts on the Dashboard", () => {
     await waitFor(() => expect(api.retireComponent).toHaveBeenCalledWith("c1", expect.stringContaining("Not recommended")));
   });
 
+  it("lists an ending alternate as one, and offers no retirement while the component has healthy parts", async () => {
+    vi.mocked(api.getEndingParts).mockResolvedValue({ items: [item({ role: "alternate", healthy: 1 })], tracked: 10, more: 0 });
+    render(<EndingNotifications role="admin" onOpenComponent={vi.fn()} />);
+    expect(await screen.findByText(/^Alternate · 1 healthy part · Not recommended/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Not for new designs" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retire" })).toBeNull();
+  });
+
   it("dismisses for the reasons it has now", async () => {
     render(<EndingNotifications role="qa" onOpenComponent={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));

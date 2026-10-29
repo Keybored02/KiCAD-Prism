@@ -228,6 +228,24 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(forecast_lifecycle.chance(0.0, 24), 0.0)
         self.assertGreater(forecast_lifecycle.chance(0.01, 24), forecast_lifecycle.chance(0.01, 12))
 
+    def test_pooled_rates_are_used_without_being_worked_out_again(self) -> None:
+        from unittest import mock
+
+        class Conn:
+            def execute(self, sql, params=()):
+                class Rows:
+                    def fetchone(self):
+                        return {"name": "Acme"}
+
+                return Rows()
+
+        pooled = {"pooled": 0.01, "makers": {"Acme": 0.02}, "changes": 3, "part_months": 40.0, "exposure": {}}
+        with mock.patch.object(forecast_lifecycle, "rates", side_effect=AssertionError("rates() should not run again")), \
+                mock.patch.object(forecast_lifecycle, "signs", return_value={"notice": False, "dropped_share": 0.0}):
+            found = forecast_lifecycle.part_chance(Conn(), "part-1", "active", START, pooled=pooled)
+        self.assertEqual(found["changes"], 3)
+        self.assertAlmostEqual(found["rate"], 0.02)
+
 
 if __name__ == "__main__":
     unittest.main()

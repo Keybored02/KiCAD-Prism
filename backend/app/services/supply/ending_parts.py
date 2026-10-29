@@ -170,7 +170,13 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
                               "manufacturer": str(component.get("manufacturer") or ""), "stage": stage},
                 "part_id": item["id"], "reasons": reasons, "last_buy": last_buy, "stock": item["stock"], "status": item["status"],
                 "projects": used, "restriction": None,
+                # Whether the ending part is the component's main part or one of its approved alternates.
+                "role": str(component.get("role") or "main"),
             })
+    # How many of each component's other approved parts are not ending: retiring is only offered when none is left.
+    counted = component_parts.counted_parts(conn, [row["component"]["id"] for row in rows]) if library else {}
+    for row in rows:
+        row["healthy"] = sum(1 for other in counted.get(row["component"]["id"], []) if other != row["part_id"] and other not in why)
     marks = restrictions_of(conn, [row["component"]["id"] for row in rows])
     dismissed = dismissals_of(conn, [row["component"]["id"] for row in rows])
     kept = []

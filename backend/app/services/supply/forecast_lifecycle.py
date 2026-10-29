@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import statistics
+import time
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
@@ -37,6 +38,27 @@ MAX_P12 = 0.95
 
 def chance(rate_per_month: float, months: int) -> float:
     return 1.0 - math.exp(-max(rate_per_month, 0.0) * months)
+
+
+RATES_CACHE_FOR = 6 * 3600.0
+_rates: tuple[float, date, dict[str, Any]] | None = None
+
+
+def pooled_rates(conn, today: date) -> dict[str, Any]:
+    """``rates`` for ``today``, kept for six hours: a forecast run asks for them once per part, and they rest on every tracked part and
+    every lifecycle change, which move slowly."""
+
+    global _rates
+    if _rates is not None and _rates[1] == today and time.monotonic() - _rates[0] < RATES_CACHE_FOR:
+        return _rates[2]
+    found = rates(conn, today)
+    _rates = (time.monotonic(), today, found)
+    return found
+
+
+def forget() -> None:
+    global _rates
+    _rates = None
 
 
 def rates(conn, today: date | None = None) -> dict[str, Any]:
@@ -97,12 +119,12 @@ def factor(found: dict[str, Any]) -> float:
     return (NOTICE_FACTOR if found["notice"] else 1.0) * (1.0 + (DROPPED_FACTOR - 1.0) * found["dropped_share"])
 
 
-def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None) -> dict[str, Any]:
+def part_chance(conn, part_id: str, lifecycle: str, today: date | None = None, *, pooled: dict[str, Any] | None = None) -> dict[str, Any]:
     """The chance a part turns ending within 12 and 24 months, from its maker's rate and its own signs. None for a part that already is."""
 
     if lifecycle in _ENDING:
         return {"available": False, "reason": "already_ending"}
-    found = rates(conn, today)
+    found = pooled if pooled is not None else rates(conn, today)
     maker = conn.execute("SELECT m.name FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = %s", (part_id,)).fetchone()
     rate = found["makers"].get(maker["name"], found["pooled"]) if maker else found["pooled"]
     shown = signs(conn, part_id)
