@@ -25,7 +25,6 @@ use answers shaped like the definition.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
@@ -45,6 +44,7 @@ from app.services.supply.providers.base import (
     Unavailable,
 )
 from app.services.supply.identity import match_key
+from app.services.supply.providers import normalise
 from app.services.supply.providers.http import ClientCredentials, HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
@@ -193,27 +193,11 @@ def _match(row: Mapping[str, Any]) -> PartMatch | None:
     )
 
 
-_PACKAGING = (
-    ("reel", Packaging.TAPE_REEL),
-    ("cut", Packaging.CUT_TAPE),
-    ("tray", Packaging.TRAY),
-    ("tube", Packaging.TUBE),
-    ("stick", Packaging.TUBE),
-    ("bulk", Packaging.BULK),
-    ("bag", Packaging.BULK),
-    ("box", Packaging.BULK),
-)
-
-
 def _packaging(text: object) -> Packaging:
-    value = str(text or "").strip().lower()
-    if not value:
-        return Packaging.UNKNOWN
-    for needle, packaging in _PACKAGING:
-        if needle in value:
-            return packaging
-    note(KEY, "package type", value)
-    return Packaging.OTHER
+    packaging = normalise.packaging_word(text)
+    if packaging is Packaging.UNKNOWN and str(text or "").strip():
+        note(KEY, "package type", str(text).strip().lower())
+    return packaging
 
 
 def _lifecycle(row: Mapping[str, Any]) -> Lifecycle:
@@ -238,15 +222,10 @@ def _lifecycle(row: Mapping[str, Any]) -> Lifecycle:
 def _rohs(text: object) -> bool | None:
     """The definition gives no list of RoHS values, so only plain wording is read; anything else is left unknown."""
 
-    value = " ".join(str(text or "").lower().split())
-    if not value:
-        return None
-    if re.search(r"(^|\W)non[- ]?(rohs|compliant)|not compliant|^(no|n)$", value):
-        return False
-    if "compliant" in value or value in ("yes", "y"):
-        return True
-    note(KEY, "RoHS wording", value)
-    return None
+    found = normalise.rohs_word(text)
+    if found is None and str(text or "").strip():
+        note(KEY, "RoHS wording", " ".join(str(text).lower().split()))
+    return found
 
 
 def _facts(row: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:

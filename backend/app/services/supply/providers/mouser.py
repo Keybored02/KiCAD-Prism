@@ -34,7 +34,6 @@ are spaced ``PACE_SECONDS`` apart so a run cannot burst past the minute.
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
 from app.services.supply.identity import keep_family, match_key
@@ -52,8 +51,9 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
+from app.services.supply.providers import normalise
 from app.services.supply.providers.http import HttpProvider
-from app.services.supply.providers.text_values import parse_count, parse_decimal, parse_lead_time_days
+from app.services.supply.providers.text_values import parse_count, parse_lead_time_days
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -78,17 +78,6 @@ _LIFECYCLE = {
     "last time buy": Lifecycle.LAST_TIME_BUY,
     "obsolete": Lifecycle.OBSOLETE,
 }
-
-_PACKAGING = {
-    "cut tape": Packaging.CUT_TAPE,
-    "reel": Packaging.TAPE_REEL,
-    "full reel": Packaging.TAPE_REEL,
-    "mousereel": Packaging.CUSTOM_REEL,
-    "tray": Packaging.TRAY,
-    "tube": Packaging.TUBE,
-    "bulk": Packaging.BULK,
-}
-
 
 class MouserProvider(HttpProvider):
     def __init__(self, config: ProviderConfig, **transport: Any) -> None:
@@ -235,20 +224,11 @@ def _stock(part: Mapping[str, Any]) -> int | None:
 
 
 def _price_breaks(part: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]:
-    tiers: dict[int, Decimal] = {}
-    currencies = set()
-    for tier in part.get("PriceBreaks") or []:
-        if not isinstance(tier, dict):
-            continue
-        quantity, price = parse_count(tier.get("Quantity")), parse_decimal(tier.get("Price"))
-        currency = str(tier.get("Currency") or "").upper()
-        if not quantity or price is None or price < 0 or len(currency) != 3:
-            continue
-        currencies.add(currency)
-        tiers.setdefault(quantity, price)
+    tiers = [tier for tier in part.get("PriceBreaks") or [] if isinstance(tier, dict) and len(str(tier.get("Currency") or "")) == 3]
+    currencies = {str(tier["Currency"]).upper() for tier in tiers}
     if len(currencies) != 1:
         return (), ""
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), currencies.pop()
+    return normalise.price_breaks((tier.get("Quantity"), tier.get("Price")) for tier in tiers), currencies.pop()
 
 
 def _incoming(part: Mapping[str, Any]) -> tuple[Incoming, ...]:
@@ -286,25 +266,16 @@ def _packaging(part: Mapping[str, Any]) -> Packaging:
     # Attribute names follow the account's language ("Confezione" for Packaging in Italian),
     # but the packaging values stay in English, so they are matched by value.
     values = {
-        _PACKAGING[value]
+        packaging
         for item in part.get("ProductAttributes") or []
         if isinstance(item, dict)
-        for value in [str(item.get("AttributeValue") or "").strip().lower()]
-        if value in _PACKAGING
+        for packaging in [normalise.packaging_word(item.get("AttributeValue"))]
+        if packaging is not Packaging.UNKNOWN
     }
     # One Mouser number often covers cut tape and reel together: it is sold as several packagings.
     if len(values) > 1:
         return Packaging.SEVERAL
     return values.pop() if values else Packaging.UNKNOWN
-
-
-def _rohs(text: object) -> bool | None:
-    value = str(text or "").lower()
-    if not value:
-        return None
-    if "non" in value or "not compliant" in value:
-        return False
-    return True if "compliant" in value else None
 
 
 # Mouser's compliance names (seen live) to Prism's fact names. Others are kept under their own name, lower case.
@@ -394,7 +365,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
         lead_time_days=None if stock >= moq else parse_lead_time_days(part.get("LeadTime")),
         lifecycle=_LIFECYCLE.get(lifecycle_text, Lifecycle.UNKNOWN),
         discontinued=str(part.get("IsDiscontinued") or "").strip().lower() == "true",
-        rohs=_rohs(part.get("ROHSStatus")),
+        rohs=normalise.rohs_word(part.get("ROHSStatus")),
         product_url=str(part.get("ProductDetailUrl") or ""),
         datasheet_url=str(part.get("DataSheetUrl") or ""),
         facts=_facts(part),

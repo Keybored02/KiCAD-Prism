@@ -36,6 +36,8 @@ def _normalise(digits: str) -> str:
 def parse_decimal(text: object) -> Decimal | None:
     if text is None:
         return None
+    if isinstance(text, Decimal):
+        return text  # already a number: "1.476" as text would read as a thousand and more
     if isinstance(text, (int, float)) and not isinstance(text, bool):
         return Decimal(str(text))
     match = _NUMBER.search(str(text))

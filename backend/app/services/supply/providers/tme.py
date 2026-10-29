@@ -48,12 +48,12 @@ from app.services.supply.providers.base import (
     CAP_BATCH,
     CAP_OFFERS,
     CAP_SEARCH,
-    AuthError,
     CredentialField,
     ProviderConfig,
     ProviderError,
     ProviderSpec,
 )
+from app.services.supply.providers import normalise
 from app.services.supply.providers.http import ClientCredentials, HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.vocabulary import Packaging
@@ -212,18 +212,15 @@ def _net_prices(prices: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]
     currency = str(prices.get("currency") or "").upper()
     gross = str(prices.get("type") or "").upper() == "GROSS"
     rate = parse_decimal((prices.get("tax") or {}).get("rate")) if gross else None
-    tiers: dict[int, Decimal] = {}
-    for tier in prices.get("elements") or []:
-        quantity = parse_count(tier.get("amount"))
-        price = parse_decimal(tier.get("price"))
-        if not quantity or price is None or price < 0:
-            continue
-        if gross and rate:
-            price = (price / (1 + rate / 100)).quantize(Decimal("0.000001"))
-        tiers.setdefault(quantity, price)
-    if not tiers or len(currency) != 3:
+
+    def net(price: object) -> object:
+        value = parse_decimal(price)
+        return (value / (1 + rate / 100)).quantize(Decimal("0.000001")) if value is not None and rate else price
+
+    breaks = normalise.price_breaks((tier.get("amount"), net(tier.get("price"))) for tier in prices.get("elements") or [])
+    if not breaks or len(currency) != 3:
         return (), ""
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), currency
+    return breaks, currency
 
 
 def _incoming(figures: Mapping[str, Any]) -> tuple[Incoming, ...]:
