@@ -4,7 +4,7 @@ The part sheet draws these as lines in each distributor's colour and opens them 
 
 * A line steps from reading to reading and is carried forward to the listing's last read (the offer's read time, not the
   last stored sample), so a part read once draws a flat line from that day to the last read.
-* A distributor's stock is what the part's stock counts there (``stock.counted_listing_sql``: every listing, except those a pick
+* A distributor's stock is what the part's stock counts there (``counted.listing_sql``: every listing, except those a pick
   stops being read where a pick limits reading), pooled or added up by pile as that provider shares it (``stock.aggregate``).
 * A distributor's price is its followed (picked) listing at the reference quantity, or its cheapest listing where none is picked,
   in the base currency at the latest rates.
@@ -22,11 +22,10 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from app.services.supply import fx, insights, prices, stock
+from app.services.supply import counted, fx, insights, prices, stock
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 
-_COUNTED = ("exact", "manual")
 MAX_DAYS = 3650
 # Days a listing may go unread before its line is dashed, by the part's rate.
 GAP_DAYS = {"daily": 2, "weekly": 9, "monthly": 35}
@@ -41,9 +40,9 @@ def _listings(conn, part_id: str) -> list[dict[str, Any]]:
         FROM supply_listings l
         JOIN supply_connectors c ON c.id = l.connector_id
         LEFT JOIN supply_offers o ON o.listing_id = l.id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND {counted}
-        """.replace("{counted}", stock.counted_listing_sql()).replace("{pool}", stock.pool_sql()),
-        (part_id, list(_COUNTED)),
+        WHERE l.part_id = %s AND {counted}
+        """.replace("{counted}", counted.listing_sql()).replace("{pool}", stock.pool_sql()),
+        (part_id,),
     ).fetchall()
     return [dict(row) for row in rows]
 

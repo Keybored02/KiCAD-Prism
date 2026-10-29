@@ -41,7 +41,7 @@ def tracked_parts(conn, connector_id: str) -> int:
         FROM supply_listings l
         JOIN supply_part_tiers pt ON pt.part_id = l.part_id
         JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
-        WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+        WHERE l.connector_id = %s AND supply_counted(l.match_state)
           AND NOT EXISTS (SELECT 1 FROM supply_offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete')
         """,
         (connector_id,),

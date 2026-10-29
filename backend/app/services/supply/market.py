@@ -115,7 +115,7 @@ def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, l
         return {}
     rows = conn.execute(
         """
-        WITH listed AS (SELECT id, part_id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND match_state IN ('exact', 'manual'))
+        WITH listed AS (SELECT id, part_id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND supply_counted(match_state))
         SELECT listed.part_id, listed.id AS listing_id, h.before, h.now
         FROM listed LEFT JOIN (
             SELECT d.listing_id,

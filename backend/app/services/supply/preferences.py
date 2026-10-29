@@ -7,10 +7,9 @@ Functions on a connection; none commit.
 
 from __future__ import annotations
 
-from app.services.supply import parts
+from app.services.supply import counted, parts
 from app.services.supply.audit import actor_text, write_audit
 
-COUNTED = ("exact", "manual")
 
 
 class PreferenceError(ValueError):
@@ -35,7 +34,7 @@ def set_preferred(conn, part_id: str, connector_id: str, actor: str) -> None:
     actor = actor_text(actor)
     parts.get_part(conn, part_id)
     listed = conn.execute(
-        "SELECT 1 FROM supply_listings WHERE part_id = %s AND connector_id = %s AND match_state = ANY(%s) LIMIT 1", (part_id, connector_id, list(COUNTED))
+        "SELECT 1 FROM supply_listings WHERE part_id = %s AND connector_id = %s AND match_state = ANY(%s) LIMIT 1", (part_id, connector_id, list(counted.STATES))
     ).fetchone()
     if listed is None:
         raise PreferenceError("This distributor does not list the part.")

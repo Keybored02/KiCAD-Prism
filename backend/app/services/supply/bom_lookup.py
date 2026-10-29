@@ -77,7 +77,7 @@ def _by_lcsc(conn, numbers: Iterable[str]) -> dict[str, str]:
         return {}
     rows = conn.execute(
         "SELECT l.sku, l.part_id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
-        "WHERE c.provider = %s AND l.sku = ANY(%s) AND l.match_state IN ('exact', 'manual') AND l.part_id IS NOT NULL",
+        "WHERE c.provider = %s AND l.sku = ANY(%s) AND supply_counted(l.match_state) AND l.part_id IS NOT NULL",
         (LCSC_PROVIDER, wanted),
     ).fetchall()
     return {row["sku"]: row["part_id"] for row in rows}

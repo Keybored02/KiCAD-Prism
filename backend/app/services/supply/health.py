@@ -39,7 +39,7 @@ def connector_health(conn, now: datetime | None = None) -> list[dict[str, Any]]:
                    MIN(ps.last_polled_at) AS oldest_read,
                    COUNT(*) FILTER (WHERE ps.error_streak > 0) AS failing
             FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-            WHERE l.match_state IN ('exact', 'manual')
+            WHERE supply_counted(l.match_state)
             GROUP BY l.connector_id
             """,
             (now - LATE_AFTER, now - LATE_AFTER),

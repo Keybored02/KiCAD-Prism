@@ -42,7 +42,7 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     if part_ids:
         for offer in conn.execute(
             "SELECT l.part_id, o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
-            "WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')",
+            "WHERE l.part_id = ANY(%s) AND supply_counted(l.match_state)",
             (part_ids,),
         ).fetchall():
             flags[offer["part_id"]].append((offer["rohs"], offer["reach_affected"]))

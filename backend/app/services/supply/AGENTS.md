@@ -56,6 +56,7 @@ root first.
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account (and between processes through `pace_state`), doubled for a day after a rate limit. |
 | `schedule_settings.py` | Which spare work is on. Spare budget (`quota.free_allowance`) is the calls nothing else needs, at any hour. |
+| `counted.py` | Which listings count, in one place: `STATES` (exact and manual) and its database copy `supply_counted(match_state)`; `listing_sql` (a counted match at an enabled connector, read: a pick that limits reads leaves the others out); `priced_sql` (the picked listing prices the part at its distributor). |
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings at enabled connectors, no marketplace stock. Connectors on one account (`pool_sql`) are one stock pool and one holder. A total is dated by the oldest read it rests on (`as_of`). |
 | `discoverer.py` | Searches for listings of followed parts at the connectors they are admitted at: the first time from the pool (then spare), again every month at tier 1 and quarter at tier 2, found or not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |

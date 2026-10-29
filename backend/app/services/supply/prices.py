@@ -13,14 +13,13 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Sequence
 
-from app.services.supply import pricing
+from app.services.supply import counted, pricing
 from app.services.supply.history import days_sql
 
 WINDOW_DAYS = 30
 CHART_DAYS = 90
 MIN_SPAN_DAYS = 7
 MAX_AGE_DAYS = 3
-_COUNTED = ("exact", "manual")
 
 DayPrice = tuple[date, Decimal, str]  # day, cheapest unit price, currency
 
@@ -167,9 +166,9 @@ def _daily_rows(conn, part_ids: Sequence[str], now: datetime, days: int) -> list
         FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND match_state = ANY(%(states)s)", "%(since)s")} d
         JOIN supply_listings l ON l.id = d.listing_id
         WHERE NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
-          AND NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
+          AND {counted.priced_sql()}
         """,
-        {"parts": list(part_ids), "states": list(_COUNTED), "since": (now - timedelta(days=days)).date()},
+        {"parts": list(part_ids), "states": list(counted.STATES), "since": (now - timedelta(days=days)).date()},
     ).fetchall()
 
 
@@ -183,7 +182,7 @@ def last_in_stock(conn, part_id: str, base: str, rates) -> tuple[Decimal, date] 
         WHERE d.stock > 0 AND NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
         ORDER BY d.day DESC LIMIT 20
         """,
-        {"part": part_id, "states": list(_COUNTED)},
+        {"part": part_id, "states": list(counted.STATES)},
     ).fetchall()
     if not rows:
         return None

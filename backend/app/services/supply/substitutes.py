@@ -87,7 +87,7 @@ def _listing_for(conn, part_id: str, connector_id: str) -> str | None:
     row = conn.execute(
         """
         SELECT l.sku FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
-        WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+        WHERE l.part_id = %s AND l.connector_id = %s AND supply_counted(l.match_state)
         ORDER BY o.fetched_at DESC NULLS LAST, l.sku LIMIT 1
         """,
         (part_id, connector_id),
@@ -113,7 +113,7 @@ def ask_now(
             raise TooSoon(f"Substitutes were asked for a moment ago. You can ask again in {minutes} {'minute' if minutes == 1 else 'minutes'}.")
         connector_ids = [
             row["connector_id"] for row in conn.execute(
-                "SELECT DISTINCT connector_id FROM supply_listings WHERE part_id = %s AND match_state IN ('exact', 'manual')", (part_id,)
+                "SELECT DISTINCT connector_id FROM supply_listings WHERE part_id = %s AND supply_counted(match_state)", (part_id,)
             ).fetchall()
         ]
     found = asked = 0
@@ -152,7 +152,7 @@ def resolve_numbers(service, part_id: str, *, now: datetime, provider: Any | Non
             row["connector_id"]: (row["name"], alternates.unresolved(conn, part_id, row["provider"]))
             for row in conn.execute(
                 "SELECT DISTINCT ON (l.connector_id) l.connector_id, c.provider, c.display_name AS name "
-                "FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND c.provider = 'mouser'",
+                "FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id WHERE l.part_id = %s AND supply_counted(l.match_state) AND c.provider = 'mouser'",
                 (part_id,),
             ).fetchall()
         }
@@ -181,11 +181,11 @@ def due(conn, connector_id: str, now: datetime, limit: int = MAX_AUTO_PER_RUN) -
         """
         SELECT DISTINCT ON (p.id) p.id AS part_id, l.sku
         FROM supply_part_tiers pt JOIN supply_parts p ON p.id = pt.part_id
-        JOIN supply_listings l ON l.part_id = p.id AND l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
+        JOIN supply_listings l ON l.part_id = p.id AND l.connector_id = %(connector)s AND supply_counted(l.match_state)
         JOIN supply_offers o ON o.listing_id = l.id
         WHERE EXISTS (
                 SELECT 1 FROM supply_listings l2 JOIN supply_offers o2 ON o2.listing_id = l2.id
-                WHERE l2.part_id = p.id AND l2.match_state IN ('exact', 'manual') AND (o2.lifecycle = ANY(%(ending)s) OR o2.discontinued))
+                WHERE l2.part_id = p.id AND supply_counted(l2.match_state) AND (o2.lifecycle = ANY(%(ending)s) OR o2.discontinued))
           AND NOT EXISTS (SELECT 1 FROM supply_audit_events a WHERE a.action = %(action)s AND a.subject_id = p.id AND a.at > %(since)s)
         ORDER BY p.id, o.fetched_at DESC
         LIMIT %(limit)s

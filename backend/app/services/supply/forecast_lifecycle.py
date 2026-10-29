@@ -106,7 +106,7 @@ def signs(conn, part_id: str) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT l.connector_id, bool_and(o.discontinued) AS dropped FROM supply_listings l JOIN supply_offers o ON o.listing_id = l.id
-        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND NOT o.marketplace GROUP BY l.connector_id
+        WHERE l.part_id = %s AND supply_counted(l.match_state) AND NOT o.marketplace GROUP BY l.connector_id
         """,
         (part_id,),
     ).fetchall()

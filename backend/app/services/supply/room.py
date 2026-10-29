@@ -44,7 +44,7 @@ def _typical(conn) -> dict[str, dict[str, float | int]]:
         searched[row["connector_id"]].add(row["part_id"])
     listings: dict[str, dict[str, int]] = defaultdict(dict)
     for row in conn.execute(
-        "SELECT part_id, connector_id, COUNT(*) AS n FROM supply_listings WHERE match_state IN ('exact', 'manual') GROUP BY part_id, connector_id"
+        "SELECT part_id, connector_id, COUNT(*) AS n FROM supply_listings WHERE supply_counted(match_state) GROUP BY part_id, connector_id"
     ).fetchall():
         listings[row["connector_id"]][row["part_id"]] = int(row["n"])
     for row in conn.execute("SELECT part_id, connector_id FROM supply_packaging_picks").fetchall():

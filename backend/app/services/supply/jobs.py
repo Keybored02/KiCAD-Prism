@@ -156,7 +156,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         LEFT JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id
         LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND c.provider = ANY(%(limited)s)
         LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
-        WHERE l.match_state IN ('exact', 'manual') AND {active}
+        WHERE supply_counted(l.match_state) AND {active}
           AND (a.state = 'admitted' OR c.provider = ANY(%(free)s))
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)
