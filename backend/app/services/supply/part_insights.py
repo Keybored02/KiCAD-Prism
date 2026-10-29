@@ -136,8 +136,7 @@ def _outlook_band(conn, part_id: str, offers: list[dict[str, Any]], days: list[d
     """Where the part stands on the way to its end of life (see ``outlook``), kept so Insights can count the bands."""
 
     from app.services.supply import facts, outlook, pcn
-    from app.services.supply.part_status import worst_lifecycle
-    from app.services.supply.vocabulary import Lifecycle
+    from app.services.supply.vocabulary import Lifecycle, worst_lifecycle
 
     lifecycle = worst_lifecycle(Lifecycle(offer["lifecycle"]) for offer in offers)
     found = outlook.outlook(

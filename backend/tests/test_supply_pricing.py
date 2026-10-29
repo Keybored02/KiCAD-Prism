@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.supply import pricing  # noqa: E402
-from app.services.supply.part_status import PROBLEM_GONE, PROBLEM_NOT_FOUND, part_problem, part_status  # noqa: E402
+from app.services.supply.parts_view import PROBLEM_GONE, PROBLEM_NOT_FOUND, problem_of  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle, Status  # noqa: E402
 
 D = Decimal
@@ -111,21 +111,16 @@ class BestOfferTests(unittest.TestCase):
 
 
 class StatusProblemTests(unittest.TestCase):
-    def test_a_problem_makes_an_unread_part_an_error(self) -> None:
-        self.assertEqual(part_status(None, None, Lifecycle.UNKNOWN), Status.UNKNOWN)
-        self.assertEqual(part_status(None, None, Lifecycle.UNKNOWN, PROBLEM_NOT_FOUND), Status.ERROR)
-        self.assertEqual(part_status(None, None, Lifecycle.UNKNOWN, PROBLEM_GONE), Status.ERROR)
-
     def test_when_the_problem_applies(self) -> None:
         def problem(**facts):
-            return part_problem(**{"has_counted": False, "has_gone": False, "has_listings": False, "was_searched": False, **facts})
+            return problem_of(**{"counted": False, "gone": False, "listed": False, "searched": False, **facts})
 
         self.assertIsNone(problem(), "never asked: just not read yet")
-        self.assertEqual(problem(was_searched=True), PROBLEM_NOT_FOUND)
-        self.assertIsNone(problem(was_searched=True, has_listings=True), "candidates waiting in Review")
-        self.assertEqual(problem(has_gone=True, has_listings=True), PROBLEM_GONE)
-        self.assertIsNone(problem(has_counted=True, has_gone=True), "a live listing remains")
-        self.assertIsNone(problem(has_counted=True, was_searched=True))
+        self.assertEqual(problem(searched=True), PROBLEM_NOT_FOUND)
+        self.assertIsNone(problem(searched=True, listed=True), "candidates waiting in Review")
+        self.assertEqual(problem(gone=True, listed=True), PROBLEM_GONE)
+        self.assertIsNone(problem(counted=True, gone=True), "a live listing remains")
+        self.assertIsNone(problem(counted=True, searched=True))
 
 
 if __name__ == "__main__":

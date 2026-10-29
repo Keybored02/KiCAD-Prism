@@ -49,6 +49,10 @@ class PanelPayloadTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
+        # Summaries are assessed at the time the fixtures read at, so their reads are not late.
+        patcher = mock.patch("app.services.supply.parts_view._now", return_value=datetime(2026, 3, 1, 2, tzinfo=timezone.utc))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with self.store.connection() as conn:
             for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")

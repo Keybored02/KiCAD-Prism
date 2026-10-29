@@ -60,6 +60,7 @@ def assess_one(
         distributors=distributors,
         svhc_listed=svhc_listed, prices=_quotes(offers, wanted, settings.base_currency, rates), outlook=outlook,
         last_buy=last_buy, rate=str((item.get("tracking") or {}).get("rate") or ""), rohs_stated=rohs_stated,
+        threshold=(item.get("watch") or {}).get("threshold"),
     )
     # Findings from outside the part (a component's) are waived like the part's own.
     findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
@@ -75,6 +76,8 @@ def assess_one(
             for f in findings
         ],
         "sub_scores": [{"name": s.name, "score": s.score, "reasons": list(s.reasons)} for s in scores],
+        # When the clock alone changes the answer, so a kept one knows until when it holds.
+        "changes_at": (lambda moment: moment.isoformat() if moment else None)(checks.changes_at(facts, settings)),
     }
 
 

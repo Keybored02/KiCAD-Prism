@@ -270,5 +270,35 @@ class SummaryCacheTests(unittest.TestCase):
         self.assertEqual(self.stock(), 70, "a change the summary did not see makes it stale, however old its transaction")
 
 
+    def status(self) -> str:
+        with self.store.connection() as conn:
+            (item,) = self.parts_view.summaries_for(conn, [self.watch.part_id])
+        return item["status"]
+
+    def test_the_kept_status_is_the_assessments_and_a_waiver_changes_it(self) -> None:
+        part = self.watch.part_id
+        with mock.patch.object(self.parts_view, "_now", return_value=NOW):
+            with self.store.connection() as conn:
+                conn.execute("UPDATE supply_offers SET stock = 0 WHERE listing_id = 'l1'")
+            self.assertEqual(self.status(), "error", "no distributor has it")
+            with self.store.connection() as conn:
+                conn.execute(
+                    "INSERT INTO supply_waivers (id, part_id, check_id, scope, reason, state, proposed_by) "
+                    "VALUES ('w1', %s, 'no_distributor_stock', 'no_stock', 'stocked by hand', 'approved', %s)", (part, ACTOR))
+            self.assertEqual(self.status(), "ok", "the approved waiver marks the summary and the status follows")
+
+    def test_a_kept_status_holds_until_the_clock_makes_the_read_late(self) -> None:
+        from datetime import timedelta
+
+        with mock.patch.object(self.parts_view, "_now", return_value=NOW):
+            self.assertEqual(self.status(), "ok")
+        with self.store.connection() as conn:
+            (changes,) = [row["changes_at"] for row in conn.execute("SELECT changes_at FROM supply_part_summaries").fetchall()]
+            conn.execute("DELETE FROM supply_dirty WHERE key = %s", (self.watch.part_id,))
+        self.assertEqual(changes, NOW + timedelta(hours=24 + 48, seconds=1), "read daily, late 48 hours after the day it was due")
+        with mock.patch.object(self.parts_view, "_now", return_value=changes):
+            self.assertEqual(self.status(), "warning", "past it, the kept row is worked out again: the read is late")
+
+
 if __name__ == "__main__":
     unittest.main()

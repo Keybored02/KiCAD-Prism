@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 import statistics
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import stock as stock_rules
@@ -48,6 +48,8 @@ class Facts:
     rate: str = ""
     # The ``facts.rohs_class`` of each RoHS status stated for the part: what decides RoHS when no offer says.
     rohs_stated: Sequence[str] = ()
+    # The stock level a person set on the part's watch, at or under which it needs a look.
+    threshold: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +131,22 @@ def _passed_text(facts: Facts, held: int) -> str:
     return " The last date to buy has passed" + (f"; distributors still have {held:,}." if held > 0 else " and no distributor has stock.")
 
 
+def changes_at(facts: Facts, settings: AssessmentSettings) -> datetime | None:
+    """The next time the clock alone changes what ``evaluate`` finds: a read becoming late, the last date to buy coming within
+    ``last_buy_error_days`` or passing. None when nothing waits on the clock. A kept assessment is current until then."""
+
+    times = []
+    usable = [o for o in facts.offers if not o["marketplace"]]
+    oldest = as_of(usable) if usable else None
+    if oldest is not None:
+        times.append(oldest + timedelta(hours=READ_EVERY_HOURS.get(facts.rate, READ_EVERY_HOURS["daily"]) + settings.late_hours, seconds=1))
+    if facts.last_buy is not None:
+        for day in (facts.last_buy - timedelta(days=settings.last_buy_error_days), facts.last_buy + timedelta(days=1)):
+            times.append(datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc))
+    later = [moment for moment in times if moment > facts.now]
+    return min(later) if later else None
+
+
 def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     found: list[Finding] = []
 
@@ -164,6 +182,8 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
         add(ids.NO_DISTRIBUTOR_STOCK, "No distributor has this part in stock.", "no_stock")
     elif facts.need is not None and stock < facts.need:
         add(ids.INSUFFICIENT_STOCK, f"Distributors hold {stock:,} and the build needs {facts.need:,}.", "short")
+    elif facts.threshold is not None and stock <= facts.threshold:
+        add(ids.BELOW_THRESHOLD, f"Distributors hold {stock:,}, at or under the {facts.threshold:,} set on the watch.", "below_threshold")
     # Connectors on one account (shared credentials) are one holder: they list the same stock.
     if stock_rules.holders(offers) == 1 and (facts.distributors or 0) > 1:
         add(ids.SINGLE_SOURCE, "Only one distributor has this part in stock.", "single_source")

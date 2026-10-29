@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-# The marks each kind of kept answer reads: a rollup is made from its parts' summaries, so their marks make it stale too.
+# The marks each kind of kept answer reads: a rollup is made from its parts' summaries, so their marks make it stale too. An
+# ``outlook`` mark (an insight's outlook band moved) is read by what the status feeds, not by the insights that wrote it.
 READS: dict[str, tuple[str, ...]] = {
-    "summary": ("summary",),
-    "rollup": ("rollup", "summary"),
+    "summary": ("summary", "outlook"),
+    "rollup": ("rollup", "summary", "outlook"),
     "insight": ("insight", "summary"),
 }
 

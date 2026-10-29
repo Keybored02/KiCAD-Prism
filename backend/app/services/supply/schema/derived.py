@@ -23,6 +23,8 @@ TABLES: tuple[str, ...] = (
         part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
         version SMALLINT NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'unknown',
+        health REAL,
+        changes_at TIMESTAMPTZ,
         problem TEXT,
         stock INTEGER,
         listings INTEGER NOT NULL DEFAULT 0,
@@ -67,14 +69,15 @@ TABLES: tuple[str, ...] = (
 # What each kept answer is worked out from, in one place: a row written to one of these tables marks the kind of kept answer
 # that reads it stale for its key (``supply_dirty``). ``key`` is the column naming the part or project the row belongs to,
 # ``listing`` for the part of the row's listing, or ``*`` for every kept answer of the kind. Row triggers only, and an update
-# marks only when it changes the row (``WHEN OLD IS DISTINCT FROM NEW``), so a write that changes nothing marks nothing; a
-# ``*`` source is a table written seldom, marked once per statement. ``freshness.py`` reads the marks.
+# marks only when it changes the row (``WHEN OLD IS DISTINCT FROM NEW``, or the columns named), so a write that changes nothing
+# marks nothing; a ``*`` source with no columns is a table written seldom, marked once per statement. ``freshness.py`` reads the
+# marks.
 @dataclass(frozen=True, slots=True)
 class Source:
     kind: str
     table: str
     key: str
-    # Columns an update must change to mark; empty is any column.
+    # Columns (or expressions over the row, written with ``{row}``) an update must change to mark; empty is any column.
     columns: tuple[str, ...] = ()
 
 
@@ -87,6 +90,20 @@ SOURCES: tuple[Source, ...] = (
     Source("summary", "supply_packaging_picks", "part_id"),
     Source("summary", "supply_watches", "part_id"),
     Source("summary", "supply_part_price_quantity", "part_id"),
+    # Its status is its assessment's (``assessment.service``): its waivers, what is declared and stated for it, the notices on it,
+    # the rate it is read at, its outlook, and the settings, the distributors Prism reads and the REACH list every part shares.
+    Source("summary", "supply_waivers", "part_id"),
+    Source("summary", "supply_part_substances", "part_id"),
+    Source("summary", "supply_part_facts", "part_id"),
+    Source("summary", "supply_pcn_parts", "part_id"),
+    Source("summary", "supply_part_tiers", "part_id", ("rate",)),
+    # The outlook comes from the part's insights, which read the summary marks: its own kind, so keeping insights marks no insight.
+    Source("outlook", "supply_part_insights", "part_id", ("({row}.data ->> 'outlook_band')",)),
+    Source("summary", "supply_pcns", "*", ("state", "last_time_buy")),
+    Source("summary", "supply_connectors", "*", ("enabled", "provider")),
+    Source("summary", "supply_settings", "*"),
+    Source("summary", "supply_svhc_list", "*"),
+    Source("summary", "supply_svhc_substances", "*"),
     # A part's insights (``part_insights``) also read its summary marks: here, what else they are made from. Their trends move with
     # the clock too, so they are renewed a day on whatever marks say.
     Source("insight", "supply_part_facts", "part_id"),
@@ -146,17 +163,23 @@ FUNCTIONS: tuple[str, ...] = (
 
 def _triggers(source: Source) -> tuple[str, ...]:
     name = f"trg_supply_mark_{source.kind}_{source.table.removeprefix('supply_')}"
-    if source.key == "*":
+    if source.key == "*" and not source.columns:
         return (
             f"CREATE OR REPLACE TRIGGER {name} AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON {source.table} "
             f"FOR EACH STATEMENT EXECUTE FUNCTION supply_mark_all('{source.kind}')",
         )
-    changed = " OR ".join(f"OLD.{column} IS DISTINCT FROM NEW.{column}" for column in source.columns) or "OLD.* IS DISTINCT FROM NEW.*"
-    call = f"FOR EACH ROW EXECUTE FUNCTION supply_mark_row('{source.kind}', '{source.key}')"
+
+    def side(column: str, row: str) -> str:
+        return column.format(row=row) if "{row}" in column else f"{row}.{column}"
+
+    changed = " OR ".join(f"{side(column, 'OLD')} IS DISTINCT FROM {side(column, 'NEW')}" for column in source.columns) or "OLD.* IS DISTINCT FROM NEW.*"
+    call = (
+        f"EXECUTE FUNCTION supply_mark_all('{source.kind}')" if source.key == "*"
+        else f"EXECUTE FUNCTION supply_mark_row('{source.kind}', '{source.key}')"
+    )
     return (
-        f"CREATE OR REPLACE TRIGGER {name} AFTER INSERT OR DELETE ON {source.table} {call}",
-        f"CREATE OR REPLACE TRIGGER {name}_update AFTER UPDATE ON {source.table} FOR EACH ROW WHEN ({changed}) "
-        f"EXECUTE FUNCTION supply_mark_row('{source.kind}', '{source.key}')",
+        f"CREATE OR REPLACE TRIGGER {name} AFTER INSERT OR DELETE ON {source.table} FOR EACH ROW {call}",
+        f"CREATE OR REPLACE TRIGGER {name}_update AFTER UPDATE ON {source.table} FOR EACH ROW WHEN ({changed}) {call}",
     )
 
 
