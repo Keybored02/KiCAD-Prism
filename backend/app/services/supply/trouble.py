@@ -71,7 +71,8 @@ def react(
     with store.connection() as conn:
         account = accounts.resolve(conn, connector_id)
         row = conn.execute(
-            "SELECT provider, account_key, error_streak, block_streak FROM supply_connectors WHERE id = %s", (connector_id,)
+            "SELECT c.provider, a.account_key, c.error_streak, c.block_streak FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id "
+            "WHERE c.id = %s", (connector_id,)
         ).fetchone()
     slow = False
     if isinstance(error, Blocked):

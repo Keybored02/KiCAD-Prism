@@ -63,10 +63,6 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
     }, () => { if (!controller.signal.aborted) toTracking(); });
     return () => controller.abort();
   }, [linkedPart, navigate, setSearchParams]);
-  // A tab stays mounted once opened, so switching back shows it as it was instead of loading it again.
-  const [opened, setOpened] = useState<SupplyTab[]>([view]);
-  useEffect(() => { setOpened((current) => (current.includes(view) ? current : [...current, view])); }, [view]);
-  const mounted = opened.includes(view) ? opened : [...opened, view];
 
   if (!canOpenSupply(user?.role)) {
     return (
@@ -117,14 +113,13 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       </header>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
-          {mounted.map((id) => (
-            <div key={id} hidden={id !== view} className="h-full">
-              {id === "dashboard" && <DashboardView user={user} active={view === "dashboard"} />}
-              {id === "tracking" && <PartsView user={user} active={view === "tracking"} headerSlot={view === "tracking" ? headerSlot : null} />}
-              {id === "projects" && <ProjectsView user={user} active={view === "projects"} />}
-              {id === "insights" && <InsightsView user={user} active={view === "insights"} />}
-            </div>
-          ))}
+          {/* Only the shown tab is mounted; a return to a tab starts from what the store kept and reads again behind it. */}
+          <div key={view} className="h-full">
+            {view === "dashboard" && <DashboardView user={user} />}
+            {view === "tracking" && <PartsView user={user} headerSlot={headerSlot} />}
+            {view === "projects" && <ProjectsView user={user} />}
+            {view === "insights" && <InsightsView user={user} />}
+          </div>
         </div>
       </Suspense>
     </div>

@@ -20,8 +20,9 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Sequence
 
-from app.services.supply import component_parts, parts
+from app.services.supply import clock, component_parts, parts
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.progress import job_progress
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.providers import registry
 
@@ -92,7 +93,7 @@ def request(
                 (request_id, part_id, connector_id),
             )
     if not part_ids:
-        conn.execute("UPDATE supply_read_requests SET finished_at = NOW() WHERE id = %s", (request_id,))
+        conn.execute("UPDATE supply_read_requests SET finished_at = %s WHERE id = %s", (clock.now(), request_id))
     write_audit(conn, actor, "check.request", request_id,
                 {"kind": kind, "project_id": project_id, "parts": len(part_ids), "already_tracked": tracked}, subject_kind="check")
     return {"id": request_id, "parts": len(part_ids), "already_tracked": tracked, "skipped": skipped}
@@ -112,10 +113,10 @@ def progress(conn, request_id: str) -> dict[str, Any]:
         """,
         (request_id,),
     ).fetchone()
-    return {
-        "id": row["id"], "kind": row["kind"], "project_id": row["project_id"], "created_at": row["created_at"].isoformat(),
-        "finished": row["finished_at"] is not None, "parts": int(counts["total"]), "done": int(counts["done"]), "failed": int(counts["failed"]),
-    }
+    return job_progress(
+        "done" if row["finished_at"] is not None else "running", done=int(counts["done"]), total=int(counts["total"]), failed=int(counts["failed"]),
+        id=row["id"], kind=row["kind"], project_id=row["project_id"], created_at=row["created_at"].isoformat(),
+    )
 
 
 def pending_connectors(conn) -> list[str]:
@@ -128,8 +129,9 @@ def pending_connectors(conn) -> list[str]:
 
 def _finish(conn) -> None:
     conn.execute(
-        "UPDATE supply_read_requests q SET finished_at = NOW() WHERE finished_at IS NULL "
-        "AND NOT EXISTS (SELECT 1 FROM supply_read_request_work w WHERE w.request_id = q.id AND w.state = 'pending')"
+        "UPDATE supply_read_requests q SET finished_at = %s WHERE finished_at IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM supply_read_request_work w WHERE w.request_id = q.id AND w.state = 'pending')",
+        (clock.now(),),
     )
 
 

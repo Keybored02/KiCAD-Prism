@@ -1,4 +1,4 @@
-"""Local inventory sources: the InvenTree-compatible servers whose stock Prism reads (decision D15).
+"""Local inventory sources: the servers whose stock Prism reads (decision D15), of a kind in ``registry``.
 
 Administrators add, change and remove them. The token is sealed with the connector keyring under its own field, so an
 envelope copied onto a distributor connector will not decrypt. Functions on a connection; none commit.
@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.inventory import registry
 from app.services.supply.inventory.inventree import InvenTreeError, base_url
 
 KIND_INVENTREE = "inventree"
@@ -46,6 +47,16 @@ def _interval(value: Any) -> int:
     return value
 
 
+def _kind(value: Any) -> str:
+    try:
+        spec = registry.get_spec(str(value or ""))
+    except registry.UnknownKind:
+        raise SourceError("Prism does not know that kind of inventory source.") from None
+    if not spec.pulled:
+        raise SourceError(f"{spec.label} is not a source Prism reads.")
+    return spec.kind
+
+
 def _category(value: Any) -> int | None:
     if value is None:
         return None
@@ -79,15 +90,17 @@ def list_sources(conn) -> list[dict[str, Any]]:
 
 def create(
     conn, keyring: sealed.CredentialKeyring, actor: str, *, display_name: str, url: str, token: str,
-    category_id: int | None = None, interval_hours: int = 24,
+    category_id: int | None = None, interval_hours: int = 24, kind: str = KIND_INVENTREE,
 ) -> dict[str, Any]:
+    """A new source. Without a category it reads the whole inventory."""
+
     actor = actor_text(actor)
     source_id = uuid.uuid4().hex
     envelope = sealed.seal(keyring, source_id, {"token": token.strip()}, TOKEN_FIELD) if token.strip() else ""
     conn.execute(
         "INSERT INTO inventory_sources (id, kind, display_name, base_url, category_id, credential_envelope, interval_hours, created_by) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (source_id, KIND_INVENTREE, _name(display_name), _url(url), _category(category_id), envelope, _interval(interval_hours), actor),
+        (source_id, _kind(kind), _name(display_name), _url(url), _category(category_id), envelope, _interval(interval_hours), actor),
     )
     write_audit(conn, actor, "inventory_source.create", source_id, {"base_url": _url(url)}, subject_kind="inventory_source")
     return get(conn, source_id)

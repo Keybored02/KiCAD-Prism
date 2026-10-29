@@ -192,7 +192,7 @@ class SchedulingTests(unittest.TestCase):
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (uuid.uuid4().hex, self.cid, sku, part_id))
 
     def spent(self):
-        return sum(r["spent"] for r in self.rows("SELECT spent FROM supply_quota_ledger WHERE connector_id = %s", self.cid))
+        return sum(r["spent"] for r in self.rows("SELECT spent FROM supply_quota_ledger WHERE account_id = %s", self.cid))
 
     def provider(self, calls_per_group=1):
         outer = self
@@ -366,7 +366,7 @@ class SchedulingTests(unittest.TestCase):
         for mpn in ("AAA", "BBB", "CCC", "DDD"):
             self.watch(mpn)
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_connectors SET daily_budget = 1")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 1")
         summary = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).run(self.cid)
         self.assertEqual((summary.searched, summary.stopped), (3, "budget"))
 
@@ -377,7 +377,7 @@ class SchedulingTests(unittest.TestCase):
         with self.store.connection() as conn:
             for record in reads:
                 conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
-            conn.execute("UPDATE supply_connectors SET daily_budget = 10")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 10")
         for index in range(30):
             self.watch(f"NEW-{index}")
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)

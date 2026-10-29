@@ -9,5 +9,5 @@ export const SHEET_DAYS = 90;
 /** The last 90 days of a part's stock and price, a line per distributor. */
 export function usePartHistory(partId: string) {
   const fetcher = useCallback((signal: AbortSignal) => getPartHistory(partId, SHEET_DAYS, signal), [partId]);
-  return useLoaded<PartHistory>(`part-history:${partId}`, fetcher, "Could not load the history");
+  return useLoaded<PartHistory>(`parts/${partId}/history/${SHEET_DAYS}`, fetcher, "Could not load the history");
 }

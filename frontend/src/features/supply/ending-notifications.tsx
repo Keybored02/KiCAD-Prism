@@ -118,7 +118,7 @@ function Row({ item, canDecide, canPropose, onOpen, onChanged }: {
  * reason). Only components nobody has decided about are listed; nothing shows when there are none.
  */
 export function EndingNotifications({ role, onOpenComponent }: { role: UserRole | null | undefined; onOpenComponent: (componentId: string) => void }) {
-  const loaded = useLoaded("ending", getEndingParts, "Could not load the ending parts");
+  const loaded = useLoaded("ending/parts", getEndingParts, "Could not load the ending parts");
   const canDecide = canReviewSupply(role);
   const canPropose = canEditSupply(role);
   if (loaded.status === "error") {

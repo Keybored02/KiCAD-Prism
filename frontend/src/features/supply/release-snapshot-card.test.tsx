@@ -17,7 +17,7 @@ async function flush() {
 
 describe("a release's supply snapshot", () => {
   it("follows a queued snapshot until it is taken, then stops asking", async () => {
-    mocked.getReleaseSnapshotState.mockResolvedValueOnce({ state: "queued", reason: "" }).mockResolvedValue({ state: "taken", reason: "" });
+    mocked.getReleaseSnapshotState.mockResolvedValueOnce({ state: "running", done: 0, total: 1, failed: 0, reason: "" }).mockResolvedValue({ state: "done", done: 1, total: 1, failed: 0, reason: "" });
     mocked.getReleaseSnapshot.mockResolvedValue({
       status: "ok", health: 8.5, created_at: "2026-10-29T10:00:00Z", compliance: false,
       assessment: { tracked: 3, parts: 4, needing_a_look: 1 },
@@ -35,7 +35,7 @@ describe("a release's supply snapshot", () => {
   });
 
   it("shows a failure that comes after the queue", async () => {
-    mocked.getReleaseSnapshotState.mockResolvedValueOnce({ state: "queued", reason: "" }).mockResolvedValue({ state: "failed", reason: "This build exported no BOM file." });
+    mocked.getReleaseSnapshotState.mockResolvedValueOnce({ state: "running", done: 0, total: 1, failed: 0, reason: "" }).mockResolvedValue({ state: "failed", done: 0, total: 1, failed: 1, reason: "This build exported no BOM file." });
     render(<ReleaseSnapshotCard projectId="prj" buildId="b2" />);
     await flush();
     await act(async () => { vi.advanceTimersByTime(QUEUED_POLL_MS); });

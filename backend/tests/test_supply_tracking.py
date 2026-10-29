@@ -115,9 +115,9 @@ class TrackingTests(unittest.TestCase):
             part = self.parts.find_part(conn, "Acme", "R-1")
             conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, NOW(), 1)", (part.id, cid))
             after = self.tracking.project_progress(conn, "p1")
-        self.assertEqual((before["parts"], before["finished"]), (2, False))
-        self.assertEqual([(c["parts"], c["searched"]) for c in before["connectors"]], [(2, 0)])
-        self.assertEqual([(c["parts"], c["searched"]) for c in after["connectors"]], [(2, 1)])
+        self.assertEqual((before["parts"], before["state"], before["done"], before["total"]), (2, "running", 0, 2))
+        self.assertEqual([(c["total"], c["done"]) for c in before["connectors"]], [(2, 0)])
+        self.assertEqual([(c["total"], c["done"]) for c in after["connectors"]], [(2, 1)])
 
     def test_a_project_lists_what_it_waits_on_a_person_for(self) -> None:
         with self.store.connection() as conn:
