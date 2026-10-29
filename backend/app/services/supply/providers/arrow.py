@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
 from app.services.supply.identity import match_key
@@ -42,8 +41,9 @@ from app.services.supply.providers.base import (
     ProviderSpec,
     RateLimited,
 )
+from app.services.supply.providers import normalise
 from app.services.supply.providers.http import HttpProvider
-from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.providers.text_values import parse_count
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -267,13 +267,10 @@ def _compliance(item: Mapping[str, Any], label: str) -> str:
 
 def _rohs(item: Mapping[str, Any]) -> bool | None:
     value = _compliance(item, "eurohs").lower()
-    if value == "compliant":
-        return True
-    if value in ("non compliant", "non-compliant", "not compliant"):
-        return False
-    if value and value != "unknown":
+    found = normalise.rohs_word(value)
+    if found is None and value and value != "unknown":
         note(KEY, "RoHS wording", value)
-    return None
+    return found
 
 
 def _price_breaks(source: Mapping[str, Any], part: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]:
@@ -281,17 +278,10 @@ def _price_breaks(source: Mapping[str, Any], part: Mapping[str, Any]) -> tuple[t
     if len(currency) != 3 or not currency.isalpha():
         return (), ""
     prices = part.get("Prices")
-    tiers: dict[int, Decimal] = {}
-    for entry in (prices.get("resaleList") if isinstance(prices, dict) else None) or []:
-        if not isinstance(entry, dict):
-            continue
-        quantity = parse_count(entry.get("minQty"))
-        price = parse_decimal(entry.get("price"))
-        if quantity and price is not None and price > 0:
-            tiers.setdefault(quantity, price)
-    if not tiers:
-        return (), ""
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), currency
+    entries = (prices.get("resaleList") if isinstance(prices, dict) else None) or []
+    # Arrow writes 0 where it gives no price.
+    breaks = normalise.price_breaks(((entry.get("minQty"), entry.get("price")) for entry in entries if isinstance(entry, dict)), free=False)
+    return (breaks, currency) if breaks else ((), "")
 
 
 def _stock(part: Mapping[str, Any]) -> int:

@@ -20,6 +20,7 @@ root first.
 | `providers/farnell.py` | Farnell, Newark and element14 Product Search REST: manufacturer-number search, one SKU per call, the connector names the store and the currency. Not yet run against the live service. |
 | `providers/jlcpcb.py` | JLCPCB (assembly) as a CSV-fed connector: the same uploaded file as `csv_provider`, under the `jlcpcb` key, with every offer marked marketplace so no total counts it. Assembly-only; the file's optional `jlc_library` and `jlc_preferred` columns become facts (B, E, a star). Unmetered. |
 | `providers/lcsc.py` | LCSC as a CSV-fed connector: the same uploaded file as `csv_provider`, under the `lcsc` key, so saved listings and BOM links keep their provider. Unmetered. |
+| `providers/normalise.py` | What several distributors' answers share, read one way: `price_breaks` (pairs parsed, first price per quantity, ascending), `rohs_word` (plain wording) and `packaging_word` (most specific word first). A distributor's own codes and field names stay in its adapter. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |

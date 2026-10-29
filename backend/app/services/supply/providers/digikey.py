@@ -46,12 +46,11 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote
 
 from app.services.supply.identity import keep_family, match_key
-from app.services.supply.models import Alternate, ChangeNotice, Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import Alternate, ChangeNotice, Offer, PartData, PartMatch
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
     CAP_OFFERS,
@@ -65,8 +64,9 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
+from app.services.supply.providers import normalise
 from app.services.supply.providers.http import ClientCredentials, HttpProvider
-from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.providers.text_values import parse_count
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -81,6 +81,8 @@ TOKEN_MARGIN_SECONDS = 30
 # roughly 108 a minute, 90% of the limit.
 PACE_SECONDS = 0.5
 MAX_MATCHES = 10
+# A search asks for further pages while the answer says more exist (``ProductsCount``), up to this many pages (each a call).
+MAX_PAGES = 5
 
 # DigiKey sites that sell in a currency of their own. A wrong one is corrected by the server, which
 # reports the locale it used.
@@ -98,17 +100,6 @@ _LIFECYCLE = {
 # Wording that says DigiKey stopped selling it, which is not a manufacturer lifecycle.
 _DISTRIBUTOR_WORDING = frozenset({"discontinued at digi-key", "discontinued"})
 _HARMLESS_STATUS = frozenset({"preliminary", "new product"})
-
-_PACKAGING = {
-    "cut tape (ct)": Packaging.CUT_TAPE,
-    "digi-reel": Packaging.CUSTOM_REEL,
-    "digi-reel®": Packaging.CUSTOM_REEL,
-    "tape & reel (tr)": Packaging.TAPE_REEL,
-    "tray": Packaging.TRAY,
-    "tube": Packaging.TUBE,
-    "bulk": Packaging.BULK,
-}
-
 
 class DigiKeyProvider(HttpProvider):
     def __init__(self, config: ProviderConfig, **transport: Any) -> None:
@@ -144,9 +135,16 @@ class DigiKeyProvider(HttpProvider):
         wanted = match_key(mpn)
         if not wanted:
             return []
-        answer = self._call("POST", "/search/keyword", json={"Keywords": mpn.strip()[:250], "Limit": MAX_MATCHES, "Offset": 0})
-        exact = [p for p in answer.get("ExactMatches") or [] if isinstance(p, dict)]
-        listed = [p for p in answer.get("Products") or [] if isinstance(p, dict)]
+        exact: list[dict[str, Any]] = []
+        listed: list[dict[str, Any]] = []
+        for page in range(MAX_PAGES):
+            answer = self._call("POST", "/search/keyword", json={"Keywords": mpn.strip()[:250], "Limit": MAX_MATCHES, "Offset": page * MAX_MATCHES})
+            if page == 0:
+                exact = [p for p in answer.get("ExactMatches") or [] if isinstance(p, dict)]
+            products = [p for p in answer.get("Products") or [] if isinstance(p, dict)]
+            listed += products
+            if len(products) < MAX_MATCHES or len(listed) >= (parse_count(answer.get("ProductsCount")) or 0):
+                break
         products = exact + [
             p for p in keep_family(listed, wanted, lambda p: str(p.get("ManufacturerProductNumber") or ""))
             if p not in exact
@@ -278,15 +276,6 @@ def _lifecycle(product: Mapping[str, Any]) -> tuple[Lifecycle, bool]:
     return Lifecycle.UNKNOWN, dropped
 
 
-def _rohs(text: object) -> bool | None:
-    value = str(text or "").lower()
-    if not value:
-        return None
-    if "non" in value or "not compliant" in value:
-        return False
-    return True if "compliant" in value else None
-
-
 def _reach(text: object) -> bool | None:
     """DigiKey's REACH status: affected is true, unaffected is false, anything else says nothing."""
 
@@ -376,17 +365,6 @@ def _facts(product: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     return tuple((name, str(value).strip()) for name, value in pairs if value is not None and str(value).strip())
 
 
-def _price_breaks(variation: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
-    tiers: dict[int, Decimal] = {}
-    for tier in variation.get("StandardPricing") or []:
-        if not isinstance(tier, dict):
-            continue
-        quantity, price = parse_count(tier.get("BreakQuantity")), parse_decimal(tier.get("UnitPrice"))
-        if quantity and price is not None and price >= 0:
-            tiers.setdefault(quantity, price)
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
-
-
 def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
     product = answer.get("Product") or {}
     variation = next((v for v in product.get("ProductVariations") or [] if isinstance(v, dict) and str(v.get("DigiKeyProductNumber")) == sku), None)
@@ -396,14 +374,14 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
     if stock is None:
         note(KEY, "answer without QuantityAvailableforPackageType", sku)
         return None
-    breaks = _price_breaks(variation)
+    breaks = normalise.price_breaks((tier.get("BreakQuantity"), tier.get("UnitPrice")) for tier in variation.get("StandardPricing") or [] if isinstance(tier, dict))
     currency = str((answer.get("SearchLocaleUsed") or {}).get("Currency") or "").upper()
     if len(currency) != 3:
         breaks, currency = (), ""
     moq = max(parse_count(variation.get("MinimumOrderQuantity")) or 1, 1)
     lifecycle, dropped = _lifecycle(product)
     weeks = parse_count(product.get("ManufacturerLeadWeeks"))
-    packaging = _PACKAGING.get(str((variation.get("PackageType") or {}).get("Name") or "").strip().lower(), Packaging.UNKNOWN)
+    packaging = normalise.packaging_word((variation.get("PackageType") or {}).get("Name"))
     return Offer(
         provider=KEY,
         sku=sku,
@@ -421,7 +399,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         lead_time_days=weeks * 7 if weeks is not None and stock < moq else None,
         lifecycle=lifecycle,
         discontinued=dropped,
-        rohs=_rohs((product.get("Classifications") or {}).get("RohsStatus")),
+        rohs=normalise.rohs_word((product.get("Classifications") or {}).get("RohsStatus")),
         reach_affected=_reach((product.get("Classifications") or {}).get("ReachStatus")),
         marketplace=bool(variation.get("MarketPlace")),
         product_url=str(product.get("ProductUrl") or ""),
