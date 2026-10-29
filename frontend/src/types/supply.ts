@@ -514,6 +514,10 @@ export interface SupplyMatched {
 
 export interface SupplyToApprove {
   waivers: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; check_id: string; scope: string; reason: string; proposed_by: string; proposed_at: string }>;
+  /** Alternates proposed for a library component, waiting for QA. */
+  alternates?: Array<{
+    component_id: string; component_name: string; component_mpn: string; part_id: string; mpn: string; manufacturer: string; proposed_by: string; proposed_at: string;
+  }>;
 }
 
 export interface SupplyMakerGroup {
@@ -1458,7 +1462,11 @@ export interface ProjectSupplyPart {
   stock: number | null;
   lifecycle: SupplyLifecycle | null;
   short: boolean;
+  /** In the offer's currency, `unit_currency`. */
   unit_price: string | null;
+  unit_currency?: string | null;
+  /** The unit price in the total's currency: what `line_cost` is made of. Null when it can't be converted. */
+  unit_price_in_total?: string | null;
   notes: number;
   /** Pieces the build needs, spares included. */
   need?: number | null;

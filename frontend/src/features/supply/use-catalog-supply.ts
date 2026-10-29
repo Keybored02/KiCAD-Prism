@@ -23,10 +23,11 @@ export function useCatalogSupply(
   role: UserRole | null | undefined,
 ): { standing: Record<string, SupplyComponentStanding>; refresh: () => Promise<void> } {
   const wanted = canOpenSupply(role) ? rows.filter((row) => row.mpn && row.manufacturer) : [];
-  const key = wanted.length ? wanted.map((row) => row.id).join(",") : null;
+  // Each row's id, maker and number: an edit of the maker or number in place is a new key, so it is asked again.
+  const key = wanted.length ? JSON.stringify(wanted.map(({ id, manufacturer, mpn }) => [id, manufacturer, mpn])) : null;
   const fetcher = useCallback(
     (signal: AbortSignal) => getComponentsStatus(wanted.map(({ id, manufacturer, mpn }) => ({ id, manufacturer, mpn })), signal),
-    // The ids are the key: a new page is a new key.
+    // The key names everything the request sends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key],
   );

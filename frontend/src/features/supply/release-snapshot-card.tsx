@@ -1,10 +1,13 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import type { ReleaseSnapshot } from "@/types/supply";
 import { getReleaseSnapshot, getReleaseSnapshotState, releaseComplianceCsvUrl, type ReleaseSnapshotState } from "./release-check-api";
 import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
 import { useLoaded } from "./use-loaded";
+
+/** How often a queued snapshot is asked about while the card is open. */
+export const QUEUED_POLL_MS = 5000;
 
 const WAITING: Record<string, string> = {
   queued: "The supply snapshot is being taken.",
@@ -16,6 +19,14 @@ export function ReleaseSnapshotCard({ projectId, buildId }: { projectId: string;
   const stateFetcher = useCallback((signal: AbortSignal) => getReleaseSnapshotState(projectId, buildId, signal), [projectId, buildId]);
   const state = useLoaded<ReleaseSnapshotState>(`${projectId}@${buildId}:state`, stateFetcher, "Could not read the supply snapshot");
   const taken = state.status === "ready" && state.data?.state === "taken";
+  const queued = state.status === "ready" && state.data?.state === "queued";
+  const { refresh } = state;
+  // A queued snapshot is taken by a worker: ask again until it is taken or has failed, and stop when the card goes.
+  useEffect(() => {
+    if (!queued) return undefined;
+    const timer = window.setInterval(() => void refresh(), QUEUED_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [queued, refresh]);
   const snapshotFetcher = useCallback((signal: AbortSignal) => getReleaseSnapshot(projectId, buildId, signal), [projectId, buildId]);
   const snapshot = useLoaded<ReleaseSnapshot>(taken ? `${projectId}@${buildId}:snapshot` : null, snapshotFetcher, "Could not read the supply snapshot");
 

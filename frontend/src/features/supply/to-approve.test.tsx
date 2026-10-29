@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupplyToApprove } from "@/types/supply";
 
 vi.mock("./supply-api", () => ({ decideWaiver: vi.fn(), decideSource: vi.fn() }));
+vi.mock("./component-supply-api", () => ({ decideAlternate: vi.fn() }));
 
+import * as componentApi from "./component-supply-api";
 import * as api from "./supply-api";
 import { ToApprove } from "./to-approve";
 
@@ -26,6 +28,22 @@ describe("waiting for approval", () => {
     await waitFor(() => expect(mocked.decideWaiver).toHaveBeenCalledWith("w1", true));
     await waitFor(() => expect(decided).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("link", { name: "LM358D, TI" }).getAttribute("href")).toContain("part=p1");
+  });
+
+  it("lists alternates proposed for a component, links the component and decides them", async () => {
+    vi.mocked(componentApi.decideAlternate).mockResolvedValue({} as never);
+    const decided = vi.fn().mockResolvedValue(undefined);
+    const alternates: SupplyToApprove = {
+      waivers: [],
+      alternates: [{ component_id: "cmp-1", component_name: "R 10k 0603", component_mpn: "RC0603", part_id: "p9", mpn: "ERJ-3EKF1002V",
+        manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-16T10:00:00Z" }],
+    };
+    render(<MemoryRouter><ToApprove items={alternates} canDecide onDecided={decided} /></MemoryRouter>);
+    expect(screen.getByText("Alternate")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "ERJ-3EKF1002V, Panasonic for R 10k 0603" }).getAttribute("href")).toContain("component=cmp-1");
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(componentApi.decideAlternate).toHaveBeenCalledWith("cmp-1", "p9", false));
+    await waitFor(() => expect(decided).toHaveBeenCalledTimes(1));
   });
 
   it("shows nothing when nothing waits, and no buttons to those who may not decide", () => {
