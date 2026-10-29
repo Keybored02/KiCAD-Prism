@@ -260,6 +260,20 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role=role).status, 403, role)
         self.assertEqual(self.call("POST", "/api/supply/parts/nope/refresh", role="designer").status, 404)
 
+    def test_opening_a_part_nothing_follows_reads_it_once_while_its_prices_have_aged_out(self) -> None:
+        connector = self.fake_connector(daily_budget=20, interactive_reserve_pct=50)
+        with self.store.connection() as conn:
+            lonely = self.parts.ensure_part(conn, "Acme", "NOBODY-1", SEED_ACTOR).id
+        self.insert_listing(lonely, connector, "FAKE-NOBODY-1-CT", stock=1)
+        self.assertEqual(self.call("POST", f"/api/supply/parts/{lonely}/view-read", role="viewer").status, 403, "as for the part sheet")
+        first = self.call("POST", f"/api/supply/parts/{lonely}/view-read", role="qa")
+        self.assertEqual((first.status, first.json), (200, {"read": 1}), first.text)
+        self.assertEqual(self.call("POST", f"/api/supply/parts/{lonely}/view-read", role="designer").json, {"read": 0}, "tried once in fifteen minutes, whoever looks")
+        watch = self.watch_via_api("ABC-123")
+        self.collect(connector)
+        self.assertEqual(self.call("POST", f"/api/supply/parts/{watch['part_id']}/view-read", role="qa").json, {"read": 0}, "a followed part is read on schedule")
+        self.assertEqual(self.call("POST", "/api/supply/parts/nope/view-read", role="qa").json, {"read": 0})
+
     def test_tokens(self) -> None:
         reader = self.AuthenticatedUser(email="bot@example.com", name="bot", role="admin", auth_type="agent", scopes=["api:read"])
         self.assertEqual(self.call("GET", "/api/supply/parts", user=reader).status, 200)

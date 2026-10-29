@@ -100,7 +100,8 @@ Prism follows a part at one of two tiers. **Tier 1** is read every day,
 **tier 2** every week or month. A listing whose price and stock haven't
 changed for seven reads, and that isn't near its threshold, running out or
 ending, is read half as often until something changes. Any other part is read
-only when someone asks.
+when someone opens it and its prices are more than a day old, or when someone
+asks.
 A part is in the highest tier any reason gives it, and its part sheet says why:
 a tracked project, someone's choice, or a watched component.
 

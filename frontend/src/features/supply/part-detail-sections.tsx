@@ -18,6 +18,7 @@ import { ComplianceSection } from "./compliance-section";
 import { ListingGroups } from "./listing-groups";
 import { PartHistoryPanel } from "./part-history";
 import { usePartHistory } from "./use-part-history";
+import { useReadOnView } from "./use-read-on-view";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
 import { PriceTrend } from "./price-trend";
@@ -37,6 +38,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
   // The forecast is made at the part's price quantity.
   const forecast = usePartForecast(detail.part.id, null, detail.price.quantity);
   const history = usePartHistory(detail.part.id);
+  useReadOnView(detail.part.id, onChanged);
   const trend = insightLines(detail.insight).length > 0;
   const restock = restockItems(detail.restock_record ?? []).length > 0;
   const compared = behaviourLines(detail.market_behaviour);

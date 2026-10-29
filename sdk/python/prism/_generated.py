@@ -7741,6 +7741,14 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
+    def read_part_on_view(self, part_id: str) -> dict[str, Any]:
+        """Read Part On View"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/view-read",
+            path_params={"part_id": part_id},
+        )
+
     def read_project_bom(self, project_id: str) -> dict[str, str]:
         """Read Project Bom"""
         return self._request(

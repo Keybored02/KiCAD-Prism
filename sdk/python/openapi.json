@@ -47335,6 +47335,51 @@
         ]
       }
     },
+    "/api/v1/supply/parts/{part_id}/view-read": {
+      "post": {
+        "description": "Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part.",
+        "operationId": "read_part_on_view",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Read Part On View",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Part On View",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
     "/api/v1/supply/parts/{part_id}/waivers": {
       "post": {
         "operationId": "propose_waiver",

@@ -253,6 +253,13 @@ async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(
     return await _run(read)
 
 
+@router.post("/parts/{part_id}/view-read")
+async def read_part_on_view(part_id: str, reader: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part."""
+
+    return await _run(lambda: refresh.read_on_view(supply_connectors.service, [part_id], reader.email))
+
+
 @router.post("/parts/{part_id}/refresh")
 async def read_part_now(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part."""

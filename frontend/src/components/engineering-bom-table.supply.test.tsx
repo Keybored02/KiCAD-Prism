@@ -16,6 +16,7 @@ vi.mock("@/features/supply/supply-api", () => ({
   lookupSupplyBom: vi.fn(),
   watchSupplyBomLines: vi.fn(),
   getSupplyPart: vi.fn(),
+  readSupplyPartOnView: vi.fn(async () => ({ read: 0 })),
 }));
 
 vi.mock("@/features/supply/tracking-api", () => ({ getProjectTracking: vi.fn() }));
