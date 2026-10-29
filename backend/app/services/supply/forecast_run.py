@@ -168,8 +168,8 @@ def _judge(row: Mapping[str, Any], truth: _Truth) -> tuple[float | None, bool | 
                 return days, bool(row["low"] <= days <= row["high"]), False
         return None, False, False
     if target == "out_4w":
-        total = sum((truth.at(line, end) or 0) for line in truth.lines.values())
-        return float(total == 0), None, False
+        # Out everywhere on any day of the window, as the forecast means it.
+        return float(any(stock == 0 for day, stock in truth.total.items() if made < day <= end)), None, False
     if target in ("can_buy_4w", "can_buy_8w"):
         held = [truth.at(line, end) or 0 for line in truth.lines.values()]
         return float(any(stock >= max(int(row["quantity"] or 1), 1) for stock in held)), None, False

@@ -25,7 +25,9 @@ export function ProjectRowSummary({ group }: { group: SupplyPartGroup }) {
   const change = stats?.cost_change_percent;
   const third = [
     cost ? `${cost} a board${change ? ` ${change > 0 ? "▲" : "▼"} ${Math.abs(change)}% in 30 d` : ""}` : "",
-    stats?.boards !== undefined && stats.boards !== null ? `can build ${stats.boards.toLocaleString()}` : "",
+    // A line that can't be checked makes the count a bound, not an answer: say so, as the project page does.
+    stats?.unchecked ? `unconfirmed · ${stats.unchecked.toLocaleString()} unchecked`
+      : stats?.boards !== undefined && stats.boards !== null ? `can build ${stats.boards.toLocaleString()}` : "",
     stats?.bom_read_at ? `BOM read ${formatAgo(stats.bom_read_at)}` : "",
     stats?.alerts ? `${stats.alerts} open ${stats.alerts === 1 ? "alert" : "alerts"}` : "",
   ].filter(Boolean);

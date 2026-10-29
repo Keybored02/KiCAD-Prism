@@ -47,12 +47,26 @@ export function BoardCells({ line }: { line: ProjectSupplyPart | undefined }) {
   );
 }
 
+/** The unit price the line's cost is made of, in the total's currency when it converts, else in its own; with the offer's own price
+ * as the title when they differ. */
+function unitShown(line: ProjectSupplyPart, lines: ProjectLines): { text: string; title?: string } | null {
+  if (!line.unit_price) return null;
+  const own = line.unit_currency || lines.currency;
+  if (!own) return null;
+  const native = formatPrice(line.unit_price, own);
+  if (line.unit_price_in_total && lines.currency && own !== lines.currency) {
+    return { text: formatPrice(line.unit_price_in_total, lines.currency), title: `Converted from ${native}` };
+  }
+  return { text: native };
+}
+
 /** The line's unit price at the quantity the build buys, which is what its cost is made of (UX-05). */
 export function LinePriceCell({ line, lines }: { line: ProjectSupplyPart | undefined; lines: ProjectLines }) {
-  if (!line?.unit_price || !lines.currency) return <td className="px-3 py-2 text-right text-muted-foreground">-</td>;
+  const unit = line ? unitShown(line, lines) : null;
+  if (!line || !unit) return <td className="px-3 py-2 text-right text-muted-foreground">-</td>;
   return (
-    <td className="px-3 py-2 text-right tabular-nums">
-      {formatPrice(line.unit_price, lines.currency)}
+    <td className="px-3 py-2 text-right tabular-nums" title={unit.title}>
+      {unit.text}
       {line.buy_quantity ? <span className="text-muted-foreground"> @ {line.buy_quantity.toLocaleString()}</span> : null}
       <TestDataChip show={line.test_data} />
     </td>
@@ -65,7 +79,7 @@ export function CostCell({ line, lines }: { line: ProjectSupplyPart | undefined;
   return (
     <td className="px-3 py-2 text-right tabular-nums">
       {formatPrice(line.line_cost, lines.currency)}<TestDataChip show={line.test_data} />
-      {line.buy_quantity && line.unit_price ? <div className="text-xs text-muted-foreground">{line.buy_quantity.toLocaleString()} × {formatPrice(line.unit_price, lines.currency)}</div> : null}
+      {line.buy_quantity && unitShown(line, lines) ? <div className="text-xs text-muted-foreground">{line.buy_quantity.toLocaleString()} × {unitShown(line, lines)?.text}</div> : null}
     </td>
   );
 }

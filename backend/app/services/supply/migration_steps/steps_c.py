@@ -619,3 +619,18 @@ def _m096_project_rollups(conn) -> None:
                 "FOR EACH STATEMENT EXECUTE FUNCTION supply_rollup_everywhere();",
                 prepare=False,
             )
+
+
+def _m097_restart_out_everywhere(conn) -> None:
+    """"Out everywhere within 4 weeks" was worked out, and checked, as out on the 28th day; it is now out on any day of the four weeks.
+    The forecasts and checks made under the old meaning no longer count towards its track record, which starts again."""
+
+    conn.execute(
+        """
+        DELETE FROM supply_forecasts WHERE target = 'out_4w';
+        UPDATE supply_forecast_models SET state = 'learning', checks = 0, coverage = NULL, since = NULL, reason = '', updated_at = NOW()
+            WHERE target = 'out_4w';
+        UPDATE supply_part_insights SET computed_at = '-infinity'::timestamptz;
+        """,
+        prepare=False,
+    )

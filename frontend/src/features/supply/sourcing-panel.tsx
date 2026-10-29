@@ -110,8 +110,8 @@ function Tracked({ partId, componentId, user }: { partId: string; componentId: s
   const canEdit = canEditSupply(user?.role);
   return (
     <div className="space-y-6">
-      {/* A followed part is managed with its tracking settings (the clock); only one nobody follows is offered a watch here. */}
-      {detail.tracking ? null : <ComponentWatch componentId={componentId} canEdit={canEdit} onChanged={part.refresh} />}
+      {/* The component's own watch follows the component (a new part number included), whatever else follows the part today. */}
+      <ComponentWatch componentId={componentId} canEdit={canEdit} onChanged={part.refresh} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
           <StatusDot status={detail.status} />
