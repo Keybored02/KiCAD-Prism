@@ -24,25 +24,34 @@ def sig(**fields):
 class GradeTests(unittest.TestCase):
     BASE = sig(resistance=10000, tolerance=1, voltage_rating=75, power_rating=0.1, package="0603 (1608 Metric)")
 
-    def test_the_same_value_and_package_with_ratings_at_least_as_good_is_direct(self) -> None:
+    def test_every_listed_rating_known_and_met_in_the_same_package_is_ratings_met(self) -> None:
         other = sig(resistance=10000, tolerance=0.5, voltage_rating=100, power_rating=0.1, package="0603")
-        self.assertEqual(cross_reference.grade(self.BASE, other)["grade"], "direct")
-
-    def test_a_worse_rating_makes_it_form_fit_function_not_direct(self) -> None:
-        other = sig(resistance=10000, tolerance=5, voltage_rating=50, power_rating=0.1, package="0603")
         verdict = cross_reference.grade(self.BASE, other)
-        self.assertEqual(verdict["grade"], "form_fit_function")
-        self.assertEqual(sorted(verdict["differs"]), ["tolerance", "voltage_rating"])
+        self.assertEqual((verdict["grade"], verdict["unknown"]), ("ratings_met", []))
+        self.assertEqual(cross_reference.grade_label(verdict), "Ratings met")
 
-    def test_another_package_is_functional_and_another_value_is_not_an_alternative(self) -> None:
-        self.assertEqual(cross_reference.grade(self.BASE, sig(resistance=10000, package="0805"))["grade"], "functional")
+    def test_a_worse_rating_fails_whatever_else_matches(self) -> None:
+        verdict = cross_reference.grade(self.BASE, sig(resistance=10000, tolerance=1, voltage_rating=1, power_rating=0.1, package="0603"))
+        self.assertEqual((verdict["grade"], verdict["differs"]), ("fails", ["voltage_rating"]), "rated 1 V against 75 V")
+        self.assertEqual(cross_reference.grade_label(verdict), "Fails a rating")
+        looser = cross_reference.grade(self.BASE, sig(resistance=10000, tolerance=5, voltage_rating=50, power_rating=0.1, package="0603"))
+        self.assertEqual(sorted(looser["differs"]), ["tolerance", "voltage_rating"])
+
+    def test_ratings_the_candidate_does_not_list_are_unknown_not_met(self) -> None:
+        # 10k, 1% and 0603 alone: the 75 V and 0.1 W ratings can't be judged.
+        verdict = cross_reference.grade(self.BASE, sig(resistance=10000, tolerance=1, package="0603"))
+        self.assertEqual((verdict["grade"], sorted(verdict["unknown"])), ("similar", ["power_rating", "voltage_rating"]))
+        self.assertEqual(cross_reference.grade_label(verdict), "Similar · 2 ratings unknown")
+
+    def test_another_package_is_other_package_and_another_value_is_not_an_alternative(self) -> None:
+        self.assertEqual(cross_reference.grade(self.BASE, sig(resistance=10000, package="0805"))["grade"], "other_package")
         self.assertIsNone(cross_reference.grade(self.BASE, sig(resistance=22000, package="0603")))
         self.assertIsNone(cross_reference.grade(self.BASE, sig(package="0603")), "no value to compare")
         self.assertIsNone(cross_reference.grade(sig(package="0603"), sig(package="0603")), "a part with no core value cannot be judged")
 
-    def test_missing_ratings_keep_it_from_being_direct(self) -> None:
-        verdict = cross_reference.grade(self.BASE, sig(resistance=10000, package="0603"))
-        self.assertEqual(verdict["grade"], "form_fit_function", "only two keys are shared with the package")
+    def test_nothing_beyond_the_value_compared_is_only_similar(self) -> None:
+        verdict = cross_reference.grade(sig(resistance=10000, package="0603"), sig(resistance=10000, package="0603"))
+        self.assertEqual(verdict["grade"], "similar")
 
     def test_packages_compare_by_their_size_code(self) -> None:
         self.assertEqual(cross_reference.package_key("0603 (1608 Metric)"), cross_reference.package_key("R_0603"))
@@ -126,7 +135,7 @@ class CandidateTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.facts.replace(conn, base, "mouser", [("suggested_replacement", "R-10K-NEW")], datetime.now(timezone.utc))
             found = cross_reference.candidates(conn, base)
-        self.assertEqual([(item["mpn"], item["grade"]) for item in found["candidates"]], [("G-10K", "direct"), ("G-10K-0805", "functional")])
+        self.assertEqual([(item["mpn"], item["grade"]) for item in found["candidates"]], [("G-10K", "ratings_met"), ("G-10K-0805", "other_package")])
         self.assertEqual(found["candidates"][0]["part_id"], direct)
         self.assertEqual(found["candidates"][1]["part_id"], other_package)
         self.assertEqual(found["suggested_by_distributors"], ["R-10K-NEW"])

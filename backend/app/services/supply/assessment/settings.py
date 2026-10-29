@@ -24,6 +24,7 @@ NO_DISTRIBUTOR_STOCK = "no_distributor_stock"
 INSUFFICIENT_STOCK = "insufficient_stock"
 LEAD_TIME_OVER_THRESHOLD = "lead_time_over_threshold"
 ROHS_NONCOMPLIANT = "rohs_noncompliant"
+ROHS_DISPUTED = "rohs_disputed"
 DATA_STALE = "data_stale"
 SINGLE_SOURCE = "single_source"
 MANUFACTURER_MISSING = "manufacturer_missing"
@@ -45,6 +46,8 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     INSUFFICIENT_STOCK: Status.ERROR,
     LEAD_TIME_OVER_THRESHOLD: Status.WARNING,
     ROHS_NONCOMPLIANT: Status.ERROR,
+    # Distributors say both: neither is taken as the answer.
+    ROHS_DISPUTED: Status.WARNING,
     DATA_STALE: Status.WARNING,
     SINGLE_SOURCE: Status.WARNING,
     MANUFACTURER_MISSING: Status.WARNING,
@@ -117,6 +120,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     INSUFFICIENT_STOCK: "Stock does not cover the build",
     LEAD_TIME_OVER_THRESHOLD: "Lead time over the limit",
     ROHS_NONCOMPLIANT: "Not RoHS compliant",
+    ROHS_DISPUTED: "Distributors disagree on RoHS",
     DATA_STALE: "A read is late",
     SINGLE_SOURCE: "Only one distributor has it in stock",
     MANUFACTURER_MISSING: "The BOM line has no manufacturer",
@@ -126,7 +130,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     PACKAGE_MISMATCH: "The footprint size differs from the distributor's package",
     LIFECYCLE_DISAGREEMENT: "Distributors disagree on the lifecycle",
     PRICE_OUTLIER: "A distributor's price is far from the others'",
-    ENDING_WITHIN_2_YEARS: "The signals say the part ends within 2 years",
+    ENDING_WITHIN_2_YEARS: "A notice or a last date to buy says the part is ending",
 })
 
 # Where each check is listed in the settings: one area for every check.
@@ -136,7 +140,7 @@ CHECK_AREA: Mapping[str, str] = MappingProxyType({
     LIFECYCLE_DISAGREEMENT: "Lifecycle", ENDING_WITHIN_2_YEARS: "Lifecycle",
     PART_NOT_FOUND: "Sourcing", SINGLE_SOURCE: "Sourcing", LEAD_TIME_OVER_THRESHOLD: "Sourcing", DATA_STALE: "Sourcing", PRICE_OUTLIER: "Sourcing",
     NO_DISTRIBUTOR_STOCK: "Stock", INSUFFICIENT_STOCK: "Stock",
-    ROHS_NONCOMPLIANT: "Compliance", REACH_SVHC: "Compliance",
+    ROHS_NONCOMPLIANT: "Compliance", ROHS_DISPUTED: "Compliance", REACH_SVHC: "Compliance",
     MANUFACTURER_MISSING: "BOM line", NOT_IN_LIBRARY: "BOM line", PARAMETER_MISMATCH: "BOM line", PACKAGE_MISMATCH: "BOM line",
 })
 

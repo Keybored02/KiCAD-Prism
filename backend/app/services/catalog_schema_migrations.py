@@ -544,6 +544,13 @@ def _supply_project_rollups(conn: Any) -> None:
     _m096_project_rollups(getattr(conn, "_connection", conn))
 
 
+def _supply_restart_out_everywhere(conn: Any) -> None:
+    """Supply step 97 for catalogs whose supply tables were made before it (step 17 runs every supply step it knew)."""
+    from app.services.supply.migration_steps.steps_c import _m097_restart_out_everywhere
+
+    _m097_restart_out_everywhere(getattr(conn, "_connection", conn))
+
+
 def _inventory_sources(conn: Any) -> None:
     """Local inventory servers (InvenTree, or any server serving its read API) whose stock fills ``inventory_levels``.
 
@@ -636,6 +643,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (19, "inventory_sources", _inventory_sources),
     (20, "supply_ending_dismissals", _supply_ending_dismissals),
     (21, "supply_project_rollups", _supply_project_rollups),
+    (22, "supply_restart_out_everywhere", _supply_restart_out_everywhere),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

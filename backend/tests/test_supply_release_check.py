@@ -279,6 +279,28 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(float(good["line_cost"]), 10.0, "20 pieces at 0.50")
         self.assertEqual(good["alerts"], 0)
 
+    def test_a_line_bought_in_another_currency_gives_its_unit_price_in_both(self) -> None:
+        from app.services.supply import usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_56", name="Fifty six")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_fx_rates")
+
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'USD', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("INSERT INTO supply_fx_rates (day, currency, per_eur, source) VALUES (CURRENT_DATE, 'USD', 1.25, 'manual')")
+            usage.store_project(conn, "prj_56", "Fifty six", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            page = self.request("prj_56/supply", query="build_quantity=20").json
+        (line,) = page["parts"]
+        self.assertEqual(page["rollup"]["currency"], "EUR")
+        self.assertEqual((line["unit_price"], line["unit_currency"]), ("0.5", "USD"), "as the distributor quotes it")
+        self.assertEqual((float(line["unit_price_in_total"]), float(line["line_cost"])), (0.4, 8.0), "20 at 0.40 EUR")
+
     def test_a_tracked_projects_cost_is_stored_once_a_day_and_shown_on_its_page(self) -> None:
         from app.services.supply import project_supply, usage
 
