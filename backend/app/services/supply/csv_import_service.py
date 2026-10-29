@@ -12,10 +12,14 @@ from app.services.supply.store import SupplyStore, supply_store
 
 def _read_again(conn, connector_id: str) -> None:
     """Make every listing of the connector due now, so the offers already read from the old file are replaced on the next scan
-    instead of standing until each listing's own next read (a day, a week or a month away)."""
+    instead of standing until each listing's own next read (a day, a week or a month away). Its last read was stamped by the
+    poller's clock, so it is due whatever clock the poller runs on."""
 
     conn.execute(
-        "UPDATE supply_poll_state SET next_poll_at = NOW() WHERE listing_id IN (SELECT id FROM supply_listings WHERE connector_id = %s)",
+        """
+        UPDATE supply_poll_state SET next_poll_at = LEAST(next_poll_at, COALESCE(last_polled_at, next_poll_at), NOW())
+        WHERE listing_id IN (SELECT id FROM supply_listings WHERE connector_id = %s)
+        """,
         (connector_id,),
     )
 
