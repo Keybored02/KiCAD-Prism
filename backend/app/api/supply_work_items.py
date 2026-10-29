@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import work_items
 
@@ -101,7 +102,7 @@ async def update_work_item(item_id: str, body: UpdateIn, user: AuthenticatedUser
     def run() -> dict[str, Any]:
         recheck: date | None | str = None if body.clear_recheck else (body.recheck_on if body.recheck_on is not None else "unchanged")
         with _store().connection() as conn:
-            item = work_items.update(conn, item_id, actor=user.email, role=user.role, title=body.title, action=body.action, owner=body.owner,
+            item = work_items.update(conn, item_id, actor=user.email, approver=is_approver(user), title=body.title, action=body.action, owner=body.owner,
                                      recheck_on=recheck, note=body.note)
             return work_items.shown(conn, item, user.role)
 
@@ -112,7 +113,7 @@ async def update_work_item(item_id: str, body: UpdateIn, user: AuthenticatedUser
 async def decide_work_item(item_id: str, body: DecideIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            item = work_items.decide(conn, item_id, body.state, actor=user.email, role=user.role, note=body.note)
+            item = work_items.decide(conn, item_id, body.state, actor=user.email, approver=is_approver(user), note=body.note)
             return work_items.shown(conn, item, user.role)
 
     return await _run(run)

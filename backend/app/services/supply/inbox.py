@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping
 
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.core import policy
 
 # Worst first; within a severity, in this order.
 SEVERITY = ("fatal", "error", "warning", "info")
@@ -55,7 +55,7 @@ def items(conn, built: Mapping[str, Any], role: str | None, now: datetime, actor
         found.append({"kind": "work_due", "severity": "warning", "count": work["due"]})
     if work["mine"]:
         found.append({"kind": "work_mine", "severity": "info", "count": work["mine"]})
-    if role in SUPPLY_APPROVE_ROLES:
+    if role is not None and policy.role_allows(role, "supply_approve"):
         waiting = _awaiting_approval(conn)
         if waiting:
             found.append({"kind": "approvals", "severity": "warning", "count": waiting})

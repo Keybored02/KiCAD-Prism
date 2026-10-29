@@ -168,6 +168,8 @@ root first.
 - **Only approvers introduce a manufacturer.** A designer watching a part must pick a
   manufacturer Prism already knows (`ensure_manufacturer(may_create=False)`), so a stray
   "TI" cannot become a second Texas Instruments.
+- **Approval is a person's.** "Is this caller an approver" is `supply_access.is_approver` (policy
+  `supply_approve`, human-only), never a role comparison: an agent with QA's role proposes, it never approves.
 - **A job is queued only when the connector can spend a call now** (`jobs._has_budget`),
   and a repeated provider failure rests the connector. Neither may become a job a minute.
 - **A manufacturer argument is a hint, never a filter.** Prism decides who is the
