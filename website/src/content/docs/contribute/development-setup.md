@@ -466,7 +466,9 @@ the run day, so two commits can be compared.
    ```
 
 4. To include browser heap and DOM size, start Prism with sign-in off, then
-   pass its URL and the Chrome executable:
+   pass its URL and the Chrome executable. The pages show whatever database
+   that Prism reads; point it at the bench database to measure the browser at
+   scale:
 
    ```bash
    PYTHONPATH=$PWD python ../scripts/benchmark_supply.py run --database-url "postgresql://ci:ci@127.0.0.1:55432/bench_supply_dev" --browser-url http://localhost:5173 --chrome "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -474,9 +476,14 @@ the run day, so two commits can be compared.
 
 The report records the fixture parameters, the Git commit, the machine, and for
 each read model the cold latency, the warm p50, p95 and max, the SQL statements
-per run, and peak RSS. It also records the housekeeping worker's wall time and
-peak RSS, and each Supply page's `JSHeapUsedSize`, `Nodes` and `LayoutCount`
-when a browser URL is given.
+per run, and the process's peak RSS so far (it only grows, so the scenario that
+raises it is the one that needed the memory). It also records the housekeeping
+worker's wall time and peak RSS, and each Supply page's `JSHeapUsedSize`,
+`Nodes` and `LayoutCount` when a browser URL is given.
+
+Housekeeping writes (it compacts readings and keeps snapshots), so the worker
+runs on a throwaway copy of the bench database (`CREATE DATABASE … TEMPLATE`),
+dropped afterwards. The fixture stays as seeded, run after run.
 
 Both subcommands refuse a database whose name does not start with `bench_`.
 The script never signs in, and it never touches an application database.

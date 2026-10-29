@@ -554,7 +554,8 @@ def _measure_scenario(store: Any, name: str, call: Callable[[Any], Any], repeats
             "samples": [round(value, 1) for value in samples],
         },
         "statements": {"cold": cold_statements, "warm": statements},
-        "peak_rss_bytes": peak_rss_bytes(),
+        # The process's peak so far: it only grows, so a scenario that raises it is the one that needed the memory.
+        "process_peak_rss_bytes": peak_rss_bytes(),
     }
 
 
@@ -764,7 +765,33 @@ def _git_commit() -> str:
         return ""
 
 
+def _copy_database(url: str) -> str:
+    """A throwaway copy of the bench database for the worker, made before this process opens a connection to it (a template copy
+    needs none open). Housekeeping writes (it compacts samples, keeps snapshots and rollups), so it never runs on the fixture."""
+
+    import psycopg
+
+    name = bench_database_name(url)
+    copy = f"{name}_worker_{os.getpid()}"
+    parts = urlsplit(url.replace("postgresql+psycopg://", "postgresql://", 1))
+    with psycopg.connect(parts._replace(path="/postgres").geturl(), autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{copy}" TEMPLATE "{name}"')
+    return parts._replace(path=f"/{copy}").geturl()
+
+
+def _drop_copy(copy_url: str) -> None:
+    import psycopg
+
+    parts = urlsplit(copy_url)
+    name = bench_database_name(copy_url)
+    if "_worker_" not in name:
+        raise SystemExit(f"Refusing to drop {name!r}: only the worker's own copies are dropped.")
+    with psycopg.connect(parts._replace(path="/postgres").geturl(), autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{name}"')
+
+
 def _run(url: str, args: argparse.Namespace) -> None:
+    worker_url = _copy_database(url)
     _prepare_environment(url)
     store = _store()
 
@@ -783,7 +810,10 @@ def _run(url: str, args: argparse.Namespace) -> None:
         name: _measure_scenario(store, name, call, args.repeats)
         for name, call in scenarios.items()
     }
-    worker = _run_worker(url)
+    try:
+        worker = _run_worker(worker_url)
+    finally:
+        _drop_copy(worker_url)
 
     browser = None
     if args.browser_url:
@@ -814,7 +844,7 @@ def _run(url: str, args: argparse.Namespace) -> None:
 
 
 def _print_report(report: dict[str, Any]) -> None:
-    print("\n| Scenario | Cold ms | p50 ms | p95 ms | Max ms | SQL/run | Peak RSS MB |")
+    print("\n| Scenario | Cold ms | p50 ms | p95 ms | Max ms | SQL/run | Process peak MB |")
     print("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     for name, item in report["scenarios"].items():
         statements = item["statements"]["warm"]
@@ -822,7 +852,7 @@ def _print_report(report: dict[str, Any]) -> None:
             f"| {name} | {item['cold_ms']:.1f} | {item['warm_ms']['p50']:.1f} | "
             f"{item['warm_ms']['p95']:.1f} | {item['warm_ms']['max']:.1f} | "
             f"{max(statements) if statements else item['statements']['cold']} | "
-            f"{item['peak_rss_bytes'] / (1024 * 1024):.1f} |"
+            f"{item['process_peak_rss_bytes'] / (1024 * 1024):.1f} |"
         )
     worker = report["worker"]
     print(
