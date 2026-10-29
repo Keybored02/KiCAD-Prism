@@ -15,10 +15,22 @@ TABLES: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS supply_part_summaries (
         part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
-        data JSONB NOT NULL DEFAULT '{}'::jsonb,
+        version SMALLINT NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        problem TEXT,
+        stock INTEGER,
+        listings INTEGER NOT NULL DEFAULT 0,
+        lifecycle TEXT NOT NULL DEFAULT 'unknown',
+        dropped BOOLEAN NOT NULL DEFAULT FALSE,
+        tier TEXT,
+        unit_price NUMERIC,
+        as_of TIMESTAMPTZ,
+        price JSONB NOT NULL DEFAULT '{}'::jsonb,
+        priced_with TEXT NOT NULL DEFAULT '',
         computed_at TIMESTAMPTZ,
         snap BIGINT NOT NULL DEFAULT 0
     );
+    CREATE INDEX IF NOT EXISTS idx_supply_part_summaries_status ON supply_part_summaries (status);
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_project_rollups (

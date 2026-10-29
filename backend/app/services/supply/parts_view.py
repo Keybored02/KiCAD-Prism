@@ -41,21 +41,28 @@ Filter = Literal[
 # "At risk" is error or fatal everywhere (the Dashboard, this filter, the Projects view, a project's page); a warning only needs a look.
 _AT_RISK = ("fatal", "error")
 _LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
-# The groups the Overview counts, so a count and the list it links to agree.
-FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
-    "at_risk": lambda item: item["status"] in _AT_RISK,
-    "out_of_stock": lambda item: item["stock"] == 0,
-    "lifecycle": lambda item: item["lifecycle"] in _LIFECYCLE_RISK,
-    **{f"lifecycle_{state.value}": (lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
+
+
+def _sql_in(values) -> str:
+    return "(" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+# The groups the Overview counts, so a count and the list it links to agree: each as a test of a kept summary (``s``) and the same
+# test of a summary row.
+_GROUPS: dict[str, tuple[str, Callable[[dict[str, Any]], bool]]] = {
+    "at_risk": (f"s.status IN {_sql_in(_AT_RISK)}", lambda item: item["status"] in _AT_RISK),
+    "out_of_stock": ("s.stock = 0", lambda item: item["stock"] == 0),
+    "lifecycle": (f"s.lifecycle IN {_sql_in(_LIFECYCLE_RISK)}", lambda item: item["lifecycle"] in _LIFECYCLE_RISK),
+    **{f"lifecycle_{state.value}": (f"s.lifecycle = '{state.value}'", lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
 }
+FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {name: test for name, (_sql, test) in _GROUPS.items()}
 MAX_LIMIT = 200
-# Parts are ordered by how much they need a look, which needs every candidate's
-# status, so the list reads this many at most before it cuts to the page.
-MAX_CANDIDATES = 5000
 HISTORY_DAYS = 90
 # Most often first: the schedule a part is read on.
 _TIER_ORDER = list(SCHEDULES)
 _STATUS_RANK = {status.value: rank for rank, status in enumerate(STATUS_ORDER)}
+# Of a kept summary, what needs a look first.
+_RANK_SQL = "CASE s.status " + " ".join(f"WHEN '{status}' THEN {rank}" for status, rank in _STATUS_RANK.items()) + f" ELSE {len(_STATUS_RANK)} END"
 
 
 def _like(text: str) -> str:
@@ -222,49 +229,111 @@ def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Ra
     return found
 
 
-def _cached(conn, rows) -> dict[str, dict[str, Any]]:
+# Bumped whenever what a kept summary holds or how it is worked out changes: every kept one is then worked out again.
+SUMMARY_VERSION = 1
+_SUMMARY_FIELDS = (
+    "part_id text, status text, problem text, stock integer, listings integer, lifecycle text, dropped boolean, tier text, "
+    "unit_price numeric, as_of timestamptz, price jsonb, priced_with text"
+)
+_PRICE_KEYS = ("unit_price", "currency", "price_quantity", "price_kind", "price_lead_days", "price_range", "price_native", "price_seen_day",
+               "price_unrated", "price_test_data")
+
+
+def _current_sql(priced_with: str, summary: str = "s") -> str:
+    """SQL for "this kept summary is current": worked out by this code, in today's currency at today's rates (neither marks a part:
+    they change every price at once), and no change of its part came from a transaction still running when it was worked out."""
+
+    if not priced_with.isalnum():
+        raise ValueError("not a pricing key")
+    return (
+        f"({summary}.version = {SUMMARY_VERSION} AND {summary}.priced_with = '{priced_with}' AND {summary}.snap > 0 "
+        f"AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = {summary}.part_id AND d.xid >= {summary}.snap))"
+    )
+
+
+def _from_row(row) -> dict[str, Any]:
+    """A kept summary as ``_computed`` gives it."""
+
+    return {
+        "problem": row["problem"], "stock": row["stock"], "listings": row["listings"], "lifecycle": row["lifecycle"], "dropped": row["dropped"],
+        **row["price"],
+        "fetched_at": row["as_of"].isoformat() if row["as_of"] else None, "dated_by": "oldest", "tier": row["tier"], "status": row["status"],
+        "priced_with": row["priced_with"],
+    }
+
+
+def _keep(conn, found: dict[str, dict[str, Any]]) -> None:
+    """Keep worked-out summaries, as a favour to the next reader: never wait for a row another transaction holds, and write them all at
+    once."""
+
+    if not found:
+        return
+    snap = max(conn.execute("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS n").fetchone()["n"], 1)
+    ids = list(found)
+    mine = {row["part_id"] for row in conn.execute(
+        "SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s) FOR UPDATE SKIP LOCKED", (ids,)).fetchall()}
+    held = {row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s)", (ids,)).fetchall()} - mine
+
+    def records(part_ids: list[str]) -> str:
+        return json.dumps([
+            {"part_id": part_id, **{key: found[part_id][key] for key in ("status", "problem", "stock", "listings", "lifecycle", "dropped", "tier", "unit_price", "priced_with")},
+             "as_of": found[part_id]["fetched_at"], "price": {key: found[part_id][key] for key in _PRICE_KEYS}}
+            for part_id in part_ids
+        ])
+
+    columns = "status, problem, stock, listings, lifecycle, dropped, tier, unit_price, as_of, price, priced_with"
+    update = [part_id for part_id in ids if part_id in mine]
+    insert = [part_id for part_id in ids if part_id not in mine and part_id not in held]
+    if update:
+        conn.execute(
+            f"UPDATE supply_part_summaries s SET ({columns}, version, snap, computed_at) = "
+            f"(n.status, n.problem, n.stock, n.listings, n.lifecycle, n.dropped, n.tier, n.unit_price, n.as_of, n.price, n.priced_with, %s, %s, NOW()) "
+            f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) WHERE s.part_id = n.part_id",
+            (SUMMARY_VERSION, snap, records(update)),
+        )
+    if insert:
+        conn.execute(
+            f"INSERT INTO supply_part_summaries (part_id, {columns}, version, snap, computed_at) "
+            f"SELECT n.part_id, {', '.join('n.' + name.strip() for name in columns.split(','))}, %s, %s, NOW() "
+            f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) ON CONFLICT DO NOTHING",
+            (SUMMARY_VERSION, snap, records(insert)),
+        )
+
+
+def _cached(conn, rows, money: tuple[str, fx.Rates, str] | None = None) -> dict[str, dict[str, Any]]:
     """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept."""
 
-    ids = [r["id"] for r in rows]
-    money = _money(conn)
-    # A kept summary is current while no change of its part came from a transaction still running when it was worked out, and it
-    # was priced in today's currency at today's rates (neither marks a part: they change every price at once).
+    money = money or _money(conn)
     fresh = {
-        r["part_id"]: r["data"] for r in conn.execute(
-            """
-            SELECT s.part_id, s.data FROM supply_part_summaries s
-            WHERE s.part_id = ANY(%s) AND s.snap > 0 AND s.data ? 'price_test_data' AND s.data ? 'status' AND s.data ? 'dated_by'
-              AND s.data->>'priced_with' = %s
-              AND NOT EXISTS (SELECT 1 FROM supply_summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
-            """,
-            (ids, money[2]),
+        row["part_id"]: _from_row(row) for row in conn.execute(
+            f"SELECT s.* FROM supply_part_summaries s WHERE s.part_id = ANY(%s) AND {_current_sql(money[2])}", ([r["id"] for r in rows],),
         ).fetchall()
     }
     todo = [r for r in rows if r["id"] not in fresh]
     if todo:
-        snap = conn.execute("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS n").fetchone()["n"]
         found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]), money)
-        ids = [row["id"] for row in todo]
-        # Keeping them is a favour to the next reader: never wait for a row another transaction holds, and write them all at once.
-        mine = {row["part_id"] for row in conn.execute(
-            "SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s) FOR UPDATE SKIP LOCKED", (ids,)).fetchall()}
-        held = {row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s)", (ids,)).fetchall()} - mine
-        update = [part_id for part_id in ids if part_id in mine]
-        insert = [part_id for part_id in ids if part_id not in mine and part_id not in held]
-        if update:
-            conn.execute(
-                "UPDATE supply_part_summaries s SET data = n.data::jsonb, snap = %s, computed_at = NOW() "
-                "FROM unnest(%s::text[], %s::text[]) AS n(part_id, data) WHERE s.part_id = n.part_id",
-                (max(snap, 1), update, [json.dumps(found[part_id]) for part_id in update]),
-            )
-        if insert:
-            conn.execute(
-                "INSERT INTO supply_part_summaries (part_id, data, snap, computed_at) "
-                "SELECT n.part_id, n.data::jsonb, %s, NOW() FROM unnest(%s::text[], %s::text[]) AS n(part_id, data) ON CONFLICT DO NOTHING",
-                (max(snap, 1), insert, [json.dumps(found[part_id]) for part_id in insert]),
-            )
+        _keep(conn, found)
         fresh.update(found)
     return fresh
+
+
+_BATCH = 1000
+
+
+def _bring_up_to_date(conn, where: str, params: list[Any]) -> str:
+    """Work out and keep the summaries of the parts ``where`` selects that are stale or missing (the worker keeps the tracked ones
+    current, so normally few), so a list can filter, sort and page on the kept columns. Returns the pricing key."""
+
+    money = _money(conn)
+    while True:
+        rows = conn.execute(
+            _ROW_SELECT + f"LEFT JOIN supply_part_summaries s ON s.part_id = p.id WHERE {where} AND NOT COALESCE({_current_sql(money[2])}, FALSE) "
+            f"LIMIT {_BATCH}", params,
+        ).fetchall()
+        if rows:
+            _keep(conn, _computed(conn, rows, offers_by_part(conn, [r["id"] for r in rows]), money))
+        if len(rows) < _BATCH:
+            return money[2]
 
 
 def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None, *, role: str | None = None) -> list[dict[str, Any]]:
@@ -325,8 +394,8 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
     return _summaries(conn, rows, wanted, role=role), wanted
 
 
-def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
-    """Every matching part (up to ``MAX_CANDIDATES``), the ones that need a look first, and the true count."""
+def _scope_where(scope: Scope, query: str, role: str | None) -> tuple[str, list[Any]]:
+    """SQL over ``_ROW_SELECT`` for the parts a scope and a search take in, and its parameters."""
 
     limited = "ARRAY[" + ", ".join(f"'{key}'" for key in budget.providers_limited_by_picks() if key.replace("_", "").isalnum()) + "]::text[]"
     conditions = [{
@@ -344,18 +413,26 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
     if text:
         conditions.append("(p.mpn ILIKE %s OR m.name ILIKE %s)")
         params += [_like(text), _like(text)]
-    where = " AND ".join(conditions)
-    total = conn.execute(
-        f"SELECT COUNT(*) AS n FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id "
-        f"LEFT JOIN supply_watches w ON w.part_id = p.id LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id WHERE {where}", params,
-    ).fetchone()["n"]
+    return " AND ".join(conditions), params
+
+
+_KEPT = "JOIN supply_part_summaries s ON s.part_id = p.id "
+
+
+def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
+    """Every matching part, the ones that need a look first, then by name, with what counts and groups need: id, mpn, manufacturer,
+    status, stock, lifecycle, whether every distributor dropped it, and when it was read. From the kept summaries."""
+
+    where, params = _scope_where(scope, query, role)
+    _bring_up_to_date(conn, where, params)
     rows = conn.execute(
-        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, MAX_CANDIDATES],
+        "SELECT p.id, p.mpn, m.name AS manufacturer, s.status, s.stock, s.lifecycle, s.dropped, s.as_of "
+        "FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
+        f"LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id {_KEPT}WHERE {where} ORDER BY {_RANK_SQL}, lower(m.name), lower(p.mpn)", params,
     ).fetchall()
-    items = _summaries(conn, rows, role=role)
-    # The sort is stable, so parts of equal status keep their name order.
-    items.sort(key=lambda item: _STATUS_RANK[item["status"]])
-    return items, int(total)
+    items = [{**{key: row[key] for key in ("id", "mpn", "manufacturer", "status", "stock", "lifecycle", "dropped")},
+              "fetched_at": row["as_of"].isoformat() if row["as_of"] else None} for row in rows]
+    return items, len(items)
 
 
 def tracked_states(conn) -> list[dict[str, Any]]:
@@ -564,39 +641,25 @@ def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
     return [item for item in items if item["id"] in keep]
 
 
-def _runs_out_first(conn, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The chance of being out in 4 weeks (a part already out counts as certain), then the fewest days to zero; parts with neither keep
-    their order after them."""
-
-    kept = part_insights.of_parts(conn, [item["id"] for item in items])
-
-    def key(item: dict[str, Any]) -> tuple[float, float]:
-        data = kept.get(item["id"]) or {}
-        forecast = data.get("forecast") or {}
-        chance = 1.0 if forecast.get("out_now") else float(forecast.get("p_out_4w") or 0.0) if forecast.get("available") else 0.0
-        days = data.get("days_to_zero")
-        return (-chance, float(days) if days is not None else float("inf"))
-
-    return sorted(items, key=key)
-
-
 # Columns the list sorts by, as "<column>:<asc|desc>". A part with no figure comes after the others either way.
-SORT_COLUMNS = ("part", "stock", "price")
+SORT_COLUMNS = {"part": "lower(p.mpn)", "stock": "s.stock", "price": "s.unit_price"}
+# The chance of being out in 4 weeks, a part already out counting as certain (kept insights, ``i``).
+_OUT_CHANCE_SQL = (
+    "CASE WHEN COALESCE((i.data->'forecast'->>'out_now')::boolean, FALSE) THEN 1.0 "
+    "WHEN COALESCE((i.data->'forecast'->>'available')::boolean, FALSE) THEN COALESCE((i.data->'forecast'->>'p_out_4w')::float, 0.0) ELSE 0.0 END"
+)
 
 
-def _by_column(items: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+def _order_sql(sort: str) -> str:
+    """The list's order: what needs a look first, then by name; ``sort`` puts its key before that."""
+
+    usual = f"{_RANK_SQL}, lower(m.name), lower(p.mpn)"
+    if sort == "runout":
+        return f"{_OUT_CHANCE_SQL} DESC, (i.data->>'days_to_zero')::float ASC NULLS LAST, {usual}"
     column, _, direction = sort.partition(":")
-    if column not in SORT_COLUMNS or direction not in ("asc", "desc"):
-        return items
-
-    def value(item: dict[str, Any]) -> Any:
-        if column == "part":
-            return item["mpn"].lower()
-        figure = item.get("stock") if column == "stock" else item.get("unit_price")
-        return None if figure is None else Decimal(str(figure))
-
-    known = sorted((item for item in items if value(item) is not None), key=value, reverse=direction == "desc")
-    return known + [item for item in items if value(item) is None]
+    if column in SORT_COLUMNS and direction in ("asc", "desc"):
+        return f"{SORT_COLUMNS[column]} {direction.upper()} NULLS LAST, {usual}"
+    return usual
 
 
 def list_parts(
@@ -605,25 +668,36 @@ def list_parts(
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
     one project (``none`` for those in no project). ``sort`` "runout" puts the parts likeliest to be out within 4 weeks first, then
-    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column."""
+    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column. Filtered, ordered and paged on the kept
+    summaries, however many parts match."""
 
     limit = max(1, min(limit, MAX_LIMIT))
-    items, total = ranked_parts(conn, scope=scope, query=query, role=role)
-    if only:
-        items = _only(conn, items, only)
-        total = len(items)
-    items = _at_vendor(conn, items, vendor)
-    total = len(items) if vendor else total
-    if project_id:
-        of = _projects_of(conn, [item["id"] for item in items], role)
-        items = [item for item in items if (project_id in of.get(item["id"], set()) if project_id != NO_PROJECT else not of.get(item["id"]))]
-        total = len(items)
-    if sort == "runout":
-        items = _runs_out_first(conn, items)
-    elif sort:
-        items = _by_column(items, sort)
     offset = max(0, offset)
-    page = items[offset:offset + limit]
+    where, params = _scope_where(scope, query, role)
+    _bring_up_to_date(conn, where, params)
+    conditions = [where]
+    if only in _GROUPS:
+        conditions.append(_GROUPS[only][0])
+    elif only:
+        # A finding from the kept insights or a risk group: the parts it names, of those the scope takes in.
+        items, _total = ranked_parts(conn, scope=scope, query=query, role=role)
+        conditions.append("p.id = ANY(%s)")
+        params = [*params, [item["id"] for item in _only(conn, items, only)]]
+    if vendor:
+        conditions.append("EXISTS (SELECT 1 FROM supply_listings vl WHERE vl.part_id = p.id AND vl.connector_id = %s AND supply_counted(vl.match_state))")
+        params = [*params, vendor]
+    if project_id:
+        used = "p.id IN (SELECT pp.part_id FROM (" + usage.part_projects_sql(False) + ") pp" + (" WHERE pp.project_id = %s)" if project_id != NO_PROJECT else ")")
+        conditions.append(used if project_id != NO_PROJECT else f"NOT {used}")
+        params = [*params, *usage.role_params(role), *([project_id] if project_id != NO_PROJECT else [])]
+    where = " AND ".join(conditions)
+    joins = _KEPT + ("LEFT JOIN supply_part_insights i ON i.part_id = p.id " if sort == "runout" else "")
+    total = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
+        f"LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id {_KEPT}WHERE {where}", params,
+    ).fetchone()["n"])
+    rows = conn.execute(_ROW_SELECT + f"{joins}WHERE {where} ORDER BY {_order_sql(sort)} LIMIT %s OFFSET %s", [*params, limit, offset]).fetchall()
+    page = _summaries(conn, rows, role=role)
     kept = part_insights.of_parts(conn, [item["id"] for item in page])
     extras = _row_extras(conn, page, kept, role)
     page = [

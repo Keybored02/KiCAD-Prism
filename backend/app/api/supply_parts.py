@@ -82,7 +82,7 @@ async def list_parts(
     only: str = Query(default="", max_length=120, pattern=r"^[A-Za-z0-9_]*(:[^\x00-\x1f]{1,100})?$"),
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),
-    offset: int = Query(default=0, ge=0, le=parts_view.MAX_CANDIDATES),
+    offset: int = Query(default=0, ge=0),
     project_id: str = Query(default="", max_length=100),
     vendor: str = Query(default="", max_length=100),
     sort: str = Query(default="", pattern=r"^(runout|(part|stock|price):(asc|desc))?$"),
