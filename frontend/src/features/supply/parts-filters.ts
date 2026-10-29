@@ -36,6 +36,7 @@ export const FILTER_LABEL: Record<Exclude<PartsFilter, "" | `${string}:${string}
   lead_none: "No lead time quoted",
   rohs_compliant: "RoHS compliant",
   rohs_not_compliant: "RoHS not compliant",
+  rohs_disputed: "RoHS disputed",
   rohs_not_applicable: "RoHS not applicable",
   rohs_unknown: "RoHS unknown",
   reach_compliant: "REACH unaffected",

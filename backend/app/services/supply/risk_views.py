@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import facts, fx, headline_price, part_insights, parts_view, price_quantity, trade
+from app.services.supply import compliance, facts, fx, headline_price, part_insights, parts_view, price_quantity, trade
 from app.services.supply.assessment import settings_store
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
@@ -22,6 +22,9 @@ LEAD_BUCKETS = part_insights.LEAD_BUCKETS
 MOVERS = 50
 ORIGINS = 12
 CONTROLLED_LIMIT = 200
+# The bars of the Insights compliance charts.
+ROHS_BARS = ("compliant", "not_compliant", "disputed", "not_applicable", "unknown")
+REACH_BARS = ("compliant", "affected", "not_applicable", "unknown")
 
 
 def availability_of(item: Mapping[str, Any], held: Mapping[str, Any] | None) -> str:
@@ -205,38 +208,34 @@ def outlook_bands(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 
 def compliance_verdicts(conn, tracked: Sequence[str]) -> tuple[dict[str, str], dict[str, str]]:
-    """RoHS and REACH verdict of each tracked part by what distributors state: any one saying no wins, then a yes, else unknown."""
+    """RoHS and REACH verdict of each tracked part. RoHS is ``compliance.rohs_verdicts``: the offers first, the stated status when
+    none says. REACH is by what distributors state: any one saying affected wins, then unaffected, else unknown."""
 
-    rohs: dict[str, set[str]] = defaultdict(set)
     reach: dict[str, set[str]] = defaultdict(set)
     if tracked:
         for row in conn.execute(
-            "SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('rohs_status', 'reach_status') AND part_id = ANY(%s)", (list(tracked),)
+            "SELECT part_id, value FROM supply_part_facts WHERE name = 'reach_status' AND part_id = ANY(%s)", (list(tracked),)
         ).fetchall():
-            (rohs if row["name"] == "rohs_status" else reach)[row["part_id"]].add(facts.rohs_class(row["value"]) if row["name"] == "rohs_status" else facts.reach_class(row["value"]))
+            reach[row["part_id"]].add(facts.reach_class(row["value"]))
 
-    def verdict(classes: set[str], bad: str, good: tuple[str, ...]) -> str:
-        if bad in classes:
-            return bad
-        for name in good:
-            if name in classes:
-                return "compliant" if name.startswith("compliant") or name == "unaffected" else name
-        return "unknown"
+    def verdict(classes: set[str]) -> str:
+        if "affected" in classes:
+            return "affected"
+        if "unaffected" in classes:
+            return "compliant"
+        return "not_applicable" if "not_applicable" in classes else "unknown"
 
-    return (
-        {part_id: verdict(rohs.get(part_id, set()), "not_compliant", ("compliant", "compliant_exemption", "not_applicable")) for part_id in tracked},
-        {part_id: verdict(reach.get(part_id, set()), "affected", ("unaffected", "not_applicable")) for part_id in tracked},
-    )
+    return compliance.rohs_verdicts(conn, tracked), {part_id: verdict(reach.get(part_id, set())) for part_id in tracked}
 
 
-def compliance(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
-    """RoHS and REACH counts by what distributors state (see ``compliance_verdicts``)."""
+def compliance_counts(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
+    """RoHS and REACH counts by verdict (see ``compliance_verdicts``)."""
 
     rohs, reach = compliance_verdicts(conn, tracked)
     rohs_counts, reach_counts = Counter(rohs.values()), Counter(reach.values())
     return {
-        "rohs": {name: rohs_counts.get(name, 0) for name in ("compliant", "not_compliant", "not_applicable", "unknown")},
-        "reach": {name: reach_counts.get(name, 0) for name in ("compliant", "affected", "not_applicable", "unknown")},
+        "rohs": {name: rohs_counts.get(name, 0) for name in ROHS_BARS},
+        "reach": {name: reach_counts.get(name, 0) for name in REACH_BARS},
     }
 
 
@@ -283,8 +282,8 @@ def control_states(conn, tracked: Sequence[str]) -> dict[str, str]:
 
 # The Insights charts whose bars open the parts behind them: name, then how to tell which tracked parts belong.
 GROUPS = (
-    *(f"rohs_{name}" for name in ("compliant", "not_compliant", "not_applicable", "unknown")),
-    *(f"reach_{name}" for name in ("compliant", "affected", "not_applicable", "unknown")),
+    *(f"rohs_{name}" for name in ROHS_BARS),
+    *(f"reach_{name}" for name in REACH_BARS),
     *(f"control_{name}" for name in ("controlled", "disputed", "none", "unknown")),
 )
 

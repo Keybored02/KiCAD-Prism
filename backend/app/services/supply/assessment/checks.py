@@ -46,6 +46,8 @@ class Facts:
     last_buy: date | None = None
     # How often the part is read: "daily", "weekly" or "monthly"; "" when it has no schedule (then it is judged as a daily one).
     rate: str = ""
+    # The ``facts.rohs_class`` of each RoHS status stated for the part: what decides RoHS when no offer says.
+    rohs_stated: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,11 +170,12 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     lead = lead_time_of(offers)
     if lead is not None and lead > settings.lead_time_days:
         add(ids.LEAD_TIME_OVER_THRESHOLD, f"Lead time is {lead} days, over the {settings.lead_time_days} you accept.", "slow")
-    rohs = rohs_verdict(offers)
+    rohs = rohs_verdict(offers, facts.rohs_stated)
+    said = any(o.get("rohs") is not None for o in offers)
     if rohs == "not_compliant":
-        add(ids.ROHS_NONCOMPLIANT, "Distributors list this part as not RoHS compliant.", "rohs_false")
+        add(ids.ROHS_NONCOMPLIANT, "Distributors list this part as not RoHS compliant." if said else "The part's stated RoHS status is not compliant.", "rohs_false")
     elif rohs == "disputed":
-        add(ids.ROHS_DISPUTED, f"Distributors disagree on RoHS: {rohs_sides(offers)}.", "rohs_disputed")
+        add(ids.ROHS_DISPUTED, f"Distributors disagree on RoHS: {rohs_sides(offers)}." if said else "The RoHS statuses stated for the part disagree.", "rohs_disputed")
     if facts.svhc_listed:
         add(ids.REACH_SVHC, f"A declared substance is on the REACH Candidate List: {', '.join(facts.svhc_listed)}.", "svhc_declared")
     elif any(o.get("reach_affected") for o in offers):

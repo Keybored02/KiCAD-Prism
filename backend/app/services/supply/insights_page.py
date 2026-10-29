@@ -118,7 +118,7 @@ def build(conn) -> dict[str, Any]:
             "coverage": risk_views.coverage(conn, items),
             "resilience": {name: held.get(name, 0) for name in ("none", "one", "two", "three_plus", "unknown", "not_read")},
         },
-        "lifecycle": {"mix": risk_views.lifecycle_mix(items), "outlook": risk_views.outlook_bands(rows), "compliance": risk_views.compliance(conn, tracked_ids)},
+        "lifecycle": {"mix": risk_views.lifecycle_mix(items), "outlook": risk_views.outlook_bands(rows), "compliance": risk_views.compliance_counts(conn, tracked_ids)},
         "lead_times": risk_views.lead_histogram(rows),
         "price_movers": risk_views.price_movers(rows),
         "trade": risk_views.trade_overview(conn, tracked_ids),

@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import budget, counted, facts, forecasting, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply import budget, counted, facts, forecasting, fx, headline_price, insights, offer_rules, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply.assessment import settings_store
 from app.services.supply.providers import registry
@@ -34,7 +34,7 @@ Filter = Literal[
     "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown",
     "outlook_ended", "outlook_under_2_years", "outlook_2_to_5_years", "outlook_no_signs", "outlook_unknown",
     "lead_under_2w", "lead_2_to_8w", "lead_8_to_16w", "lead_16_to_26w", "lead_over_26w", "lead_none",
-    "rohs_compliant", "rohs_not_compliant", "rohs_not_applicable", "rohs_unknown",
+    "rohs_compliant", "rohs_not_compliant", "rohs_disputed", "rohs_not_applicable", "rohs_unknown",
     "reach_compliant", "reach_affected", "reach_not_applicable", "reach_unknown",
     "control_controlled", "control_disputed", "control_none", "control_unknown",
 ]
@@ -733,6 +733,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         "SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
     ).fetchall():
         stated.setdefault(row["part_id"], {}).setdefault(row["name"], set()).add(row["value"].strip().lower())
+    rohs_said = facts.rohs_stated(conn, ids)
     extras = {}
     for item in page:
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
@@ -750,7 +751,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         flags = []
         if item["id"] in waiting:
             flags.append("waiting")
-        if any(offer["rohs"] is False for offer in here):
+        if offer_rules.rohs_verdict(offers.get(item["id"], []), rohs_said.get(item["id"], ())) in ("not_compliant", "disputed"):
             flags.append("rohs")
         if any(offer["reach_affected"] for offer in here):
             flags.append("reach")

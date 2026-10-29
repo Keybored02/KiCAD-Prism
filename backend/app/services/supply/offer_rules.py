@@ -18,16 +18,22 @@ def lead_time_of(offers: Sequence[Mapping[str, Any]]) -> int | None:
     return min(times) if times else None
 
 
-ROHS_VERDICTS = ("compliant", "not_compliant", "disputed", "unknown")
+ROHS_VERDICTS = ("compliant", "not_compliant", "disputed", "not_applicable", "unknown")
+# What each ``facts.rohs_class`` of a stated RoHS status says: yes, no, or neither.
+_STATED_SAYS = {"compliant": True, "compliant_exemption": True, "not_compliant": False}
 
 
-def rohs_verdict(offers: Sequence[Mapping[str, Any]]) -> str:
-    """What distributors say of RoHS: compliant when every one that says anything says yes, not compliant when every one says no,
-    disputed when they disagree, unknown when none says."""
+def rohs_verdict(offers: Sequence[Mapping[str, Any]], stated: Sequence[str] = ()) -> str:
+    """The part's RoHS verdict. Offers decide: compliant when every one that says anything says yes, not compliant when every one
+    says no, disputed when they disagree. When no offer says, the RoHS status distributors state for the part decides by the same
+    rule (``stated`` holds ``facts.rohs_class`` of each), and a part stated only as not applicable is ``not_applicable``. Unknown
+    when nothing says."""
 
     said = [bool(o["rohs"]) for o in offers if o.get("rohs") is not None]
     if not said:
-        return "unknown"
+        said = [_STATED_SAYS[name] for name in stated if name in _STATED_SAYS]
+        if not said:
+            return "not_applicable" if "not_applicable" in stated else "unknown"
     if all(said):
         return "compliant"
     return "not_compliant" if not any(said) else "disputed"

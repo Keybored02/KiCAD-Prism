@@ -30,14 +30,8 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row.get("lcsc", "")) for row in rows]
     resolved = bom_lookup.resolve_lines(lines, conn)
     part_ids = sorted({part_id for state, part_id, _how in resolved.values() if state == bom_lookup.TRACKED and part_id})
-    flags: dict[str, list[tuple[bool | None, bool | None]]] = {part_id: [] for part_id in part_ids}
-    if part_ids:
-        for offer in conn.execute(
-            "SELECT l.part_id, o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
-            "WHERE l.part_id = ANY(%s) AND supply_counted(l.match_state)",
-            (part_ids,),
-        ).fetchall():
-            flags[offer["part_id"]].append((offer["rohs"], offer["reach_affected"]))
+    flags = compliance.rohs_flags(conn, part_ids)
+    rohs_said = facts.rohs_stated(conn, part_ids)
     listed = compliance.listed_substances(conn, part_ids)
     stated = facts.summary(conn, part_ids)
     exempt = compliance.exemptions(conn, part_ids)
@@ -54,9 +48,9 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             gaps.append("Prism does not track this part, so nothing is known about it.")
             rohs, reach, on_list = "unknown", "unknown", []
         else:
-            rohs = offer_rules.rohs_verdict([{"rohs": item[0]} for item in flags[part_id]]).replace("_", " ")
+            rohs = offer_rules.rohs_verdict(flags[part_id], rohs_said.get(part_id, ())).replace("_", " ")
             on_list = listed.get(part_id, [])
-            standing = compliance.standing([{"reach_affected": item[1]} for item in flags[part_id]], on_list)
+            standing = compliance.standing(flags[part_id], on_list)
             reach = _reach_text(standing)
             if rohs == "unknown":
                 gaps.append("No RoHS statement from any distributor.")

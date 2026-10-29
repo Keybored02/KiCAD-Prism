@@ -52,16 +52,6 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=400, detail={"code": "invalid_compliance", "message": str(exc)}) from exc
 
 
-def _rohs_state(flags: list[bool]) -> dict[str, str]:
-    if not flags:
-        return {"state": "unknown", "reason": "No distributor says either way."}
-    if all(flags):
-        return {"state": "compliant", "reason": "Distributors list the part as RoHS compliant."}
-    if not any(flags):
-        return {"state": "noncompliant", "reason": "Distributors list the part as not RoHS compliant."}
-    return {"state": "disputed", "reason": "Distributors disagree."}
-
-
 @router.get("/compliance/svhc")
 async def svhc_list_info(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
@@ -94,16 +84,12 @@ async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(requi
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             part = parts.get_part(conn, part_id)
-            offers = conn.execute(
-                "SELECT o.rohs, o.reach_affected FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id "
-                "WHERE l.part_id = %s AND supply_counted(l.match_state)",
-                (part.id,),
-            ).fetchall()
+            offers = compliance.rohs_flags(conn, [part.id])[part.id]
             substances = compliance.declared(conn, part.id)
             listed = [item["listed_as"] for item in substances if item["listed_as"]]
             return {
-                "rohs": _rohs_state([row["rohs"] for row in offers if row["rohs"] is not None]),
-                "reach": compliance.standing([dict(row) for row in offers], listed),
+                "rohs": compliance.rohs_standing(offers, facts.rohs_stated(conn, [part.id]).get(part.id, [])),
+                "reach": compliance.standing(offers, listed),
                 "substances": substances,
                 "exemptions": compliance.exemptions(conn, [part.id]).get(part.id, []),
                 "list": compliance.list_info(conn),

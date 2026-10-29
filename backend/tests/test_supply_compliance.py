@@ -118,7 +118,7 @@ class ComplianceApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("supply_rohs_exemptions", "supply_part_substances", "supply_svhc_list", "supply_svhc_substances", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
+            for table in ("supply_rohs_exemptions", "supply_part_facts", "supply_part_substances", "supply_svhc_list", "supply_svhc_substances", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
             conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
@@ -202,6 +202,21 @@ class ComplianceApiTests(unittest.TestCase):
         self.assertEqual(self.findings()["reach_svhc"], "reach_flag")
         view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
         self.assertEqual((view["rohs"]["state"], view["reach"]["state"]), ("compliant", "affected"))
+
+    def test_rohs_is_the_offers_and_the_stated_status_only_when_no_offer_says(self) -> None:
+        self.offer()
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'rohs_status', 'Non-compliant', %s)",
+                (self.part, NOW))
+        view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
+        self.assertEqual(view["rohs"]["state"], "not_compliant")
+        self.assertEqual(self.findings()["rohs_noncompliant"], "rohs_false")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET rohs = true")
+        view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
+        self.assertEqual(view["rohs"]["state"], "compliant")
+        self.assertNotIn("rohs_noncompliant", self.findings())
 
     def test_without_any_word_on_reach_it_is_unknown_and_there_is_no_finding(self) -> None:
         self.offer()
