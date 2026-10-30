@@ -4,6 +4,7 @@ import type {
   AlertRules, BudgetConnector, PartAlertRules, RulesRequest, CheckProgress, CheckStarted, JobProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, SupplyComponentWatch, SupplyWatch,
   TrackProgress, TrackingPreview, TrackingRoom, WatchPackaging,
 } from "@/types/supply";
+import type { Items, ProjectTrackingPreview } from "@/types/supply.generated";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply/tracking";
@@ -51,11 +52,11 @@ export function getProjectTracking(projectId: string, signal?: AbortSignal): Pro
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, { signal }, "Could not read the project's tracking");
 }
 
-export function previewTrackProject(projectId: string, choice: ProjectChoice, signal?: AbortSignal): Promise<TrackingPreview> {
+export function previewTrackProject(projectId: string, choice: ProjectChoice, signal?: AbortSignal): Promise<ProjectTrackingPreview> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/preview`, { ...json(choice), signal }, "Could not work out the cost");
 }
 
-function trackProjectRequest(projectId: string, choice: ProjectChoice): Promise<TrackingPreview> {
+function trackProjectRequest(projectId: string, choice: ProjectChoice): Promise<ProjectTrackingPreview> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, put(choice), "Could not track the project");
 }
 
@@ -118,7 +119,7 @@ async function stopFollowingComponentRequest(componentId: string): Promise<void>
 }
 
 export function getBudget(signal?: AbortSignal): Promise<BudgetConnector[]> {
-  return fetchJson("/api/supply/budget", { signal }, "Could not load the call budget");
+  return fetchJson<Items<BudgetConnector>>("/api/supply/budget", { signal }, "Could not load the call budget").then((list) => list.items);
 }
 
 export function getTrackingRoom(signal?: AbortSignal): Promise<TrackingRoom> {

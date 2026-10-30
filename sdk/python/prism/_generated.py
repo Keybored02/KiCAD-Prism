@@ -17,6 +17,11 @@ class AccessUserDeletedResponse(TypedDict, total=True):
     sessions_revoked: int
 
 
+class AccountRoom(TypedDict, total=True):
+    daily: int | None
+    weekly: int | None
+
+
 class AcknowledgeRequest(TypedDict, total=True):
     visibility: str
 
@@ -376,6 +381,87 @@ class BomOut(TypedDict, total=True):
     commit: str | None
     designKey: str
     lines: list[BomLineOut]
+
+
+class BomRead(TypedDict, total=False):
+    changed: bool | None
+    done: int
+    failed: int
+    reason: str
+    state: str
+    total: int
+
+
+class BudgetCall(TypedDict, total=False):
+    calls: int
+    day: str | None
+    hour: int | None
+    kind: str | None
+    purpose: str
+
+
+class BudgetConnector(TypedDict, total=True):
+    """Where a connector's call budget goes, today and over two weeks, and what tracking costs."""
+    committed: Spent
+    connector_id: str
+    daily_budget: int
+    day: str
+    days: list[BudgetCall]
+    enabled: bool
+    free: FreeNow
+    hourly: list[BudgetCall]
+    library: BudgetLibrary | None
+    name: str
+    notices: BudgetNotices | None
+    owners: BudgetOwners
+    pool: Spent
+    provider: str
+    refused_today: int
+    reset_in_seconds: int
+    shares_account: bool
+    spare_spent: int
+    spent: int
+    tracking: BudgetShare | None
+
+
+class BudgetLibrary(TypedDict, total=True):
+    """Matching the library's parts nothing follows, from spare budget."""
+    calls_a_day: int | float
+    days_left: int | float | None
+    found: int
+    not_found: int
+    total: int
+    waiting: int
+
+
+class BudgetNotices(TypedDict, total=True):
+    """The change-notice quota of a provider that keeps one apart from its product calls (DigiKey)."""
+    interval_days: int | float
+    limit: int
+    parts: int
+    per_day: int | float
+    used: int
+
+
+class BudgetOwners(TypedDict, total=True):
+    parts: list[PartCalls]
+    projects: list[ProjectCalls]
+
+
+class BudgetShare(TypedDict, total=False):
+    """One connector's committed share, and what a change adds to it."""
+    account: str
+    adds_calls: int | None
+    admitted: int
+    admitted_new: int | None
+    by_tier: dict[str, TierShare]
+    capacity: int
+    committed: int
+    connector_id: str
+    free: int
+    name: str
+    waiting: int
+    waiting_new: int | None
 
 
 class BuildDetail(TypedDict, total=True):
@@ -1223,6 +1309,10 @@ class ComponentDetail(TypedDict, total=True):
     workflow_stage: str
 
 
+class ComponentFollow(TypedDict, total=True):
+    watch: SupplyComponentWatch | None
+
+
 class ComponentFollowIn(TypedDict, total=False):
     packaging: str
     rate: str
@@ -1438,6 +1528,13 @@ class ConnectorHealth(TypedDict, total=True):
 class ConnectorProblem(TypedDict, total=True):
     connector: str
     reason: str
+
+
+class ConnectorSearches(TypedDict, total=True):
+    connector_id: str
+    done: int
+    name: str
+    total: int
 
 
 class ConnectorStock(TypedDict, total=True):
@@ -2033,6 +2130,12 @@ class Exemption(TypedDict, total=False):
     note: str
 
 
+class ExpectedSpend(TypedDict, total=True):
+    """What tracking was expected to spend on the provider's previous day, and what it spent (null when nothing was counted)."""
+    expected: int | float
+    spent: int | float | None
+
+
 class FabricationLayer(TypedDict, total=True):
     colour: str
     file: str
@@ -2324,6 +2427,13 @@ class ForgeSummary(TypedDict, total=True):
     token_hint: str
 
 
+class FreeNow(TypedDict, total=True):
+    """What scheduled work still needs before the reset, what is kept for people, and what is free to spend now."""
+    free: int
+    kept_for_people: int
+    scheduled: int
+
+
 class GenerateSSHKeyRequest(TypedDict, total=False):
     email: str
 
@@ -2607,6 +2717,10 @@ class IpcOptions(TypedDict, total=True):
 class IssuedPushToken(TypedDict, total=True):
     prefix: str
     token: str
+
+
+class Items_BudgetConnector_(TypedDict, total=True):
+    items: list[BudgetConnector]
 
 
 class Items_PackagingSeveral_(TypedDict, total=True):
@@ -2902,6 +3016,11 @@ class Leadership(TypedDict, total=True):
 
 class LibraryComponentOf(TypedDict, total=True):
     component_id: str | None
+
+
+class LineCandidate(TypedDict, total=True):
+    manufacturer: str
+    part_id: str
 
 
 class LineChoiceIn(TypedDict, total=True):
@@ -3410,6 +3529,11 @@ class NoticePart(TypedDict, total=True):
     mpn: str
 
 
+class NumberFollowed(TypedDict, total=True):
+    tier: PartTracking | None
+    watch: SupplyWatch
+
+
 class NumbersRequest(TypedDict, total=True):
     keys: list[str]
 
@@ -3565,6 +3689,22 @@ class PartAlertRules(TypedDict, total=True):
     target_price: str | None
 
 
+class PartCalls(TypedDict, total=True):
+    calls_a_day: int | float
+    manufacturer: str
+    mpn: str
+    part_id: str
+    pick_saves: int | float
+    tier: int
+
+
+class PartFollowed(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    tier: PartTracking | None
+    watch: SupplyWatch | None
+
+
 class PartHistory(TypedDict, total=True):
     """Stock and price a line per distributor over the last ``days`` days."""
     connectors: list[HistoryConnector]
@@ -3626,6 +3766,12 @@ class PartTracking(TypedDict, total=True):
     rate: str
     reasons: list[TrackingReason]
     tier: int
+
+
+class PartTrackingState(TypedDict, total=True):
+    tier: PartTracking | None
+    waiting_at: list[str]
+    watch: SupplyWatch | None
 
 
 class PartTrade(TypedDict, total=True):
@@ -3871,6 +4017,12 @@ class ProjectBranches(TypedDict, total=True):
     default_ref: str | None
 
 
+class ProjectCalls(TypedDict, total=True):
+    calls_a_day: int | float
+    project_id: str
+    project_name: str
+
+
 class ProjectCommentsSourceUrls(TypedDict, total=True):
     """The helper URLs a KiCad comments source needs for one project."""
     base_url: str | None
@@ -3973,6 +4125,12 @@ class ProjectNameRequest(TypedDict, total=True):
 class ProjectNameUpdated(TypedDict, total=True):
     display_name: str
     message: str
+
+
+class ProjectOpen(TypedDict, total=True):
+    """What a tracked project waits on a person for."""
+    choices: list[SupplyChoice]
+    lines: list[TrackLine]
 
 
 class ProjectOverview(TypedDict, total=True):
@@ -4078,6 +4236,25 @@ class ProjectSearchHit(TypedDict, total=True):
 
 class ProjectSearchResults(TypedDict, total=True):
     results: list[ProjectSearchHit]
+
+
+class ProjectTracked(TypedDict, total=True):
+    parts_created: int
+    project_id: str
+    skipped: list[SkippedProjectLine]
+    variants: list[str]
+
+
+class ProjectTrackingPreview(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    tracked: ProjectTracked
+
+
+class ProjectTrackingState(TypedDict, total=True):
+    has_usage: bool
+    tracked: TrackedProject | None
+    variants: list[str]
 
 
 class ProjectVariantCatalog(TypedDict, total=True):
@@ -4512,6 +4689,17 @@ class RoleAssignmentResponse(TypedDict, total=False):
     source: str
 
 
+class RoomFigure(TypedDict, total=True):
+    limited_by: str
+    room: int
+
+
+class RoomHeadline(TypedDict, total=True):
+    """The distributor that fills first, among those every part is read at."""
+    daily: RoomFigure | None
+    weekly: RoomFigure | None
+
+
 class RouteLatencyOut(TypedDict, total=True):
     routes: list[RouteLatencyRow]
     totals: LatencyTotals
@@ -4594,6 +4782,11 @@ class ScanRequest(TypedDict, total=False):
 
 class ScheduleIn(TypedDict, total=True):
     spare: dict[str, bool]
+
+
+class ScheduleSettings(TypedDict, total=True):
+    """Which spare work is on. Spare budget is the calls nothing else needs, at any hour."""
+    spare: SpareWork
 
 
 class SearchRequest(TypedDict, total=False):
@@ -4746,6 +4939,14 @@ class SkippedLine(TypedDict, total=True):
     reason: str
 
 
+class SkippedProjectLine(TypedDict, total=False):
+    """A BOM line tracking left out: not in the library, or a number several makers share (with the parts it could mean)."""
+    candidates: list[LineCandidate] | None
+    manufacturer: str | None
+    mpn: str
+    reason: str
+
+
 class SlowQueriesOut(TypedDict, total=False):
     available: bool
     order: str
@@ -4802,6 +5003,18 @@ class SourceResponse(TypedDict, total=True):
     forge: ForgeSummary
     ipc: IpcOptions
     source: SourceDiscovery
+
+
+class SpareWork(TypedDict, total=True):
+    library: bool
+    notices: bool
+    tier2_early: bool
+    waiting: bool
+
+
+class Spent(TypedDict, total=True):
+    capacity: int
+    spent: int
 
 
 class StageRunOut(TypedDict, total=False):
@@ -4903,6 +5116,22 @@ class SupplyCapacity(TypedDict, total=True):
     usable_per_day: int
 
 
+class SupplyChoice(TypedDict, total=True):
+    kind: str
+    manufacturer: str
+    mpn: str
+    options: list[SupplyChoiceOption]
+    part_id: str
+
+
+class SupplyChoiceOption(TypedDict, total=True):
+    connectors: list[str]
+    key: str
+    listings: int
+    spelling: str
+    spellings: list[str]
+
+
 class SupplyCompliance(TypedDict, total=True):
     """RoHS and REACH of a part, and the substances a supplier declared for it."""
     exemptions: list[RohsExemption]
@@ -4916,6 +5145,14 @@ class SupplyCompliance(TypedDict, total=True):
 class SupplyComplianceState(TypedDict, total=True):
     reason: str
     state: str
+
+
+class SupplyComponentWatch(TypedDict, total=True):
+    component_id: str
+    owner: str
+    packaging: str
+    rate: str
+    tier: int
 
 
 class SupplyConnector(TypedDict, total=False):
@@ -5343,6 +5580,18 @@ class SupplySvhcList(TypedDict, total=True):
     substances: int
 
 
+class SupplyWatch(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+    owner: str
+    packaging: str
+    part_id: str
+    pinned: bool
+    rate: str
+    threshold: int | None
+    tier: int
+
+
 class SupplyWatchSummary(TypedDict, total=True):
     owner: str
     packaging: str
@@ -5434,6 +5683,11 @@ class ThumbnailsQueued(TypedDict, total=True):
     status: str
 
 
+class TierShare(TypedDict, total=True):
+    calls: int
+    parts: int
+
+
 class TokenExchangeResponse(TypedDict, total=True):
     access_token: str
     expires_in: int
@@ -5478,6 +5732,36 @@ class TracedRequestOut(TypedDict, total=True):
     status: int
 
 
+class TrackLine(TypedDict, total=True):
+    """A BOM line whose number several makers share: pick the part it means."""
+    candidates: list[LineCandidate]
+    manufacturer: str
+    mpn: str
+
+
+class TrackProgress(TypedDict, total=True):
+    """How far the first searches of a project's parts have got, per distributor."""
+    connectors: list[ConnectorSearches]
+    done: int
+    failed: int
+    parts: int
+    reason: str
+    state: str
+    total: int
+
+
+class TrackedProject(TypedDict, total=True):
+    all_variants: bool
+    build_quantity: int
+    connector_ids: list[str] | None
+    packaging: str
+    project_id: str
+    spares: str | None
+    tracked_at: str
+    tracked_by: str
+    variants: list[str]
+
+
 class TrackerDestinationView(TypedDict, total=True):
     connectorId: str
     containerKind: str
@@ -5503,11 +5787,39 @@ class TrackerProjectionView(TypedDict, total=False):
     syncState: str | None
 
 
+class TrackingPreview(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+
+
 class TrackingReason(TypedDict, total=False):
     """Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``)."""
     kind: str
     ref: str
     variant: str | None
+
+
+class TrackingRoom(TypedDict, total=True):
+    """How many more typical parts tracking has room for, per distributor and overall."""
+    accounts: list[TrackingRoomAccount]
+    headline: RoomHeadline
+
+
+class TrackingRoomAccount(TypedDict, total=True):
+    assembly_only: bool
+    by_tier: dict[str, TierShare]
+    capacity: int
+    carried_percent: int | float
+    connector_ids: list[str]
+    estimated_per_day: int | float
+    factor: int | float
+    free: int
+    measured_per_day: int | float | None
+    name: str
+    room: AccountRoom
+    searched: int
+    waiting: int
+    yesterday: ExpectedSpend
 
 
 class TradeMark(TypedDict, total=True):
@@ -5671,6 +5983,11 @@ class UserSession(TypedDict, total=False):
     name: str
     picture: str
     role: str
+
+
+class UsualBuild(TypedDict, total=True):
+    build_quantity: int
+    project_id: str
 
 
 class ValidationAsset(TypedDict, total=True):
@@ -6245,7 +6562,7 @@ class GeneratedClient:
             query={"asset_type": asset_type, "q": q, "limit": limit},
         )
 
-    def budget(self) -> list[dict[str, Any]]:
+    def budget(self) -> Items_BudgetConnector_:
         """Budget"""
         return self._request(
             "GET",
@@ -6432,7 +6749,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def component_state(self, component_id: str) -> dict[str, Any]:
+    def component_state(self, component_id: str) -> ComponentFollow:
         """Component State"""
         return self._request(
             "GET",
@@ -7058,7 +7375,7 @@ class GeneratedClient:
             query={"mpn": mpn, "manufacturer": manufacturer},
         )
 
-    def follow_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def follow_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> ComponentFollow:
         """Follow Component"""
         return self._request(
             "PUT",
@@ -7067,7 +7384,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def follow_number(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def follow_number(self, *, body: dict[str, Any] | None = None) -> NumberFollowed:
         """Follow Number"""
         return self._request(
             "POST",
@@ -7075,7 +7392,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def follow_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def follow_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> PartFollowed:
         """Follow Part"""
         return self._request(
             "PUT",
@@ -7938,7 +8255,7 @@ class GeneratedClient:
             query={"window_minutes": window_minutes, "route_prefix": route_prefix, "limit": limit},
         )
 
-    def get_schedule(self) -> dict[str, Any]:
+    def get_schedule(self) -> ScheduleSettings:
         """Get Schedule"""
         return self._request(
             "GET",
@@ -8164,7 +8481,7 @@ class GeneratedClient:
             path_params={"target_id": target_id},
         )
 
-    def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> UsualBuild:
         """Keep Usual Build"""
         return self._request(
             "PUT",
@@ -8812,7 +9129,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def part_state(self, part_id: str) -> dict[str, Any]:
+    def part_state(self, part_id: str) -> PartTrackingState:
         """Part State"""
         return self._request(
             "GET",
@@ -8910,7 +9227,7 @@ class GeneratedClient:
             "/api/v1/catalog/metadata/import-csv/preview",
         )
 
-    def preview_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def preview_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> TrackingPreview:
         """Preview Part"""
         return self._request(
             "POST",
@@ -8919,7 +9236,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def preview_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def preview_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectTrackingPreview:
         """Preview Project"""
         return self._request(
             "POST",
@@ -8944,7 +9261,7 @@ class GeneratedClient:
             path_params={"request_id": request_id},
         )
 
-    def project_open(self, project_id: str) -> dict[str, Any]:
+    def project_open(self, project_id: str) -> ProjectOpen:
         """Project Open"""
         return self._request(
             "GET",
@@ -8970,7 +9287,7 @@ class GeneratedClient:
             query={"build_quantity": build_quantity, "variant": variant, "spares": spares, "chip": chip, "q": q, "only": only, "vendor": vendor, "sort": sort, "offset": offset, "limit": limit},
         )
 
-    def project_progress(self, project_id: str) -> dict[str, Any]:
+    def project_progress(self, project_id: str) -> TrackProgress:
         """Project Progress"""
         return self._request(
             "GET",
@@ -8978,7 +9295,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def project_state(self, project_id: str) -> dict[str, Any]:
+    def project_state(self, project_id: str) -> ProjectTrackingState:
         """Project State"""
         return self._request(
             "GET",
@@ -9088,7 +9405,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def put_schedule(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def put_schedule(self, *, body: dict[str, Any] | None = None) -> ScheduleSettings:
         """Put Schedule"""
         return self._request(
             "PUT",
@@ -9127,7 +9444,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def read_project_bom(self, project_id: str) -> dict[str, Any]:
+    def read_project_bom(self, project_id: str) -> BomRead:
         """Read Project Bom"""
         return self._request(
             "POST",
@@ -9915,7 +10232,7 @@ class GeneratedClient:
             path_params={"request_id": request_id},
         )
 
-    def track_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def track_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectTrackingPreview:
         """Track Project"""
         return self._request(
             "PUT",
@@ -9932,7 +10249,7 @@ class GeneratedClient:
             path_params={"provider": provider, "connector_id": connector_id},
         )
 
-    def tracking_room(self) -> dict[str, Any]:
+    def tracking_room(self) -> TrackingRoom:
         """Tracking Room"""
         return self._request(
             "GET",

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SupplyConnector, TrackingPreview } from "@/types/supply";
+import type { ProjectTrackingPreview, SupplyConnector } from "@/types/supply";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("./tracking-api", () => ({
@@ -22,9 +22,13 @@ const tracking = vi.mocked(api);
 const connector = (id: string, name: string, extra: Partial<SupplyConnector> = {}) =>
   ({ id, display_name: name, enabled: true, metered: true, assembly_only: false, daily_budget: 1000, ...extra }) as SupplyConnector;
 
-const preview = (extra: Partial<TrackingPreview> = {}): TrackingPreview => ({
+const preview = (extra: Partial<ProjectTrackingPreview> = {}): ProjectTrackingPreview => ({
   fits_nowhere: false,
-  connectors: [{ connector_id: "c1", name: "DigiKey", capacity: 900, committed: 100, free: 800, admitted: 10, waiting: 0, adds_calls: 120, admitted_new: 100, waiting_new: 4 }],
+  connectors: [{
+    connector_id: "c1", name: "DigiKey", account: "a1", capacity: 900, committed: 100, free: 800, by_tier: {}, admitted: 10, waiting: 0,
+    adds_calls: 120, admitted_new: 100, waiting_new: 4,
+  }],
+  tracked: { project_id: "prj_1", variants: [""], parts_created: 0, skipped: [] },
   ...extra,
 });
 
@@ -52,7 +56,10 @@ describe("the distributors in the track dialog", () => {
 describe("the track button of a tracked project", () => {
   it("shows a Tracked chip and a settings button instead of asking to track again", async () => {
     tracking.getProjectTracking.mockResolvedValue({
-      tracked: { project_id: "prj_1", variants: [""], all_variants: false, connector_ids: null, tracked_by: "a", tracked_at: "2026-10-01" },
+      tracked: {
+        project_id: "prj_1", variants: [""], all_variants: false, packaging: "cut_tape", build_quantity: 100, spares: null, connector_ids: null,
+        tracked_by: "a", tracked_at: "2026-10-01",
+      },
       has_usage: true, variants: [],
     });
     render(<MemoryRouter><TrackProjectButton projectId="prj_1" /></MemoryRouter>);
@@ -154,7 +161,7 @@ describe("tracking a project", () => {
   it("settles lines several makers share before tracking, one click each", async () => {
     tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
     tracking.previewTrackProject.mockResolvedValueOnce(preview({
-      tracked: { parts_created: 0, skipped: [{ mpn: "LM358D", reason: "needs_choice", manufacturer: "Some Name", candidates: [{ part_id: "p1", manufacturer: "Texas Instruments" }, { part_id: "p2", manufacturer: "Onsemi" }] }] },
+      tracked: { project_id: "prj_1", variants: [""], parts_created: 0, skipped: [{ mpn: "LM358D", reason: "needs_choice", manufacturer: "Some Name", candidates: [{ part_id: "p1", manufacturer: "Texas Instruments" }, { part_id: "p2", manufacturer: "Onsemi" }] }] },
     }));
     tracking.previewTrackProject.mockResolvedValue(preview());
     tracking.chooseTrackLine.mockResolvedValue(undefined);

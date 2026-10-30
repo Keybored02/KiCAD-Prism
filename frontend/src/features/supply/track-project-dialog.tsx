@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { TrackingPreview } from "@/types/supply";
+import type { ProjectTrackingPreview } from "@/types/supply";
 import { TrackChooseStep } from "./track-choose-step";
 import { TrackLinesStep, type TrackLine } from "./track-lines-step";
 import { RaiseBudgetDialog } from "./raise-budget-dialog";
@@ -20,13 +20,13 @@ type Step = "choose" | "lines" | "tracking";
 const TITLE: Record<Step, string> = { choose: "Track Project", lines: "Settle Lines", tracking: "Checking Distributors" };
 
 /** The lines the preview could not place: several makers share their number. */
-function waitingLines(preview: TrackingPreview | null): TrackLine[] {
+function waitingLines(preview: ProjectTrackingPreview | null): TrackLine[] {
   return (preview?.tracked?.skipped ?? []).flatMap((item) =>
     item.reason === "needs_choice" ? [{ mpn: item.mpn, manufacturer: item.manufacturer ?? "", candidates: item.candidates ?? [] }] : []);
 }
 
 /** How many parts tracking would take on, from the preview. */
-function partsOf(preview: TrackingPreview | null): number {
+function partsOf(preview: ProjectTrackingPreview | null): number {
   return Math.max(0, ...(preview?.connectors ?? []).map((item) => (item.admitted_new ?? 0) + (item.waiting_new ?? 0)));
 }
 
@@ -39,7 +39,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
   const { state, preview } = track;
   const [step, setStep] = useState<Step>("choose");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<TrackingPreview | null>(null);
+  const [result, setResult] = useState<ProjectTrackingPreview | null>(null);
   const [raising, setRaising] = useState<string | null>(null);
   const raised = track.connectors.find((item) => item.id === raising);
   const lines = useMemo(() => waitingLines(preview), [preview]);

@@ -1,14 +1,14 @@
 import { Loader2 } from "lucide-react";
 import { useCallback } from "react";
 
-import type { TrackingPreview } from "@/types/supply";
+import type { ProjectTrackingPreview } from "@/types/supply";
 import { getTrackProgress } from "./tracking-api";
 import { isRunning, useLoaded } from "./use-loaded";
 
 const POLL_MS = 3000;
 
 /** The first searches of the project's parts, a bar per distributor, and what tracking did. Closing leaves the work running. */
-export function TrackProgressStep({ projectId, result, onFinished }: { projectId: string; result: TrackingPreview | null; onFinished: () => void }) {
+export function TrackProgressStep({ projectId, result, onFinished }: { projectId: string; result: ProjectTrackingPreview | null; onFinished: () => void }) {
   const fetcher = useCallback((signal: AbortSignal) => getTrackProgress(projectId, signal), [projectId]);
   const progress = useLoaded(`projects/${projectId}/progress`, fetcher, "Could not read the progress", {
     refreshEvery: POLL_MS, refreshWhile: isRunning, onData: (next) => { if (next.state === "done") onFinished(); },
