@@ -16,7 +16,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   uploadSupplyCsv: vi.fn(),
   clearSupplyCsv: vi.fn(),
   testSupplyConnector: vi.fn(),
-  listSupplyCapacity: vi.fn(),
 }));
 
 import { SupplyConnectorsView } from "./connectors-view";
@@ -54,7 +53,6 @@ function pick(file: File) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.listSupplyCapacity.mockResolvedValue([]);
 });
 afterEach(cleanup);
 

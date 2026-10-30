@@ -17,12 +17,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.supply_call import run_supply as _run
-from app.api.supply_connectors_models import SupplyCapacity, SupplyConnector, SupplyConnectorCheck, SupplyCsvResult, SupplyProvider
+from app.api.supply_connectors_models import SupplyConnector, SupplyConnectorCheck, SupplyCsvResult, SupplyProvider
 from app.api.supply_models import Items
 from app.core.config import settings
 from app.core.errors import BadRequest
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
-from app.services.supply import capacity, connector_check, oauth
+from app.services.supply import connector_check, oauth
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.csv_format import MAX_BYTES, TEMPLATE
 from app.services.supply.csv_import_service import CsvImportService, CsvRejected
@@ -194,13 +194,6 @@ async def test_connector_connection(
     return await _run(lambda: connector_check.check_connector(service, connector_id, _actor(admin)))
 
 
-@router.get("/capacity", response_model=Items[SupplyCapacity])
-async def get_capacity(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    def read() -> dict[str, Any]:
-        with service.store.connection() as conn:
-            return {"items": capacity.connector_capacity(conn)}
-
-    return await _run(read)
 
 
 @router.post("/connectors/{connector_id}/resume", response_model=SupplyConnector, response_model_exclude_unset=True)

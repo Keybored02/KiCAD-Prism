@@ -734,11 +734,6 @@
     "path": "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
     "typed": true
   },
-  "get_capacity": {
-    "method": "GET",
-    "path": "/api/v1/supply/capacity",
-    "typed": true
-  },
   "get_catalog_asset_content": {
     "method": "GET",
     "path": "/api/v1/catalog/assets/{asset_id}/content",

@@ -3,7 +3,7 @@
 This is not a forecast of years, and its bands claim none: *ended*, *ending* (an end is announced or every
 distributor has dropped it), *warning signs*, *no signs of an end* and *not enough to say*. Each signal is listed
 with where it came from and any date it gives, so a person can disagree with the band. Absence of signals is never
-read as a long life. (The band keys keep their old spellings, which stored facts, filters and links use.)
+read as a long life.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from typing import Any, Mapping, Sequence
 from app.services.supply.vocabulary import Lifecycle
 
 ENDED = "ended"
-UNDER_TWO = "under_2_years"
-TWO_TO_FIVE = "2_to_5_years"
+ENDING = "ending"
+WARNING_SIGNS = "warning_signs"
 NO_SIGNS = "no_signs"
 UNKNOWN = "unknown"
 
@@ -26,8 +26,8 @@ PRICE_RISE_PERCENT = 20
 
 LABELS = {
     ENDED: "Ended",
-    UNDER_TWO: "Ending",
-    TWO_TO_FIVE: "Warning signs",
+    ENDING: "Ending",
+    WARNING_SIGNS: "Warning signs",
     NO_SIGNS: "No signs of an end",
     UNKNOWN: "Not enough to say",
 }
@@ -83,9 +83,9 @@ def band(lifecycle: Lifecycle, found: Sequence[Signal], *, has_data: bool) -> st
     if lifecycle is Lifecycle.OBSOLETE:
         return ENDED
     if any(item.weight == "hard" for item in found):
-        return UNDER_TWO
+        return ENDING
     if any(item.weight == "watch" for item in found) or sum(1 for item in found if item.weight == "soft") >= SOFT_SIGNALS_FOR_WATCH:
-        return TWO_TO_FIVE
+        return WARNING_SIGNS
     if lifecycle is Lifecycle.UNKNOWN and not has_data:
         return UNKNOWN
     return NO_SIGNS

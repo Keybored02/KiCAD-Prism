@@ -274,24 +274,13 @@ class SchedulingTests(unittest.TestCase):
         summary = self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(calls_per_group=2), clock=self.clock).poll_connector(self.cid)
         self.assertEqual((summary.calls, self.spent()), (2, 2))
 
-    def test_capacity_counts_a_grouped_provider_in_parts(self) -> None:
-        from app.services.supply import capacity
-
-        a = self.watch("AAA")
-        for sku in ("A-1", "A-2", "A-3"):
-            self.listing(a.part_id, sku)
-        with self.store.connection() as conn:
-            (row,) = [item for item in capacity.connector_capacity(conn) if item["connector_id"] == self.cid]
-        self.assertEqual(row["listings"], 3)
-        self.assertAlmostEqual(row["calls_per_day"], 1.0, places=3, msg="one call a day reads all of a part's listings")
-
     def test_a_connector_is_said_to_search_and_price_only_the_parts_it_reads(self) -> None:
-        from app.services.supply import capacity
+        from app.services.supply import budget_view
 
         records = [self.watch(mpn) for mpn in ("AAA", "BBB", "CCC")]
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_admissions SET state = 'waiting' WHERE part_id = %s", (records[2].part_id,))
-            (row,) = [item for item in capacity.connector_capacity(conn) if item["connector_id"] == self.cid]
+            (row,) = [item for item in budget_view.view(conn, self.clock.now) if item["connector_id"] == self.cid]
         self.assertEqual(row["searches_pending"], 2, "the part that waits for room is not counted as unsearched")
         self.assertEqual(row["quotes"]["of"], 2, "nor as a part this connector should price")
 

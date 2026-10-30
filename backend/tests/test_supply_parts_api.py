@@ -893,7 +893,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         from app.services.supply import ending_parts
 
         item = {"lifecycle": "nrnd", "dropped": True}
-        self.assertEqual([r["kind"] for r in ending_parts.reasons_of(item, "under_2_years")], ["nrnd", "dropped", "outlook"])
+        self.assertEqual([r["kind"] for r in ending_parts.reasons_of(item, "ending")], ["nrnd", "dropped", "outlook"])
         self.assertEqual(ending_parts.reasons_of({"lifecycle": "active", "dropped": False}, "no_signs"), [])
         self.assertEqual(ending_parts.reasons_of({"lifecycle": "last_time_buy", "dropped": False}, None)[0]["text"], "Last time buy")
 

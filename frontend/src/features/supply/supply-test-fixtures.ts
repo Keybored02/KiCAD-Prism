@@ -1,4 +1,4 @@
-import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
+import type { SupplyAlert, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 import type {
   PartPrice, ProjectSupplyPart, SupplyReviewListing, SupplyReviewQueue, SupplyToApprove, ReleaseCheckLine, RowDistributor, SupplyBomBuy, SupplyBomLineResult, SupplyBomRollup, SupplyComponentStanding, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
 } from "@/types/supply.generated";
@@ -195,13 +195,6 @@ export function rowOfferFixture(overrides: Partial<SupplyRowOffer> = {}): Supply
 
 export function distributorFixture(overrides: Partial<RowDistributor> = {}): RowDistributor {
   return { connector_id: "c1", provider: "mouser", name: "Mouser EU", stock: 0, price: null, currency: "", ...overrides };
-}
-
-export function capacityFixture(overrides: Partial<SupplyCapacity> = {}): SupplyCapacity {
-  return {
-    connector_id: "c1", name: "Demo EU", listings: 12, calls_per_day: 66, usable_per_day: 900,
-    shortfall_pct: 0, fits: true, searches_pending: 0, quotes: { parts: 0, of: 0 }, ...overrides,
-  };
 }
 
 export function alertFixture(overrides: Partial<SupplyAlert> = {}): SupplyAlert {

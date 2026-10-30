@@ -9,7 +9,7 @@ afterEach(cleanup);
 describe("the outlook section", () => {
   it("shows the band and every signal with its source", () => {
     const outlook: SupplyOutlook = {
-      band: "under_2_years",
+      band: "ending",
       label: "Ending",
       method: "rule-based",
       signals: [{ text: "A last time buy has been announced.", source: "distributor lifecycle", weight: "hard" }],

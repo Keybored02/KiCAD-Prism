@@ -228,8 +228,12 @@ export interface BudgetConnector {
   owners: BudgetOwners;
   pool: Spent;
   provider: string;
+  /** Of the tracked parts admitted here, how many this connector gives a price for. */
+  quotes: QuoteCoverage;
   refused_today: number;
   reset_in_seconds: number;
+  /** Tracked parts admitted here and not searched for yet. */
+  searches_pending: number;
   shares_account: boolean;
   spare_spent: number;
   spent: number;
@@ -1251,11 +1255,11 @@ export interface OutEverywhere {
 }
 
 export interface Outlook {
-  "2_to_5_years": number;
   ended: number;
+  ending: number;
   no_signs: number;
-  under_2_years: number;
   unknown: number;
+  warning_signs: number;
 }
 
 export interface OutlookSignal {
@@ -2548,21 +2552,6 @@ export interface SupplyBomWatchResult {
   watched: number;
 }
 
-export interface SupplyCapacity {
-  calls_per_day: number;
-  connector_id: string;
-  fits: boolean;
-  listings: number;
-  name: string;
-  /** Of the tracked parts, how many this connector gives a price for. */
-  quotes: QuoteCoverage;
-  /** Watched parts not yet searched for at this connector. */
-  searches_pending: number;
-  /** Share of reads that will run later than their tier asks. */
-  shortfall_pct: number;
-  usable_per_day: number;
-}
-
 export interface SupplyChoice {
   kind: "maker" | "unlisted" | "number";
   manufacturer: string;
@@ -3012,7 +3001,7 @@ export interface SupplyOtherNumberGroup {
 
 /** A rule-based band with every signal behind it. */
 export interface SupplyOutlook {
-  band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
+  band: "ended" | "ending" | "warning_signs" | "no_signs" | "unknown";
   label: string;
   method: "rule-based";
   signals: OutlookSignal[];

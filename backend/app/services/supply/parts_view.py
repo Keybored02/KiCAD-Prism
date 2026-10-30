@@ -30,7 +30,7 @@ Filter = Literal[
     "", "at_risk", "out_of_stock", "lifecycle", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings", "draining",
     "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving", "likely_out_4w", "likely_out_8w",
     "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown",
-    "outlook_ended", "outlook_under_2_years", "outlook_2_to_5_years", "outlook_no_signs", "outlook_unknown",
+    "outlook_ended", "outlook_ending", "outlook_warning_signs", "outlook_no_signs", "outlook_unknown",
     "lead_under_2w", "lead_2_to_8w", "lead_8_to_16w", "lead_16_to_26w", "lead_over_26w", "lead_none",
     "rohs_compliant", "rohs_not_compliant", "rohs_disputed", "rohs_not_applicable", "rohs_unknown",
     "reach_compliant", "reach_affected", "reach_not_applicable", "reach_unknown",

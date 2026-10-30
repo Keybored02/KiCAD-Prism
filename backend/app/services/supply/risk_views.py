@@ -204,7 +204,7 @@ def outlook_bands(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     from app.services.supply import outlook
 
     counts = Counter(row.get("outlook_band") or outlook.UNKNOWN for row in rows)
-    return {name: counts.get(name, 0) for name in (outlook.ENDED, outlook.UNDER_TWO, outlook.TWO_TO_FIVE, outlook.NO_SIGNS, outlook.UNKNOWN)}
+    return {name: counts.get(name, 0) for name in (outlook.ENDED, outlook.ENDING, outlook.WARNING_SIGNS, outlook.NO_SIGNS, outlook.UNKNOWN)}
 
 
 def compliance_verdicts(conn, tracked: Sequence[str]) -> tuple[dict[str, str], dict[str, str]]:

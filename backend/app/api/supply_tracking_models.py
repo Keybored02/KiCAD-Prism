@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.supply_checks_models import SkippedLine
+from app.api.supply_connectors_models import QuoteCoverage
 from app.api.supply_models import JobProgress, SupplyModel
 from app.api.supply_parts_models import PartTracking, WatchPackaging
 from app.services.supply import usage
@@ -343,6 +344,8 @@ class BudgetConnector(SupplyModel):
     notices: Optional[BudgetNotices]
     library: Optional[BudgetLibrary]
     owners: BudgetOwners
+    searches_pending: int = Field(description="Tracked parts admitted here and not searched for yet.")
+    quotes: QuoteCoverage = Field(description="Of the tracked parts admitted here, how many this connector gives a price for.")
 
 
 class RoomFigure(SupplyModel):

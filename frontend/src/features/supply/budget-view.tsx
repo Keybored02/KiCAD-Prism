@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
-import type { BudgetCall, BudgetConnector, SupplyCapacity } from "@/types/supply";
+import type { BudgetCall, BudgetConnector } from "@/types/supply";
 import { partHref } from "./supply-views";
 import { getBudget } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
@@ -65,7 +65,7 @@ function Days({ rows, budget }: { rows: readonly BudgetCall[]; budget: number })
 }
 
 /** Where a connector's budget goes today and what tracking costs, shown under its card's Calls today bar. */
-export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capacity?: SupplyCapacity }) {
+export function BudgetDetail({ item }: { item: BudgetConnector }) {
   const today = totalsByPurpose(item.hourly);
   const standing = item.tracking;
   return (
@@ -79,12 +79,12 @@ export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capaci
           Tracking promises {standing.committed} of {standing.capacity} calls a day, for {standing.admitted} parts{standing.waiting > 0 ? `; ${standing.waiting} wait for room` : ""}.
         </p>
       ) : null}
-      {capacity?.quotes && capacity.quotes.of > 0 ? (
-        <p className="text-xs text-muted-foreground">Gives a price for {capacity.quotes.parts.toLocaleString()} of {capacity.quotes.of.toLocaleString()} tracked parts.</p>
+      {item.quotes.of > 0 ? (
+        <p className="text-xs text-muted-foreground">Gives a price for {item.quotes.parts.toLocaleString()} of {item.quotes.of.toLocaleString()} tracked parts.</p>
       ) : null}
-      {capacity && capacity.searches_pending > 0 ? (
+      {item.searches_pending > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {capacity.searches_pending.toLocaleString()} watched {capacity.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
+          {item.searches_pending.toLocaleString()} watched {item.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
         </p>
       ) : null}
       <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground" aria-label="Spent today">

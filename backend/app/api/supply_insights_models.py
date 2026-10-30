@@ -294,8 +294,8 @@ class LifecycleMix(SupplyModel):
 
 class Outlook(SupplyModel):
     ended: int
-    under_2_years: int
-    years_2_to_5: int = Field(alias="2_to_5_years")
+    ending: int
+    warning_signs: int
     no_signs: int
     unknown: int
 

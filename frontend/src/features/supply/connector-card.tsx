@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
+import { type BudgetConnector, type SupplyConnector } from "@/types/supply";
 import { BudgetDetail } from "./budget-view";
 import { CallBudget, LibraryBar, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
@@ -33,13 +33,12 @@ export type ConnectorAction =
 
 interface ConnectorCardProps {
   connector: SupplyConnector;
-  capacity?: SupplyCapacity;
   budget?: BudgetConnector;
   isAdmin: boolean;
   onAction: (action: ConnectorAction, connector: SupplyConnector) => void;
 }
 
-export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }: ConnectorCardProps) {
+export function ConnectorCard({ connector, budget, isAdmin, onAction }: ConnectorCardProps) {
   const state = connectorState(connector);
   const credentialNames = Object.keys(connector.credentials);
   const where = [connector.provider_label, connector.storefront, connector.currency].filter(Boolean).join(" · ");
@@ -62,7 +61,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
       </div>
 
       {connector.metered
-        ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} capacity={capacity} /> : undefined} />
+        ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} /> : undefined} />
         : <OffersFile connector={connector} />}
       {budget?.library && budget.library.total > 0 ? <LibraryBar library={budget.library} /> : null}
       {providerNote(connector.provider, connector.catalogue) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider, connector.catalogue)}</p> : null}

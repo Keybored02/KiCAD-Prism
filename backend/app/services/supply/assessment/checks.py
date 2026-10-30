@@ -41,7 +41,7 @@ class Facts:
     svhc_listed: Sequence[str] = ()
     # What each distributor quotes per piece at the part's price quantity, in the base currency: (distributor name, price).
     prices: Sequence[tuple[str, Decimal]] = ()
-    # Where the part stands on the way to its end (``outlook.py``): "ended", "under_2_years", "2_to_5_years", "no_signs", "unknown", or "" when not known.
+    # Where the part stands on the way to its end (``outlook.py``): "ended", "ending", "warning_signs", "no_signs", "unknown", or "" when not known.
     outlook: str = ""
     # The earliest last date to buy a distributor states or an open notice gives, when there is one.
     last_buy: date | None = None
@@ -231,7 +231,7 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     offers = list(facts.offers)
     # A lifecycle word or every distributor dropping the part already says it; the outlook adds what notices and last dates to buy say. An "ended" outlook is only ever an obsolete part, which is already said.
     said = facts.lifecycle in (Lifecycle.OBSOLETE, Lifecycle.LAST_TIME_BUY) or (bool(offers) and all(o["discontinued"] for o in offers))
-    if facts.outlook == "under_2_years" and not said:
+    if facts.outlook == "ending" and not said:
         add(ids.ENDING_WITHIN_2_YEARS, "A notice or a last date to buy says this part is ending.", "ending_within_2_years")
     _notice(facts, settings, add)
     _target(facts, add)
