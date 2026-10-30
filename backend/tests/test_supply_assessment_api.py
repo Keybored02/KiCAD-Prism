@@ -43,6 +43,8 @@ class AssessmentApiTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         for module in (supply_parts, supply_tracking, supply_assessment, supply_bom):
             cls.app.include_router(module.router)
         supply_connectors.register_validation_redaction(cls.app)
@@ -159,12 +161,12 @@ class AssessmentApiTests(unittest.TestCase):
     def test_what_cannot_be_waived(self) -> None:
         self.offer()
         no_finding = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "x"})
-        self.assertEqual((no_finding.status, no_finding.json["detail"]["message"]), (400, "The part has no such finding to waive."))
+        self.assertEqual((no_finding.status, no_finding.json["detail"]), (400, "The part has no such finding to waive."))
         self.offer(lifecycle="nrnd", sku="B")
         self.assertEqual(self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "  "}).status, 400)
         self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "ok"})
         twice = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "ok"})
-        self.assertEqual(twice.json["detail"]["message"], "This finding already has a waiver.")
+        self.assertEqual(twice.json["detail"], "This finding already has a waiver.")
 
     def test_rejecting_and_revoking(self) -> None:
         self.offer(lifecycle="nrnd")

@@ -16,18 +16,23 @@ from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply import makers
 from app.services.supply.makers import same_maker
+from app.services.supply.errors import Missing, Refused
 
 
-class PartNotFound(KeyError):
+class PartNotFound(Missing):
     """No part with this id."""
 
 
-class AliasError(ValueError):
+class AliasError(Refused):
     """The alias cannot be confirmed as asked. The message is safe to show."""
 
+    code = "alias_error"
 
-class UnknownManufacturer(ValueError):
+
+class UnknownManufacturer(Refused):
     """The part cannot be made from the line as written. The message is safe to show."""
+
+    code = "unknown_manufacturer"
 
 
 class AmbiguousNumber(UnknownManufacturer):

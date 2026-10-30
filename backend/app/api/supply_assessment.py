@@ -6,14 +6,15 @@ access (admin, designer, qa); approving and rejecting follow catalog QA (admin, 
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Optional, TypeVar
+from functools import partial
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver, require_supply_editor
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
 from app.services.supply import parts
 from app.services.supply.assessment import service, waivers
@@ -21,8 +22,7 @@ from app.services.supply.assessment.checks import Finding
 from app.services.supply.vocabulary import Status
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="waiver_error")
 
 
 class ProposeWaiverRequest(BaseModel):
@@ -36,21 +36,6 @@ class ProposeWaiverRequest(BaseModel):
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, (waivers.WaiverNotFound, parts.PartNotFound)):
-        return HTTPException(status_code=404, detail="Not found")
-    if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail={"code": "waiver_error", "message": str(exc)})
-    raise exc
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except Exception as exc:
-        raise _http_error(exc) from exc
 
 
 @router.get("/parts/{part_id}/assessment")

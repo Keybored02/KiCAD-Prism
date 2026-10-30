@@ -22,13 +22,16 @@ from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
 from app.services.supply.bom_lookup import BomLine
 from app.services.supply.vocabulary import Status
+from app.services.supply.errors import Missing
 
 MAX_LISTED = 25
 _BLOCKING = ("fatal", "error")
 
 
-class SnapshotNotFound(KeyError):
+class SnapshotNotFound(Missing):
     """No snapshot for this build."""
+
+    default_detail = "No supply snapshot for this build"
 
 
 def _open(findings: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:

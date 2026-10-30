@@ -22,6 +22,7 @@ from typing import Any, Callable
 from app.services.supply import budget, clock
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import ProviderSpec
+from app.services.supply.errors import Clash
 
 ADMITTED = "admitted"
 WAITING = "waiting"
@@ -29,8 +30,10 @@ WAITING = "waiting"
 DEFAULT_LISTINGS = 1.0
 
 
-class NoRoom(ValueError):
+class NoRoom(Clash):
     """Nothing the change adds fits at any connector. The message names what holds the room."""
+
+    code = "no_room"
 
 
 @dataclass(frozen=True, slots=True)

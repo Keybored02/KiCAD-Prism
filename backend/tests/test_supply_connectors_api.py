@@ -70,6 +70,8 @@ class SupplyConnectorsApiTests(unittest.TestCase):
 
         cls.service = ConnectorService(cls.store, keyring_factory=keyring, allow_dev=lambda: cls.allow_dev)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_connectors.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.service)
@@ -209,17 +211,17 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self._create(provider="demo_keyed", credentials={"api_key": "k"})
         duplicate = self.call("POST", "/api/supply/connectors",
                               body={"provider": "demo_keyed", "credentials": {"api_key": "k"}})
-        self.assertEqual((duplicate.status, duplicate.json["detail"]["code"]), (409, "duplicate"))
+        self.assertEqual((duplicate.status, duplicate.json["code"]), (409, "duplicate"))
 
         missing = self.call("POST", "/api/supply/connectors", body={"provider": "demo_keyed"})
-        self.assertEqual((missing.status, missing.json["detail"]["code"]), (400, "invalid_credentials"))
+        self.assertEqual((missing.status, missing.json["code"]), (400, "invalid_credentials"))
 
         unknown = self.call("POST", "/api/supply/connectors", body={"provider": "nope"})
-        self.assertEqual((unknown.status, unknown.json["detail"]["code"]), (400, "unknown_provider"))
+        self.assertEqual((unknown.status, unknown.json["code"]), (400, "unknown_provider"))
 
         type(self).allow_dev = False
         disabled = self.call("POST", "/api/supply/connectors", body={"provider": "fake"})
-        self.assertEqual((disabled.status, disabled.json["detail"]["code"]), (403, "provider_disabled"))
+        self.assertEqual((disabled.status, disabled.json["code"]), (403, "provider_disabled"))
 
         self.assertEqual(self.call("PATCH", "/api/supply/connectors/missing", body={"enabled": True}).status, 404)
         self.assertEqual(self.call("POST", "/api/supply/connectors/missing/resume").status, 404)
@@ -232,11 +234,11 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual(response.json["detail"], "Credential encryption is locked")
 
     def test_a_missing_root_key_is_told_apart_from_an_invalid_one(self) -> None:
-        from app.api.supply_connectors import _http_error
+        from app.api.supply_call import _keyring
         from app.services.trackers.secrets import SecretStoreLocked
 
-        missing = _http_error(SecretStoreLocked("Tracker credential encryption is disabled: TRACKER_CREDENTIAL_ROOT_KEY is not set."))
-        invalid = _http_error(SecretStoreLocked("Tracker credential encryption is locked: root key is invalid."))
+        missing = _keyring(SecretStoreLocked("Tracker credential encryption is disabled: TRACKER_CREDENTIAL_ROOT_KEY is not set."))
+        invalid = _keyring(SecretStoreLocked("Tracker credential encryption is locked: root key is invalid."))
         self.assertEqual((missing.status_code, invalid.status_code), (503, 503))
         self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY is empty", missing.detail)
         self.assertEqual(invalid.detail, "Credential encryption is locked")
@@ -263,6 +265,8 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         from fastapi.responses import JSONResponse
 
         app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(app)
 
         async def other(request, exc):
             return JSONResponse(status_code=422, content={"handled_by": "previous"})
@@ -333,11 +337,11 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         bad = b"sku,mpn,manufacturer,stock,notes\nS1,M1,Acme,10,x\nS2,M2,Acme,oops,y\n"
         response = self._upload(cid, bad)
         self.assertEqual(response.status, 400)
-        detail = response.json["detail"]
-        self.assertEqual(detail["code"], "csv_rejected")
-        self.assertEqual(detail["error_count"], 1)
-        self.assertEqual(detail["errors"], [{"line": 3, "column": "stock", "message": "A whole number, digits only."}])
-        self.assertEqual(detail["ignored_columns"], ["notes"])
+        body = response.json
+        self.assertEqual((body["code"], body["detail"]), ("csv_rejected", "The file was not imported. 1 problem(s) found."))
+        self.assertEqual(body["error_count"], 1)
+        self.assertEqual(body["errors"], [{"line": 3, "column": "stock", "message": "A whole number, digits only."}])
+        self.assertEqual(body["ignored_columns"], ["notes"])
         kept = self.call("GET", "/api/supply/connectors").json[0]["csv_import"]
         self.assertEqual(kept["filename"], "good.csv", "the earlier data is untouched")
 
@@ -350,7 +354,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual(self._upload("missing", self.CSV_OK.encode()).status, 404)
         other = self._create(provider="demo_keyed", credentials={"api_key": "k"})["id"]
         refused = self._upload(other, self.CSV_OK.encode())
-        self.assertEqual((refused.status, refused.json["detail"]["code"]), (400, "not_csv"))
+        self.assertEqual((refused.status, refused.json["code"]), (400, "not_csv"))
         for provider in ("lcsc", "jlcpcb"):
             target = self._create(provider=provider)["id"]
             self.assertEqual(self._upload(target, self.CSV_OK.encode()).status, 200, provider)
@@ -360,7 +364,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         priced = b"sku,mpn,manufacturer,stock,price_1\nS1,M1,Acme,1,0.5\n"
         refused = self._upload(cid, priced)
         self.assertEqual(refused.status, 400)
-        self.assertEqual(refused.json["detail"]["errors"][0]["column"], "currency")
+        self.assertEqual(refused.json["errors"][0]["column"], "currency")
         self.call("PATCH", f"/api/supply/connectors/{cid}", body={"currency": "gbp"})
         self.assertEqual(self._upload(cid, priced).status, 200)
 

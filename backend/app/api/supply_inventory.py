@@ -6,24 +6,21 @@ could not match; QA and administrators link them to a component in Supply > Revi
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
-from typing import Callable, Literal, Optional, TypeVar
+from functools import partial
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.errors import UpstreamFailure
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_admin, require_supply_approver, require_supply_reader
 from app.services.supply.inventory import sources, sync
 from app.services.supply.inventory.inventree import InvenTreeClient
-from app.services.supply.providers.base import ProviderError
-from app.services.trackers.secrets import SecretStoreLocked
 
 router = APIRouter(prefix="/api/supply/inventory-sources", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, upstream=True)
 
 
 def _store():
@@ -33,19 +30,6 @@ def _store():
 
 def _keyring():
     return supply_connectors.service.keyring()
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except sources.SourceNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except SecretStoreLocked as exc:
-        raise HTTPException(status_code=503, detail={"code": "keyring_locked", "message": "The credential keyring is locked."}) from exc
-    except sources.SourceError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_source", "message": str(exc)}) from exc
-    except ProviderError as exc:
-        raise UpstreamFailure(f"{exc.code}: {exc}") from exc
 
 
 class InventorySource(BaseModel):
@@ -194,7 +178,7 @@ async def check_inventory_source(source_id: str, _admin: AuthenticatedUser = Dep
 async def sync_inventory_source(source_id: str, _admin: AuthenticatedUser = Depends(require_admin)) -> SyncResult:
     """Read the source now. A failed read keeps the stock it had, marked stale."""
 
-    return await _run(lambda: SyncResult(**sync.sync(_store(), _keyring(), source_id)))
+    return await run_supply(lambda: SyncResult(**sync.sync(_store(), _keyring(), source_id)), upstream=True)
 
 
 @router.get("/{source_id}/unmatched")

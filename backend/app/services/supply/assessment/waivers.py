@@ -17,17 +17,20 @@ from typing import Any, Iterable, Mapping, Sequence
 from app.services.supply import attention
 from app.services.supply.assessment.checks import Finding
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Missing, Refused
 
 PROPOSED, APPROVED, REJECTED = attention.PROPOSED, attention.APPROVED, attention.REJECTED
 MAX_REASON = 500
 
 
-class WaiverNotFound(KeyError):
+class WaiverNotFound(Missing):
     """No waiver with this id."""
 
 
-class WaiverError(ValueError):
+class WaiverError(Refused):
     """The change does not apply. The message is safe to show."""
+
+    code = "waiver_error"
 
 
 def _waiver(row: Mapping[str, Any]) -> dict[str, Any]:

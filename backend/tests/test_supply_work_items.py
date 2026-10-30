@@ -30,6 +30,8 @@ class WorkItemTests(unittest.TestCase):
         from app.api import supply_work_items
 
         app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(app)
         app.include_router(supply_work_items.router)
         return app
 

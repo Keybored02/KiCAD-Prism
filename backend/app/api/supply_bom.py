@@ -8,23 +8,23 @@ reported, not created.
 
 from __future__ import annotations
 
-import asyncio
 import base64
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.api.supply_access import is_approver
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import admission, bom_lookup, catalog_read, clock, project_bom, project_supply, spreadsheet, usage
 from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_request")
 
 
 class LineIn(BaseModel):
@@ -72,15 +72,6 @@ class WatchRequest(BaseModel):
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except admission.NoRoom as exc:
-        raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
 def _lines(items: list[LineIn]) -> list[bom_lookup.BomLine]:

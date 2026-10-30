@@ -6,33 +6,24 @@ approve, reject or remove them.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
-from typing import Callable, Literal, TypeVar
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply as _run
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import component_parts
 from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/components", tags=["supply"])
 
-T = TypeVar("T")
-
 
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except component_parts.ComponentPartError as exc:
-        raise HTTPException(status_code=400, detail={"code": "component_part_error", "message": str(exc)}) from exc
 
 
 class ComponentPart(BaseModel):

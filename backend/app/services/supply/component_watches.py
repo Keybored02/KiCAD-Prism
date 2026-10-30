@@ -15,10 +15,13 @@ from typing import Any
 
 from app.services.supply import component_parts, stock, tracking
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 
-class ComponentWatchError(ValueError):
+class ComponentWatchError(Refused):
     """The request is not valid. The message is safe to show."""
+
+    code = "component_watch_error"
 
 
 def get(conn, component_id: str) -> dict[str, Any] | None:

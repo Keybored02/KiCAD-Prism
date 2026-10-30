@@ -20,6 +20,7 @@ from typing import Any, Mapping
 from app.services.supply.bom_fields import identity_of, is_fitted, lcsc_of, prism_id_of
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.usage import MAX_REFERENCES_TEXT, Identities, UsageLine
+from app.services.supply.errors import Refused
 
 QUANTITY_FIELDS = ("qty", "quantity", "qnty", "count", "amount")
 REFERENCE_FIELDS = ("reference", "references", "designator", "designators", "refs", "ref")
@@ -27,8 +28,10 @@ MAX_ROWS = 20_000
 MAX_BYTES = 8 * 1024 * 1024
 
 
-class BomReadError(ValueError):
+class BomReadError(Refused):
     """The file is not a BOM that can be read. The message is safe to show."""
+
+    code = "bom_read_error"
 
 
 @dataclass(frozen=True, slots=True)

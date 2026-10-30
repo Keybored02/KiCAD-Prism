@@ -14,18 +14,21 @@ from typing import Any
 
 from app.services.supply import alerts, clock, component_parts, parts, stock, tracking
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Missing, Refused
 
 MAX_PINNED = 25
 
 _UNSET: Any = object()
 
 
-class WatchNotFound(KeyError):
+class WatchNotFound(Missing):
     """No watch with this id."""
 
 
-class WatchError(ValueError):
+class WatchError(Refused):
     """The change breaks a watch rule. The message is safe to show."""
+
+    code = "watch_error"
 
 
 @dataclass(frozen=True, slots=True)

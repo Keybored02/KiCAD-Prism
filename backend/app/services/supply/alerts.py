@@ -24,6 +24,7 @@ from app.services.supply import alert_rules, attention
 from app.services.supply.assessment import settings as checks_ids
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Status
+from app.services.supply.errors import Clash, Missing
 
 HOLD = timedelta(minutes=30)
 MAX_SNOOZE_HOURS = 24 * 30
@@ -58,12 +59,14 @@ ACKNOWLEDGED, SNOOZED = attention.ACKNOWLEDGED, attention.SNOOZED
 STATUS = "status"
 
 
-class AlertNotFound(KeyError):
+class AlertNotFound(Missing):
     """No alert with this id."""
 
 
-class AlertError(ValueError):
+class AlertError(Clash):
     """The action does not apply to this alert. The message is safe to show."""
+
+    code = "alert_state"
 
 
 @dataclass(frozen=True, slots=True)

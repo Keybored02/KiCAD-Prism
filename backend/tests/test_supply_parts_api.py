@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from supply_api_helpers import request as _request  # noqa: E402
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import pricing  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle, Status, worst_lifecycle  # noqa: E402
 
@@ -97,6 +98,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_parts.router)
         cls.app.include_router(supply_tracking.router)
         supply_connectors.register_validation_redaction(cls.app)
@@ -228,8 +230,8 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertGreater(conn.execute("SELECT COUNT(*) AS n FROM supply_samples").fetchone()["n"], before - 1)
             self.assertEqual(conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM supply_quota_ledger").fetchone()["n"], spent_before + 1)
         again = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
-        self.assertEqual((again.status, again.json["detail"]["code"]), (429, "read_too_soon"))
-        self.assertIn("again in", again.json["detail"]["message"])
+        self.assertEqual((again.status, again.json["code"]), (429, "read_too_soon"))
+        self.assertIn("again in", again.json["detail"])
         other = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="admin")
         self.assertEqual(other.status, 200, "the wait is per person")
 
@@ -450,7 +452,7 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(response.status, 422, body)
             self.assertNotIn("mallory", json.dumps(response.json))
         blank = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": " - "})
-        self.assertEqual((blank.status, blank.json["detail"]["code"]), (400, "invalid_request"))
+        self.assertEqual((blank.status, blank.json["code"]), (400, "invalid_request"))
 
     def test_changing_a_watch(self) -> None:
         watch = self.watch_via_api(threshold=50)
@@ -469,7 +471,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         with mock.patch.object(self.watches, "MAX_PINNED", 1):
             self.watch_via_api("P1", pinned=True)
             refused = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": "P2", "pinned": True})
-            self.assertEqual((refused.status, refused.json["detail"]["code"]), (400, "watch_error"))
+            self.assertEqual((refused.status, refused.json["code"]), (400, "watch_error"))
 
     def test_removing_a_watch_keeps_the_part(self) -> None:
         watch = self.watch_via_api()

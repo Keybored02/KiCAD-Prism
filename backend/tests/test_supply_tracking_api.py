@@ -61,6 +61,8 @@ class TrackingApiTests(unittest.TestCase):
             credential_fields=(), factory=lambda config: FakeProvider(config), default_daily_budget=100,
         ), replace=True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_tracking.router)
         cls.app.include_router(supply_tracking.budget_router)
         cls.app.include_router(supply_checks.router)
@@ -144,14 +146,14 @@ class TrackingApiTests(unittest.TestCase):
     def test_nothing_that_fits_nowhere_is_refused_with_the_reason(self) -> None:
         self.connector(budget=1)
         result = self.call("PUT", "/projects/prj_1", body={"variants": [""]})
-        self.assertEqual((result.status, result.json["detail"]["code"]), (409, "no_room"))
+        self.assertEqual((result.status, result.json["code"]), (409, "no_room"))
         self.assertEqual(self.counts(), {"tier1": 0, "tier2": 0})
         self.assertTrue(self.call("POST", "/projects/prj_1/preview", body={"variants": [""]}).json["fits_nowhere"])
 
     def test_an_unknown_variant_is_a_bad_request(self) -> None:
         self.connector()
         result = self.call("PUT", "/projects/prj_1", body={"variants": ["nope"]})
-        self.assertEqual((result.status, result.json["detail"]["code"]), (400, "invalid_request"))
+        self.assertEqual((result.status, result.json["code"]), (400, "invalid_request"))
 
     def test_a_person_sets_a_parts_tier_and_clears_it(self) -> None:
         self.connector()
@@ -214,7 +216,7 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual(_request(self.app, "POST", "/api/supply/checks", user=self.users["viewer"], body=body).status, 403)
         self.assertEqual(_request(self.app, "GET", "/api/supply/checks/nope", user=self.users["qa"]).status, 404)
         empty = _request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body={"kind": "bom", "lines": []})
-        self.assertEqual((empty.status, empty.json["detail"]["code"]), (400, "invalid_check"))
+        self.assertEqual((empty.status, empty.json["code"]), (400, "invalid_check"))
         self.assertEqual(_request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body={"kind": "other", "lines": []}).status, 422)
 
     def test_the_spare_switches_are_read_by_readers_and_changed_by_administrators_and_there_is_no_week(self) -> None:

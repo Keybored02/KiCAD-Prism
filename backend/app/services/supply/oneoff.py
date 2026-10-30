@@ -25,6 +25,7 @@ from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.progress import job_progress
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.providers import registry
+from app.services.supply.errors import Refused
 
 MAX_PARTS = 2000
 MAX_ATTEMPTS = 5
@@ -32,8 +33,10 @@ PER_RUN = 20
 KEEP_DAYS = 7
 
 
-class RequestError(ValueError):
+class RequestError(Refused):
     """The request cannot be made. The message is safe to show."""
+
+    code = "invalid_check"
 
 
 def _eligible_connectors(conn) -> list[str]:

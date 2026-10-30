@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_commenter, require_supply_reader
 from app.services.supply import bom_comments
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_comment")
 
 
 class CommentIn(BaseModel):
@@ -27,15 +27,6 @@ class CommentIn(BaseModel):
 
 def _store():
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except bom_comments.CommentNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_comment", "message": str(exc)}) from exc
 
 
 @router.get("/{project_id}/bom-comments")

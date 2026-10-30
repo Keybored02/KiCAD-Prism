@@ -18,6 +18,7 @@ from typing import Any, Sequence
 
 from app.services.supply import attention, clock, component_parts, usage
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Denied, Refused
 
 SUBJECTS = ("component", "part")
 ACTIONS = ("investigate", "alternate", "not_for_new_designs", "retire", "replace", "last_time_buy", "other")
@@ -27,12 +28,16 @@ MAX_NOTE = 2000
 MAX_NOTES = 50
 
 
-class WorkItemError(ValueError):
+class WorkItemError(Refused):
     """The request is not valid. The message is safe to show."""
 
+    code = "invalid_work_item"
 
-class NotAllowed(PermissionError):
+
+class NotAllowed(Denied):
     """The caller may not make this change."""
+
+    code = "not_allowed"
 
 
 def _clean_title(title: str) -> str:

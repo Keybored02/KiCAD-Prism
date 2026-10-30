@@ -10,10 +10,13 @@ from __future__ import annotations
 import io
 import zipfile
 from datetime import date, datetime
+from app.services.supply.errors import Refused
 
 
-class SpreadsheetError(ValueError):
+class SpreadsheetError(Refused):
     """The file is too large or not a readable spreadsheet. The message is for the person who chose it."""
+
+    code = "invalid_spreadsheet"
 
 
 def _text(cell: object) -> str:

@@ -5,21 +5,21 @@ Admin and designer enter notices. Every part a notice names must be in the Compo
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date
-from typing import Any, Callable, Optional, TypeVar
+from functools import partial
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import component_parts, details, parts, pcn, substitutes
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_notice")
 
 
 class NoticePart(BaseModel):
@@ -46,21 +46,6 @@ def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except (pcn.NoticeNotFound, parts.PartNotFound) as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except component_parts.NotInLibrary as exc:
-        raise HTTPException(status_code=400, detail={"code": "not_in_library", "message": str(exc)}) from exc
-    except parts.UnknownManufacturer as exc:
-        raise HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)}) from exc
-    except (details.TooSoon, substitutes.TooSoon) as exc:
-        raise HTTPException(status_code=429, detail={"code": "too_soon", "message": str(exc)}) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_notice", "message": str(exc)}) from exc
-
-
 @router.get("/parts/{part_id}/notices")
 async def part_notices(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
@@ -75,14 +60,14 @@ async def part_notices(part_id: str, _user: AuthenticatedUser = Depends(require_
 async def check_notices(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     """Read this part's change notices from the distributors that list them, now. Once an hour per person and part."""
 
-    return await _run(lambda: details.check_now(supply_connectors.service, part_id, writer.email))
+    return await run_supply(lambda: details.check_now(supply_connectors.service, part_id, writer.email), invalid="invalid_notice")
 
 
 @router.post("/parts/{part_id}/ask-substitutes")
 async def ask_substitutes(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """Ask the distributors that can (DigiKey) for parts they offer in place of this one, now. Once an hour per part."""
 
-    return await _run(lambda: substitutes.ask_now(supply_connectors.service, part_id, user.email))
+    return await run_supply(lambda: substitutes.ask_now(supply_connectors.service, part_id, user.email), invalid="invalid_notice")
 
 
 @router.post("/notices", status_code=201)

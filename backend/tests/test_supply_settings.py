@@ -14,6 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import settings as workspace  # noqa: E402
 from app.services.supply.assessment import settings as rules  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
@@ -118,6 +119,7 @@ class SettingsApiTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_settings.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -209,7 +211,7 @@ class SettingsApiTests(unittest.TestCase):
         for role in ("qa", "designer", "viewer"):
             self.assertEqual(self.call("PUT", self.payload(), role=role).status, 403, role)
         bad = self.call("PUT", self.payload(lead_time_days=0))
-        self.assertEqual((bad.status, bad.json["detail"]["code"]), (400, "invalid_settings"))
+        self.assertEqual((bad.status, bad.json["code"]), (400, "invalid_settings"))
 
     def test_reset_returns_to_the_defaults(self) -> None:
         from app.services.supply import settings as supply_settings

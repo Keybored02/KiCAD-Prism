@@ -21,12 +21,15 @@ from app.services.supply.makers import same_maker
 from app.services.supply.models import PartMatch
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
+from app.services.supply.errors import Refused
 
 MAX_CANDIDATES_PER_CONNECTOR = 5
 
 
-class FillError(ValueError):
+class FillError(Refused):
     """The request cannot be served. The message is safe to show."""
+
+    code = "fill_error"
 
 
 def _unusable(connector: dict[str, Any], now: datetime, service: ConnectorService) -> str | None:

@@ -163,13 +163,13 @@ class PushOffersTests(unittest.TestCase):
     def test_bad_rows_take_nothing_and_say_where(self) -> None:
         cid = self._connector()
         answer = self._push(cid, [_offer("SKU-1"), _offer("SKU-2", lifecycle="sometimes")])
-        self.assertEqual((answer.status, answer.json["detail"]["code"]), (400, "offers_rejected"))
-        self.assertEqual(answer.json["detail"]["errors"], [{"row": 2, "field": "lifecycle", "message": answer.json["detail"]["errors"][0]["message"]}])
+        self.assertEqual((answer.status, answer.json["code"]), (400, "offers_rejected"))
+        self.assertEqual(answer.json["errors"], [{"row": 2, "field": "lifecycle", "message": answer.json["errors"][0]["message"]}])
         self.assertEqual(self._rows("SELECT sku FROM supply_csv_offers"), [])
 
     def test_only_a_file_fed_connector_takes_offers_or_a_token(self) -> None:
         cid = self._connector("fake")
-        self.assertEqual(self._push(cid, [_offer("SKU-1")]).json["detail"]["code"], "not_csv")
+        self.assertEqual(self._push(cid, [_offer("SKU-1")]).json["code"], "not_csv")
         self.assertEqual(_request(self.app, "POST", f"/api/supply/connectors/{cid}/push-token", user=self.users["admin"]).status, 400)
         self.assertEqual(self._push("nope", [_offer("SKU-1")]).status, 404)
 
@@ -272,7 +272,7 @@ class PushLevelsTests(unittest.TestCase):
     def test_a_source_prism_reads_takes_no_push(self) -> None:
         source_id = self._source("inventree")
         pushed = _request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/levels", user=self.users["admin"], body={"items": []})
-        self.assertEqual((pushed.status, pushed.json["detail"]["code"]), (400, "not_push"))
+        self.assertEqual((pushed.status, pushed.json["code"]), (400, "not_push"))
         self.assertEqual(_request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/push-token", user=self.users["admin"]).status, 400)
 
 

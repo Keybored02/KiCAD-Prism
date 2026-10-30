@@ -57,6 +57,8 @@ class SupplyReviewApiTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_review.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -238,10 +240,10 @@ class SupplyReviewApiTests(unittest.TestCase):
             ({"alias_key": "ti", "manufacturer_id": "missing"}, "alias_error"),
         ):
             response = self.call("POST", "/api/supply/review/aliases/confirm", body=body)
-            self.assertEqual((response.status, response.json["detail"]["code"]), (400, code), body)
+            self.assertEqual((response.status, response.json["code"]), (400, code), body)
         self.call("POST", "/api/supply/review/aliases/confirm", body={"alias_key": "ti", "manufacturer_id": mid})
         again = self.call("POST", "/api/supply/review/aliases/confirm", body={"alias_key": "ti", "manufacturer_id": mid})
-        self.assertEqual((again.status, again.json["detail"]["message"]), (400, "This spelling is already mapped."))
+        self.assertEqual((again.status, again.json["detail"]), (400, "This spelling is already mapped."))
 
     def test_the_request_must_name_exactly_one_target(self) -> None:
         for body in ({"alias_key": "ti"}, {"alias_key": "ti", "manufacturer_id": "x", "new_manufacturer_name": "Y"},
@@ -269,7 +271,7 @@ class SupplyReviewApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_listings SET part_id = NULL WHERE sku = 'S1'")
         orphan = self.call("POST", f"/api/supply/review/listings/{self.listing_id('S1')}/pin")
-        self.assertEqual((orphan.status, orphan.json["detail"]["code"]), (400, "invalid_request"))
+        self.assertEqual((orphan.status, orphan.json["code"]), (400, "invalid_request"))
 
 
 if __name__ == "__main__":

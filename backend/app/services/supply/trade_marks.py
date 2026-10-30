@@ -11,12 +11,15 @@ from typing import Any
 
 from app.services.supply import clock, facts, parts, trade
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 MAX_ECCN = 40
 
 
-class TradeMarkError(ValueError):
+class TradeMarkError(Refused):
     """The mark cannot be set. The message is safe to show."""
+
+    code = "invalid_trade_mark"
 
 
 def state(conn, part_id: str) -> dict[str, Any]:
