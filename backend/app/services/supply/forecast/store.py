@@ -94,6 +94,41 @@ def store(
     return int(row["id"])
 
 
+def kept_part(conn, part_id: str, day: date, quantity: int) -> dict[str, Any] | None:
+    """The part's forecast as kept for its sheet, while it is ``day``'s, at ``quantity``, and nothing it is made from has changed
+    since (``freshness``). None otherwise: the caller works it out again."""
+
+    from app.services.supply import freshness
+
+    row = conn.execute(
+        f"SELECT f.data FROM supply_part_forecasts f WHERE f.part_id = %s AND f.made_on = %s AND f.quantity = %s "
+        f"AND NOT {freshness.stale_sql('forecast', 'ARRAY[f.part_id]', 'f')}",
+        (part_id, day, quantity),
+    ).fetchone()
+    return row["data"] if row else None
+
+
+def keep_part(conn, part_id: str, day: date, quantity: int, seen: tuple[str, int], data: Mapping[str, Any]) -> None:
+    """Keep a part's forecast for its sheet, worked out from what was read after ``seen`` (``freshness.seen``). A reader that finds
+    another keeping it leaves that one to finish rather than wait."""
+
+    from app.services.supply import freshness
+
+    if conn.execute(
+        "SELECT 1 FROM supply_part_forecasts WHERE part_id = %s FOR UPDATE SKIP LOCKED", (part_id,)
+    ).fetchone() is None and conn.execute("SELECT 1 FROM supply_part_forecasts WHERE part_id = %s", (part_id,)).fetchone():
+        return
+    conn.execute(
+        f"""
+        INSERT INTO supply_part_forecasts (part_id, made_on, quantity, data, computed_at, seen, snap, own)
+        VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, {freshness.OWN_SQL})
+        ON CONFLICT (part_id) DO UPDATE SET made_on = EXCLUDED.made_on, quantity = EXCLUDED.quantity, data = EXCLUDED.data,
+            computed_at = EXCLUDED.computed_at, seen = EXCLUDED.seen, snap = EXCLUDED.snap, own = EXCLUDED.own
+        """,
+        (part_id, day, quantity, json.dumps(data), clock.now(), seen[0], seen[1]),
+    )
+
+
 def forget_old(conn, today: date) -> int:
     """Drop forecasts older than a year."""
 

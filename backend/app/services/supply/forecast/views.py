@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from app.services.supply import clock, part_insights
+from app.services.supply import clock, freshness, part_insights
 from app.services.supply import settings as supply_settings
 from app.services.supply.forecast import inputs, models, run, store
 
@@ -38,7 +38,9 @@ def _borrowed(state: dict[str, Any], stock: dict[str, Any]) -> dict[str, Any]:
 
 
 def part(conn, part_id: str, now: datetime | None = None, quantity: int | None = None) -> dict[str, Any]:
-    """Everything the part sheet's Forecast section and chart bands need."""
+    """Everything the part sheet's Forecast section and chart bands need. At the part's own quantity it is the forecast the daily run
+    kept, while that is today's and nothing it is made from has changed; otherwise it is worked out now, and kept when it is at the
+    part's own quantity. Only another quantity is never kept."""
 
     now = now or clock.now()
     today = now.astimezone(timezone.utc).date()
@@ -48,14 +50,22 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
         item = states[target]
         return {"state": item["state"], "checks": item["checks"], "needs": item["needs"], "reason": item["reason"]}
 
-    stock = run.stock_forecast(conn, part_id, now, quantity)
+    own = inputs.default_quantity(conn, part_id)
+    wanted = quantity or own
+    made = store.kept_part(conn, part_id, today, own) if wanted == own else None
+    if made is None:
+        seen = freshness.seen(conn)
+        made = run.part_forecast(conn, part_id, now, wanted)
+        if wanted == own:
+            store.keep_part(conn, part_id, today, own, seen, made)
+    stock, price = made["stock"], made["price"]
     out: dict[str, Any] = {"available": bool(stock.get("available")), "reason": stock.get("reason"), "today": today.isoformat(), "models": {name: state(name) for name in states}}
     if stock.get("available"):
         weeks = [{"week": index + 1, "date": _day(today, (index + 1) * 7), **_chance(value)} for index, value in enumerate(stock["weeks"])]
         out |= {
             "quantity": stock["quantity"], "out_now": stock["out_now"], "weeks": weeks,
             "buy_state": {"4w": state("can_buy_4w"), "8w": state("can_buy_8w")},
-            "out_everywhere": {"4w": _chance(stock["out_everywhere"][4]), "8w": _chance(stock["out_everywhere"][8])},
+            "out_everywhere": {"4w": _chance(stock["out_everywhere"]["4"]), "8w": _chance(stock["out_everywhere"]["8"])},
             "runout": ({**_range(today, stock["runout"]), **_chance(stock["runout"]["probability"]), "state": _borrowed(state("runout"), stock)} if stock["runout"] else None),
             "back": [
                 _range(today, item, {"connector_id": item["connector_id"], "name": item["name"], "provider": item["provider"], "quote_days": item["quote_days"],
@@ -72,7 +82,6 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
                 "price": [],
             },
         }
-    price = run.price_forecast(conn, part_id, now)
     if price.get("available"):
         out["price"] = {
             "now": price["now"], "inputs": price["inputs"],
@@ -83,7 +92,7 @@ def part(conn, part_id: str, now: datetime | None = None, quantity: int | None =
             {"connector_id": item["connector_id"], "now": item["now"],
              "h30": {"date": _day(today, 30), "median": item["h30"]["median"], "low": item["h30"]["low"], "high": item["h30"]["high"]},
              "h90": {"date": _day(today, 90), "median": item["h90"]["median"], "low": item["h90"]["low"], "high": item["h90"]["high"]}}
-            for item in run.price_by_distributor(conn, part_id, now)
+            for item in made["price_by_distributor"]
         ]
     items = _lifecycle_of(conn, part_id)
     if items is not None:

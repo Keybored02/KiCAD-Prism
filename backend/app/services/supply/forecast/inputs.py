@@ -1,14 +1,14 @@
 """What the forecasts are worked out from, read from the database in the shapes the models take.
 
-Reads only. The outage models, quote ratios and pooled repricings are kept for a while, since every part's forecast uses
-them; each cache has its own ``forget`` for tests.
+Reads only. The outage models, quote ratios, pooled repricings and lifecycle rates are kept, since every part's forecast uses
+them. Each is kept against a marker of what it is made from (the day, and a cheap read of the rows it pools), so a process
+works them out again once those rows change, and the API and the worker agree. Each cache has its own ``forget`` for tests.
 """
 
 from __future__ import annotations
 
 import math
 import statistics
-import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Sequence
@@ -19,8 +19,13 @@ from app.services.supply import clock, counted, part_history, prices
 from app.services.supply.forecast import models
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
-_CACHE_FOR = 600.0
-_pooled: tuple[float, date, tuple[dict[str, models.OutageModel | None], dict[str, float], dict[str, int]]] | None = None
+_pooled: tuple[tuple[Any, ...], tuple[dict[str, models.OutageModel | None], dict[str, float], dict[str, int]]] | None = None
+
+
+def _marker(conn, sql: str, params: Sequence[Any] = ()) -> tuple[Any, ...]:
+    """What a pooled cache is kept against: one row of cheap aggregates over the rows it pools."""
+
+    return tuple(conn.execute(sql, params).fetchone().values())
 
 
 def holders(conn, part_id: str, now: datetime, days: int = 90, *, borrow: bool = True) -> list[models.Holder]:
@@ -93,8 +98,12 @@ def pooled(conn, today: date | None = None) -> tuple[dict[str, models.OutageMode
 
     global _pooled
     today = today or clock.now().date()
-    if _pooled is not None and time.monotonic() - _pooled[0] < _CACHE_FOR and _pooled[1] == today:
-        return _pooled[2]
+    # An open stock-out lengthens each day; a new one, or one ending, changes the counts.
+    key = (today, *_marker(
+        conn, "SELECT COUNT(*) AS n, COUNT(resolved_on) AS ended, MAX(day) AS latest FROM supply_stock_events WHERE kind = 'stock_out'",
+    ))
+    if _pooled is not None and _pooled[0] == key:
+        return _pooled[1]
     rows = conn.execute(
         """
         SELECT l.connector_id, e.day, e.resolved_on, e.quoted_lead_days
@@ -119,7 +128,7 @@ def pooled(conn, today: date | None = None) -> tuple[dict[str, models.OutageMode
     outage.setdefault("all", everyone)
     shrunk = {connector: models.shrunk_ratio(values, ratios["all"]) for connector, values in ratios.items() if connector != "all"}
     result = (_with_fallback(outage), {c: r for c, (r, _n) in shrunk.items()}, {c: n for c, (_r, n) in shrunk.items()})
-    _pooled = (time.monotonic(), today, result)
+    _pooled = (key, result)
     return result
 
 
@@ -147,8 +156,7 @@ def default_quantity(conn, part_id: str) -> int:
 
 # --- price -----------------------------------------------------------------
 
-POOL_CACHE_FOR = 6 * 3600.0
-_pool: tuple[float, models.Moves] | None = None
+_pool: tuple[tuple[Any, ...], models.Moves] | None = None
 
 
 def own_moves(conn, part_id: str, now: datetime, days: int = 90) -> models.Moves:
@@ -165,10 +173,11 @@ def series_of(conn, part_id: str, now: datetime, days: int = 90) -> list[tuple[d
 
 
 def pooled_moves(conn, part_ids: Sequence[str], now: datetime) -> models.Moves:
-    """The moves across tracked parts, kept for six hours."""
+    """The moves across these parts over 90 days, kept until a price is read again, the parts change or the day turns."""
 
     global _pool
-    if _pool is not None and time.monotonic() - _pool[0] < POOL_CACHE_FOR:
+    key = (now.date(), hash(tuple(sorted(part_ids))), *_marker(conn, "SELECT MAX(since) AS latest FROM supply_price_breaks_history"))
+    if _pool is not None and _pool[0] == key:
         return _pool[1]
     count, span, sizes = 0, 0.0, []
     # Every part's series in one read: a read per part was over a thousand queries for 200 parts.
@@ -179,7 +188,7 @@ def pooled_moves(conn, part_ids: Sequence[str], now: datetime) -> models.Moves:
         span += found.span
         sizes.extend(found.sizes)
     result = models.Moves(count, span, sizes)
-    _pool = (time.monotonic(), result)
+    _pool = (key, result)
     return result
 
 
@@ -190,19 +199,21 @@ def forget_price_pool() -> None:
 
 # --- lifecycle -------------------------------------------------------------
 
-RATES_CACHE_FOR = 6 * 3600.0
-_rates: tuple[float, date, dict[str, Any]] | None = None
+_rates: tuple[tuple[Any, ...], dict[str, Any]] | None = None
 
 
 def pooled_rates(conn, today: date) -> dict[str, Any]:
-    """``rates`` for ``today``, kept for six hours: a forecast run asks for them once per part, and they rest on every tracked part and
-    every lifecycle change, which move slowly."""
+    """``rates`` for ``today``, kept until a part event is recorded or the tracked parts change: a forecast run asks for them once
+    per part, and they rest on every tracked part and every lifecycle change."""
 
     global _rates
-    if _rates is not None and _rates[1] == today and time.monotonic() - _rates[0] < RATES_CACHE_FOR:
-        return _rates[2]
+    key = (today, *_marker(
+        conn, "SELECT (SELECT MAX(id) FROM supply_events) AS latest, (SELECT COUNT(*) FROM supply_part_tiers) AS tracked",
+    ))
+    if _rates is not None and _rates[0] == key:
+        return _rates[1]
     found = rates(conn, today)
-    _rates = (time.monotonic(), today, found)
+    _rates = (key, found)
     return found
 
 

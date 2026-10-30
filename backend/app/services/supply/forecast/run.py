@@ -6,12 +6,13 @@ once a run. No distributor is asked: everything is worked out from readings alre
 
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
-from app.services.supply import clock, insights, part_history
+from app.services.supply import clock, freshness, insights, part_history
 from app.services.supply.forecast import inputs, models, store
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
@@ -50,6 +51,19 @@ def price_by_distributor(conn, part_id: str, now: datetime) -> list[dict[str, An
     return found
 
 
+def part_forecast(conn, part_id: str, now: datetime, quantity: int) -> dict[str, Any]:
+    """What a part's sheet shows of its forecasts at ``quantity``, before the dates and model states are put on it
+    (``views.part``): the stock forecast, the price forecast and each distributor's price, in their JSON form, as kept."""
+
+    price = price_forecast(conn, part_id, now)
+    made = {
+        "stock": stock_forecast(conn, part_id, now, quantity),
+        "price": price,
+        "price_by_distributor": price_by_distributor(conn, part_id, now) if price.get("available") else [],
+    }
+    return json.loads(json.dumps(made))
+
+
 def _tracked(conn) -> list[str]:
     return [row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_tiers").fetchall()]
 
@@ -58,8 +72,12 @@ def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
     """Make and keep the forecasts of one part. Returns the little the lists need to show them."""
 
     day = now.astimezone(timezone.utc).date()
+    seen = freshness.seen(conn)
     quantity = inputs.default_quantity(conn, part_id)
-    stock = stock_forecast(conn, part_id, now, quantity)
+    made = part_forecast(conn, part_id, now, quantity)
+    # The sheet reads this until something it is made from changes or the day turns (``views.part``).
+    store.keep_part(conn, part_id, day, quantity, seen, made)
+    stock = made["stock"]
     summary: dict[str, Any] = {"available": bool(stock.get("available")), "made_on": day.isoformat()}
     if stock.get("available"):
         run = stock["runout"]
@@ -73,13 +91,13 @@ def run_part(conn, part_id: str, now: datetime) -> dict[str, Any]:
         for item in stock["back"]:
             store.store(conn, "part", part_id, "back_in", day, max(math.ceil(item["high"]), 1), model="km-sim", scope=item["connector_id"],
                         median=item["median"], low=item["low"], high=item["high"], inputs={"quote_days": item["quote_days"], "ratio": item["ratio"]})
-        store.store(conn, "part", part_id, "out_4w", day, 28, model="drain-sim", probability=stock["out_everywhere"][4], inputs=stock["inputs"])
+        store.store(conn, "part", part_id, "out_4w", day, 28, model="drain-sim", probability=stock["out_everywhere"]["4"], inputs=stock["inputs"])
         for target, weeks in (("can_buy_4w", 4), ("can_buy_8w", 8)):
             store.store(conn, "part", part_id, target, day, weeks * 7, model="drain-sim", quantity=quantity, probability=stock["weeks"][weeks - 1], inputs=stock["inputs"])
-        summary |= {"p_out_4w": stock["out_everywhere"][4], "p_out_8w": stock["out_everywhere"][8],
+        summary |= {"p_out_4w": stock["out_everywhere"]["4"], "p_out_8w": stock["out_everywhere"]["8"],
                     "can_buy_4w": stock["weeks"][3], "can_buy_8w": stock["weeks"][7], "out_now": stock["out_now"]}
     _store_end_of_life(conn, part_id, day)
-    price = price_forecast(conn, part_id, now)
+    price = made["price"]
     if price.get("available"):
         for target, key, horizon in (("price_30", "h30", 30), ("price_90", "h90", 90)):
             p = price[key]
