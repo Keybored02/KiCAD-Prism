@@ -59,13 +59,14 @@ class SupplyTypesTests(unittest.TestCase):
         schema = {
             "type": "object",
             "description": "A thing.",
-            "required": ["state", "seen", "tags", "note"],
+            "required": ["state", "seen", "tags", "note", "range"],
             "properties": {
                 "state": {"enum": ["open", "done"], "type": "string"},
                 "seen": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                 "tags": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}},
                 "note": {"type": "object", "additionalProperties": {"type": "number"}},
                 "extra": {"type": "object", "additionalProperties": True},
+                "range": {"type": "array", "prefixItems": [{"type": "integer"}, {"type": "integer"}], "maxItems": 2, "minItems": 2},
             },
         }
         self.assertEqual(exporter._declaration("Thing", schema), "\n".join([
@@ -76,6 +77,7 @@ class SupplyTypesTests(unittest.TestCase):
             "  tags: Array<string | number>;",
             "  note: Record<string, number>;",
             "  extra?: Record<string, unknown>;",
+            "  range: [number, number];",
             "}",
         ]))
 

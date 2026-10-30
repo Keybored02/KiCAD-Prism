@@ -158,7 +158,7 @@ class SettingsApiTests(unittest.TestCase):
         def maker_call(method, body=None, role="admin", path="/api/supply/settings/makers"):
             return _request(self.app, method, path, user=self.users[role], body=body)
 
-        listed = maker_call("GET", role="designer").json["groups"]
+        listed = maker_call("GET", role="designer").json["items"]
         ti = next(group for group in listed if group["group_key"] == "texas instruments")
         self.assertIn("ti", [item["alias_key"] for item in ti["spellings"]])
         self.assertTrue(makers.same_maker("TI", "Texas Instruments"))
