@@ -2854,6 +2854,25 @@
         "title": "CacheStats",
         "type": "object"
       },
+      "CallsToday": {
+        "additionalProperties": true,
+        "properties": {
+          "interactive_spent": {
+            "title": "Interactive Spent",
+            "type": "integer"
+          },
+          "spent": {
+            "title": "Spent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "spent",
+          "interactive_spent"
+        ],
+        "title": "CallsToday",
+        "type": "object"
+      },
       "CandidateCreated": {
         "additionalProperties": true,
         "properties": {
@@ -7865,6 +7884,130 @@
         "title": "ConnectorCredentials",
         "type": "object"
       },
+      "ConnectorHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          },
+          "calls_today": {
+            "title": "Calls Today",
+            "type": "integer"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "failing": {
+            "title": "Failing",
+            "type": "integer"
+          },
+          "interactive_calls_today": {
+            "title": "Interactive Calls Today",
+            "type": "integer"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_error_code": {
+            "title": "Last Error Code",
+            "type": "string"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "late": {
+            "title": "Late",
+            "type": "integer"
+          },
+          "late_by_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Late By Hours"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "oldest_read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Read"
+          },
+          "paused_reason": {
+            "title": "Paused Reason",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "enabled",
+          "paused_reason",
+          "calls_today",
+          "interactive_calls_today",
+          "budget",
+          "last_ok_at",
+          "last_error_code",
+          "last_error_at",
+          "listings",
+          "late",
+          "failing",
+          "late_by_hours",
+          "oldest_read"
+        ],
+        "title": "ConnectorHealth",
+        "type": "object"
+      },
       "ConnectorProblem": {
         "additionalProperties": true,
         "properties": {
@@ -8134,6 +8277,54 @@
           "content"
         ],
         "title": "CreateComparisonCommentRequest",
+        "type": "object"
+      },
+      "CreateConnectorRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": {
+            "default": "",
+            "title": "Baseurl",
+            "type": "string"
+          },
+          "credentials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorCredentials"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "displayName": {
+            "default": "",
+            "title": "Displayname",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "instanceKind": {
+            "default": "github.com",
+            "title": "Instancekind",
+            "type": "string"
+          },
+          "provider": {
+            "default": "github",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "title": "CreateConnectorRequest",
         "type": "object"
       },
       "CreateDisplayedRevision": {
@@ -8503,6 +8694,63 @@
           "display_name"
         ],
         "title": "CreateSourceRequest",
+        "type": "object"
+      },
+      "CreateSupplyConnectorInput": {
+        "additionalProperties": false,
+        "properties": {
+          "credentials": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Credentials",
+            "type": "object"
+          },
+          "currency": {
+            "default": "",
+            "maxLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "daily_budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Budget"
+          },
+          "display_name": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "interactive_reserve_pct": {
+            "default": 10,
+            "title": "Interactive Reserve Pct",
+            "type": "integer"
+          },
+          "provider": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "storefront": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Storefront",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "CreateSupplyConnectorInput",
         "type": "object"
       },
       "CreatedPersonalToken": {
@@ -13682,6 +13930,40 @@
         "title": "Items[SupplyAlert]",
         "type": "object"
       },
+      "Items_SupplyCapacity_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyCapacity"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyCapacity]",
+        "type": "object"
+      },
+      "Items_SupplyConnector_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyConnector"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyConnector]",
+        "type": "object"
+      },
       "Items_SupplyMakerGroup_": {
         "additionalProperties": true,
         "properties": {
@@ -13731,6 +14013,23 @@
           "items"
         ],
         "title": "Items[SupplyNumberEnding]",
+        "type": "object"
+      },
+      "Items_SupplyProvider_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyProvider"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyProvider]",
         "type": "object"
       },
       "Items_SupplyWorkItem_": {
@@ -21298,6 +21597,25 @@
         "title": "QueueWaitOut",
         "type": "object"
       },
+      "QuoteCoverage": {
+        "additionalProperties": true,
+        "properties": {
+          "of": {
+            "title": "Of",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parts",
+          "of"
+        ],
+        "title": "QuoteCoverage",
+        "type": "object"
+      },
       "ReattachCommentRequest": {
         "properties": {
           "commit": {
@@ -22175,6 +22493,41 @@
           "audit"
         ],
         "title": "RequestTraceOut",
+        "type": "object"
+      },
+      "ResetSuggestion": {
+        "additionalProperties": true,
+        "description": "When the provider's day seems to reset (UTC), once readings from different days agree.",
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "suggested": {
+            "title": "Suggested",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          },
+          "tz": {
+            "title": "Tz",
+            "type": "string"
+          },
+          "windows": {
+            "title": "Windows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "suggested",
+          "tz",
+          "windows"
+        ],
+        "title": "ResetSuggestion",
         "type": "object"
       },
       "ResolvedPaths": {
@@ -24394,6 +24747,62 @@
         "title": "SupplyAlert",
         "type": "object"
       },
+      "SupplyCapacity": {
+        "additionalProperties": true,
+        "properties": {
+          "calls_per_day": {
+            "title": "Calls Per Day",
+            "type": "integer"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "fits": {
+            "title": "Fits",
+            "type": "boolean"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quotes": {
+            "$ref": "#/components/schemas/QuoteCoverage",
+            "description": "Of the tracked parts, how many this connector gives a price for."
+          },
+          "searches_pending": {
+            "description": "Watched parts not yet searched for at this connector.",
+            "title": "Searches Pending",
+            "type": "integer"
+          },
+          "shortfall_pct": {
+            "description": "Share of reads that will run later than their tier asks.",
+            "title": "Shortfall Pct",
+            "type": "integer"
+          },
+          "usable_per_day": {
+            "title": "Usable Per Day",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "listings",
+          "calls_per_day",
+          "usable_per_day",
+          "shortfall_pct",
+          "fits",
+          "searches_pending",
+          "quotes"
+        ],
+        "title": "SupplyCapacity",
+        "type": "object"
+      },
       "SupplyCompliance": {
         "additionalProperties": true,
         "description": "RoHS and REACH of a part, and the substances a supplier declared for it.",
@@ -24457,6 +24866,442 @@
           "reason"
         ],
         "title": "SupplyComplianceState",
+        "type": "object"
+      },
+      "SupplyConnector": {
+        "additionalProperties": true,
+        "properties": {
+          "assembly_only": {
+            "description": "Read only for a project that names it (JLCPCB: stock that feeds its own assembly).",
+            "title": "Assembly Only",
+            "type": "boolean"
+          },
+          "block_streak": {
+            "description": "Refusals in a row at a provider with no credentials; each rests longer.",
+            "title": "Block Streak",
+            "type": "integer"
+          },
+          "catalogue": {
+            "description": "Offers come from the provider's published catalogue (jlcparts) instead of an uploaded file.",
+            "title": "Catalogue",
+            "type": "boolean"
+          },
+          "catalogue_available": {
+            "title": "Catalogue Available",
+            "type": "boolean"
+          },
+          "cooldown_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The connector rests, making no calls, until this time (after a refusal, a rate limit or errors in a row).",
+            "title": "Cooldown Until"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "credentials": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Which credentials are set. Values are never returned.",
+            "title": "Credentials",
+            "type": "object"
+          },
+          "credentials_status": {
+            "enum": [
+              "none",
+              "ready",
+              "locked",
+              "unknown_key"
+            ],
+            "title": "Credentials Status",
+            "type": "string"
+          },
+          "csv_fed": {
+            "description": "The connector's offers come from an uploaded file.",
+            "title": "Csv Fed",
+            "type": "boolean"
+          },
+          "csv_import": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyCsvImport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "daily_budget": {
+            "title": "Daily Budget",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "interactive_reserve_pct": {
+            "title": "Interactive Reserve Pct",
+            "type": "integer"
+          },
+          "keep_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days any history is kept, daily rows included; null keeps it for good.",
+            "title": "Keep Days"
+          },
+          "keep_unused": {
+            "description": "The administrator holds the distributor's written leave to keep them.",
+            "title": "Keep Unused",
+            "type": "boolean"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_error_code": {
+            "title": "Last Error Code",
+            "type": "string"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "limits_storage": {
+            "description": "The distributor's terms limit storage: prices of parts not in use are kept only for a day after a read.",
+            "title": "Limits Storage",
+            "type": "boolean"
+          },
+          "metered": {
+            "title": "Metered",
+            "type": "boolean"
+          },
+          "paused_reason": {
+            "title": "Paused Reason",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_available": {
+            "title": "Provider Available",
+            "type": "boolean"
+          },
+          "provider_label": {
+            "title": "Provider Label",
+            "type": "string"
+          },
+          "rate_limits": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "description": "Rate-limit headers the provider sent with its last answer, per API, by lower-case name.",
+            "title": "Rate Limits",
+            "type": "object"
+          },
+          "rate_limits_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limits At"
+          },
+          "reset_from_provider": {
+            "description": "The reset time was taken from what the provider reported, so its own count of calls is trusted.",
+            "title": "Reset From Provider",
+            "type": "boolean"
+          },
+          "reset_suggestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResetSuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_time": {
+            "description": "When the provider's day begins, and in which time zone.",
+            "title": "Reset Time",
+            "type": "string"
+          },
+          "reset_tz": {
+            "title": "Reset Tz",
+            "type": "string"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days raw samples are kept before they are rolled into daily rows; null is the default (60).",
+            "title": "Retention Days"
+          },
+          "signin": {
+            "$ref": "#/components/schemas/SupplySignin",
+            "description": "For an administrator, on a connector whose change notices need a person's sign-in: that sign-in."
+          },
+          "slow_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Calls are spaced twice as far apart until this time, after a refusal.",
+            "title": "Slow Until"
+          },
+          "storefront": {
+            "title": "Storefront",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "usage_today": {
+            "$ref": "#/components/schemas/CallsToday"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "provider_label",
+          "provider_available",
+          "storefront",
+          "display_name",
+          "currency",
+          "enabled",
+          "paused_reason",
+          "daily_budget",
+          "interactive_reserve_pct",
+          "retention_days",
+          "keep_days",
+          "keep_unused",
+          "limits_storage",
+          "catalogue",
+          "catalogue_available",
+          "reset_time",
+          "reset_tz",
+          "metered",
+          "csv_fed",
+          "assembly_only",
+          "usage_today",
+          "csv_import",
+          "credentials",
+          "credentials_status",
+          "rate_limits",
+          "reset_from_provider",
+          "reset_suggestion",
+          "rate_limits_at",
+          "last_ok_at",
+          "last_error_code",
+          "last_error_at",
+          "cooldown_until",
+          "block_streak",
+          "slow_until",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SupplyConnector",
+        "type": "object"
+      },
+      "SupplyConnectorCheck": {
+        "additionalProperties": true,
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "code": {
+            "description": "\"ok\", a provider error code, or \"inactive\" / \"budget\" / \"unknown_provider\".",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "took_ms": {
+            "title": "Took Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "code",
+          "message",
+          "took_ms",
+          "checked_at"
+        ],
+        "title": "SupplyConnectorCheck",
+        "type": "object"
+      },
+      "SupplyCredentialField": {
+        "additionalProperties": true,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "secret"
+        ],
+        "title": "SupplyCredentialField",
+        "type": "object"
+      },
+      "SupplyCsvImport": {
+        "additionalProperties": true,
+        "properties": {
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "imported_at": {
+            "title": "Imported At",
+            "type": "string"
+          },
+          "imported_by": {
+            "title": "Imported By",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "filename",
+          "imported_by",
+          "imported_at",
+          "row_count"
+        ],
+        "title": "SupplyCsvImport",
+        "type": "object"
+      },
+      "SupplyCsvResult": {
+        "additionalProperties": true,
+        "properties": {
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "ignored_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Columns",
+            "type": "array"
+          },
+          "imported_at": {
+            "title": "Imported At",
+            "type": "string"
+          },
+          "imported_by": {
+            "title": "Imported By",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "filename",
+          "imported_by",
+          "imported_at",
+          "row_count",
+          "ignored_columns"
+        ],
+        "title": "SupplyCsvResult",
         "type": "object"
       },
       "SupplyFact": {
@@ -24566,6 +25411,32 @@
           "saved"
         ],
         "title": "SupplyFxRatesSaved",
+        "type": "object"
+      },
+      "SupplyHealth": {
+        "additionalProperties": true,
+        "description": "Calls against budget, errors and late reads per connector, and the periodic tasks' runs.",
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorHealth"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskRun"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connectors",
+          "tasks"
+        ],
+        "title": "SupplyHealth",
         "type": "object"
       },
       "SupplyMakerGroup": {
@@ -24775,6 +25646,140 @@
           "source"
         ],
         "title": "SupplyNumberEnding",
+        "type": "object"
+      },
+      "SupplyProvider": {
+        "additionalProperties": true,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "credential_fields": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyCredentialField"
+            },
+            "title": "Credential Fields",
+            "type": "array"
+          },
+          "csv_fed": {
+            "description": "The provider's offers come from an uploaded file, not from calls to the distributor.",
+            "title": "Csv Fed",
+            "type": "boolean"
+          },
+          "default_daily_budget": {
+            "title": "Default Daily Budget",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max_batch": {
+            "title": "Max Batch",
+            "type": "integer"
+          },
+          "metered": {
+            "description": "False when calls cost nothing (local data), so no call budget applies.",
+            "title": "Metered",
+            "type": "boolean"
+          },
+          "stock_pooling": {
+            "enum": [
+              "pooled",
+              "separate"
+            ],
+            "title": "Stock Pooling",
+            "type": "string"
+          },
+          "storefronts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Storefronts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "capabilities",
+          "max_batch",
+          "stock_pooling",
+          "credential_fields",
+          "storefronts",
+          "default_daily_budget",
+          "metered",
+          "csv_fed"
+        ],
+        "title": "SupplyProvider",
+        "type": "object"
+      },
+      "SupplySignin": {
+        "additionalProperties": true,
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "granted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted At"
+          },
+          "granted_by": {
+            "title": "Granted By",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "description": "The address the DigiKey app must list as its callback.",
+            "title": "Redirect Uri",
+            "type": "string"
+          },
+          "signed_in": {
+            "title": "Signed In",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "none",
+              "ok",
+              "expired",
+              "refused"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signed_in",
+          "state",
+          "granted_by",
+          "granted_at",
+          "expires_at",
+          "redirect_uri"
+        ],
+        "title": "SupplySignin",
         "type": "object"
       },
       "SupplySource": {
@@ -25110,6 +26115,78 @@
           "status"
         ],
         "title": "SyncResult",
+        "type": "object"
+      },
+      "TaskRun": {
+        "additionalProperties": true,
+        "properties": {
+          "every_seconds": {
+            "title": "Every Seconds",
+            "type": "integer"
+          },
+          "last_error": {
+            "title": "Last Error",
+            "type": "string"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "name",
+          "every_seconds",
+          "started_at",
+          "last_ok_at",
+          "last_error_at",
+          "next_at",
+          "last_error"
+        ],
+        "title": "TaskRun",
         "type": "object"
       },
       "ThreadPoolMetrics": {
@@ -26189,6 +27266,56 @@
         "title": "UpdateComponentMetadataRequest",
         "type": "object"
       },
+      "UpdateConnectorRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseurl"
+          },
+          "credentials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorCredentials"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "instanceKind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instancekind"
+          }
+        },
+        "title": "UpdateConnectorRequest",
+        "type": "object"
+      },
       "UpdateFolderRequest": {
         "properties": {
           "name": {
@@ -26446,6 +27573,161 @@
           }
         },
         "title": "UpdateSourceRequest",
+        "type": "object"
+      },
+      "UpdateSupplyConnectorInput": {
+        "additionalProperties": false,
+        "properties": {
+          "catalogue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalogue"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "daily_budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Budget"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "interactive_reserve_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interactive Reserve Pct"
+          },
+          "keep_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Days"
+          },
+          "keep_unused": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Unused"
+          },
+          "reset_from_provider": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset From Provider"
+          },
+          "reset_time": {
+            "anyOf": [
+              {
+                "maxLength": 5,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Time"
+          },
+          "reset_tz": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Tz"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          },
+          "storefront": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storefront"
+          }
+        },
+        "title": "UpdateSupplyConnectorInput",
         "type": "object"
       },
       "UploadReceipt": {
@@ -28446,305 +29728,6 @@
         ],
         "title": "JobEvent",
         "type": "object"
-      },
-      "app__api__supply_connectors__CreateConnectorRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "credentials": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Credentials",
-            "type": "object"
-          },
-          "currency": {
-            "default": "",
-            "maxLength": 3,
-            "title": "Currency",
-            "type": "string"
-          },
-          "daily_budget": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Daily Budget"
-          },
-          "display_name": {
-            "default": "",
-            "maxLength": 120,
-            "title": "Display Name",
-            "type": "string"
-          },
-          "interactive_reserve_pct": {
-            "default": 10,
-            "title": "Interactive Reserve Pct",
-            "type": "integer"
-          },
-          "provider": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Provider",
-            "type": "string"
-          },
-          "storefront": {
-            "default": "",
-            "maxLength": 64,
-            "title": "Storefront",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider"
-        ],
-        "title": "CreateConnectorRequest",
-        "type": "object"
-      },
-      "app__api__supply_connectors__UpdateConnectorRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "catalogue": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Catalogue"
-          },
-          "currency": {
-            "anyOf": [
-              {
-                "maxLength": 3,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Currency"
-          },
-          "daily_budget": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Daily Budget"
-          },
-          "display_name": {
-            "anyOf": [
-              {
-                "maxLength": 120,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Name"
-          },
-          "enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Enabled"
-          },
-          "interactive_reserve_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Interactive Reserve Pct"
-          },
-          "keep_days": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Keep Days"
-          },
-          "keep_unused": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Keep Unused"
-          },
-          "reset_time": {
-            "anyOf": [
-              {
-                "maxLength": 5,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reset Time"
-          },
-          "reset_tz": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reset Tz"
-          },
-          "retention_days": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Retention Days"
-          },
-          "storefront": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Storefront"
-          }
-        },
-        "title": "UpdateConnectorRequest",
-        "type": "object"
-      },
-      "app__api__tracker_connectors__CreateConnectorRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "baseUrl": {
-            "default": "",
-            "title": "Baseurl",
-            "type": "string"
-          },
-          "credentials": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConnectorCredentials"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "default": "",
-            "title": "Displayname",
-            "type": "string"
-          },
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Id"
-          },
-          "instanceKind": {
-            "default": "github.com",
-            "title": "Instancekind",
-            "type": "string"
-          },
-          "provider": {
-            "default": "github",
-            "title": "Provider",
-            "type": "string"
-          }
-        },
-        "title": "CreateConnectorRequest",
-        "type": "object"
-      },
-      "app__api__tracker_connectors__UpdateConnectorRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "baseUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Baseurl"
-          },
-          "credentials": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConnectorCredentials"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Displayname"
-          },
-          "instanceKind": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Instancekind"
-          }
-        },
-        "title": "UpdateConnectorRequest",
-        "type": "object"
       }
     }
   },
@@ -29141,7 +30124,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/app__api__tracker_connectors__CreateConnectorRequest"
+                "$ref": "#/components/schemas/CreateConnectorRequest"
               }
             }
           },
@@ -29279,7 +30262,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/app__api__tracker_connectors__UpdateConnectorRequest"
+                "$ref": "#/components/schemas/UpdateConnectorRequest"
               }
             }
           },
@@ -46692,12 +47675,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response Get Capacity",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Items_SupplyCapacity_"
                 }
               }
             },
@@ -47105,12 +48083,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response List Supply Connectors",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Items_SupplyConnector_"
                 }
               }
             },
@@ -47128,7 +48101,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/app__api__supply_connectors__CreateConnectorRequest"
+                "$ref": "#/components/schemas/CreateSupplyConnectorInput"
               }
             }
           },
@@ -47139,9 +48112,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Supply Connector",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyConnector"
                 }
               }
             },
@@ -47215,7 +48186,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/app__api__supply_connectors__UpdateConnectorRequest"
+                "$ref": "#/components/schemas/UpdateSupplyConnectorInput"
               }
             }
           },
@@ -47226,9 +48197,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Supply Connector",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyConnector"
                 }
               }
             },
@@ -47280,9 +48249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Set Connector Credentials",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyConnector"
                 }
               }
             },
@@ -47368,9 +48335,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Upload Offers Csv",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyCsvResult"
                 }
               }
             },
@@ -47475,9 +48440,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Pause Supply Connector",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyConnector"
                 }
               }
             },
@@ -47519,9 +48482,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Resume Supply Connector",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyConnector"
                 }
               }
             },
@@ -47643,9 +48604,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Test Connector Connection",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyConnectorCheck"
                 }
               }
             },
@@ -48237,9 +49196,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Supply Health",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyHealth"
                 }
               }
             },
@@ -51610,12 +52567,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response List Providers",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Items_SupplyProvider_"
                 }
               }
             },

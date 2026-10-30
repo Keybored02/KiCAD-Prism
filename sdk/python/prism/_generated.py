@@ -513,6 +513,11 @@ class CacheStats(TypedDict, total=True):
     window_minutes: int
 
 
+class CallsToday(TypedDict, total=True):
+    interactive_spent: int
+    spent: int
+
+
 class CandidateCreated(TypedDict, total=True):
     job: JobRecord
 
@@ -1385,6 +1390,25 @@ class ConnectorCredentials(TypedDict, total=False):
     webhookSecret: str
 
 
+class ConnectorHealth(TypedDict, total=True):
+    budget: int | None
+    calls_today: int
+    connector_id: str
+    enabled: bool
+    failing: int
+    interactive_calls_today: int
+    last_error_at: str | None
+    last_error_code: str
+    last_ok_at: str | None
+    late: int
+    late_by_hours: int | float
+    listings: int
+    name: str
+    oldest_read: str | None
+    paused_reason: str
+    provider: str
+
+
 class ConnectorProblem(TypedDict, total=True):
     connector: str
     reason: str
@@ -1419,6 +1443,15 @@ class CreateComparisonCommentRequest(TypedDict, total=False):
     semanticItemId: str | None
     semanticItemRef: str | None
     severity: str | None
+
+
+class CreateConnectorRequest(TypedDict, total=False):
+    baseUrl: str
+    credentials: ConnectorCredentials | None
+    displayName: str
+    id: str | None
+    instanceKind: str
+    provider: str
 
 
 class CreateDisplayedRevision(TypedDict, total=False):
@@ -1494,6 +1527,16 @@ class CreateSourceRequest(TypedDict, total=False):
     interval_hours: int
     kind: str
     token: str
+
+
+class CreateSupplyConnectorInput(TypedDict, total=False):
+    credentials: dict[str, str]
+    currency: str
+    daily_budget: int | None
+    display_name: str
+    interactive_reserve_pct: int
+    provider: str
+    storefront: str
 
 
 class CreatedPersonalToken(TypedDict, total=False):
@@ -2494,6 +2537,14 @@ class Items_SupplyAlert_(TypedDict, total=True):
     items: list[SupplyAlert]
 
 
+class Items_SupplyCapacity_(TypedDict, total=True):
+    items: list[SupplyCapacity]
+
+
+class Items_SupplyConnector_(TypedDict, total=True):
+    items: list[SupplyConnector]
+
+
 class Items_SupplyMakerGroup_(TypedDict, total=True):
     items: list[SupplyMakerGroup]
 
@@ -2504,6 +2555,10 @@ class Items_SupplyNotice_(TypedDict, total=True):
 
 class Items_SupplyNumberEnding_(TypedDict, total=True):
     items: list[SupplyNumberEnding]
+
+
+class Items_SupplyProvider_(TypedDict, total=True):
+    items: list[SupplyProvider]
 
 
 class Items_SupplyWorkItem_(TypedDict, total=True):
@@ -3909,6 +3964,11 @@ class QueueWaitOut(TypedDict, total=False):
     seconds: float | None
 
 
+class QuoteCoverage(TypedDict, total=True):
+    of: int
+    parts: int
+
+
 class ReattachCommentRequest(TypedDict, total=False):
     commit: str
     elementId: str | None
@@ -4520,6 +4580,18 @@ class SupplyAlert(TypedDict, total=True):
     state: str
 
 
+class SupplyCapacity(TypedDict, total=True):
+    calls_per_day: int
+    connector_id: str
+    fits: bool
+    listings: int
+    name: str
+    quotes: QuoteCoverage
+    searches_pending: int
+    shortfall_pct: int
+    usable_per_day: int
+
+
 class SupplyCompliance(TypedDict, total=True):
     """RoHS and REACH of a part, and the substances a supplier declared for it."""
     exemptions: list[RohsExemption]
@@ -4533,6 +4605,78 @@ class SupplyCompliance(TypedDict, total=True):
 class SupplyComplianceState(TypedDict, total=True):
     reason: str
     state: str
+
+
+class SupplyConnector(TypedDict, total=False):
+    assembly_only: bool
+    block_streak: int
+    catalogue: bool
+    catalogue_available: bool
+    cooldown_until: str | None
+    created_at: str | None
+    created_by: str
+    credentials: dict[str, bool]
+    credentials_status: str
+    csv_fed: bool
+    csv_import: SupplyCsvImport | None
+    currency: str
+    daily_budget: int
+    display_name: str
+    enabled: bool
+    id: str
+    interactive_reserve_pct: int
+    keep_days: int | None
+    keep_unused: bool
+    last_error_at: str | None
+    last_error_code: str
+    last_ok_at: str | None
+    limits_storage: bool
+    metered: bool
+    paused_reason: str
+    provider: str
+    provider_available: bool
+    provider_label: str
+    rate_limits: dict[str, dict[str, str]]
+    rate_limits_at: str | None
+    reset_from_provider: bool
+    reset_suggestion: dict[str, Any] | None
+    reset_time: str
+    reset_tz: str
+    retention_days: int | None
+    signin: SupplySignin
+    slow_until: str | None
+    storefront: str
+    updated_at: str | None
+    usage_today: CallsToday
+
+
+class SupplyConnectorCheck(TypedDict, total=True):
+    checked_at: str
+    code: str
+    message: str
+    ok: bool
+    took_ms: int
+
+
+class SupplyCredentialField(TypedDict, total=True):
+    label: str
+    name: str
+    secret: bool
+
+
+class SupplyCsvImport(TypedDict, total=True):
+    filename: str
+    imported_at: str
+    imported_by: str
+    row_count: int
+
+
+class SupplyCsvResult(TypedDict, total=True):
+    filename: str
+    ignored_columns: list[str]
+    imported_at: str
+    imported_by: str
+    row_count: int
 
 
 class SupplyFact(TypedDict, total=True):
@@ -4555,6 +4699,12 @@ class SupplyFxRatesSaved(TypedDict, total=True):
     day: str | None
     saved: int
     stale: bool
+
+
+class SupplyHealth(TypedDict, total=True):
+    """Calls against budget, errors and late reads per connector, and the periodic tasks' runs."""
+    connectors: list[ConnectorHealth]
+    tasks: list[TaskRun]
 
 
 class SupplyMakerGroup(TypedDict, total=True):
@@ -4593,6 +4743,28 @@ class SupplyNumberEnding(TypedDict, total=True):
     source: str
     suffix_key: str
     suffix_text: str
+
+
+class SupplyProvider(TypedDict, total=True):
+    capabilities: list[str]
+    credential_fields: list[SupplyCredentialField]
+    csv_fed: bool
+    default_daily_budget: int
+    key: str
+    label: str
+    max_batch: int
+    metered: bool
+    stock_pooling: str
+    storefronts: list[str]
+
+
+class SupplySignin(TypedDict, total=True):
+    expires_at: str | None
+    granted_at: str | None
+    granted_by: str
+    redirect_uri: str
+    signed_in: bool
+    state: str
 
 
 class SupplySource(TypedDict, total=True):
@@ -4659,6 +4831,16 @@ class SyncResult(TypedDict, total=False):
     records: int
     status: str
     unmatched: int
+
+
+class TaskRun(TypedDict, total=True):
+    every_seconds: int
+    last_error: str
+    last_error_at: str | None
+    last_ok_at: str | None
+    name: str
+    next_at: str | None
+    started_at: str | None
 
 
 class ThreadPoolMetrics(TypedDict, total=True):
@@ -4821,6 +5003,13 @@ class UpdateComponentMetadataRequest(TypedDict, total=False):
     vendor_part_number: str | None
 
 
+class UpdateConnectorRequest(TypedDict, total=False):
+    baseUrl: str | None
+    credentials: ConnectorCredentials | None
+    displayName: str | None
+    instanceKind: str | None
+
+
 class UpdateFolderRequest(TypedDict, total=False):
     name: str | None
     parent_id: str | None
@@ -4856,6 +5045,22 @@ class UpdateSourceRequest(TypedDict, total=False):
     enabled: bool | None
     interval_hours: int | None
     token: str | None
+
+
+class UpdateSupplyConnectorInput(TypedDict, total=False):
+    catalogue: bool | None
+    currency: str | None
+    daily_budget: int | None
+    display_name: str | None
+    enabled: bool | None
+    interactive_reserve_pct: int | None
+    keep_days: int | None
+    keep_unused: bool | None
+    reset_from_provider: bool | None
+    reset_time: str | None
+    reset_tz: str | None
+    retention_days: int | None
+    storefront: str | None
 
 
 class UploadReceipt(TypedDict, total=True):
@@ -5228,47 +5433,6 @@ class app__api__jobs__JobEvent(TypedDict, total=True):
     id: int
     percent: float | None
     stage: str | None
-
-
-class app__api__supply_connectors__CreateConnectorRequest(TypedDict, total=False):
-    credentials: dict[str, str]
-    currency: str
-    daily_budget: int | None
-    display_name: str
-    interactive_reserve_pct: int
-    provider: str
-    storefront: str
-
-
-class app__api__supply_connectors__UpdateConnectorRequest(TypedDict, total=False):
-    catalogue: bool | None
-    currency: str | None
-    daily_budget: int | None
-    display_name: str | None
-    enabled: bool | None
-    interactive_reserve_pct: int | None
-    keep_days: int | None
-    keep_unused: bool | None
-    reset_time: str | None
-    reset_tz: str | None
-    retention_days: int | None
-    storefront: str | None
-
-
-class app__api__tracker_connectors__CreateConnectorRequest(TypedDict, total=False):
-    baseUrl: str
-    credentials: ConnectorCredentials | None
-    displayName: str
-    id: str | None
-    instanceKind: str
-    provider: str
-
-
-class app__api__tracker_connectors__UpdateConnectorRequest(TypedDict, total=False):
-    baseUrl: str | None
-    credentials: ConnectorCredentials | None
-    displayName: str | None
-    instanceKind: str | None
 
 
 class GeneratedClient:
@@ -5901,7 +6065,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_supply_connector(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_supply_connector(self, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Create Supply Connector"""
         return self._request(
             "POST",
@@ -6475,7 +6639,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "candidate_id": candidate_id},
         )
 
-    def get_capacity(self) -> list[dict[str, Any]]:
+    def get_capacity(self) -> Items_SupplyCapacity_:
         """Get Capacity"""
         return self._request(
             "GET",
@@ -7758,7 +7922,7 @@ class GeneratedClient:
             "/api/v1/projects/",
         )
 
-    def list_providers(self) -> list[dict[str, Any]]:
+    def list_providers(self) -> Items_SupplyProvider_:
         """List Providers"""
         return self._request(
             "GET",
@@ -7796,7 +7960,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def list_supply_connectors(self) -> list[dict[str, Any]]:
+    def list_supply_connectors(self) -> Items_SupplyConnector_:
         """List Supply Connectors"""
         return self._request(
             "GET",
@@ -8100,7 +8264,7 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def pause_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def pause_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Pause Supply Connector"""
         return self._request(
             "POST",
@@ -8712,7 +8876,7 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def resume_supply_connector(self, connector_id: str) -> dict[str, Any]:
+    def resume_supply_connector(self, connector_id: str) -> SupplyConnector:
         """Resume Supply Connector"""
         return self._request(
             "POST",
@@ -8931,7 +9095,7 @@ class GeneratedClient:
             query={"q": q, "limit": limit},
         )
 
-    def set_connector_credentials(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def set_connector_credentials(self, connector_id: str, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Set Connector Credentials"""
         return self._request(
             "PUT",
@@ -9093,7 +9257,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def supply_health(self) -> dict[str, Any]:
+    def supply_health(self) -> SupplyHealth:
         """Supply Health"""
         return self._request(
             "GET",
@@ -9131,7 +9295,7 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def test_connector_connection(self, connector_id: str) -> dict[str, Any]:
+    def test_connector_connection(self, connector_id: str) -> SupplyConnectorCheck:
         """Test Connector Connection"""
         return self._request(
             "POST",
@@ -9384,7 +9548,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def update_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Update Supply Connector"""
         return self._request(
             "PATCH",
@@ -9427,7 +9591,7 @@ class GeneratedClient:
             path_params={"snapshot_id": snapshot_id},
         )
 
-    def upload_offers_csv(self, connector_id: str, *, filename: str = '') -> dict[str, Any]:
+    def upload_offers_csv(self, connector_id: str, *, filename: str = '') -> SupplyCsvResult:
         """Upload Offers Csv"""
         return self._request(
             "POST",

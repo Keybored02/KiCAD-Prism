@@ -198,19 +198,19 @@ class ConnectorCheckTests(unittest.TestCase):
             self.watch_with_listing(f"DAILY{index}", cid, "daily")
         for index in range(2):
             self.watch_with_listing(f"WEEKLY{index}", cid, "weekly")
-        (row,) = self.call("GET", "/api/supply/capacity").json
+        (row,) = self.call("GET", "/api/supply/capacity").json["items"]
         # Batches of 2, two calls a batch: daily is 2 batches x 2 calls, weekly is 1 batch x 2 calls once in seven days.
         self.assertEqual((row["listings"], row["calls_per_day"], row["usable_per_day"]), (5, 5, 100))
         self.assertEqual((row["fits"], row["shortfall_pct"], row["searches_pending"]), (True, 0, 0))
 
         self.connectors.update(cid, actor=ACTOR, daily_budget=4)
-        (tight,) = self.call("GET", "/api/supply/capacity").json
+        (tight,) = self.call("GET", "/api/supply/capacity").json["items"]
         self.assertEqual((tight["fits"], tight["usable_per_day"], tight["shortfall_pct"]), (False, 4, 20))
 
     def test_capacity_holds_back_the_interactive_reserve_and_plans_unpolled_listings_daily(self) -> None:
         cid = self.connector(daily_budget=100, interactive_reserve_pct=10)
         self.watch_with_listing("NEW", cid, None)
-        (row,) = self.call("GET", "/api/supply/capacity").json
+        (row,) = self.call("GET", "/api/supply/capacity").json["items"]
         self.assertEqual((row["calls_per_day"], row["usable_per_day"]), (2, 90), "1 batch x 2 calls, once a day")
 
     def test_capacity_says_how_many_tracked_parts_a_connector_quotes(self) -> None:
@@ -223,7 +223,7 @@ class ConnectorCheckTests(unittest.TestCase):
                 "INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, NOW(), 5, 'EUR', '[[1, \"0.5\"]]'::jsonb)",
                 (listing,),
             )
-        (row,) = self.call("GET", "/api/supply/capacity").json
+        (row,) = self.call("GET", "/api/supply/capacity").json["items"]
         self.assertEqual(row["quotes"], {"parts": 1, "of": 2})
 
     def test_capacity_reports_searches_still_to_do_and_leaves_out_free_and_disabled_connectors(self) -> None:
@@ -231,11 +231,11 @@ class ConnectorCheckTests(unittest.TestCase):
         self.connector("csv")
         with self.store.connection() as conn:
             self.watches.add_watch(conn, "Acme", "UNSEARCHED", ACTOR)
-        rows = self.call("GET", "/api/supply/capacity").json
+        rows = self.call("GET", "/api/supply/capacity").json["items"]
         self.assertEqual([r["connector_id"] for r in rows], [cid], "a file connector has no budget to plan")
         self.assertEqual(rows[0]["searches_pending"], 1)
         self.connectors.update(cid, actor=ACTOR, enabled=False)
-        self.assertEqual(self.call("GET", "/api/supply/capacity").json, [])
+        self.assertEqual(self.call("GET", "/api/supply/capacity").json["items"], [])
 
     def test_capacity_is_for_readers(self) -> None:
         for role in ("admin", "designer", "qa"):

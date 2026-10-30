@@ -55,11 +55,11 @@ function post<T>(url: string, body: unknown, fallback: string): Promise<T> {
 }
 
 export function listSupplyProviders(signal?: AbortSignal): Promise<SupplyProvider[]> {
-  return fetchJson<SupplyProvider[]>(`${BASE}/providers`, { signal }, "Could not load providers");
+  return fetchJson<Items<SupplyProvider>>(`${BASE}/providers`, { signal }, "Could not load providers").then((list) => list.items);
 }
 
 export function listSupplyConnectors(signal?: AbortSignal): Promise<SupplyConnector[]> {
-  return fetchJson<SupplyConnector[]>(`${BASE}/connectors`, { signal }, "Could not load connectors");
+  return fetchJson<Items<SupplyConnector>>(`${BASE}/connectors`, { signal }, "Could not load connectors").then((list) => list.items);
 }
 
 function createSupplyConnectorRequest(input: CreateSupplyConnectorInput): Promise<SupplyConnector> {
@@ -143,7 +143,7 @@ function testSupplyConnectorRequest(id: string): Promise<SupplyConnectorCheck> {
 }
 
 export function listSupplyCapacity(signal?: AbortSignal): Promise<SupplyCapacity[]> {
-  return fetchJson<SupplyCapacity[]>(`${BASE}/capacity`, { signal }, "Could not load capacity");
+  return fetchJson<Items<SupplyCapacity>>(`${BASE}/capacity`, { signal }, "Could not load capacity").then((list) => list.items);
 }
 
 

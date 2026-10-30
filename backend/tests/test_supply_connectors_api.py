@@ -157,12 +157,12 @@ class SupplyConnectorsApiTests(unittest.TestCase):
     def test_providers_list_describes_the_setup_form(self) -> None:
         from app.core.config import settings
 
-        providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json}
+        providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json["items"]}
         self.assertEqual(providers["demo_keyed"]["credential_fields"],
                          [{"name": "api_key", "label": "API key", "secret": True}])
         self.assertNotIn("fake", providers, "the simulated provider is hidden unless enabled")
         with mock.patch.object(settings, "SUPPLY_ENABLE_SIMULATED_PROVIDER", True):
-            shown = {item["key"] for item in self.call("GET", "/api/supply/providers").json}
+            shown = {item["key"] for item in self.call("GET", "/api/supply/providers").json["items"]}
         self.assertIn("fake", shown)
 
     # --- lifecycle --------------------------------------------------------
@@ -173,9 +173,9 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual(created["credentials"], {"api_key": True})
         listed = self.call("GET", "/api/supply/connectors", role="qa")
         self.assertEqual(listed.status, 200)
-        self.assertEqual([item["id"] for item in listed.json], [created["id"]])
+        self.assertEqual([item["id"] for item in listed.json["items"]], [created["id"]])
         self.assertNotIn("TOPSECRET-KEY", listed.text)
-        self.assertEqual(listed.json[0]["usage_today"], {"spent": 0, "interactive_spent": 0})
+        self.assertEqual(listed.json["items"][0]["usage_today"], {"spent": 0, "interactive_spent": 0})
 
     def test_update_pause_resume_credentials_delete(self) -> None:
         cid = self._create(provider="demo_keyed", credentials={"api_key": "one"})["id"]
@@ -183,6 +183,9 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         patched = self.call("PATCH", path, body={"daily_budget": 250, "enabled": False, "currency": "gbp"})
         self.assertEqual((patched.status, patched.json["daily_budget"], patched.json["enabled"], patched.json["currency"]),
                          (200, 250, False, "GBP"))
+        trusted = self.call("PATCH", path, body={"reset_time": "08:00", "reset_tz": "UTC", "reset_from_provider": True})
+        self.assertEqual((trusted.status, trusted.json["reset_time"], trusted.json["reset_from_provider"]), (200, "08:00", True),
+                         "applying the provider's reset time trusts its count")
         paused = self.call("POST", f"{path}/pause", body={"reason": "over budget"})
         self.assertEqual(paused.json["paused_reason"], "over budget")
         self.assertEqual(self.call("POST", f"{path}/resume").json["paused_reason"], "")
@@ -190,7 +193,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual(replaced.status, 200)
         self.assertNotIn("two", replaced.text)
         self.assertEqual(self.call("DELETE", path).status, 204)
-        self.assertEqual(self.call("GET", path.rsplit("/", 1)[0], role="admin").json, [])
+        self.assertEqual(self.call("GET", path.rsplit("/", 1)[0], role="admin").json, {"items": []})
         self.assertEqual(self.call("DELETE", path).status, 404)
 
     def test_usage_today_reflects_the_ledger(self) -> None:
@@ -202,7 +205,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             ledger.try_spend(conn, cid, 5, interactive=False, daily_budget=100, reserve_pct=10,
                              now=datetime.now(timezone.utc).replace(hour=23, minute=59))
-        usage = self.call("GET", "/api/supply/connectors", role="designer").json[0]["usage_today"]
+        usage = self.call("GET", "/api/supply/connectors", role="designer").json["items"][0]["usage_today"]
         self.assertEqual(usage, {"spent": 5, "interactive_spent": 0})
 
     # --- errors -----------------------------------------------------------
@@ -298,7 +301,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
                          query=query, content_type="text/csv")
 
     def test_csv_fed_providers_are_listed_and_unmetered(self) -> None:
-        providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json}
+        providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json["items"]}
         for key in ("csv", "lcsc", "jlcpcb"):
             self.assertFalse(providers[key]["metered"], key)
             self.assertTrue(providers[key]["csv_fed"], key)
@@ -319,7 +322,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual((response.json["row_count"], response.json["filename"], response.json["imported_by"]),
                          (1, "stock.csv", "admin@example.com"))
         self.assertEqual(response.json["ignored_columns"], [])
-        shown = self.call("GET", "/api/supply/connectors", role="designer").json[0]
+        shown = self.call("GET", "/api/supply/connectors", role="designer").json["items"][0]
         self.assertEqual(shown["csv_import"]["row_count"], 1)
         self.assertFalse(shown["metered"])
         self.assertTrue(shown["csv_fed"])
@@ -329,7 +332,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         for role in ("designer", "qa", "viewer"):
             self.assertEqual(self._upload(cid, self.CSV_OK.encode(), role=role).status, 403, role)
             self.assertEqual(self.call("DELETE", f"/api/supply/connectors/{cid}/csv", role=role).status, 403, role)
-        self.assertIsNone(self.call("GET", "/api/supply/connectors").json[0]["csv_import"])
+        self.assertIsNone(self.call("GET", "/api/supply/connectors").json["items"][0]["csv_import"])
 
     def test_a_bad_file_is_rejected_with_line_and_column(self) -> None:
         cid = self._csv_connector()["id"]
@@ -342,7 +345,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual(body["error_count"], 1)
         self.assertEqual(body["errors"], [{"line": 3, "column": "stock", "message": "A whole number, digits only."}])
         self.assertEqual(body["ignored_columns"], ["notes"])
-        kept = self.call("GET", "/api/supply/connectors").json[0]["csv_import"]
+        kept = self.call("GET", "/api/supply/connectors").json["items"][0]["csv_import"]
         self.assertEqual(kept["filename"], "good.csv", "the earlier data is untouched")
 
     def test_upload_limits_and_targets(self) -> None:
@@ -372,7 +375,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         cid = self._csv_connector()["id"]
         self._upload(cid, self.CSV_OK.encode())
         self.assertEqual(self.call("DELETE", f"/api/supply/connectors/{cid}/csv").status, 204)
-        self.assertIsNone(self.call("GET", "/api/supply/connectors").json[0]["csv_import"])
+        self.assertIsNone(self.call("GET", "/api/supply/connectors").json["items"][0]["csv_import"])
         self.assertEqual(self.call("DELETE", "/api/supply/connectors/missing/csv").status, 404)
 
 

@@ -17,6 +17,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.supply_call import run_supply as _run
+from app.api.supply_connectors_models import SupplyCapacity, SupplyConnector, SupplyConnectorCheck, SupplyCsvResult, SupplyProvider
+from app.api.supply_models import Items
 from app.core.config import settings
 from app.core.errors import BadRequest
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
@@ -32,7 +34,7 @@ router = APIRouter(prefix=_PREFIX, tags=["supply"])
 service = ConnectorService()
 
 
-class CreateConnectorRequest(BaseModel):
+class CreateSupplyConnectorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: str = Field(min_length=1, max_length=64)
@@ -44,7 +46,7 @@ class CreateConnectorRequest(BaseModel):
     interactive_reserve_pct: int = 10
 
 
-class UpdateConnectorRequest(BaseModel):
+class UpdateSupplyConnectorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: Optional[str] = Field(default=None, max_length=120)
@@ -64,6 +66,8 @@ class UpdateConnectorRequest(BaseModel):
     # When the provider's day begins (HH:MM) and in which time zone; its budget resets then.
     reset_time: Optional[str] = Field(default=None, max_length=5)
     reset_tz: Optional[str] = Field(default=None, max_length=64)
+    # The reset time was taken from what the provider reported, so its own count of calls is trusted.
+    reset_from_provider: Optional[bool] = None
 
 
 class CredentialsRequest(BaseModel):
@@ -126,14 +130,14 @@ def register_validation_redaction(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, handler)
 
 
-@router.get("/providers")
-async def list_providers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+@router.get("/providers", response_model=Items[SupplyProvider])
+async def list_providers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     include_dev = bool(settings.SUPPLY_ENABLE_SIMULATED_PROVIDER)
-    return [_provider_dto(spec) for spec in registry.list_specs(include_dev=include_dev)]
+    return {"items": [_provider_dto(spec) for spec in registry.list_specs(include_dev=include_dev)]}
 
 
-@router.get("/connectors")
-async def list_supply_connectors(user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+@router.get("/connectors", response_model=Items[SupplyConnector], response_model_exclude_unset=True)
+async def list_supply_connectors(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Every connector. An administrator also sees, on a connector whose change notices need a person's sign-in, that sign-in
     (who, until when, and the callback address the distributor's app must list)."""
 
@@ -147,25 +151,25 @@ async def list_supply_connectors(user: AuthenticatedUser = Depends(require_suppl
                 for item in items
             ]
 
-    return await _run(read)
+    return {"items": await _run(read)}
 
 
-@router.post("/connectors", status_code=201)
+@router.post("/connectors", status_code=201, response_model=SupplyConnector, response_model_exclude_unset=True)
 async def create_supply_connector(
-    body: CreateConnectorRequest, admin: AuthenticatedUser = Depends(require_admin)
+    body: CreateSupplyConnectorInput, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.create(actor=_actor(admin), **body.model_dump()))
 
 
-@router.patch("/connectors/{connector_id}")
+@router.patch("/connectors/{connector_id}", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def update_supply_connector(
-    connector_id: str, body: UpdateConnectorRequest, admin: AuthenticatedUser = Depends(require_admin)
+    connector_id: str, body: UpdateSupplyConnectorInput, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     changes = body.model_dump(exclude_unset=True)
     return await _run(lambda: service.update(connector_id, actor=_actor(admin), **changes))
 
 
-@router.put("/connectors/{connector_id}/credentials")
+@router.put("/connectors/{connector_id}/credentials", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def set_connector_credentials(
     connector_id: str, body: CredentialsRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
@@ -174,14 +178,14 @@ async def set_connector_credentials(
     )
 
 
-@router.post("/connectors/{connector_id}/pause")
+@router.post("/connectors/{connector_id}/pause", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def pause_supply_connector(
     connector_id: str, body: PauseRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.pause(connector_id, actor=_actor(admin), reason=body.reason))
 
 
-@router.post("/connectors/{connector_id}/test")
+@router.post("/connectors/{connector_id}/test", response_model=SupplyConnectorCheck)
 async def test_connector_connection(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
@@ -190,16 +194,16 @@ async def test_connector_connection(
     return await _run(lambda: connector_check.check_connector(service, connector_id, _actor(admin)))
 
 
-@router.get("/capacity")
-async def get_capacity(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    def read() -> list[dict[str, Any]]:
+@router.get("/capacity", response_model=Items[SupplyCapacity])
+async def get_capacity(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
         with service.store.connection() as conn:
-            return capacity.connector_capacity(conn)
+            return {"items": capacity.connector_capacity(conn)}
 
     return await _run(read)
 
 
-@router.post("/connectors/{connector_id}/resume")
+@router.post("/connectors/{connector_id}/resume", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def resume_supply_connector(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
@@ -242,7 +246,7 @@ async def csv_template(_user: AuthenticatedUser = Depends(require_supply_reader)
     )
 
 
-@router.post("/connectors/{connector_id}/csv")
+@router.post("/connectors/{connector_id}/csv", response_model=SupplyCsvResult)
 async def upload_offers_csv(
     connector_id: str,
     request: Request,
