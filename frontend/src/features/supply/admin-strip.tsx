@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 import type { SupplyConnector, SupplySvhcList } from "@/types/supply";
 import { getSvhcList } from "./supply-api";
-import { CONNECTORS_PLACE } from "./supply-views";
+import { SOURCES_PLACE } from "./supply-views";
 import { useLoaded } from "./use-loaded";
 import { useConnectorList } from "./use-supply-connectors";
 
@@ -68,7 +68,7 @@ export function AdminStrip({ waiting }: { waiting: number }) {
           {notices.map((notice) => (
             <li key={notice.key} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <span>{notice.text}</span>
-              <Link to={notice.to === "settings" || notice.to === "connectors" ? CONNECTORS_PLACE : `/?section=supply&supplyView=${notice.to}`} className="text-xs text-primary hover:underline">{notice.action}</Link>
+              <Link to={notice.to === "settings" || notice.to === "connectors" ? SOURCES_PLACE : `/?section=supply&supplyView=${notice.to}`} className="text-xs text-primary hover:underline">{notice.action}</Link>
             </li>
           ))}
         </ul>

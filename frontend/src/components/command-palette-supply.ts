@@ -10,7 +10,7 @@ const SUPPLY_VIEWS = [
   { view: "tracking", label: "Tracking" },
   { view: "review", label: "Review" },
   { view: "insights", label: "Insights" },
-  { view: "connectors", label: "Connectors" },
+  { view: "sources", label: "Sources" },
 ] as const;
 
 /** What people type to find a group of parts, and the Parts view that shows it. */

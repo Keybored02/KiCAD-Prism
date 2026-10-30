@@ -16,15 +16,15 @@ function useUnmatchedCount(allowed: boolean): number | undefined {
   return data?.reduce((sum, source) => sum + source.unmatched, 0);
 }
 
-/** What waits on Library Manager > Review: the supply queue and the unmatched local stock. */
-export function useLibraryReviewCount(allowed: boolean): number | undefined {
+/** What waits on Supply > Review: the supply queue and the unmatched local stock. */
+export function useReviewWaiting(allowed: boolean): number | undefined {
   const queue = useReviewCount(allowed);
   const unmatched = useUnmatchedCount(allowed);
   return queue === undefined && unmatched === undefined ? undefined : (queue ?? 0) + (unmatched ?? 0);
 }
 
-/** Library Manager > Review: matching questions, with the library. Supply's sections, then the unmatched local stock. */
-export function LibraryReviewView({ user }: { user: User | null }) {
+/** Supply > Review: matching questions, then work items and the unmatched local stock. */
+export function ReviewPage({ user }: { user: User | null }) {
   const unmatched = useUnmatchedCount(true);
   return (
     <ReviewView

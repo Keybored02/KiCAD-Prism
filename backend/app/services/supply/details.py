@@ -283,7 +283,7 @@ class TooSoon(ValueError):
 
 
 _ASK_STOPPED = {
-    "not_signed_in": "needs an administrator to sign in at DigiKey (Supply > Connectors)",
+    "not_signed_in": "needs an administrator to sign in at DigiKey (Supply > Sources)",
     "sign_in_refused": "refused the sign-in; an administrator needs to sign in again",
     "budget": "has used today's allowance for asking",
     "rate_limited": "is limiting requests",

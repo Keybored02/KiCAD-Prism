@@ -1,11 +1,9 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Database, DownloadCloud, ListChecks, PackageCheck, Plug, Table2, type LucideIcon } from "lucide-react";
+import { Database, DownloadCloud, PackageCheck, Table2, type LucideIcon } from "lucide-react";
 
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs } from "@/components/ui/tabs";
-import { useLibraryReviewCount } from "@/features/supply/library-review-view";
-import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
@@ -14,43 +12,44 @@ const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspac
 const LibraryComponentWorkspace = lazy(() => import("./library-component-workspace").then((module) => ({ default: module.LibraryComponentWorkspace })));
 const LibraryImportCenter = lazy(() => import("./library-import-center").then((module) => ({ default: module.LibraryImportCenter })));
 const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
-const LibraryReviewView = lazy(() => import("@/features/supply/library-review-view").then((module) => ({ default: module.LibraryReviewView })));
-const LibraryConnectorsView = lazy(() => import("@/features/supply/library-connectors-view").then((module) => ({ default: module.LibraryConnectorsView })));
 
-type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "review" | "connectors";
+type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases";
 
 const VIEW_LABELS: Record<LibraryView, string> = {
   catalog: "Catalog",
   "bulk-edit": "Bulk Edit",
   imports: "Import Center",
   releases: "Release Queue",
-  review: "Review",
-  connectors: "Connectors",
 };
+
+const VIEWS: LibraryView[] = ["catalog", "bulk-edit", "imports", "releases"];
+const MOVED_TO_SUPPLY: Readonly<Record<string, string>> = { ending: "dashboard", review: "review", connectors: "sources" };
 
 const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
   catalog: Database,
   "bulk-edit": Table2,
   imports: DownloadCloud,
   releases: PackageCheck,
-  review: ListChecks,
-  connectors: Plug,
 };
 
 export function LibraryManagerWorkspace({ user, projects }: { user: User | null; projects: Project[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const componentId = searchParams.get("component") || "";
   const requestedView = searchParams.get("libraryView") as LibraryView | null;
-  // Ending Parts became notifications on the Supply Dashboard.
-  const endingMoved = (requestedView as string | null) === "ending";
+  // Ending Parts became notifications on the Supply Dashboard; Review and Connectors moved to Supply (Connectors as Sources). An old
+  // address, or a sign-in started before the move, goes there keeping its result.
+  const movedTo = MOVED_TO_SUPPLY[(requestedView as string | null) ?? ""];
   useEffect(() => {
-    if (endingMoved) setSearchParams(new URLSearchParams({ section: "supply", supplyView: "dashboard" }), { replace: true });
-  }, [endingMoved, setSearchParams]);
-  const supplyRole = canOpenSupply(user?.role);
-  const views: LibraryView[] = supplyRole ? ["catalog", "bulk-edit", "imports", "releases", "review", "connectors"] : ["catalog", "bulk-edit", "imports", "releases"];
-  const view: LibraryView = requestedView && views.includes(requestedView) ? requestedView : "catalog";
-  // Counted again whenever the tab changes, so a decision made on Review shows when leaving it.
-  const reviewCount = useLibraryReviewCount(supplyRole);
+    if (!movedTo) return;
+    setSearchParams((current) => {
+      const updated = new URLSearchParams(current);
+      updated.delete("libraryView");
+      updated.set("section", "supply");
+      updated.set("supplyView", movedTo);
+      return updated;
+    }, { replace: true });
+  }, [movedTo, setSearchParams]);
+  const view: LibraryView = requestedView && VIEWS.includes(requestedView) ? requestedView : "catalog";
 
   const setView = (next: LibraryView) => {
     setSearchParams((current) => {
@@ -102,7 +101,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
             Enter selects. */}
         <Tabs value={view} activationMode="manual" className="shrink-0">
           <StudioTabsList aria-label="Library Manager sections">
-            {views.map((item) => {
+            {VIEWS.map((item) => {
               const Icon = VIEW_ICONS[item];
               return (
                 <StudioTabsTrigger
@@ -113,7 +112,6 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
                 >
                   <Icon className="size-3.5" aria-hidden />
                   {VIEW_LABELS[item]}
-                  {item === "review" && reviewCount ? <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground" aria-label={`${reviewCount} waiting`}>{reviewCount}</span> : null}
                 </StudioTabsTrigger>
               );
             })}
@@ -126,8 +124,6 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
-        {view === "review" && <LibraryReviewView user={user} />}
-        {view === "connectors" && <LibraryConnectorsView user={user} />}
       </div>
       </Suspense>
     </div>

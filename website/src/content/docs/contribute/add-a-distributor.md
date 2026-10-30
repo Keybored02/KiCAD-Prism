@@ -75,7 +75,7 @@ rate limit or an outage means for the connector.
 The contract kit replays what the distributor really answered. Record them
 with a connector that has working credentials, in your development setup:
 
-1. Add a connector for the distributor in **Library Manager → Connectors**
+1. Add a connector for the distributor in **Supply → Sources**
    and choose **Test connection**.
 2. From `backend`, record a part the distributor sells in several packagings.
 

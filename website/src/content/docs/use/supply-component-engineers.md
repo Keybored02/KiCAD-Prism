@@ -153,7 +153,7 @@ a replacement component.
 When the decision needs work first, open a **work item** from the clipboard
 button on the ending row: name the owner, attach the evidence (the notice, the
 distributor's answer) and set a recheck date. QA accepts or rejects it in
-**Library Manager → Review → Work items**, which lists the items due a recheck
+**Supply → Review → Work items**, which lists the items due a recheck
 and the ones you own.
 
 ## 7. Approve alternates
@@ -189,7 +189,7 @@ pins or operating conditions: check those before you propose one.
 
 ## 8. Clear the review queue
 
-**Library Manager → Review** collects what Prism could not settle alone:
+**Supply → Review** collects what Prism could not settle alone:
 manufacturer spellings, distributor listings filed under another number,
 parts several makers sell under one number, and stock in your inventory that
 matches no component. Work through it weekly; an unsettled spelling or listing

@@ -11,7 +11,7 @@ What people do with the data is in
 [Track supply](/KiCAD-Prism/use/supply/).
 
 Only administrators manage connectors, inventory sources and Supply settings.
-Everything here is in **Library Manager → Connectors**.
+Everything here is in **Supply → Sources**.
 
 ## Before you start
 
@@ -28,7 +28,7 @@ You need an account with the distributor's API programme first: each one
 issues its own keys, usually after you register an application in its
 developer portal.
 
-1. Open **Library Manager → Connectors** and choose **Add connector**.
+1. Open **Supply → Sources** and choose **Add connector**.
 2. Choose the **Provider**, and the **Storefront** if it has a choice (below).
    You can add one connector per provider and storefront.
 3. Give it a **Name**, the **Currency** you want its prices in (three
@@ -150,7 +150,7 @@ InvenTree itself. It only reads; it never changes your inventory.
 
 ### Add the source
 
-1. In **Library Manager → Connectors**, under **Local inventory**, choose
+1. In **Supply → Sources**, under **Local inventory**, choose
    **Add source**.
 2. Keep **Kind** at **InvenTree server**. Enter a **Name**, the **Server**
    address (`https://…`, without `/api`), the **API token**, and how often to
@@ -190,7 +190,7 @@ wins:
 A SAP code, part number or supplier part number that several components share
 matches none of them.
 Parts with stock that match nothing appear under **Unmatched local stock** in
-**Library Manager → Review**, where a QA reviewer or administrator links them
+**Supply → Review**, where a QA reviewer or administrator links them
 or adds the component. Stock that will never be a library component
 (consumables, tools) can be ignored in bulk; see
 [Track supply](/KiCAD-Prism/use/supply/#review-what-prism-could-not-settle).

@@ -1,7 +1,7 @@
 """Local inventory sources API: InvenTree-compatible servers, and sources that push their stock, filling the catalog (D15).
 
 Administrators add, change, check, read and remove sources. Everyone who reads supply data sees which parts a source
-could not match; QA and administrators link them to a component in Library Manager > Review.
+could not match; QA and administrators link them to a component in Supply > Review.
 """
 
 from __future__ import annotations

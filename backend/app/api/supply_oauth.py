@@ -1,7 +1,7 @@
 """A person's sign-in at DigiKey, for change notices. Administrators only.
 
 Who is signed in comes with an administrator's connector list. ``POST /api/supply/connectors/{id}/signin`` gives the DigiKey address to open; DigiKey sends the browser back to
-``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Connectors tab with a result code
+``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Sources tab with a result code
 in the address (``signin=ok`` or ``signin=failed&reason=<code>``). The page words the code itself. The callback needs the same administrator's session and the one-time state from the start.
 """
 
@@ -22,7 +22,7 @@ from app.services.trackers.secrets import SecretStoreLocked
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
-RETURN_TO = "/?section=library-manager&libraryView=connectors"
+RETURN_TO = "/?section=supply&supplyView=sources"
 
 
 def _service():

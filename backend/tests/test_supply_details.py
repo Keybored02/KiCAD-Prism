@@ -606,7 +606,7 @@ class DetailsTests(unittest.TestCase):
                 back = _request(self.app, "GET", "/api/supply/oauth/digikey/callback", user=self.users["admin"],
                                 query=f"code=abc&state={state}")
             self.assertEqual(back.status, 303)
-            self.assertEqual(back.headers["location"], "/?section=library-manager&libraryView=connectors&signin=ok")
+            self.assertEqual(back.headers["location"], "/?section=supply&supplyView=sources&signin=ok")
             again = _request(self.app, "GET", "/api/supply/oauth/digikey/callback", user=self.users["admin"], query=f"code=abc&state={state}")
             self.assertTrue(again.headers["location"].endswith("&signin=failed&reason=expired"), again.headers["location"])
             listed = _request(self.app, "GET", "/api/supply/connectors", user=self.users["admin"]).json

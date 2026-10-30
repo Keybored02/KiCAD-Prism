@@ -29,8 +29,8 @@ repository root first. Every figure here is worked out by the backend
 
 ## Module groups
 
-**Section and navigation** — `supply-workspace.tsx` (the four tabs:
-Dashboard, Tracking, Projects, Insights, each lazy-loaded), `supply-views.ts`
+**Section and navigation** — `supply-workspace.tsx` (the six tabs:
+Dashboard, Tracking, Projects, Insights, Review, Sources, each lazy-loaded), `supply-views.ts`
 (`resolvePlace`, `partHref`, the Library Manager places),
 `use-supply-navigation.ts`, `open-part-sheet.tsx`. Mounted by
 `frontend/src/components/workspace.tsx`.
@@ -80,16 +80,16 @@ Tracking a project is the `track-*.tsx` dialog steps and
 `market-*.ts(x)`, `sourcing-panel.tsx`, `scorecard-table.tsx`,
 `forecast-insights.tsx`.
 
-**Library Manager pages** — `library-connectors-view.tsx` and
+**Sources and Review** — `sources-view.tsx` and
 `connectors-view.tsx` (connector cards, `create-connector-dialog.tsx`,
 `edit-connector-dialog.tsx`, `connector-signin.tsx`, `csv-upload-dialog.tsx`,
 `budget-view.tsx`), `inventory-sources.tsx` and `inventory-source-dialogs.tsx`
 (InvenTree-compatible stores and push sources), `push-token-dialog.tsx` and
 `push-api.ts` (a connector's or source's push token), `settings-view.tsx` and `settings-*.tsx`
-(Supply settings), `library-review-view.tsx` and `review-view.tsx` (Review), with
+(Supply settings), `review-page.tsx` and `review-view.tsx` (Review), with
 `work-items-section.tsx` (Review's work items), `work-item-dialog.tsx` (the
 button that opens one) and `work-items-api.ts`.
-Mounted by `frontend/src/components/workspace/library-manager-workspace.tsx`.
+Library Manager's old `libraryView=connectors|review` addresses lead to these two tabs.
 Each form mounts only while its dialog is open, so it resets without effects;
 connector form rules live in `connector-form-model.ts`, not in components.
 

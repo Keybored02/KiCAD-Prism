@@ -12,7 +12,7 @@ export function useConnectorList() {
   return useLoaded<SupplyConnector[]>("connectors", connectorsFetcher, "Could not load connectors");
 }
 
-/** Providers and connectors for the Connectors tab. A change reads the connectors again wherever they show. */
+/** Providers and connectors for the Sources tab. A change reads the connectors again wherever they show. */
 export function useSupplyConnectors() {
   const providers = useLoaded<SupplyProvider[]>("providers", providersFetcher, "Could not load providers");
   const connectors = useConnectorList();

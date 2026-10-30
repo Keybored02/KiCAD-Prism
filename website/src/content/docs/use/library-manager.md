@@ -38,12 +38,9 @@ The tabs along the top are:
 - **Bulk Edit**: edit metadata for many components in a spreadsheet.
 - **Import Center**: bring components in from KiCad libraries or projects.
 - **Release Queue**: components waiting for QA or ready to release.
-- **Review**: supply items waiting for a person, such as alternates to approve
-  and inventory stock that matches no component. Shown to QA, designers and
-  administrators.
-- **Connectors**: distributor accounts and inventory sources for
-  [supply](/KiCAD-Prism/use/supply/). Shown to QA, designers and
-  administrators; only administrators change them.
+
+Supply's review queue and its distributor and inventory sources are in
+[Supply](/KiCAD-Prism/use/supply/), under **Review** and **Sources**.
 
 ## How a component moves to release
 

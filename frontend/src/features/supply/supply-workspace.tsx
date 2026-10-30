@@ -1,24 +1,29 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Boxes, FolderKanban, LayoutDashboard, LineChart, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, FolderKanban, LayoutDashboard, LineChart, ListChecks, Plug, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { getLibraryComponentOf } from "./supply-api";
-import { MOVED_TO_LIBRARY, resolvePlace, type SupplyTab } from "./supply-views";
+import { useReviewWaiting } from "./review-page";
+import { resolvePlace, type SupplyTab } from "./supply-views";
 
 const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ default: module.DashboardView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const InsightsView = lazy(() => import("./insights-view").then((module) => ({ default: module.InsightsView })));
 const ProjectsView = lazy(() => import("./projects-view").then((module) => ({ default: module.ProjectsView })));
+const ReviewPage = lazy(() => import("./review-page").then((module) => ({ default: module.ReviewPage })));
+const SourcesView = lazy(() => import("./sources-view").then((module) => ({ default: module.SourcesView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; title: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", title: "Supply Dashboard", icon: LayoutDashboard },
   { id: "tracking", label: "Tracking", title: "Tracking", icon: Boxes },
   { id: "projects", label: "Projects", title: "Projects", icon: FolderKanban },
   { id: "insights", label: "Insights", title: "Supply Insights", icon: LineChart },
+  { id: "review", label: "Review", title: "Review", icon: ListChecks },
+  { id: "sources", label: "Sources", title: "Sources", icon: Plug },
 ];
 
 function isSupplyView(value: string): value is SupplyTab {
@@ -34,17 +39,8 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const current = VIEWS.find((item) => item.id === view) ?? VIEWS[0];
   // The Parts tab puts its buttons here, on the right of the page title.
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
-  // Connectors and Review moved to Library Manager: an old address (or a sign-in started before the move) goes there, keeping its result.
-  const movedTo = MOVED_TO_LIBRARY[searchParams.get("supplyView") ?? ""];
-  useEffect(() => {
-    if (!movedTo) return;
-    setSearchParams((current) => {
-      const updated = new URLSearchParams(current);
-      updated.delete("supplyView");
-      for (const [key, value] of new URLSearchParams(movedTo.slice(2))) updated.set(key, value);
-      return updated;
-    }, { replace: true });
-  }, [movedTo, setSearchParams]);
+  // Counted again whenever the tab changes, so a decision made on Review shows when leaving it.
+  const reviewWaiting = useReviewWaiting(canOpenSupply(user?.role));
   // A link to one part opens the component it counts for, on its Supply tab; a part the library has no component for opens its
   // sheet on Tracking.
   const linkedPart = searchParams.get("supplyView") === "part" ? searchParams.get("part") : null;
@@ -99,6 +95,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
             <StudioTabsTrigger key={id} value={id} className="gap-1.5">
               <Icon className="h-4 w-4" />
               {label}
+              {id === "review" && reviewWaiting ? <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground" aria-label={`${reviewWaiting} waiting`}>{reviewWaiting}</span> : null}
             </StudioTabsTrigger>
           ))}
         </StudioTabsList>
@@ -119,6 +116,8 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
             {view === "tracking" && <PartsView user={user} headerSlot={headerSlot} />}
             {view === "projects" && <ProjectsView user={user} />}
             {view === "insights" && <InsightsView user={user} />}
+            {view === "review" && <ReviewPage user={user} />}
+            {view === "sources" && <SourcesView user={user} />}
           </div>
         </div>
       </Suspense>
