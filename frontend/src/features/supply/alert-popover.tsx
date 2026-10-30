@@ -16,7 +16,7 @@ export function AlertPopover({ partId, canEdit, watch, onChanged }: {
           <Bell className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="max-h-[28rem] w-[min(26rem,90vw)] gap-3 overflow-y-auto p-3">
+      <PopoverContent align="end" className="max-h-[28rem] w-[min(26rem,90vw)] gap-3 themed-scrollbar overflow-y-auto p-3">
         <AlertRulesSection partId={partId} canEdit={canEdit} watch={watch} onChanged={onChanged} />
       </PopoverContent>
     </Popover>

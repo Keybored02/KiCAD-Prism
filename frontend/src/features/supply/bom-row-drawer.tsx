@@ -34,7 +34,7 @@ interface BomRowDrawerProps {
 export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart, onAddToLibrary, projectId = "", user = null }: BomRowDrawerProps) {
   return (
     <Sheet open={lines !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent side="right" className="w-full themed-scrollbar overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{lines && lines.length === 1 ? "Part details" : `${lines?.length ?? 0} parts on this row`}</SheetTitle>
           <SheetDescription>Stock and price are for the build size set above the table.</SheetDescription>

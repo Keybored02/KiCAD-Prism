@@ -317,4 +317,5 @@ SPEC = ProviderSpec(
     storefronts=STOREFRONTS,
     default_daily_budget=1000,
     calls_per_offers_batch=2,
+    standard_packaging=True,
 )

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -63,6 +63,7 @@ import type {
 import { LibraryCatalogFileCheck } from "./library-catalog-file-check";
 import { LibraryPager } from "./library-pager";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
+import { useScrollBelowHead } from "@/lib/use-scroll-below-head";
 
 const PAGE_SIZE = 100;
 const CATALOG_ROW_HEIGHT = 64;
@@ -226,6 +227,15 @@ export function LibraryCatalogWorkspace({
   const [selectedError, setSelectedError] = useState("");
   const [selectedRefreshKey, setSelectedRefreshKey] = useState(0);
   const catalogViewport = useVirtualViewport();
+  // The table's scrollbar runs beside the rows, below the sticky header.
+  const catalogScroller = useRef<HTMLDivElement | null>(null);
+  const catalogHead = useRef<HTMLDivElement>(null);
+  const { viewportRef: catalogViewportRef } = catalogViewport;
+  const setCatalogScroller = useCallback((node: HTMLDivElement | null) => {
+    catalogScroller.current = node;
+    catalogViewportRef(node);
+  }, [catalogViewportRef]);
+  useScrollBelowHead(catalogScroller, catalogHead);
   const canCreate = canWriteCatalog(user?.role);
 
   const updateCatalogParams = useCallback((values: Record<string, string | null>, replace = false) => {
@@ -408,12 +418,12 @@ export function LibraryCatalogWorkspace({
         ) : items.length === 0 ? <CatalogEmpty filtered={isFiltered} onClear={clearFilters} /> : (
           <div className={cn("flex min-h-0 flex-1 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
             <div
-              ref={catalogViewport.viewportRef}
-              className="min-h-0 flex-1 overflow-auto"
+              ref={setCatalogScroller}
+              className="themed-scrollbar scroll-below-head min-h-0 flex-1 overflow-auto"
               onScroll={catalogViewport.onScroll}
             >
             <div className={supplyColumn ? "min-w-[1140px]" : "min-w-[980px]"}>
-            <div className="sticky top-0 z-10 grid items-center gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: gridTemplate }}>
+            <div ref={catalogHead} className="sticky top-0 z-10 grid items-center gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: gridTemplate }}>
               <span className="flex min-w-0"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="flex min-w-0"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="flex min-w-0"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>

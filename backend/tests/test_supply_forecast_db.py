@@ -17,6 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -101,10 +102,7 @@ class ForecastDbTests(unittest.TestCase):
     def readings(self, listing_id, values, first_day, *, fetched_at, price="0.50"):
         with self.store.connection() as conn:
             for index, stock in enumerate(values):
-                conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, %s, %s, 'EUR', 1) ON CONFLICT DO NOTHING",
-                    (listing_id, first_day + timedelta(days=index), stock, price),
-                )
+                _reading(conn, listing_id, first_day + timedelta(days=index), stock, price=price)
             conn.execute(
                 "INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, %s, 'EUR', '[[1, \"0.50\"]]'::jsonb) "
                 "ON CONFLICT (listing_id) DO UPDATE SET fetched_at = EXCLUDED.fetched_at, stock = EXCLUDED.stock",
@@ -146,8 +144,8 @@ class ForecastDbTests(unittest.TestCase):
         self.readings(cut, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.50")
         self.readings(reel, [100] * 20, START - timedelta(days=19), fetched_at=START, price="0.30")
         with self.store.connection() as conn:
-            conn.execute("UPDATE supply_samples SET moq = 3000 WHERE listing_id = %s", (reel,))
-            conn.execute("UPDATE supply_samples SET unit_price = 0.40 WHERE listing_id = %s AND sampled_at > %s", (reel, START - timedelta(days=9)))
+            conn.execute("UPDATE supply_price_breaks_history SET moq = 3000 WHERE listing_id = %s", (reel,))
+            conn.execute("UPDATE supply_price_breaks_history SET breaks = '[[1, \"0.40\"]]'::jsonb WHERE listing_id = %s AND since > %s", (reel, START - timedelta(days=9)))
             self.assertEqual(inputs.own_moves(conn, self.part_id, START).count, 0, "the reel changed its price, the cut tape did not")
             conn.execute("DELETE FROM supply_samples WHERE listing_id = %s", (cut,))
             self.assertEqual(inputs.own_moves(conn, self.part_id, START).count, 1, "with nothing else pricing the part the reel counts")

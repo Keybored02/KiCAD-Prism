@@ -22986,18 +22986,6 @@
             "title": "Default",
             "type": "integer"
           },
-          "estimated_until": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Days up to this one are drawn at 100 pieces, because the price breaks were not kept yet.",
-            "title": "Estimated Until"
-          },
           "headline": {
             "$ref": "#/components/schemas/SupplyHeadlinePrice"
           },
@@ -23036,7 +23024,6 @@
           "quantity",
           "default",
           "own",
-          "estimated_until",
           "headline"
         ],
         "title": "PartPrice",

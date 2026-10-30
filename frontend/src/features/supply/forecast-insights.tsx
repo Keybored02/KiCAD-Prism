@@ -22,7 +22,7 @@ function LeadTimes({ page }: { page: ForecastInsights }) {
   const rows = page.lead_times;
   return (
     <ChartCard title="Lead times ahead" info="The median quoted lead time of each maker and category, three months ahead, from its recent trend." answer={<ModelChip model={model} />}>
-        <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+        <ul className="max-h-64 space-y-1 themed-scrollbar overflow-y-auto text-sm">
           {rows.map((row) => (
             <li key={`${row.kind}:${row.scope}`} className={`flex items-baseline justify-between gap-3 ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
               <span className="min-w-0 truncate">{row.scope.replace(/^category:/, "")}</span>
@@ -46,7 +46,7 @@ function percent(metric: string, value: number): string {
 function Warnings({ page }: { page: ForecastInsights }) {
   return (
     <ChartCard title="Early warnings" info="A family whose figure moved and stayed moved for two weeks, beyond its usual swings.">
-        <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+        <ul className="max-h-64 space-y-1 themed-scrollbar overflow-y-auto text-sm">
           {page.warnings.map((warning) => (
             <li key={`${warning.kind}:${warning.scope}:${warning.metric}`}>
               <span className="font-medium">{warning.scope.replace(/^category:/, "")}</span>: {METRIC[warning.metric as keyof typeof METRIC] ?? warning.metric} {warning.direction === "up" ? "up" : "down"} from {percent(warning.metric, warning.before)} to {percent(warning.metric, warning.after)} since {warning.since}
@@ -66,7 +66,7 @@ function Prices({ page, currency, onOpenPart }: { page: ForecastInsights; curren
       title="Prices ahead" info="The cheapest price in 90 days, as a range, for each tracked part. Most stay flat."
       answer={prices.parts === 0 ? undefined : <>{prices.flat} of {prices.parts} {prices.parts === 1 ? "part is" : "parts are"} likely to stay flat <ModelChip model={model} /></>}
     >
-        <ul className={`max-h-64 space-y-1 overflow-y-auto text-sm ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
+        <ul className={`max-h-64 space-y-1 themed-scrollbar overflow-y-auto text-sm ${model?.state === "shown" ? "" : "text-muted-foreground"}`}>
           {rising.map((item) => (
             <li key={item.part_id}>
               <button type="button" className="flex w-full items-baseline justify-between gap-3 text-left hover:underline" onClick={() => onOpenPart(item.part_id)}>
@@ -87,7 +87,7 @@ function TrackRecord({ page }: { page: ForecastInsights }) {
       title="Track record" className="lg:col-span-2"
       info="Every forecast is kept and compared with what happened. A forecast is shown only while its 80% ranges hold about 80% of the time (a chance: off by no more than 10 points)."
     >
-      <div className="overflow-x-auto overflow-y-hidden">
+      <div className="themed-scrollbar overflow-x-auto overflow-y-hidden">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr><th className="py-1 font-normal">Forecast</th><th className="py-1 text-right font-normal">Checks</th><th className="py-1 text-right font-normal">Held</th><th className="py-1 text-right font-normal">State</th></tr>

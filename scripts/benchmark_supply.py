@@ -40,11 +40,12 @@ TABLES = (
     "supply_offers",
     "supply_samples_daily",
     "supply_samples",
+    "supply_price_breaks_history",
     "supply_part_tiers",
     "supply_bom_usage_projects",
     "supply_bom_usage",
     "supply_tracked_projects",
-    "supply_alerts",
+    "supply_attention",
     "inventory_sources",
     "inventory_unmatched",
 )
@@ -178,14 +179,20 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
         {"seed": seed, "parts": parts},
     )
 
+    # The two fake storefronts share one account and its budget, as connectors on one set of credentials do.
     conn.execute(
         """
-        INSERT INTO supply_connectors
-            (id, provider, storefront, display_name, currency, daily_budget, account_key, enabled)
+        INSERT INTO supply_accounts (id, provider, account_key, daily_budget)
+        VALUES ('acct-fake', 'fake', 'bench-account', 0), ('acct-csv', 'csv', '', 0)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO supply_connectors (id, provider, storefront, display_name, currency, account_id, enabled)
         VALUES
-            ('conn-fake-xa', 'fake', 'XA', 'Bench Fake XA', 'USD', 0, 'bench-account', TRUE),
-            ('conn-fake-xb', 'fake', 'XB', 'Bench Fake XB', 'USD', 0, 'bench-account', TRUE),
-            ('conn-csv', 'csv', '', 'Bench CSV', 'USD', 0, '', TRUE)
+            ('conn-fake-xa', 'fake', 'XA', 'Bench Fake XA', 'USD', 'acct-fake', TRUE),
+            ('conn-fake-xb', 'fake', 'XB', 'Bench Fake XB', 'USD', 'acct-fake', TRUE),
+            ('conn-csv', 'csv', '', 'Bench CSV', 'USD', 'acct-csv', TRUE)
         """
     )
 
@@ -287,16 +294,13 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
             SELECT l.id,
                    14 + abs(hashtext(%(seed)s || ':period:' || l.id)) %% 21 AS period,
                    2 + abs(hashtext(%(seed)s || ':drain:' || l.id)) %% 18 AS drain,
-                   200 + abs(hashtext(%(seed)s || ':base:' || l.id)) %% 1800 AS base,
-                   round((0.05 + (abs(hashtext(%(seed)s || ':price:' || l.id)) %% 400) / 100.0)::numeric, 4) AS price
+                   200 + abs(hashtext(%(seed)s || ':base:' || l.id)) %% 1800 AS base
             FROM supply_listings l
         )
-        INSERT INTO supply_samples_daily (listing_id, day, stock, unit_price, currency)
+        INSERT INTO supply_samples_daily (listing_id, day, stock)
         SELECT li.id,
                CURRENT_DATE - (d - 1),
-               s.stock,
-               li.price,
-               'USD'
+               s.stock
         FROM listing li
         CROSS JOIN generate_series(1, %(days)s) d
         CROSS JOIN LATERAL (
@@ -306,17 +310,25 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
         {"seed": seed, "days": days},
     )
 
+    # Prices are kept as price breaks: each listing's offer breaks, in force over the whole history.
+    conn.execute(
+        """
+        INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple)
+        SELECT listing_id, (CURRENT_DATE - %(days)s)::timestamp AT TIME ZONE 'UTC', price_breaks, currency, moq, order_multiple
+        FROM supply_offers
+        """,
+        {"days": days},
+    )
+
     conn.execute(
         """
         INSERT INTO supply_samples
-            (listing_id, sampled_at, stock, incoming_qty, unit_price, currency,
+            (listing_id, sampled_at, stock, incoming_qty,
              lead_time_days, lifecycle, discontinued, marketplace, moq, order_multiple)
         SELECT sd.listing_id,
                sd.day + time '12:00',
                sd.stock,
                0,
-               sd.unit_price,
-               sd.currency,
                o.lead_time_days,
                o.lifecycle,
                o.discontinued,
@@ -393,7 +405,7 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
 
     conn.execute(
         """
-        INSERT INTO supply_alerts
+        INSERT INTO supply_attention
             (part_id, kind, severity, state, first_seen_at, seen_count, opened_at,
              last_event_at, detail)
         SELECT p.id,
@@ -550,11 +562,12 @@ def _measure_scenario(store: Any, name: str, call: Callable[[Any], Any], repeats
 
 def _worker(url: str) -> None:
     _prepare_environment(url)
-    from app.services.supply.jobs import housekeeping
+    from app.services.supply import tasks
     from app.services.supply.store import supply_store
 
-    compacted = housekeeping(supply_store)
-    print(json.dumps({"compacted": compacted}))
+    # Every periodic task once, as the supply tasks job runs them when they are due.
+    ran = tasks.run_due(supply_store, force=True)
+    print(json.dumps({"compacted": sum(1 for worked in ran.values() if worked)}))
 
 
 def _run_worker(url: str) -> dict[str, Any]:
@@ -741,7 +754,7 @@ def _fixture_from_database(conn: Any, seed: int) -> dict[str, Any]:
             conn.execute("SELECT COUNT(DISTINCT day) AS n FROM supply_samples_daily").fetchone()["n"]
         ),
         "unmatched": int(conn.execute("SELECT COUNT(*) AS n FROM inventory_unmatched").fetchone()["n"]),
-        "alerts": int(conn.execute("SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open'").fetchone()["n"]),
+        "alerts": int(conn.execute("SELECT COUNT(*) AS n FROM supply_attention WHERE state = 'open'").fetchone()["n"]),
     }
 
 

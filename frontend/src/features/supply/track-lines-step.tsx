@@ -9,7 +9,7 @@ export interface TrackLine {
 /** Lines whose number several makers share: pick the part each one means, one click. */
 export function TrackLinesStep({ lines, busy, onChoose }: { lines: readonly TrackLine[]; busy: boolean; onChoose: (line: TrackLine, partId: string) => void }) {
   return (
-    <ul className="max-h-[50vh] divide-y overflow-y-auto border" aria-label="Lines to settle">
+    <ul className="max-h-[50vh] divide-y themed-scrollbar overflow-y-auto border" aria-label="Lines to settle">
       {lines.map((line) => (
         <li key={`${line.mpn}|${line.manufacturer}`} className="space-y-2 p-3">
           <div className="flex flex-wrap items-center gap-2">

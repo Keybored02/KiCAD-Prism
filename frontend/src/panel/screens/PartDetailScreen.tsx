@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatAgo, formatPrice as formatSupplyPrice } from "@/features/supply/supply-format";
 import { OutsideLink } from "@/panel/components/OutsideLink";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -93,20 +94,9 @@ function formatAvailability(state: string): string {
   return "Metadata only";
 }
 
-function formatAsOf(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  return `${days} d ago`;
-}
-
+/** A price from the panel's API as the app writes one (`formatPrice`). */
 function formatPrice(value: number, currency?: string): string {
-  return `${currency ? currency + " " : ""}${value.toFixed(value < 1 ? 3 : 2)}`;
+  return formatSupplyPrice(String(value), currency ?? "");
 }
 
 // react-doctor-disable-next-line no-giant-component - detail panel whose sections share one part resource
@@ -624,7 +614,7 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
   const mixedUnits = Boolean(source.mixed_units);
   const warnings = inventoryWarnings(source);
   const uncertain = warnings.length > 0;
-  const asOf = formatAsOf(source.fetched_at);
+  const asOf = formatAgo(source.fetched_at);
   const breaks = isVendor ? (source.price_breaks ?? []) : [];
   const inStock = !uncertain && source.stock > 0;
   const plentiful = inStock && source.stock > 100;
@@ -696,7 +686,7 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
           {isVendor && source.unit_price != null ? (
             <div className="text-right">
               <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                Unit{source.price_break_qty ? ` @ ${formatQuantity(source.price_break_qty)}` : ""}
+                Unit{source.price_break_qty ? ` × ${formatQuantity(source.price_break_qty)}` : ""}
               </div>
               <div className="mt-1.5 text-lg font-semibold leading-none tabular-nums">
                 {formatPrice(source.unit_price, source.currency)}

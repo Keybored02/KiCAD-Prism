@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock, ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import { useBomRowDetail } from "@/features/supply/use-bom-row-detail";
 import { useBomSupply } from "@/features/supply/use-bom-supply";
 import { buildBom, type BomLine } from "@/lib/engineering-bom";
 import { canOpenSupply } from "@/lib/roles";
+import { useScrollBelowHead } from "@/lib/use-scroll-below-head";
+import { useWindowedRows } from "@/lib/use-windowed-rows";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
@@ -267,6 +269,13 @@ export function EngineeringBomTable({
         if (!query.trim()) return lines;
         return lines.filter((group) => groupMatchesQuery(group, query));
     }, [lines, query]);
+    // A large board's BOM renders the rows near the view, with a spacer for the rest.
+    const tableRef = useRef<HTMLTableElement>(null);
+    const shown = useWindowedRows(visibleGroups.length, tableRef);
+    // The scrollbar runs beside the rows, below the sticky header.
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const headRef = useRef<HTMLTableSectionElement>(null);
+    useScrollBelowHead(scrollRef, headRef);
 
     const selectedReference = selection?.kind === "component" || selection?.kind === "terminal"
         ? selection.reference
@@ -371,9 +380,9 @@ export function EngineeringBomTable({
             ) : null}
             {supply.enabled ? <BomSupplyBar supply={supply} /> : null}
             {supply.enabled ? detail.element : null}
-            <div className="min-h-0 flex-1 overflow-auto">
-                <table className="min-w-max border-separate border-spacing-0 text-xs">
-                    <thead className="sticky top-0 z-20 bg-muted shadow-sm">
+            <div ref={scrollRef} className="themed-scrollbar scroll-below-head min-h-0 flex-1 overflow-auto">
+                <table ref={tableRef} className="min-w-max border-separate border-spacing-0 text-xs">
+                    <thead ref={headRef} className="sticky top-0 z-20 bg-muted shadow-sm">
                         <tr>
                             {columns.map((column, index) => (
                                 <th
@@ -411,10 +420,11 @@ export function EngineeringBomTable({
                         </tr>
                     </thead>
                     <tbody>
-                        {visibleGroups.map((group) => {
+                        {shown.before > 0 ? <tr aria-hidden="true"><td colSpan={columns.length} style={{ height: shown.before }} /></tr> : null}
+                        {visibleGroups.slice(shown.start, shown.end).map((group) => {
                             const groupSelected = selectedReference !== null && group.references.includes(selectedReference);
                             return (
-                                <tr key={group.key} className={cn("group", groupSelected && "bg-accent/60")}>
+                                <tr key={group.key} data-row className={cn("group", groupSelected && "bg-accent/60")}>
                                     {columns.map((column, index) => {
                                         let content: React.ReactNode;
                                         if (column === "Reference") {
@@ -516,6 +526,7 @@ export function EngineeringBomTable({
                                 </tr>
                             );
                         })}
+                        {shown.after > 0 ? <tr aria-hidden="true"><td colSpan={columns.length} style={{ height: shown.after }} /></tr> : null}
                     </tbody>
                 </table>
                 {visibleGroups.length === 0 && (

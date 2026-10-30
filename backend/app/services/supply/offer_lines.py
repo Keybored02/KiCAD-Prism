@@ -27,11 +27,11 @@ def packaging_of(offer: dict[str, Any]) -> dict[str, Any]:
     """The packaging as stated, or a guess from the number and the order terms (marked as one) where the distributor says nothing."""
 
     stated = offer["packaging"] or Packaging.UNKNOWN.value
-    if offer["provider"] in packaging_hints.STANDARD_PACKAGING and stated == Packaging.TAPE_REEL.value:
+    if packaging_hints.standard(offer["provider"]) and stated == Packaging.TAPE_REEL.value:
         first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
         sold, reel, worked_out = packaging_hints.sold_as(Packaging.TAPE_REEL, offer["reel_size"], first)
         return {"packaging": sold.value, "reel_size": reel, "packaging_inferred": worked_out or bool(offer["packaging_inferred"])}
-    if stated != Packaging.UNKNOWN.value or offer["provider"] in packaging_hints.NO_GUESS:
+    if stated != Packaging.UNKNOWN.value or not packaging_hints.guesses(offer["provider"]):
         return {"packaging": stated, "reel_size": offer["reel_size"], "packaging_inferred": bool(offer["packaging_inferred"])}
     first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
     guess = packaging_hints.infer(str(offer["sku"]), int(offer["moq"] or 0), int(offer["order_multiple"] or 0), first)

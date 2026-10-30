@@ -9,8 +9,9 @@ several times slower on a large library.
 
 from __future__ import annotations
 
-# The columns every row has, raw or daily.
-COLUMNS = "listing_id, day, stock, incoming_qty, unit_price, currency, lead_time_days, lifecycle, discontinued, marketplace, moq, order_multiple"
+# The columns every row has, raw or daily. A listing's price on a day is not a reading: it comes from its price breaks
+# (``price_breaks.price_on``).
+COLUMNS = "listing_id, day, stock, incoming_qty, lead_time_days, lifecycle, discontinued, marketplace, moq, order_multiple"
 
 
 def days_sql(listings: str, since: str = "NULL") -> str:
@@ -23,14 +24,13 @@ def days_sql(listings: str, since: str = "NULL") -> str:
     """
 
     daily = (
-        "d.listing_id, d.day, d.stock, d.incoming_qty, d.unit_price, d.currency, d.lead_time_days, d.lifecycle, d.discontinued, "
+        "d.listing_id, d.day, d.stock, d.incoming_qty, d.lead_time_days, d.lifecycle, d.discontinued, "
         "d.marketplace, d.moq, d.order_multiple FROM supply_samples_daily d"
     )
     return f"""(
         WITH raw AS MATERIALIZED (
             SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-                   s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.incoming_qty, s.unit_price, s.currency,
-                   s.lead_time_days, s.lifecycle, s.discontinued, s.marketplace, s.moq, s.order_multiple
+                   s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.incoming_qty, s.lead_time_days, s.lifecycle, s.discontinued, s.marketplace, s.moq, s.order_multiple
             FROM supply_samples s
             WHERE s.listing_id IN ({listings})
               AND ({since}::date IS NULL OR s.sampled_at >= ({since})::date::timestamp AT TIME ZONE 'UTC')

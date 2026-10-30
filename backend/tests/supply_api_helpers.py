@@ -45,3 +45,20 @@ def request(app, method: str, path: str, *, user, body=None, raw: bytes | None =
         text=data.decode("utf-8", "replace"),
         json=json.loads(data) if data and headers.get("content-type", "").startswith("application/json") else None,
     )
+
+
+def reading(conn, listing_id: str, at, stock: int, *, price=None, currency: str = "EUR", moq: int = 1, **columns) -> None:
+    """Keep a reading of a listing. With ``price``, also the price breaks in force from then: a price is kept as breaks
+    (``price_breaks``), never on the reading."""
+
+    values = {"listing_id": listing_id, "sampled_at": at, "stock": stock, "moq": moq, **columns}
+    conn.execute(
+        f"INSERT INTO supply_samples ({', '.join(values)}) VALUES ({', '.join(['%s'] * len(values))}) ON CONFLICT DO NOTHING",
+        tuple(values.values()),
+    )
+    if price is not None:
+        conn.execute(
+            "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) "
+            "VALUES (%s, %s, %s::jsonb, %s, %s, 1) ON CONFLICT DO NOTHING",
+            (listing_id, at, json.dumps([[max(moq, 1), str(price)]]), currency, moq),
+        )

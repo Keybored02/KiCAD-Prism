@@ -68,6 +68,11 @@ rate limit or an outage means for the connector.
    - Each of `CAP_PCN`, `CAP_SUBSTANCES` and `CAP_SUBSTITUTES` needs its method.
    - `limits_storage` is `True` when the distributor's API terms forbid keeping
      its data as a database of your own.
+   - `guesses_packaging` is `False` when the distributor's packaging words are
+     complete, so a listing it says nothing about stays unknown instead of
+     being guessed from its number and order terms.
+   - `standard_packaging` is `True` when the packaging it states is the
+     product's standard reel, and what is sold is read from the price breaks.
 6. Add a `register(acme.SPEC)` line in `providers/registry.py`.
 
 ## Record answers

@@ -1012,11 +1012,11 @@ def _price_block(conn, part_id: str, now: datetime, kept: Mapping[str, Any]) -> 
     """The part sheet's price: the daily series and move, the quantity it is priced at, and the list price with its range (the
     kept summary's, as the list shows it)."""
 
-    series, meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
+    series, _meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
     block = prices.view(series, now.date())
     chosen = price_quantity.of_part(conn, part_id)
     base = supply_settings.base_currency(conn)
-    return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": {key: kept[key] for key in _PRICE_KEYS}}
+    return block | {"currency": base, **chosen, "headline": {key: kept[key] for key in _PRICE_KEYS}}
 
 
 # Distributors whose product page is known from the number alone, for a listing not read yet.

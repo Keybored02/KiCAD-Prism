@@ -328,7 +328,6 @@ class PartPrice(SupplyModel):
     quantity: int = Field(description="The quantity the part is priced at.")
     default: int = Field(description="The workspace default price quantity.")
     own: bool = Field(description="Whether the part has its own price quantity.")
-    estimated_until: Optional[str] = Field(description="Days up to this one are drawn at 100 pieces, because the price breaks were not kept yet.")
     headline: SupplyHeadlinePrice
 
 

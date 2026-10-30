@@ -17,6 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -401,9 +402,7 @@ class BomLookupTests(unittest.TestCase):
             rows = conn.execute("SELECT id, sku FROM supply_listings WHERE part_id = %s", (part_id,)).fetchall()
             ids = {row["sku"]: row["id"] for row in rows}
             for sku, price, moq in (("CT", "5.00", 1), ("PICKED-OUT", "4.00", 1), ("REEL", "3.00", 1500)):
-                conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', %s)",
-                    (ids[sku], NOW, price, moq))
+                _reading(conn, ids[sku], NOW, 10, price=price, moq=moq)
             conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part_id, self.cid, ids["CT"]))
             history = prices.daily_cheapest(conn, part_id, NOW)
         self.assertEqual([float(price) for _, price, _ in history], [5.0], "the picked cut tape, not the reel or the other pack")
@@ -421,8 +420,7 @@ class BomLookupTests(unittest.TestCase):
             conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, 10, 'EUR', '[[1, \"0.70\"]]'::jsonb)", (listing, NOW))
             for moment, stock_a, stock_b in ((datetime(2026, 2, 27, 8, tzinfo=timezone.utc), 50, 12), (NOW, 40, 10)):
                 for sku_listing, amount, price in ((self.listing_of(conn, "A"), stock_a, "0.50"), (listing, stock_b, "0.70")):
-                    conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')",
-                                 (sku_listing, moment, amount, price))
+                    _reading(conn, sku_listing, moment, amount, price=price)
             data = part_history.build(conn, part_id, NOW, 30)
         self.assertEqual(data["currency"], "EUR")
         names = [line["name"] for line in data["connectors"]]
@@ -442,7 +440,7 @@ class BomLookupTests(unittest.TestCase):
             listing = self.listing_of(conn, "M")
             for day, amount in ((27, 100), (28, 100), (1, 900)):
                 moment = datetime(2026, 2 if day > 1 else 3, day, 8, tzinfo=timezone.utc)
-                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, moment, amount))
+                _reading(conn, listing, moment, amount, price="0.5")
             conn.execute("INSERT INTO supply_pcns (id, title, kind, published_on, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", (datetime(2026, 2, 28).date(),))
             conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (part_id,))
             events = part_history.build(conn, part_id, NOW, 30)["events"]

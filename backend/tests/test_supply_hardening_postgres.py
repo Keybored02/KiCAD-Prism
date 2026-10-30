@@ -14,6 +14,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from supply_api_helpers import reading as _reading  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 ACTOR = "ana@example.com"
@@ -292,17 +295,14 @@ class HardeningTests(unittest.TestCase):
         recent = START - timedelta(days=5)
         with self.store.connection() as conn:
             for hours, stock, price, lead in ((0, 10, "1.0", 70), (6, 4, "1.2", 63), (12, 7, "1.1", 56)):
-                conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, lead_time_days, lifecycle, moq) "
-                    "VALUES (%s, %s, %s, %s, 'EUR', %s, 'nrnd', 10)",
-                    (listing, old + timedelta(hours=hours), stock, price, lead))
+                _reading(conn, listing, old + timedelta(hours=hours), stock, price=price, moq=10, lead_time_days=lead, lifecycle="nrnd")
             conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock) VALUES (%s, %s, 99)", (listing, recent))
             removed = self.retention.compact_samples(conn, START)
         self.assertEqual(removed, 3)
         (daily,) = self.rows("SELECT * FROM supply_samples_daily")
         # The day's last reading, every column of it.
         self.assertEqual((daily["day"], daily["stock"], daily["lead_time_days"], daily["lifecycle"], daily["moq"]), (old.date(), 7, 56, "nrnd", 10))
-        self.assertEqual(str(daily["unit_price"]), "1.100000")
+        self.assertNotIn("unit_price", daily, "a price is kept as price breaks, not on a reading")
         with self.store.connection() as conn:
             from app.services.supply.history import days_sql
 

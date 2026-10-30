@@ -104,7 +104,7 @@ function UploadForm({ connector, onClose, onUploaded }: { connector: SupplyConne
 function RejectionList({ rejection }: { rejection: CsvRejectedError }) {
   const hidden = rejection.errorCount - rejection.errors.length;
   return (
-    <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto text-xs" aria-label="Problems in the file">
+    <ul className="mt-2 max-h-48 space-y-0.5 themed-scrollbar overflow-y-auto text-xs" aria-label="Problems in the file">
       {rejection.errors.map((item) => (
         <li key={`${item.line}:${item.column}:${item.message}`}>
           {item.line > 0 ? `Line ${item.line}` : "File"}

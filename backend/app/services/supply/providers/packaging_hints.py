@@ -20,10 +20,30 @@ _ENDINGS = (
     (re.compile(r"(?:^|[-_/])RL$"), Packaging.TAPE_REEL),
     (re.compile(r"(?:^|[-_/])DKR$"), Packaging.CUSTOM_REEL),
 )
-# Distributors whose own words are trusted: what they do not say stays unknown.
-NO_GUESS = frozenset({"farnell"})
-# Distributors whose packaging is the standard one of the product, and what is sold is read from the price breaks (``sold_as``).
-STANDARD_PACKAGING = frozenset({"lcsc", "tme"})
+def guesses(provider: str) -> bool:
+    """Whether packaging this provider does not state is guessed (``ProviderSpec.guesses_packaging``). An unknown provider's is."""
+
+    spec = _spec(provider)
+    return spec is None or spec.guesses_packaging
+
+
+def standard(provider: str) -> bool:
+    """Whether this provider states the product's standard packaging (``ProviderSpec.standard_packaging``)."""
+
+    spec = _spec(provider)
+    return spec is not None and spec.standard_packaging
+
+
+def _spec(provider: str):
+    # Read when asked: the adapters import this module, and the registry imports them.
+    from app.services.supply.providers import registry
+
+    try:
+        return registry.get_spec(provider)
+    except registry.UnknownProvider:
+        return None
+
+
 # A minimum order of at least this many, ordered in that multiple, is a reel.
 REEL_MOQ = 1000
 

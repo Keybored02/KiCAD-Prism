@@ -30,7 +30,7 @@ export function SettleBadge({ projectId, onChanged }: { projectId: string; onCha
               <DialogTitle>Settle</DialogTitle>
               <DialogDescription>{count} {count === 1 ? "question" : "questions"} for this project.</DialogDescription>
             </DialogHeader>
-            <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+            <div className="max-h-[60vh] space-y-3 themed-scrollbar overflow-y-auto">
               {data.lines.length > 0 ? (
                 <TrackLinesStep
                   lines={data.lines} busy={busy}

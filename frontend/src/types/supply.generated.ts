@@ -1456,8 +1456,6 @@ export interface PartPrice {
   currency: string;
   /** The workspace default price quantity. */
   default: number;
-  /** Days up to this one are drawn at 100 pieces, because the price breaks were not kept yet. */
-  estimated_until: string | null;
   headline: SupplyHeadlinePrice;
   history: PriceDay[];
   /** Whether the part has its own price quantity. */

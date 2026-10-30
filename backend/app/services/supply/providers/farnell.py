@@ -331,4 +331,5 @@ SPEC = ProviderSpec(
     factory=lambda config: FarnellProvider(config),
     storefronts=STOREFRONTS,
     default_daily_budget=1000,
+    guesses_packaging=False,
 )

@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
+from app.services.supply import price_breaks, pricing
 from app.services.supply.history import days_sql
 
 MIN_MOVE = Decimal("0.005")
@@ -139,7 +140,7 @@ def load(conn, part_id: str, now: datetime, base: str = "EUR") -> dict[str, Any]
     since = now - timedelta(days=HISTORY_DAYS)
     rows = conn.execute(
         f"""
-        SELECT l.id, c.display_name, d.currency, d.day, d.unit_price, d.stock
+        SELECT l.id, c.display_name, d.day, d.stock
         FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND supply_counted(match_state)", "%(since)s")} d
         JOIN supply_listings l ON l.id = d.listing_id JOIN supply_connectors c ON c.id = l.connector_id
         ORDER BY d.day
@@ -149,11 +150,14 @@ def load(conn, part_id: str, now: datetime, base: str = "EUR") -> dict[str, Any]
     prices: dict[str, dict[date, Decimal]] = defaultdict(dict)
     stocks: dict[str, dict[date, int]] = defaultdict(dict)
     currency: dict[str, str] = {}
+    # Each distributor's price on the days it was read, at 100 pieces, from the breaks in force then (``price_breaks``).
+    kept = price_breaks.load(conn, sorted({row["id"] for row in rows}))
     for row in rows:
         name = row["display_name"]
-        if row["unit_price"] is not None:
-            prices[name][row["day"]] = Decimal(row["unit_price"])
-            currency[name] = row["currency"]
+        price, code, _moq = price_breaks.price_on(kept.get(row["id"], []), row["day"], pricing.REFERENCE_QUANTITY)
+        if price is not None:
+            prices[name][row["day"]] = price
+            currency[name] = code
         stocks[name][row["day"]] = row["stock"]
     price_series = {name: sorted(items.items()) for name, items in prices.items()}
     stock_series = {name: sorted(items.items()) for name, items in stocks.items()}

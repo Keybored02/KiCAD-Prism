@@ -2,16 +2,9 @@ import { ExternalLink } from "lucide-react";
 
 import type { PanelSupply, PanelSupplySummary } from "@/panel/lib/panel-api";
 import { compactCount, price, summaryText } from "@/panel/lib/supply-summary";
+import { STATUS_FILL as DOT } from "@/features/supply/supply-format";
 import { vendorColor } from "@/features/supply/vendor-colors";
 import { OutsideLink } from "@/panel/components/OutsideLink";
-
-const DOT: Record<PanelSupplySummary["status"], string> = {
-  ok: "bg-emerald-500",
-  warning: "bg-amber-500",
-  error: "bg-red-500",
-  fatal: "bg-red-700",
-  unknown: "bg-muted-foreground/40",
-};
 
 /** The status dot a search row shows for a component Prism tracks. */
 export function SupplyDot({ summary }: { summary: PanelSupplySummary }) {

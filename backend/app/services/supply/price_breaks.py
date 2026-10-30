@@ -1,8 +1,8 @@
-"""A listing's price breaks as they changed over time.
+"""A listing's price breaks as they changed over time: the only price history.
 
-Readings keep one price, at 100 pieces. To draw a price history at another quantity the breaks in force each day are
-needed, so the poller keeps a listing's breaks whenever they differ from the last kept (they change rarely, so the
-table stays small). Days before the first kept row only have the price at 100.
+The poller keeps a listing's breaks whenever they differ from the last kept (they change rarely, so the table stays small).
+A listing's price on a day, at any quantity, is read from the breaks in force that day (``price_on``); readings keep stock and
+terms, not a price. A day before the first kept row has no price.
 """
 
 from __future__ import annotations
@@ -58,6 +58,19 @@ def load(conn, listing_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
             "currency": row["currency"], "moq": int(row["moq"]), "order_multiple": int(row["order_multiple"]), "up_to": row["price_up_to"],
         })
     return found
+
+
+def price_on(rows: Sequence[dict[str, Any]], day: date, quantity: int) -> tuple[Decimal | None, str, int]:
+    """A listing's unit price on ``day`` at ``quantity`` from its kept breaks (``load``), in the currency it was quoted in, with its
+    smallest order. No price before the first kept row, or when the breaks do not reach the quantity."""
+
+    from app.services.supply import pricing
+
+    held = in_force(rows, day)
+    if held is None:
+        return None, "", 1
+    price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity, up_to=held.get("up_to"))
+    return price, held["currency"], held["moq"]
 
 
 def in_force(rows: Sequence[dict[str, Any]], day: date) -> dict[str, Any] | None:
