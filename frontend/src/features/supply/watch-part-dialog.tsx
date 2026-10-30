@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyWatch } from "@/types/supply";
 import { MakerCombobox } from "./maker-combobox";
-import { addSupplyWatch } from "./supply-api";
+import { followNumber } from "./tracking-api";
 import { parseThreshold } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useSupplyManufacturers } from "./use-supply-parts";
@@ -58,7 +58,7 @@ function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (wa
 
   const submit = async () => {
     const watched = await run(async () => {
-      onWatched(await addSupplyWatch({
+      onWatched(await followNumber({
         manufacturer: form.manufacturer.trim(),
         mpn: form.mpn.trim(),
         threshold,

@@ -1,7 +1,6 @@
-"""Parts and watches API.
+"""Parts API.
 
-Everyone who can read supply data sees parts, stock and history. Watching a part
-and changing a watch's rules need write access (admin, designer).
+Everyone who can read supply data sees parts, stock and history. Following a part is ``supply_tracking``.
 """
 
 from __future__ import annotations
@@ -9,36 +8,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Literal, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.api.supply_access import is_approver
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
 T = TypeVar("T")
-
-
-class AddWatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    manufacturer: str = Field(default="", max_length=120)
-    mpn: str = Field(min_length=1, max_length=100)
-    threshold: Optional[int] = Field(default=None, ge=0)
-    pinned: bool = False
-    packaging: Literal["any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk"] = "any"
-
-
-class UpdateWatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # Absent leaves it alone; null clears the threshold.
-    threshold: Optional[int] = Field(default=None, ge=0)
-    pinned: Optional[bool] = None
-    packaging: Optional[Literal["any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk"]] = None
 
 
 def _store():
@@ -67,13 +46,6 @@ async def _run(call: Callable[[], T]) -> T:
         return await asyncio.to_thread(call)
     except Exception as exc:
         raise _http_error(exc) from exc
-
-
-def _watch_dto(record: watches.WatchRecord) -> dict[str, Any]:
-    return {
-        "id": record.id, "part_id": record.part_id, "manufacturer": record.manufacturer_name, "mpn": record.mpn,
-        "threshold": record.threshold, "pinned": record.pinned, "owner": record.owner, "packaging": record.packaging,
-    }
 
 
 @router.get("/parts")
@@ -274,50 +246,3 @@ async def list_manufacturers(_user: AuthenticatedUser = Depends(require_supply_r
             return {"items": review.manufacturers(conn)}
 
     return await _run(read)
-
-
-@router.post("/watches")
-async def add_watch(
-    body: AddWatchRequest, response: Response, writer: AuthenticatedUser = Depends(require_supply_writer)
-) -> dict[str, Any]:
-    def run() -> tuple[dict[str, Any], bool]:
-        with _store().connection() as conn:
-            record, created = watches.add_watch(
-                conn, body.manufacturer, body.mpn, writer.email, threshold=body.threshold, pinned=body.pinned,
-                packaging=body.packaging,
-                may_create_manufacturer=is_approver(writer),
-            )
-        return _watch_dto(record), created
-
-    dto, created = await _run(run)
-    response.status_code = 201 if created else 200
-    return dto
-
-
-@router.patch("/watches/{watch_id}")
-async def update_watch(
-    watch_id: str, body: UpdateWatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)
-) -> dict[str, Any]:
-    changes: dict[str, Any] = {}
-    if "threshold" in body.model_fields_set:
-        changes["threshold"] = body.threshold
-    if "pinned" in body.model_fields_set:
-        changes["pinned"] = body.pinned
-    if "packaging" in body.model_fields_set and body.packaging is not None:
-        changes["packaging"] = body.packaging
-
-    def run() -> dict[str, Any]:
-        with _store().connection() as conn:
-            return _watch_dto(watches.update_watch(conn, watch_id, writer.email, **changes))
-
-    return await _run(run)
-
-
-@router.delete("/watches/{watch_id}", status_code=204)
-async def remove_watch(watch_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
-    def run() -> None:
-        with _store().connection() as conn:
-            watches.remove_watch(conn, watch_id, writer.email)
-
-    await _run(run)
-    return Response(status_code=204)

@@ -26,8 +26,8 @@ behind every figure are in
 | Role | In Supply |
 | --- | --- |
 | Viewer | Nothing. Supply is hidden. |
-| QA | Read everything, track projects, approve alternates, manufacturer spellings and waivers, and mark components whose part is ending. |
-| Designer | Read everything, track projects, watch components, read a part now, and propose alternates. |
+| QA | Read everything, track projects, parts and components, approve alternates, manufacturer spellings and waivers, and mark components whose part is ending. |
+| Designer | Read everything, track projects, parts and components, read a part now, and propose alternates. |
 | Admin | Everything above, plus distributor connectors, inventory sources and Supply settings. |
 
 ## Where supply shows

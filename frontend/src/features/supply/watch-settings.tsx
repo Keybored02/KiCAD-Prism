@@ -6,13 +6,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyWatchSummary, WatchPackaging } from "@/types/supply";
-import { addSupplyWatch, removeSupplyWatch, updateSupplyWatch } from "./supply-api";
+import { followPart, stopTrackingPart } from "./tracking-api";
 import { parseThreshold } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { PACKAGINGS } from "./watch-packaging";
 
 interface WatchSettingsProps {
-  part: { mpn: string; manufacturer: string };
+  part: { id: string; mpn: string; manufacturer: string };
   watch: SupplyWatchSummary | null;
   canEdit: boolean;
   /** Called after any change so the screen can reload. */
@@ -48,7 +48,7 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
             size="sm"
             disabled={busy}
             onClick={() => void run(async () => {
-              await addSupplyWatch({ manufacturer: part.manufacturer, mpn: part.mpn });
+              await followPart(part.id, {});
               await onChanged();
             })}
           >
@@ -81,7 +81,7 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
         event.preventDefault();
         if (threshold === undefined || !changed) return;
         void run(async () => {
-          await updateSupplyWatch(watch.id, { threshold, pinned: draft.pinned, packaging: draft.packaging });
+          await followPart(part.id, { threshold, pinned: draft.pinned, packaging: draft.packaging });
           await onChanged();
         });
       }}
@@ -124,7 +124,7 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
               variant="destructive"
               disabled={busy}
               onClick={() => void run(async () => {
-                await removeSupplyWatch(watch.id);
+                await stopTrackingPart(part.id);
                 await onChanged();
               })}
             >

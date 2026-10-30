@@ -59,11 +59,6 @@
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies",
     "typed": true
   },
-  "add_watch": {
-    "method": "POST",
-    "path": "/api/v1/supply/watches",
-    "typed": true
-  },
   "admin_revoke_identity": {
     "method": "POST",
     "path": "/api/v1/admin/trackers/connectors/{connector_id}/identities/{user_id}/revoke",
@@ -257,6 +252,11 @@
   "complete_folder_snapshot": {
     "method": "POST",
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/complete",
+    "typed": true
+  },
+  "component_state": {
+    "method": "GET",
+    "path": "/api/v1/supply/tracking/components/{component_id}",
     "typed": true
   },
   "components_by_category": {
@@ -639,6 +639,21 @@
     "path": "/api/v1/supply/part-lookup",
     "typed": true
   },
+  "follow_component": {
+    "method": "PUT",
+    "path": "/api/v1/supply/tracking/components/{component_id}",
+    "typed": true
+  },
+  "follow_number": {
+    "method": "POST",
+    "path": "/api/v1/supply/tracking/parts",
+    "typed": true
+  },
+  "follow_part": {
+    "method": "PUT",
+    "path": "/api/v1/supply/tracking/parts/{part_id}",
+    "typed": true
+  },
   "forecasts_insights": {
     "method": "GET",
     "path": "/api/v1/supply/forecasts/insights",
@@ -807,11 +822,6 @@
   "get_component_validation": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/validation",
-    "typed": true
-  },
-  "get_component_watch": {
-    "method": "GET",
-    "path": "/api/v1/supply/components/{component_id}/watch",
     "typed": true
   },
   "get_connector": {
@@ -2054,11 +2064,6 @@
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
     "typed": true
   },
-  "remove_component_watch": {
-    "method": "DELETE",
-    "path": "/api/v1/supply/components/{component_id}/watch",
-    "typed": true
-  },
   "remove_exemption": {
     "method": "DELETE",
     "path": "/api/v1/supply/parts/{part_id}/exemptions/{code}",
@@ -2077,11 +2082,6 @@
   "remove_number_ending": {
     "method": "DELETE",
     "path": "/api/v1/supply/settings/number-endings/{key}",
-    "typed": true
-  },
-  "remove_watch": {
-    "method": "DELETE",
-    "path": "/api/v1/supply/watches/{watch_id}",
     "typed": true
   },
   "render_png": {
@@ -2249,11 +2249,6 @@
     "path": "/api/v1/projects/search",
     "typed": true
   },
-  "set_component_watch": {
-    "method": "PUT",
-    "path": "/api/v1/supply/components/{component_id}/watch",
-    "typed": true
-  },
   "set_connector_credentials": {
     "method": "PUT",
     "path": "/api/v1/supply/connectors/{connector_id}/credentials",
@@ -2262,11 +2257,6 @@
   "set_model_alignment": {
     "method": "PUT",
     "path": "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
-    "typed": true
-  },
-  "set_part_tier": {
-    "method": "PUT",
-    "path": "/api/v1/supply/tracking/parts/{part_id}",
     "typed": true
   },
   "set_preferred": {
@@ -2337,6 +2327,11 @@
   "start_signin": {
     "method": "POST",
     "path": "/api/v1/supply/connectors/{connector_id}/signin",
+    "typed": true
+  },
+  "stop_following_component": {
+    "method": "DELETE",
+    "path": "/api/v1/supply/tracking/components/{component_id}",
     "typed": true
   },
   "stop_tracking_part": {
@@ -2527,11 +2522,6 @@
   "update_supply_connector": {
     "method": "PATCH",
     "path": "/api/v1/supply/connectors/{connector_id}",
-    "typed": true
-  },
-  "update_watch": {
-    "method": "PATCH",
-    "path": "/api/v1/supply/watches/{watch_id}",
     "typed": true
   },
   "update_webhook": {

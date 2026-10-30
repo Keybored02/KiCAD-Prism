@@ -80,7 +80,7 @@ def _tracking_dto(row) -> dict[str, Any] | None:
 def _watch_dto(row) -> dict[str, Any] | None:
     if row["watch_id"] is None:
         return None
-    return {"id": row["watch_id"], "threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"],
+    return {"threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"],
             "packaging": row["watch_packaging"] or "any"}
 
 

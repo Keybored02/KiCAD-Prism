@@ -166,6 +166,26 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual(self.call("DELETE", f"/parts/{part}").status, 204)
         self.assertIsNone(self.call("GET", f"/parts/{part}").json["tier"])
 
+    def test_following_a_part_sets_its_rules_with_its_tier_for_anyone_who_reads(self) -> None:
+        self.connector()
+        self.call("PUT", "/projects/prj_1", body={"variants": [""]})
+        part = self.part_id("R-001")
+        self.call("DELETE", "/projects/prj_1")
+        shown = self.call("PUT", f"/parts/{part}", role="qa", body={"threshold": 40, "packaging": "cut_tape"}).json
+        self.assertEqual((shown["watch"]["threshold"], shown["watch"]["packaging"], shown["watch"]["tier"]), (40, "cut_tape", 2))
+        kept = self.call("PUT", f"/parts/{part}", body={"tier": 1}).json["watch"]
+        self.assertEqual((kept["threshold"], kept["tier"], kept["rate"]), (40, 1, "daily"), "only what was sent changes; tier 1 is daily")
+        self.assertEqual(self.call("GET", f"/parts/{part}", role="qa").json["watch"]["threshold"], 40)
+        self.assertEqual(self.call("PUT", f"/parts/{part}", role="viewer", body={"threshold": 1}).status, 403)
+        self.assertEqual(self.call("PUT", f"/parts/{part}", body={"owner": "x"}).status, 422)
+
+    def test_a_component_is_followed_under_tracking_by_anyone_who_reads(self) -> None:
+        self.assertEqual(self.call("GET", "/components/c-none", role="qa").json, {"watch": None})
+        refused = self.call("PUT", "/components/c-none", role="qa", body={"packaging": "any"})
+        self.assertEqual(refused.status, 400, "a component without a manufacturer and number cannot be followed")
+        self.assertEqual(self.call("PUT", "/components/c-none", role="viewer", body={}).status, 403)
+        self.assertEqual(self.call("DELETE", "/components/c-none", role="qa").status, 204)
+
     def test_the_budget_view_shows_shares_spending_and_what_tracking_costs(self) -> None:
         cid = self.connector(budget=40, reserve=10)
         self.call("PUT", "/projects/prj_1", body={"variants": [""]})

@@ -4,7 +4,6 @@ import { ApiHttpError, fetchApi, fetchJson, fetchText, readApiError } from "@/li
 import type {
   ForecastInsights,
   PartForecast,
-  AddWatchInput,
   BomLineInput,
   ConfirmAliasInput,
   CreateSupplyConnectorInput,
@@ -36,15 +35,11 @@ import type {
   SupplyReviewQueue,
   SupplyCompliance,
   SupplyBomComment,
-  SupplyComponentWatch,
   SupplyMarketHistory,
   SupplyNotice,
   SupplyNoticeKind,
   SupplySvhcList,
-  SupplyWatch,
   UpdateSupplyConnectorInput,
-  UpdateWatchInput,
-  WatchPackaging,
 } from "@/types/supply";
 import { changesSupply } from "./supply-writes";
 
@@ -440,43 +435,9 @@ export async function askSubstitutes(partId: string): Promise<{ asked: number; f
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/ask-substitutes`, {}, "Could not ask for substitutes");
 }
 
-function addSupplyWatchRequest(input: AddWatchInput): Promise<SupplyWatch> {
-  return post(`${BASE}/watches`, input, "Could not watch the part");
-}
-
-function updateSupplyWatchRequest(watchId: string, changes: UpdateWatchInput): Promise<SupplyWatch> {
-  return fetchJson<SupplyWatch>(
-    `${BASE}/watches/${encodeURIComponent(watchId)}`,
-    { method: "PATCH", body: JSON.stringify(changes) },
-    "Could not save the watch",
-  );
-}
-
-async function removeSupplyWatchRequest(watchId: string): Promise<void> {
-  const response = await fetchApi(`${BASE}/watches/${encodeURIComponent(watchId)}`, { method: "DELETE" });
-  if (!response.ok) {
-    throw new ApiHttpError(response.status, await readApiError(response, "Could not stop watching the part"));
-  }
-}
-
 async function send(url: string, method: string, body: unknown, fallback: string): Promise<void> {
   const response = await fetchApi(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, fallback));
-}
-
-export async function getComponentWatch(componentId: string, signal?: AbortSignal): Promise<SupplyComponentWatch | null> {
-  const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
-  return (await fetchJson<{ watch: SupplyComponentWatch | null }>(url, { signal }, "Could not load the component watch")).watch;
-}
-
-async function setComponentWatchRequest(componentId: string, packaging: WatchPackaging): Promise<SupplyComponentWatch> {
-  const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
-  const body = JSON.stringify({ packaging });
-  return (await fetchJson<{ watch: SupplyComponentWatch }>(url, { method: "PUT", body }, "Could not watch the component")).watch;
-}
-
-function removeComponentWatchRequest(componentId: string): Promise<void> {
-  return send(`${BASE}/components/${encodeURIComponent(componentId)}/watch`, "DELETE", undefined, "Could not stop watching the component");
 }
 
 function commentsPath(projectId: string): string {
@@ -686,11 +647,6 @@ export const clearPreferredDistributor = changesSupply(clearPreferredDistributor
 export const setPriceQuantity = changesSupply(setPriceQuantityRequest);
 export const setTradeMark = changesSupply(setTradeMarkRequest);
 export const clearTradeMark = changesSupply(clearTradeMarkRequest);
-export const addSupplyWatch = changesSupply(addSupplyWatchRequest);
-export const updateSupplyWatch = changesSupply(updateSupplyWatchRequest);
-export const removeSupplyWatch = changesSupply(removeSupplyWatchRequest);
-export const setComponentWatch = changesSupply(setComponentWatchRequest);
-export const removeComponentWatch = changesSupply(removeComponentWatchRequest);
 export const addBomComment = changesSupply(addBomCommentRequest);
 export const removeBomComment = changesSupply(removeBomCommentRequest);
 export const proposeWaiver = changesSupply(proposeWaiverRequest);

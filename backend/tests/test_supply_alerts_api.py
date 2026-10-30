@@ -31,7 +31,7 @@ class SupplyAlertsTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from fastapi import FastAPI
 
-        from app.api import supply_alerts, supply_connectors, supply_market, supply_parts
+        from app.api import supply_alerts, supply_connectors, supply_market, supply_parts, supply_tracking
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
         from app.services.supply import alerts, discoverer, poller
@@ -54,6 +54,7 @@ class SupplyAlertsTests(unittest.TestCase):
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
         cls.app.include_router(supply_parts.router)
+        cls.app.include_router(supply_tracking.router)
         cls.app.include_router(supply_alerts.router)
         cls.app.include_router(supply_market.router)
         supply_connectors.register_validation_redaction(cls.app)
@@ -81,9 +82,9 @@ class SupplyAlertsTests(unittest.TestCase):
         return _request(self.app, method, path, user=self.users[role], body=body, query=query)
 
     def watch(self, mpn: str = "ABC123", **extra) -> dict:
-        response = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": mpn, **extra})
+        response = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": mpn, **extra})
         self.assertIn(response.status, (200, 201), response.text)
-        return response.json
+        return response.json["watch"]
 
     def listing(self, part_id: str, sku: str, *, stock: int, lifecycle: str = "active", state: str = "exact") -> str:
         listing_id = uuid.uuid4().hex
@@ -211,7 +212,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(watch["part_id"])
         self.evaluate(watch["part_id"], after=timedelta(hours=1))
         self.assertEqual(len(self.listed()), 1)
-        self.assertEqual(self.call("DELETE", f"/api/supply/watches/{watch['id']}").status, 204)
+        self.assertEqual(self.call("DELETE", f"/api/supply/tracking/parts/{watch['part_id']}").status, 204)
         self.assertEqual(self.listed(), [])
         self.evaluate(watch["part_id"], after=timedelta(hours=2))
         self.assertEqual(self.listed(), [], "no watch, no alert")
@@ -221,7 +222,7 @@ class SupplyAlertsTests(unittest.TestCase):
         self.listing(watch["part_id"], "A", stock=40)
         self.evaluate(watch["part_id"])
         self.assertEqual(self.rows("SELECT 1 FROM supply_attention"), [])
-        self.assertEqual(self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": 100}).status, 200)
+        self.assertEqual(self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"threshold": 100}).status, 200)
         (pending,) = self.rows("SELECT state, kind FROM supply_attention")
         self.assertEqual((pending["state"], pending["kind"]), ("pending", "below_threshold"), "seen once; it opens on the next look")
 

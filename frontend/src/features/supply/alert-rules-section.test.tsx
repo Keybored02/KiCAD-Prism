@@ -2,18 +2,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("./tracking-api", () => ({ getAlertRules: vi.fn(), saveAlertRules: vi.fn() }));
-vi.mock("./supply-api", () => ({ updateSupplyWatch: vi.fn() }));
+vi.mock("./tracking-api", () => ({ getAlertRules: vi.fn(), saveAlertRules: vi.fn(), followPart: vi.fn() }));
 
 import { AlertRulesSection } from "./alert-rules-section";
 import { alertTitle } from "./alert-text";
 import { alertFixture } from "./supply-test-fixtures";
 import * as api from "./tracking-api";
-import * as supplyApi from "./supply-api";
 
 const mocked = vi.mocked(api);
 const MUTABLE = ["out_of_stock", "below_threshold", "price_up", "target_price_missed", "assessment_worse"];
-const WATCH = { id: "w1", threshold: 100, pinned: false, owner: "ana@example.com", packaging: "any" as const };
+const WATCH = { threshold: 100, pinned: false, owner: "ana@example.com", packaging: "any" as const };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,7 +53,7 @@ describe("the alert rules of a part", () => {
 
   it("types the stock threshold beside its rule and saves it on the watch", async () => {
     const onChanged = vi.fn(async () => undefined);
-    vi.mocked(supplyApi.updateSupplyWatch).mockResolvedValue({} as never);
+    mocked.followPart.mockResolvedValue({} as never);
     render(<AlertRulesSection partId="p1" canEdit watch={WATCH} onChanged={onChanged} />);
     const box = await screen.findByLabelText("Stock threshold");
     expect((box as HTMLInputElement).value).toBe("100");
@@ -63,7 +61,7 @@ describe("the alert rules of a part", () => {
     expect(screen.getByRole("button", { name: "Save alert rules" }).hasAttribute("disabled")).toBe(true);
     fireEvent.change(box, { target: { value: "250" } });
     fireEvent.click(screen.getByRole("button", { name: "Save alert rules" }));
-    await waitFor(() => expect(supplyApi.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: 250 }));
+    await waitFor(() => expect(mocked.followPart).toHaveBeenCalledWith("p1", { threshold: 250 }));
     expect(onChanged).toHaveBeenCalled();
   });
 
@@ -71,7 +69,7 @@ describe("the alert rules of a part", () => {
     render(<AlertRulesSection partId="p1" canEdit watch={WATCH} />);
     fireEvent.click(await screen.findByRole("button", { name: "Save alert rules" }));
     await waitFor(() => expect(mocked.saveAlertRules).toHaveBeenCalled());
-    expect(supplyApi.updateSupplyWatch).not.toHaveBeenCalled();
+    expect(mocked.followPart).not.toHaveBeenCalled();
   });
 
   it("shows nothing to someone who cannot edit", () => {

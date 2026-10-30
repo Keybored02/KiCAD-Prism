@@ -595,18 +595,19 @@ export type SupplyProblem = "not_found" | "gone";
 export type WatchPackaging = "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
 
 export interface SupplyWatchSummary {
-  id: string;
   threshold: number | null;
   pinned: boolean;
   owner: string;
   packaging: WatchPackaging;
 }
 
+/** How a person follows a part (`/api/supply/tracking/parts`), keyed by the part. */
 export interface SupplyWatch {
-  id: string;
   part_id: string;
   manufacturer: string;
   mpn: string;
+  tier: 1 | 2;
+  rate: "daily" | "weekly" | "monthly";
   threshold: number | null;
   pinned: boolean;
   owner: string;
@@ -1085,20 +1086,6 @@ export interface SupplyRecentChange {
   alert: SupplyAlert | null;
   /** The distributor number of a listing that went. */
   sku: string;
-}
-
-export interface AddWatchInput {
-  manufacturer: string;
-  mpn: string;
-  threshold?: number | null;
-  pinned?: boolean;
-}
-
-/** Leave a field out to keep it; send null to clear the threshold. */
-export interface UpdateWatchInput {
-  threshold?: number | null;
-  pinned?: boolean;
-  packaging?: WatchPackaging;
 }
 
 export interface FillCandidate {

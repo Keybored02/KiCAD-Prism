@@ -24,7 +24,7 @@ class AssessmentApiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from fastapi import FastAPI
 
-        from app.api import supply_assessment, supply_bom, supply_connectors, supply_parts
+        from app.api import supply_assessment, supply_bom, supply_connectors, supply_parts, supply_tracking
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
         from app.services.supply.connectors import ConnectorService
@@ -43,7 +43,7 @@ class AssessmentApiTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
-        for module in (supply_parts, supply_assessment, supply_bom):
+        for module in (supply_parts, supply_tracking, supply_assessment, supply_bom):
             cls.app.include_router(module.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -61,7 +61,7 @@ class AssessmentApiTests(unittest.TestCase):
             for table in ("supply_attention_decisions", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
-        self.part_id = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": "ABC123"}).json["part_id"]
+        self.part_id = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": "ABC123"}).json["watch"]["part_id"]
 
     def call(self, method: str, path: str, *, role: str = "admin", body=None, query: str = ""):
         return _request(self.app, method, path, user=self.users[role], body=body, query=query)

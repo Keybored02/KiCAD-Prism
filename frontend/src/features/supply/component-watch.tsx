@@ -2,14 +2,14 @@ import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { SupplyComponentWatch, WatchPackaging } from "@/types/supply";
-import { getComponentWatch, removeComponentWatch, setComponentWatch } from "./supply-api";
+import { followComponent, getComponentFollow, stopFollowingComponent } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 import { PACKAGINGS } from "./watch-packaging";
 
 /** Watching a component: its own part, counted in the packaging chosen. */
 export function ComponentWatch({ componentId, canEdit, onChanged }: { componentId: string; canEdit: boolean; onChanged: () => void }) {
-  const fetcher = useCallback((signal: AbortSignal) => getComponentWatch(componentId, signal), [componentId]);
-  const loaded = useLoaded<SupplyComponentWatch | null>(`components/${componentId}/watch`, fetcher, "Could not load the component watch");
+  const fetcher = useCallback((signal: AbortSignal) => getComponentFollow(componentId, signal), [componentId]);
+  const loaded = useLoaded<SupplyComponentWatch | null>(`tracking/components/${componentId}`, fetcher, "Could not load the component watch");
   const [packaging, setPackaging] = useState<WatchPackaging | null>(null);
   const [error, setError] = useState("");
   if (loaded.status !== "ready") return null;
@@ -46,10 +46,10 @@ export function ComponentWatch({ componentId, canEdit, onChanged }: { componentI
         >
           {PACKAGINGS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
         </select>
-        <Button size="sm" onClick={() => void act(() => setComponentWatch(componentId, packagingNow))}>
+        <Button size="sm" onClick={() => void act(() => followComponent(componentId, packagingNow))}>
           {watch ? "Update" : "Watch component"}
         </Button>
-        {watch ? <Button size="sm" variant="ghost" onClick={() => void act(() => removeComponentWatch(componentId))}>Stop watching</Button> : null}
+        {watch ? <Button size="sm" variant="ghost" onClick={() => void act(() => stopFollowingComponent(componentId))}>Stop watching</Button> : null}
       </div>
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
     </div>

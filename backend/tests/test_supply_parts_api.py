@@ -67,7 +67,7 @@ class SupplyPartsApiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from fastapi import FastAPI
 
-        from app.api import supply_connectors, supply_parts
+        from app.api import supply_connectors, supply_parts, supply_tracking
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
         from app.services.supply import discoverer, parts, poller, watches
@@ -98,6 +98,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
         cls.app.include_router(supply_parts.router)
+        cls.app.include_router(supply_tracking.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
@@ -126,9 +127,9 @@ class SupplyPartsApiTests(unittest.TestCase):
         return _request(self.app, method, path, user=user or self.users[role], body=body, query=query)
 
     def watch_via_api(self, mpn: str = "ABC123", *, status: int = 201, **extra) -> dict:
-        response = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": mpn, **extra})
+        response = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": mpn, **extra})
         self.assertEqual(response.status, status, response.text)
-        return response.json
+        return response.json["watch"]
 
     def fake_connector(self, **overrides) -> str:
         values = dict(actor=SEED_ACTOR, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=10)
@@ -180,7 +181,7 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     # --- roles ------------------------------------------------------------
 
-    def test_readers_look_and_writers_watch(self) -> None:
+    def test_readers_look_and_follow(self) -> None:
         watch = self.watch_via_api()
         for role in ("admin", "designer", "qa"):
             self.assertEqual(self.call("GET", "/api/supply/parts", role=role).status, 200, role)
@@ -188,12 +189,13 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/supply/parts", role="viewer").status, 403)
 
         body = {"manufacturer": "Acme", "mpn": "X1"}
-        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body=body).status, 201)
-        for role in ("qa", "viewer"):
-            self.assertEqual(self.call("POST", "/api/supply/watches", role=role, body=body).status, 403, role)
-            self.assertEqual(self.call("PATCH", f"/api/supply/watches/{watch['id']}", role=role, body={"pinned": True}).status, 403, role)
-            self.assertEqual(self.call("DELETE", f"/api/supply/watches/{watch['id']}", role=role).status, 403, role)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", role="designer", body=body).status, 201)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", role="qa", body=body).status, 200)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", role="viewer", body=body).status, 403)
+        self.assertEqual(self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", role="viewer", body={"pinned": True}).status, 403)
+        self.assertEqual(self.call("DELETE", f"/api/supply/tracking/parts/{watch['part_id']}", role="viewer").status, 403)
         self.assertFalse(self.call("GET", f"/api/supply/parts/{watch['part_id']}").json["watch"]["pinned"])
+        self.assertTrue(self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", role="qa", body={"pinned": True}).json["watch"]["pinned"])
 
     def test_a_part_is_found_by_manufacturer_and_number_without_creating_anything(self) -> None:
         watch = self.watch_via_api("ABC-123")
@@ -278,10 +280,10 @@ class SupplyPartsApiTests(unittest.TestCase):
         reader = self.AuthenticatedUser(email="bot@example.com", name="bot", role="admin", auth_type="agent", scopes=["api:read"])
         self.assertEqual(self.call("GET", "/api/supply/parts", user=reader).status, 200)
         body = {"manufacturer": "Acme", "mpn": "X1"}
-        self.assertEqual(self.call("POST", "/api/supply/watches", user=reader, body=body).status, 403)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", user=reader, body=body).status, 403)
         kicad = self.AuthenticatedUser(email="k@example.com", name="k", role="admin", auth_type="kicad_provider", scopes=["remote_symbols.read"])
         self.assertEqual(self.call("GET", "/api/supply/parts", user=kicad).status, 403)
-        self.assertEqual(self.call("POST", "/api/supply/watches", user=kicad, body=body).status, 403)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", user=kicad, body=body).status, 403)
 
     # --- watches ----------------------------------------------------------
 
@@ -291,7 +293,7 @@ class SupplyPartsApiTests(unittest.TestCase):
                          ("Acme", "LM358-D", 100, False, "admin@example.com"))
         (item,) = self.call("GET", "/api/supply/parts").json["items"]
         self.assertEqual((item["mpn"], item["status"], item["stock"], item["listings"], item["tier"]), ("LM358-D", "unknown", None, 0, None))
-        self.assertEqual(item["watch"], {"id": watch["id"], "threshold": 100, "pinned": False, "owner": "admin@example.com", "packaging": "any"})
+        self.assertEqual(item["watch"], {"threshold": 100, "pinned": False, "owner": "admin@example.com", "packaging": "any"})
 
     def test_a_watch_can_count_only_one_packaging(self) -> None:
         cid = self.fake_connector()
@@ -313,14 +315,14 @@ class SupplyPartsApiTests(unittest.TestCase):
             credential_fields=(), factory=lambda config: self.FakeProvider(config)), replace=True)
         try:
             self.assertEqual(self.part_row("PK-1")["stock"], 5300)
-            reply = self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"packaging": "cut_tape"})
-            self.assertEqual((reply.status, reply.json["packaging"]), (200, "cut_tape"))
+            reply = self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"packaging": "cut_tape"})
+            self.assertEqual((reply.status, reply.json["watch"]["packaging"]), (200, "cut_tape"))
             self.assertEqual(self.part_row("PK-1")["stock"], 300)
             detail = self.call("GET", f"/api/supply/parts/{part}").json
             self.assertEqual((detail["stock"]["total"], detail["watch"]["packaging"]), (300, "cut_tape"))
-            self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"packaging": "tape_reel"})
+            self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"packaging": "tape_reel"})
             self.assertEqual(self.part_row("PK-1")["stock"], 5000)
-            self.assertEqual(self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"packaging": "nonsense"}).status, 422)
+            self.assertEqual(self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"packaging": "nonsense"}).status, 422)
         finally:
             registry.unregister("demo_sum")
 
@@ -438,43 +440,44 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     def test_watching_twice_is_one_watch(self) -> None:
         first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)
-        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(first["part_id"], second["part_id"])
         self.assertEqual(self.call("GET", "/api/supply/parts").json["total"], 1)
 
     def test_bad_watch_requests(self) -> None:
         for body in ({}, {"manufacturer": "Acme"}, {"manufacturer": "Acme", "mpn": "X", "threshold": -1},
                      {"manufacturer": "Acme", "mpn": "X", "owner": "mallory"}):
-            response = self.call("POST", "/api/supply/watches", body=body)
+            response = self.call("POST", "/api/supply/tracking/parts", body=body)
             self.assertEqual(response.status, 422, body)
             self.assertNotIn("mallory", json.dumps(response.json))
-        blank = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": " - "})
+        blank = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": " - "})
         self.assertEqual((blank.status, blank.json["detail"]["code"]), (400, "invalid_request"))
 
     def test_changing_a_watch(self) -> None:
         watch = self.watch_via_api(threshold=50)
-        path = f"/api/supply/watches/{watch['id']}"
-        pinned = self.call("PATCH", path, body={"pinned": True})
-        self.assertEqual((pinned.status, pinned.json["threshold"], pinned.json["pinned"]), (200, 50, True), "threshold left alone")
-        cleared = self.call("PATCH", path, body={"threshold": None})
-        self.assertEqual((cleared.json["threshold"], cleared.json["pinned"]), (None, True), "null clears it, pin left alone")
-        self.assertEqual(self.call("PATCH", path, body={"threshold": 7}).json["threshold"], 7)
-        self.assertEqual(self.call("PATCH", path, body={}).json["threshold"], 7, "an empty change changes nothing")
+        path = f"/api/supply/tracking/parts/{watch['part_id']}"
+        pinned = self.call("PUT", path, body={"pinned": True})
+        self.assertEqual((pinned.status, pinned.json["watch"]["threshold"], pinned.json["watch"]["pinned"]), (200, 50, True), "threshold left alone")
+        cleared = self.call("PUT", path, body={"threshold": None})
+        self.assertEqual((cleared.json["watch"]["threshold"], cleared.json["watch"]["pinned"]), (None, True), "null clears it, pin left alone")
+        self.assertEqual(self.call("PUT", path, body={"threshold": 7}).json["watch"]["threshold"], 7)
+        self.assertEqual(self.call("PUT", path, body={}).json["watch"]["threshold"], 7, "an empty change changes nothing")
         for body in ({"threshold": -1}, {"owner": "x"}):
-            self.assertEqual(self.call("PATCH", path, body=body).status, 422, body)
-        self.assertEqual(self.call("PATCH", "/api/supply/watches/missing", body={"pinned": True}).status, 404)
+            self.assertEqual(self.call("PUT", path, body=body).status, 422, body)
+        self.assertEqual(self.call("PUT", "/api/supply/tracking/parts/missing", body={"pinned": True}).status, 404)
 
     def test_the_pin_limit_is_reported(self) -> None:
         with mock.patch.object(self.watches, "MAX_PINNED", 1):
             self.watch_via_api("P1", pinned=True)
-            refused = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": "P2", "pinned": True})
+            refused = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": "P2", "pinned": True})
             self.assertEqual((refused.status, refused.json["detail"]["code"]), (400, "watch_error"))
 
     def test_removing_a_watch_keeps_the_part(self) -> None:
         watch = self.watch_via_api()
-        self.assertEqual(self.call("DELETE", f"/api/supply/watches/{watch['id']}").status, 204)
+        self.assertEqual(self.call("DELETE", f"/api/supply/tracking/parts/{watch['part_id']}").status, 204)
         self.assertEqual(self.call("GET", "/api/supply/parts").json["items"], [])
         self.assertEqual(len(self.call("GET", "/api/supply/parts", query="scope=all").json["items"]), 1)
-        self.assertEqual(self.call("DELETE", f"/api/supply/watches/{watch['id']}").status, 404)
+        self.assertEqual(self.call("DELETE", f"/api/supply/tracking/parts/{watch['part_id']}").status, 204, "stopping again is no change")
+        self.assertEqual(self.call("DELETE", "/api/supply/tracking/parts/missing").status, 404)
 
     # --- the list ---------------------------------------------------------
 
@@ -586,7 +589,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         watch = self.watch_via_api("ABC123", threshold=10_000_000)
         self.collect(cid)
         self.assertEqual(self.part_row("ABC123")["status"], "warning")
-        self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": None})
+        self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"threshold": None})
         self.assertEqual(self.part_row("ABC123")["status"], "ok")
 
     def store_rate(self, currency: str, per_eur: str) -> None:
@@ -988,7 +991,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         detail = self.call("GET", f"/api/supply/parts/{watch['part_id']}", role="qa").json
         self.assertEqual({key: value for key, value in detail["part"].items() if key != "first_seen"}, {"id": watch["part_id"], "mpn": "ABC123", "manufacturer": "Acme"})
         self.assertTrue(detail["part"]["first_seen"])
-        self.assertEqual(detail["watch"]["id"], watch["id"])
+        self.assertEqual(detail["watch"]["threshold"], watch["threshold"])
         skus = {item["sku"]: item for item in detail["listings"]}
         self.assertEqual(sorted(skus), ["FAKE-ABC123-CT", "NEARSKU"], "a rejected listing is not shown")
         main = skus["FAKE-ABC123-CT"]
@@ -1127,14 +1130,14 @@ class SupplyPartsApiTests(unittest.TestCase):
     # --- who may name a manufacturer --------------------------------------
 
     def test_a_part_can_be_tracked_by_its_number_alone(self) -> None:
-        response = self.call("POST", "/api/supply/watches", role="designer", body={"mpn": "LM358-D"})
+        response = self.call("POST", "/api/supply/tracking/parts", role="designer", body={"mpn": "LM358-D"})
         self.assertEqual(response.status, 201, response.text)
-        self.assertEqual(response.json["manufacturer"], "Not known yet")
+        self.assertEqual(response.json["watch"]["manufacturer"], "Not known yet")
 
     def test_a_designer_can_name_a_manufacturer_prism_does_not_know_yet(self) -> None:
         body = {"manufacturer": "TI", "mpn": "TPS1"}
-        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body=body).status, 201)
-        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body={"manufacturer": "ti", "mpn": "TPS2"}).status, 201)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", role="designer", body=body).status, 201)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", role="designer", body={"manufacturer": "ti", "mpn": "TPS2"}).status, 201)
         names = [m["name"] for m in self.call("GET", "/api/supply/manufacturers", role="designer").json["items"]]
         self.assertEqual(names, ["TI"], "one manufacturer, however it is spelled")
 
@@ -1145,7 +1148,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_listings SET raw_manufacturer = 'Zeta Works' WHERE id = %s", (waiting,))
             conn.execute("INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, status) VALUES ('zeta works', 'Zeta Works', 'pending')")
-        self.assertEqual(self.call("POST", "/api/supply/watches", role="admin", body={"manufacturer": "Zeta Works", "mpn": "OTHER"}).status, 201)
+        self.assertEqual(self.call("POST", "/api/supply/tracking/parts", role="admin", body={"manufacturer": "Zeta Works", "mpn": "OTHER"}).status, 201)
         with self.store.connection() as conn:
             state = conn.execute("SELECT match_state FROM supply_listings WHERE id = %s", (waiting,)).fetchone()["match_state"]
         self.assertEqual(state, "near", "Zeta Works is a different manufacturer from the part's own (Acme)")
@@ -1153,15 +1156,16 @@ class SupplyPartsApiTests(unittest.TestCase):
     def test_watching_a_watched_part_applies_what_was_asked(self) -> None:
         first = self.watch_via_api("RULES")
         second = self.watch_via_api("RULES", status=200, threshold=250, pinned=True)
-        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(first["part_id"], second["part_id"])
         self.assertEqual((second["threshold"], second["pinned"]), (250, True))
 
     def test_watch_changes_are_audited_with_before_and_after(self) -> None:
         watch = self.watch_via_api("AUDIT", threshold=5)
-        self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": 9})
+        self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"threshold": 9})
         with self.store.connection() as conn:
             detail = conn.execute(
-                "SELECT detail FROM supply_audit_events WHERE action = 'watch.update' AND subject_id = %s", (watch["id"],)).fetchone()["detail"]
+                "SELECT e.detail FROM supply_audit_events e JOIN supply_watches w ON w.id = e.subject_id "
+                "WHERE e.action = 'watch.update' AND w.part_id = %s", (watch["part_id"],)).fetchone()["detail"]
         self.assertEqual(detail, {"before": {"threshold": 5}, "after": {"threshold": 9}})
 
     def test_the_detail_carries_the_insight_with_its_inputs(self) -> None:

@@ -60,7 +60,6 @@ from app.api.supply_parts import router as supply_parts_router
 from app.api.supply_alerts import router as supply_alerts_router
 from app.api.supply_bom import router as supply_bom_router
 from app.api.supply_fill import router as supply_fill_router
-from app.api.supply_component_watch import router as supply_component_watch_router
 from app.api.supply_component_parts import router as supply_component_parts_router
 from app.api.supply_inventory import router as supply_inventory_router
 from app.api.supply_push import router as supply_push_router
@@ -453,7 +452,6 @@ dbl_export.set_status_marks(ending_parts.status_marks)
 app.include_router(supply_alerts_router)
 app.include_router(supply_bom_router)
 app.include_router(supply_fill_router)
-app.include_router(supply_component_watch_router)
 app.include_router(supply_component_parts_router)
 app.include_router(supply_inventory_router)
 app.include_router(supply_push_router)

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import type { CrossReference } from "@/types/supply";
-import { addSupplyWatch } from "./supply-api";
+import { followNumber } from "./tracking-api";
 import { formatStock } from "./supply-format";
 
 type Suggestion = NonNullable<CrossReference["suggestions"]>[number];
@@ -40,7 +40,7 @@ function SuggestionRow({ item, canEdit, onTracked }: { item: Suggestion; canEdit
       {canEdit && item.mpn ? (
         <span className="flex gap-2">
           {!item.tracked ? (
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => addSupplyWatch({ manufacturer: item.manufacturer, mpn: item.mpn }), `${item.mpn} is tracked.`)}>Track</Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => followNumber({ manufacturer: item.manufacturer, mpn: item.mpn }), `${item.mpn} is tracked.`)}>Track</Button>
           ) : null}
         </span>
       ) : null}

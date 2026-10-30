@@ -2,10 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("./supply-api", () => ({ getCrossReference: vi.fn(), addComponentSource: vi.fn(), askSubstitutes: vi.fn(), addSupplyWatch: vi.fn(), listSupplyConnectors: vi.fn() }));
+vi.mock("./supply-api", () => ({ getCrossReference: vi.fn(), addComponentSource: vi.fn(), askSubstitutes: vi.fn(), listSupplyConnectors: vi.fn() }));
+vi.mock("./tracking-api", () => ({ followNumber: vi.fn() }));
 
 import { CrossReferenceSection } from "./cross-reference-section";
 import * as api from "./supply-api";
+import * as trackingApi from "./tracking-api";
 
 const result = {
   candidates: [
@@ -70,13 +72,13 @@ describe("alternatives to a part", () => {
 
   it("tracks a suggested part and proposes it, but offers neither for a distributor number or an already tracked part", async () => {
     vi.mocked(api.getCrossReference).mockResolvedValue({ ...result, suggestions });
-    vi.mocked(api.addSupplyWatch).mockResolvedValue({} as never);
+    vi.mocked(trackingApi.followNumber).mockResolvedValue({} as never);
     render(<CrossReferenceSection partId="p1" canEdit />);
     fireEvent.click(screen.getByRole("button", { name: "Find alternatives" }));
     await screen.findByText("Suggested by distributors");
     expect(screen.getAllByRole("button", { name: "Track" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Track" }));
-    await waitFor(() => expect(api.addSupplyWatch).toHaveBeenCalledWith({ manufacturer: "Globex", mpn: "G-10K-NEW" }));
+    await waitFor(() => expect(trackingApi.followNumber).toHaveBeenCalledWith({ manufacturer: "Globex", mpn: "G-10K-NEW" }));
   });
 
   it("asks DigiKey for substitutes and shows what it names, or why it could not", async () => {
