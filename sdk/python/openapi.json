@@ -1071,6 +1071,25 @@
         "title": "ApprovalState",
         "type": "object"
       },
+      "ArrivalRecord": {
+        "additionalProperties": true,
+        "properties": {
+          "on_time": {
+            "title": "On Time",
+            "type": "integer"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on_time",
+          "resolved"
+        ],
+        "title": "ArrivalRecord",
+        "type": "object"
+      },
       "Arrivals": {
         "additionalProperties": true,
         "properties": {
@@ -1773,6 +1792,78 @@
           "success"
         ],
         "title": "AuthSuccessResponse",
+        "type": "object"
+      },
+      "BackInStock": {
+        "additionalProperties": true,
+        "properties": {
+          "beyond_share": {
+            "title": "Beyond Share",
+            "type": "number"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          },
+          "median": {
+            "title": "Median",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "quote_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Days"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "low",
+          "median",
+          "high",
+          "quote_days",
+          "ratio",
+          "beyond_share",
+          "state"
+        ],
+        "title": "BackInStock",
         "type": "object"
       },
       "BenchmarkMetrics": {
@@ -3531,6 +3622,49 @@
           "archive_bytes"
         ],
         "title": "BundleStore",
+        "type": "object"
+      },
+      "BuyState": {
+        "additionalProperties": true,
+        "properties": {
+          "4w": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          },
+          "8w": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          }
+        },
+        "required": [
+          "4w",
+          "8w"
+        ],
+        "title": "BuyState",
+        "type": "object"
+      },
+      "ByDistributor": {
+        "additionalProperties": true,
+        "description": "Each distributor's own forecast: its most likely stock by day, and its price in 30 and 90 days.",
+        "properties": {
+          "price": {
+            "items": {
+              "$ref": "#/components/schemas/DistributorPrice"
+            },
+            "title": "Price",
+            "type": "array"
+          },
+          "stock": {
+            "items": {
+              "$ref": "#/components/schemas/DistributorStock"
+            },
+            "title": "Stock",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stock",
+          "price"
+        ],
+        "title": "ByDistributor",
         "type": "object"
       },
       "CacheEntry": {
@@ -7578,6 +7712,23 @@
         "title": "ComplianceDraft",
         "type": "object"
       },
+      "ComplianceMix": {
+        "additionalProperties": true,
+        "properties": {
+          "reach": {
+            "$ref": "#/components/schemas/ReachMix"
+          },
+          "rohs": {
+            "$ref": "#/components/schemas/RohsMix"
+          }
+        },
+        "required": [
+          "rohs",
+          "reach"
+        ],
+        "title": "ComplianceMix",
+        "type": "object"
+      },
       "ComponentAsset": {
         "additionalProperties": true,
         "properties": {
@@ -9021,6 +9172,78 @@
         "title": "ConnectorStock",
         "type": "object"
       },
+      "ControlMix": {
+        "additionalProperties": true,
+        "properties": {
+          "controlled": {
+            "title": "Controlled",
+            "type": "integer"
+          },
+          "disputed": {
+            "title": "Disputed",
+            "type": "integer"
+          },
+          "none": {
+            "title": "None",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "controlled",
+          "none",
+          "disputed",
+          "unknown"
+        ],
+        "title": "ControlMix",
+        "type": "object"
+      },
+      "ControlledPart": {
+        "additionalProperties": true,
+        "properties": {
+          "by_person": {
+            "title": "By Person",
+            "type": "boolean"
+          },
+          "eccn": {
+            "title": "Eccn",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "controlled",
+              "disputed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "eccn",
+          "state",
+          "by_person"
+        ],
+        "title": "ControlledPart",
+        "type": "object"
+      },
       "CostDay": {
         "additionalProperties": true,
         "properties": {
@@ -9048,6 +9271,50 @@
           "boards"
         ],
         "title": "CostDay",
+        "type": "object"
+      },
+      "Coverage": {
+        "additionalProperties": true,
+        "properties": {
+          "cheapest": {
+            "title": "Cheapest",
+            "type": "integer"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "in_stock": {
+            "title": "In Stock",
+            "type": "integer"
+          },
+          "listed": {
+            "title": "Listed",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "tracked",
+          "listed",
+          "in_stock",
+          "cheapest"
+        ],
+        "title": "Coverage",
         "type": "object"
       },
       "CreateCommentRequest": {
@@ -10055,6 +10322,116 @@
         "title": "CrossReference",
         "type": "object"
       },
+      "DashboardFigures": {
+        "additionalProperties": true,
+        "properties": {
+          "at_risk": {
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "lifecycle": {
+            "title": "Lifecycle",
+            "type": "integer"
+          },
+          "open_alerts": {
+            "title": "Open Alerts",
+            "type": "integer"
+          },
+          "out_of_stock": {
+            "title": "Out Of Stock",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          },
+          "watched": {
+            "title": "Watched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "watched",
+          "at_risk",
+          "out_of_stock",
+          "lifecycle",
+          "open_alerts",
+          "waiting"
+        ],
+        "title": "DashboardFigures",
+        "type": "object"
+      },
+      "DashboardForecast": {
+        "additionalProperties": true,
+        "description": "Parts likely out within four weeks, the model's state and the next expected events.",
+        "properties": {
+          "coming_up": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastEvent"
+            },
+            "title": "Coming Up",
+            "type": "array"
+          },
+          "likely_out_4w": {
+            "title": "Likely Out 4W",
+            "type": "integer"
+          },
+          "part_ids_likely_out_4w": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Part Ids Likely Out 4W",
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          }
+        },
+        "required": [
+          "likely_out_4w",
+          "state",
+          "coming_up",
+          "part_ids_likely_out_4w"
+        ],
+        "title": "DashboardForecast",
+        "type": "object"
+      },
+      "DashboardProject": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/SupplyGroupStats"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Statuses",
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "count",
+          "statuses",
+          "stats"
+        ],
+        "title": "DashboardProject",
+        "type": "object"
+      },
       "DatabasePoolMetrics": {
         "additionalProperties": true,
         "properties": {
@@ -10083,6 +10460,77 @@
           "pool"
         ],
         "title": "DatabasePoolMetrics",
+        "type": "object"
+      },
+      "Datasheet": {
+        "additionalProperties": true,
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The address a distributor gave; null when none did.",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "Datasheet",
+        "type": "object"
+      },
+      "Deadline": {
+        "additionalProperties": true,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "last_time_buy",
+              "last_time_ship",
+              "last_buy_date"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "kind",
+          "date",
+          "source",
+          "url"
+        ],
+        "title": "Deadline",
         "type": "object"
       },
       "DebugLoggingCleared": {
@@ -11282,6 +11730,55 @@
         "title": "DismissIn",
         "type": "object"
       },
+      "DistributorPrice": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "h30": {
+            "$ref": "#/components/schemas/PriceAt"
+          },
+          "h90": {
+            "$ref": "#/components/schemas/PriceAt"
+          },
+          "now": {
+            "title": "Now",
+            "type": "number"
+          }
+        },
+        "required": [
+          "connector_id",
+          "now",
+          "h30",
+          "h90"
+        ],
+        "title": "DistributorPrice",
+        "type": "object"
+      },
+      "DistributorStock": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/StockPoint"
+            },
+            "title": "Path",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connector_id",
+          "path"
+        ],
+        "title": "DistributorStock",
+        "type": "object"
+      },
       "DistributorSuggestion": {
         "additionalProperties": true,
         "description": "A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part.",
@@ -11967,6 +12464,37 @@
           "file"
         ],
         "title": "DrillTool",
+        "type": "object"
+      },
+      "EndOfLife": {
+        "additionalProperties": true,
+        "properties": {
+          "changes": {
+            "title": "Changes",
+            "type": "integer"
+          },
+          "needs": {
+            "title": "Needs",
+            "type": "integer"
+          },
+          "p12": {
+            "$ref": "#/components/schemas/ForecastChance"
+          },
+          "p24": {
+            "$ref": "#/components/schemas/ForecastChance"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          }
+        },
+        "required": [
+          "p12",
+          "p24",
+          "changes",
+          "needs",
+          "state"
+        ],
+        "title": "EndOfLife",
         "type": "object"
       },
       "EndingComponent": {
@@ -12717,6 +13245,41 @@
           "reason"
         ],
         "title": "FailedBuild",
+        "type": "object"
+      },
+      "FailingFeed": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "stores",
+              "connector"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "since"
+        ],
+        "title": "FailingFeed",
         "type": "object"
       },
       "FileItem": {
@@ -13868,6 +14431,255 @@
         "title": "FootprintImportResult",
         "type": "object"
       },
+      "ForecastChance": {
+        "additionalProperties": true,
+        "properties": {
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "probability": {
+            "title": "Probability",
+            "type": "number"
+          },
+          "word": {
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "probability",
+          "percent",
+          "word"
+        ],
+        "title": "ForecastChance",
+        "type": "object"
+      },
+      "ForecastEvent": {
+        "additionalProperties": true,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "runout",
+              "price"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "probability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "date",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "text",
+          "probability"
+        ],
+        "title": "ForecastEvent",
+        "type": "object"
+      },
+      "ForecastInputs": {
+        "additionalProperties": true,
+        "properties": {
+          "drain_known": {
+            "title": "Drain Known",
+            "type": "integer"
+          },
+          "from_similar": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Similar"
+          },
+          "holders": {
+            "title": "Holders",
+            "type": "integer"
+          },
+          "outages_modelled": {
+            "title": "Outages Modelled",
+            "type": "integer"
+          },
+          "span_days": {
+            "title": "Span Days",
+            "type": "integer"
+          },
+          "weekly": {
+            "title": "Weekly",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "span_days",
+          "holders",
+          "drain_known",
+          "outages_modelled",
+          "weekly"
+        ],
+        "title": "ForecastInputs",
+        "type": "object"
+      },
+      "ForecastInsights": {
+        "additionalProperties": true,
+        "description": "The Insights Forecasts section.",
+        "properties": {
+          "coming_up": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastEvent"
+            },
+            "title": "Coming Up",
+            "type": "array"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "lead_times": {
+            "items": {
+              "$ref": "#/components/schemas/GroupLeadTime"
+            },
+            "title": "Lead Times",
+            "type": "array"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LifecycleOutlook"
+          },
+          "likely_out_4w": {
+            "title": "Likely Out 4W",
+            "type": "integer"
+          },
+          "prices": {
+            "$ref": "#/components/schemas/PriceOutlook"
+          },
+          "track_record": {
+            "$ref": "#/components/schemas/TrackRecord"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/GroupWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "currency",
+          "coming_up",
+          "likely_out_4w",
+          "lead_times",
+          "warnings",
+          "prices",
+          "lifecycle",
+          "track_record"
+        ],
+        "title": "ForecastInsights",
+        "type": "object"
+      },
+      "ForecastModelState": {
+        "additionalProperties": true,
+        "description": "Where a forecast model stands: learning (not enough checks, or missing too often), shown, or paused.",
+        "properties": {
+          "checks": {
+            "title": "Checks",
+            "type": "integer"
+          },
+          "needs": {
+            "title": "Needs",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "learning",
+              "shown",
+              "paused"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "checks",
+          "needs",
+          "reason"
+        ],
+        "title": "ForecastModelState",
+        "type": "object"
+      },
+      "ForecastWeek": {
+        "additionalProperties": true,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "probability": {
+            "title": "Probability",
+            "type": "number"
+          },
+          "week": {
+            "title": "Week",
+            "type": "integer"
+          },
+          "word": {
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "probability",
+          "percent",
+          "word",
+          "week",
+          "date"
+        ],
+        "title": "ForecastWeek",
+        "type": "object"
+      },
       "ForgeRelease": {
         "additionalProperties": true,
         "properties": {
@@ -14307,6 +15119,108 @@
         "title": "GitAccessResponse",
         "type": "object"
       },
+      "GroupLeadTime": {
+        "additionalProperties": true,
+        "properties": {
+          "direction": {
+            "enum": [
+              "stretching",
+              "easing",
+              "flat"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          },
+          "now": {
+            "title": "Now",
+            "type": "number"
+          },
+          "points": {
+            "title": "Points",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scope",
+          "now",
+          "low",
+          "median",
+          "high",
+          "direction",
+          "points"
+        ],
+        "title": "GroupLeadTime",
+        "type": "object"
+      },
+      "GroupWarning": {
+        "additionalProperties": true,
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "number"
+          },
+          "before": {
+            "title": "Before",
+            "type": "number"
+          },
+          "direction": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scope",
+          "metric",
+          "before",
+          "after",
+          "direction",
+          "since"
+        ],
+        "title": "GroupWarning",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -14431,6 +15345,40 @@
           "text"
         ],
         "title": "HistoryEvent",
+        "type": "object"
+      },
+      "Holders": {
+        "additionalProperties": true,
+        "properties": {
+          "none": {
+            "title": "None",
+            "type": "integer"
+          },
+          "one": {
+            "title": "One",
+            "type": "integer"
+          },
+          "three_plus": {
+            "title": "Three Plus",
+            "type": "integer"
+          },
+          "two": {
+            "title": "Two",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "none",
+          "one",
+          "two",
+          "three_plus",
+          "unknown"
+        ],
+        "title": "Holders",
         "type": "object"
       },
       "HostKeyForgetResponse": {
@@ -15113,6 +16061,32 @@
           "skipped_unknown_rows"
         ],
         "title": "ImportedProposalCsv",
+        "type": "object"
+      },
+      "InStock": {
+        "additionalProperties": true,
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share"
+          }
+        },
+        "required": [
+          "days",
+          "share"
+        ],
+        "title": "InStock",
         "type": "object"
       },
       "IncompleteCounts": {
@@ -17089,6 +18063,69 @@
         "title": "LastBuy",
         "type": "object"
       },
+      "LastBuyLag": {
+        "additionalProperties": true,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "cases": {
+            "title": "Cases",
+            "type": "integer"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "needs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needs"
+          }
+        },
+        "required": [
+          "available",
+          "cases"
+        ],
+        "title": "LastBuyLag",
+        "type": "object"
+      },
       "LatencyTotals": {
         "properties": {
           "count": {
@@ -17171,6 +18208,33 @@
           "routeCount"
         ],
         "title": "LatencyTotals",
+        "type": "object"
+      },
+      "LeadTimeBucket": {
+        "additionalProperties": true,
+        "properties": {
+          "bucket": {
+            "enum": [
+              "under_2w",
+              "2_to_8w",
+              "8_to_16w",
+              "16_to_26w",
+              "over_26w",
+              "none"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket",
+          "parts"
+        ],
+        "title": "LeadTimeBucket",
         "type": "object"
       },
       "LeadTimeTrend": {
@@ -17302,6 +18366,138 @@
           "component_id"
         ],
         "title": "LibraryComponentOf",
+        "type": "object"
+      },
+      "LifecycleInsights": {
+        "additionalProperties": true,
+        "properties": {
+          "compliance": {
+            "$ref": "#/components/schemas/ComplianceMix"
+          },
+          "mix": {
+            "$ref": "#/components/schemas/LifecycleMix"
+          },
+          "outlook": {
+            "$ref": "#/components/schemas/Outlook"
+          }
+        },
+        "required": [
+          "mix",
+          "outlook",
+          "compliance"
+        ],
+        "title": "LifecycleInsights",
+        "type": "object"
+      },
+      "LifecycleMix": {
+        "additionalProperties": true,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "last_time_buy": {
+            "title": "Last Time Buy",
+            "type": "integer"
+          },
+          "nrnd": {
+            "title": "Nrnd",
+            "type": "integer"
+          },
+          "obsolete": {
+            "title": "Obsolete",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "nrnd",
+          "last_time_buy",
+          "obsolete",
+          "unknown"
+        ],
+        "title": "LifecycleMix",
+        "type": "object"
+      },
+      "LifecycleOutlook": {
+        "additionalProperties": true,
+        "properties": {
+          "changes": {
+            "title": "Changes",
+            "type": "integer"
+          },
+          "last_buy_lag": {
+            "$ref": "#/components/schemas/LastBuyLag"
+          },
+          "needs": {
+            "title": "Needs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "last_buy_lag",
+          "changes",
+          "needs"
+        ],
+        "title": "LifecycleOutlook",
+        "type": "object"
+      },
+      "LikelyUp": {
+        "additionalProperties": true,
+        "properties": {
+          "change": {
+            "title": "Change",
+            "type": "number"
+          },
+          "flat": {
+            "title": "Flat",
+            "type": "boolean"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "now": {
+            "title": "Now",
+            "type": "number"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "now",
+          "low",
+          "median",
+          "high",
+          "change",
+          "flat"
+        ],
+        "title": "LikelyUp",
         "type": "object"
       },
       "LineAssessment": {
@@ -18274,6 +19470,90 @@
           "arrivals"
         ],
         "title": "MarketBehaviour",
+        "type": "object"
+      },
+      "MarketSeries": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "all",
+              "manufacturer",
+              "category"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "sample": {
+            "title": "Sample",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scope",
+          "sample",
+          "points"
+        ],
+        "title": "MarketSeries",
+        "type": "object"
+      },
+      "MarketSignal": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "manufacturer",
+              "category"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "signal": {
+            "enum": [
+              "draining",
+              "lead_times"
+            ],
+            "title": "Signal",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scope",
+          "signal",
+          "text"
+        ],
+        "title": "MarketSignal",
         "type": "object"
       },
       "MateOut": {
@@ -19876,6 +21156,49 @@
         "title": "MoveProjectsRequest",
         "type": "object"
       },
+      "NamedDays": {
+        "additionalProperties": true,
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "days",
+          "parts"
+        ],
+        "title": "NamedDays",
+        "type": "object"
+      },
+      "NamedParts": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "parts"
+        ],
+        "title": "NamedParts",
+        "type": "object"
+      },
       "NativePrice": {
         "additionalProperties": true,
         "properties": {
@@ -20448,6 +21771,25 @@
         "title": "OpsStatus",
         "type": "object"
       },
+      "Origin": {
+        "additionalProperties": true,
+        "properties": {
+          "country": {
+            "title": "Country",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "country",
+          "parts"
+        ],
+        "title": "Origin",
+        "type": "object"
+      },
       "OtherNumberListing": {
         "additionalProperties": true,
         "properties": {
@@ -20475,6 +21817,57 @@
           "connector"
         ],
         "title": "OtherNumberListing",
+        "type": "object"
+      },
+      "OutEverywhere": {
+        "additionalProperties": true,
+        "properties": {
+          "4w": {
+            "$ref": "#/components/schemas/ForecastChance"
+          },
+          "8w": {
+            "$ref": "#/components/schemas/ForecastChance"
+          }
+        },
+        "required": [
+          "4w",
+          "8w"
+        ],
+        "title": "OutEverywhere",
+        "type": "object"
+      },
+      "Outlook": {
+        "additionalProperties": true,
+        "properties": {
+          "2_to_5_years": {
+            "title": "2 To 5 Years",
+            "type": "integer"
+          },
+          "ended": {
+            "title": "Ended",
+            "type": "integer"
+          },
+          "no_signs": {
+            "title": "No Signs",
+            "type": "integer"
+          },
+          "under_2_years": {
+            "title": "Under 2 Years",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ended",
+          "under_2_years",
+          "2_to_5_years",
+          "no_signs",
+          "unknown"
+        ],
+        "title": "Outlook",
         "type": "object"
       },
       "OutlookSignal": {
@@ -21200,6 +22593,185 @@
           "watch"
         ],
         "title": "PartFollowed",
+        "type": "object"
+      },
+      "PartForecast": {
+        "additionalProperties": true,
+        "description": "Everything the part sheet's Forecast section and chart bands need. Nothing is saved by asking at a quantity.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "back": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BackInStock"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Back"
+          },
+          "buy_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuyState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_distributor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ByDistributor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_of_life": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndOfLife"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForecastInputs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "models": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "description": "Each model's state, with what it rests on.",
+            "title": "Models",
+            "type": "object"
+          },
+          "out_everywhere": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutEverywhere"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "out_now": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Out Now"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StockBand"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceForecast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_readings",
+                  "too_few_readings"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "runout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Runout"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "title": "Today",
+            "type": "string"
+          },
+          "weeks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ForecastWeek"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weeks"
+          }
+        },
+        "required": [
+          "available",
+          "today",
+          "models"
+        ],
+        "title": "PartForecast",
         "type": "object"
       },
       "PartHistory": {
@@ -22347,6 +23919,35 @@
         "title": "PreferredStanding",
         "type": "object"
       },
+      "PriceAt": {
+        "additionalProperties": true,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "median",
+          "low",
+          "high"
+        ],
+        "title": "PriceAt",
+        "type": "object"
+      },
       "PriceDay": {
         "additionalProperties": true,
         "properties": {
@@ -22371,6 +23972,180 @@
           "price"
         ],
         "title": "PriceDay",
+        "type": "object"
+      },
+      "PriceForecast": {
+        "additionalProperties": true,
+        "properties": {
+          "h30": {
+            "$ref": "#/components/schemas/PriceHorizon"
+          },
+          "h90": {
+            "$ref": "#/components/schemas/PriceHorizon"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/PriceInputs"
+          },
+          "now": {
+            "title": "Now",
+            "type": "number"
+          }
+        },
+        "required": [
+          "now",
+          "inputs",
+          "h30",
+          "h90"
+        ],
+        "title": "PriceForecast",
+        "type": "object"
+      },
+      "PriceHorizon": {
+        "additionalProperties": true,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "flat": {
+            "title": "Flat",
+            "type": "boolean"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          }
+        },
+        "required": [
+          "low",
+          "median",
+          "high",
+          "flat",
+          "date",
+          "state"
+        ],
+        "title": "PriceHorizon",
+        "type": "object"
+      },
+      "PriceInputs": {
+        "additionalProperties": true,
+        "properties": {
+          "own_moves": {
+            "title": "Own Moves",
+            "type": "integer"
+          },
+          "pooled_moves": {
+            "title": "Pooled Moves",
+            "type": "integer"
+          },
+          "readings": {
+            "title": "Readings",
+            "type": "integer"
+          },
+          "span_days": {
+            "title": "Span Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "readings",
+          "span_days",
+          "own_moves",
+          "pooled_moves"
+        ],
+        "title": "PriceInputs",
+        "type": "object"
+      },
+      "PriceMove": {
+        "additionalProperties": true,
+        "properties": {
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "number"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "percent"
+        ],
+        "title": "PriceMove",
+        "type": "object"
+      },
+      "PriceMovers": {
+        "additionalProperties": true,
+        "properties": {
+          "down": {
+            "items": {
+              "$ref": "#/components/schemas/PriceMove"
+            },
+            "title": "Down",
+            "type": "array"
+          },
+          "up": {
+            "items": {
+              "$ref": "#/components/schemas/PriceMove"
+            },
+            "title": "Up",
+            "type": "array"
+          }
+        },
+        "required": [
+          "up",
+          "down"
+        ],
+        "title": "PriceMovers",
+        "type": "object"
+      },
+      "PriceOutlook": {
+        "additionalProperties": true,
+        "properties": {
+          "flat": {
+            "title": "Flat",
+            "type": "integer"
+          },
+          "likeliest_up": {
+            "items": {
+              "$ref": "#/components/schemas/LikelyUp"
+            },
+            "title": "Likeliest Up",
+            "type": "array"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parts",
+          "flat",
+          "likeliest_up"
+        ],
+        "title": "PriceOutlook",
         "type": "object"
       },
       "PriceQuantity": {
@@ -23198,6 +24973,48 @@
           "validation"
         ],
         "title": "ProjectConfigSaved",
+        "type": "object"
+      },
+      "ProjectCost": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "currency",
+          "points"
+        ],
+        "title": "ProjectCost",
         "type": "object"
       },
       "ProjectCostPoint": {
@@ -25273,6 +27090,44 @@
         "title": "ProjectVariantCatalog",
         "type": "object"
       },
+      "Promises": {
+        "additionalProperties": true,
+        "properties": {
+          "kept": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept"
+          },
+          "median_days_late": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Days Late"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resolved",
+          "kept",
+          "median_days_late"
+        ],
+        "title": "Promises",
+        "type": "object"
+      },
       "ProposeWaiverRequest": {
         "additionalProperties": false,
         "properties": {
@@ -25784,7 +27639,8 @@
         "required": [
           "prefix",
           "created_by",
-          "created_at"
+          "created_at",
+          "last_used_at"
         ],
         "title": "PushToken",
         "type": "object"
@@ -26129,6 +27985,35 @@
           "of"
         ],
         "title": "QuoteCoverage",
+        "type": "object"
+      },
+      "ReachMix": {
+        "additionalProperties": true,
+        "properties": {
+          "affected": {
+            "title": "Affected",
+            "type": "integer"
+          },
+          "compliant": {
+            "title": "Compliant",
+            "type": "integer"
+          },
+          "not_applicable": {
+            "title": "Not Applicable",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "compliant",
+          "affected",
+          "not_applicable",
+          "unknown"
+        ],
+        "title": "ReachMix",
         "type": "object"
       },
       "ReattachCommentRequest": {
@@ -26726,8 +28611,7 @@
               "ok",
               "warning",
               "error",
-              "fatal",
-              "unknown"
+              "fatal"
             ],
             "title": "Severity",
             "type": "string"
@@ -26966,6 +28850,30 @@
           "released_at"
         ],
         "title": "ReleasedRevision",
+        "type": "object"
+      },
+      "ReliabilityBin": {
+        "additionalProperties": true,
+        "properties": {
+          "cases": {
+            "title": "Cases",
+            "type": "integer"
+          },
+          "happened": {
+            "title": "Happened",
+            "type": "number"
+          },
+          "said": {
+            "title": "Said",
+            "type": "number"
+          }
+        },
+        "required": [
+          "said",
+          "happened",
+          "cases"
+        ],
+        "title": "ReliabilityBin",
         "type": "object"
       },
       "RenderHighlight": {
@@ -27505,6 +29413,45 @@
         "title": "ResetSuggestion",
         "type": "object"
       },
+      "Resilience": {
+        "additionalProperties": true,
+        "properties": {
+          "none": {
+            "title": "None",
+            "type": "integer"
+          },
+          "not_read": {
+            "title": "Not Read",
+            "type": "integer"
+          },
+          "one": {
+            "title": "One",
+            "type": "integer"
+          },
+          "three_plus": {
+            "title": "Three Plus",
+            "type": "integer"
+          },
+          "two": {
+            "title": "Two",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "none",
+          "one",
+          "two",
+          "three_plus",
+          "unknown",
+          "not_read"
+        ],
+        "title": "Resilience",
+        "type": "object"
+      },
       "ResolvedPaths": {
         "description": "Fully resolved absolute paths.",
         "properties": {
@@ -27766,6 +29713,32 @@
           "stock_outs"
         ],
         "title": "RestockRecord",
+        "type": "object"
+      },
+      "RestockedFirst": {
+        "additionalProperties": true,
+        "properties": {
+          "first": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First"
+          },
+          "rounds": {
+            "title": "Rounds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rounds",
+          "first"
+        ],
+        "title": "RestockedFirst",
         "type": "object"
       },
       "RestrictionIn": {
@@ -28089,6 +30062,47 @@
         "title": "RevokeSessionsResponse",
         "type": "object"
       },
+      "RiskRow": {
+        "additionalProperties": true,
+        "properties": {
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "not_read": {
+            "title": "Not Read",
+            "type": "integer"
+          },
+          "one": {
+            "title": "One",
+            "type": "integer"
+          },
+          "out": {
+            "title": "Out",
+            "type": "integer"
+          },
+          "two_plus": {
+            "title": "Two Plus",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lifecycle",
+          "two_plus",
+          "one",
+          "out",
+          "not_read"
+        ],
+        "title": "RiskRow",
+        "type": "object"
+      },
       "RohsExemption": {
         "additionalProperties": true,
         "description": "A RoHS exemption a person named from the manufacturer's declaration.",
@@ -28112,6 +30126,40 @@
           "declared_by"
         ],
         "title": "RohsExemption",
+        "type": "object"
+      },
+      "RohsMix": {
+        "additionalProperties": true,
+        "properties": {
+          "compliant": {
+            "title": "Compliant",
+            "type": "integer"
+          },
+          "disputed": {
+            "title": "Disputed",
+            "type": "integer"
+          },
+          "not_applicable": {
+            "title": "Not Applicable",
+            "type": "integer"
+          },
+          "not_compliant": {
+            "title": "Not Compliant",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "compliant",
+          "not_compliant",
+          "disputed",
+          "not_applicable",
+          "unknown"
+        ],
+        "title": "RohsMix",
         "type": "object"
       },
       "RoleAssignmentResponse": {
@@ -28518,6 +30566,50 @@
         "title": "RulesRequest",
         "type": "object"
       },
+      "Runout": {
+        "additionalProperties": true,
+        "description": "A range of dates (10% to 90%) with the most likely in the middle.",
+        "properties": {
+          "high": {
+            "title": "High",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          },
+          "median": {
+            "title": "Median",
+            "type": "string"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "probability": {
+            "title": "Probability",
+            "type": "number"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ForecastModelState"
+          },
+          "word": {
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "probability",
+          "percent",
+          "word",
+          "low",
+          "median",
+          "high",
+          "state"
+        ],
+        "title": "Runout",
+        "type": "object"
+      },
       "RunoutForecast": {
         "additionalProperties": true,
         "properties": {
@@ -28552,6 +30644,45 @@
           "p"
         ],
         "title": "RunoutForecast",
+        "type": "object"
+      },
+      "Runway": {
+        "additionalProperties": true,
+        "properties": {
+          "few_readings": {
+            "title": "Few Readings",
+            "type": "integer"
+          },
+          "out_now": {
+            "title": "Out Now",
+            "type": "integer"
+          },
+          "runs_out_2w": {
+            "title": "Runs Out 2W",
+            "type": "integer"
+          },
+          "runs_out_8w": {
+            "title": "Runs Out 8W",
+            "type": "integer"
+          },
+          "runs_out_later": {
+            "title": "Runs Out Later",
+            "type": "integer"
+          },
+          "steady": {
+            "title": "Steady",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "out_now",
+          "runs_out_2w",
+          "runs_out_8w",
+          "runs_out_later",
+          "steady",
+          "few_readings"
+        ],
+        "title": "Runway",
         "type": "object"
       },
       "SSHKeyResponse": {
@@ -28672,6 +30803,59 @@
         "title": "ScanRequest",
         "type": "object"
       },
+      "ScatterMissing": {
+        "additionalProperties": true,
+        "properties": {
+          "no_lead_time": {
+            "title": "No Lead Time",
+            "type": "integer"
+          },
+          "no_rate": {
+            "title": "No Rate",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "no_rate",
+          "no_lead_time"
+        ],
+        "title": "ScatterMissing",
+        "type": "object"
+      },
+      "ScatterPoint": {
+        "additionalProperties": true,
+        "properties": {
+          "days_to_zero": {
+            "title": "Days To Zero",
+            "type": "number"
+          },
+          "lead_days": {
+            "title": "Lead Days",
+            "type": "number"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "days_to_zero",
+          "lead_days"
+        ],
+        "title": "ScatterPoint",
+        "type": "object"
+      },
       "ScheduleIn": {
         "additionalProperties": false,
         "properties": {
@@ -28701,6 +30885,56 @@
           "spare"
         ],
         "title": "ScheduleSettings",
+        "type": "object"
+      },
+      "ScorecardRow": {
+        "additionalProperties": true,
+        "description": "One distributor's record on the parts two or more distributors list. A figure is null until it rests on min_events.",
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "in_stock": {
+            "$ref": "#/components/schemas/InStock"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "promises": {
+            "$ref": "#/components/schemas/Promises"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "restocked_first": {
+            "$ref": "#/components/schemas/RestockedFirst"
+          },
+          "stock_outs": {
+            "$ref": "#/components/schemas/StockOuts"
+          },
+          "wait": {
+            "$ref": "#/components/schemas/Wait"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "parts",
+          "stock_outs",
+          "restocked_first",
+          "promises",
+          "wait",
+          "in_stock"
+        ],
+        "title": "ScorecardRow",
         "type": "object"
       },
       "SearchRequest": {
@@ -29434,6 +31668,21 @@
         "title": "SheetRows",
         "type": "object"
       },
+      "SigninStarted": {
+        "additionalProperties": true,
+        "properties": {
+          "url": {
+            "description": "Where the administrator signs in at the provider.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "SigninStarted",
+        "type": "object"
+      },
       "SimilarIn": {
         "additionalProperties": false,
         "properties": {
@@ -29790,6 +32039,27 @@
         "title": "SourceResponse",
         "type": "object"
       },
+      "Sourcing": {
+        "additionalProperties": true,
+        "properties": {
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/Coverage"
+            },
+            "title": "Coverage",
+            "type": "array"
+          },
+          "resilience": {
+            "$ref": "#/components/schemas/Resilience"
+          }
+        },
+        "required": [
+          "coverage",
+          "resilience"
+        ],
+        "title": "Sourcing",
+        "type": "object"
+      },
       "SpareWork": {
         "additionalProperties": true,
         "properties": {
@@ -29898,6 +32168,32 @@
         "title": "StartDesignCompareResponse",
         "type": "object"
       },
+      "StatusCount": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "count"
+        ],
+        "title": "StatusCount",
+        "type": "object"
+      },
       "StatusReadiness": {
         "additionalProperties": true,
         "properties": {
@@ -29977,6 +32273,35 @@
         "title": "StockAnomaly",
         "type": "object"
       },
+      "StockBand": {
+        "additionalProperties": true,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          }
+        },
+        "required": [
+          "day",
+          "low",
+          "median",
+          "high"
+        ],
+        "title": "StockBand",
+        "type": "object"
+      },
       "StockDay": {
         "additionalProperties": true,
         "properties": {
@@ -30000,6 +32325,51 @@
           "listings"
         ],
         "title": "StockDay",
+        "type": "object"
+      },
+      "StockOuts": {
+        "additionalProperties": true,
+        "properties": {
+          "median_days_out": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Days Out"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n",
+          "median_days_out"
+        ],
+        "title": "StockOuts",
+        "type": "object"
+      },
+      "StockPoint": {
+        "additionalProperties": true,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          }
+        },
+        "required": [
+          "day",
+          "median"
+        ],
+        "title": "StockPoint",
         "type": "object"
       },
       "StoresState": {
@@ -30321,6 +32691,85 @@
           "resolved_at"
         ],
         "title": "SupplyAlert",
+        "type": "object"
+      },
+      "SupplyAssessment": {
+        "additionalProperties": true,
+        "properties": {
+          "changes_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the clock alone changes the answer.",
+            "title": "Changes At"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Health"
+          },
+          "need": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Need"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "sub_scores": {
+            "items": {
+              "$ref": "#/components/schemas/SupplySubScore"
+            },
+            "title": "Sub Scores",
+            "type": "array"
+          }
+        },
+        "required": [
+          "part_id",
+          "health",
+          "status",
+          "need",
+          "findings",
+          "sub_scores",
+          "changes_at"
+        ],
+        "title": "SupplyAssessment",
         "type": "object"
       },
       "SupplyBomAlternate": {
@@ -31885,6 +34334,199 @@
         "title": "SupplyCsvResult",
         "type": "object"
       },
+      "SupplyDashboard": {
+        "additionalProperties": true,
+        "description": "The Dashboard page in one read.",
+        "properties": {
+          "alerts_by_day": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Alerts By Day",
+            "type": "array"
+          },
+          "connectors": {
+            "description": "Enabled connectors.",
+            "title": "Connectors",
+            "type": "integer"
+          },
+          "deadlines": {
+            "description": "Last-time-buy and last-ship dates in the next year, soonest first.",
+            "items": {
+              "$ref": "#/components/schemas/Deadline"
+            },
+            "title": "Deadlines",
+            "type": "array"
+          },
+          "ending_components": {
+            "description": "Library components whose part is ending and nobody has decided about.",
+            "title": "Ending Components",
+            "type": "integer"
+          },
+          "failing_feeds": {
+            "description": "Enabled feeds whose last read failed, with their last good read.",
+            "items": {
+              "$ref": "#/components/schemas/FailingFeed"
+            },
+            "title": "Failing Feeds",
+            "type": "array"
+          },
+          "figure_history": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "description": "Each figure's stored values over the last 30 days, oldest first.",
+            "title": "Figure History",
+            "type": "object"
+          },
+          "figures": {
+            "$ref": "#/components/schemas/DashboardFigures"
+          },
+          "forecast": {
+            "$ref": "#/components/schemas/DashboardForecast"
+          },
+          "holders": {
+            "$ref": "#/components/schemas/Holders"
+          },
+          "insights_ready": {
+            "title": "Insights Ready",
+            "type": "integer"
+          },
+          "no_data": {
+            "description": "Tracked parts with no reading yet.",
+            "title": "No Data",
+            "type": "integer"
+          },
+          "project_costs": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCost"
+            },
+            "title": "Project Costs",
+            "type": "array"
+          },
+          "projects": {
+            "description": "The tracked projects with their closed-row figures.",
+            "items": {
+              "$ref": "#/components/schemas/DashboardProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "recent_changes": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyRecentChange"
+            },
+            "title": "Recent Changes",
+            "type": "array"
+          },
+          "risk_grid": {
+            "description": "Lifecycle against availability, a row per lifecycle.",
+            "items": {
+              "$ref": "#/components/schemas/RiskRow"
+            },
+            "title": "Risk Grid",
+            "type": "array"
+          },
+          "runway": {
+            "$ref": "#/components/schemas/Runway"
+          },
+          "statuses": {
+            "items": {
+              "$ref": "#/components/schemas/StatusCount"
+            },
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "figures",
+          "ending_components",
+          "forecast",
+          "figure_history",
+          "statuses",
+          "runway",
+          "holders",
+          "alerts_by_day",
+          "project_costs",
+          "insights_ready",
+          "failing_feeds",
+          "connectors",
+          "no_data",
+          "recent_changes",
+          "risk_grid",
+          "deadlines",
+          "projects"
+        ],
+        "title": "SupplyDashboard",
+        "type": "object"
+      },
+      "SupplyDistributorBehaviour": {
+        "additionalProperties": true,
+        "properties": {
+          "arrivals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArrivalRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaders": {
+            "items": {
+              "$ref": "#/components/schemas/NamedParts"
+            },
+            "title": "Leaders",
+            "type": "array"
+          },
+          "repricing": {
+            "items": {
+              "$ref": "#/components/schemas/NamedDays"
+            },
+            "title": "Repricing",
+            "type": "array"
+          },
+          "restock_first": {
+            "items": {
+              "$ref": "#/components/schemas/NamedParts"
+            },
+            "title": "Restock First",
+            "type": "array"
+          },
+          "scorecard": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyScorecard"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "repricing",
+          "leaders",
+          "restock_first",
+          "arrivals"
+        ],
+        "title": "SupplyDistributorBehaviour",
+        "type": "object"
+      },
       "SupplyFact": {
         "additionalProperties": true,
         "description": "One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source.",
@@ -31917,6 +34559,58 @@
           "disagree"
         ],
         "title": "SupplyFact",
+        "type": "object"
+      },
+      "SupplyFinding": {
+        "additionalProperties": true,
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "title": "Detail",
+            "type": "object"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "waiver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyWaiver"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "check",
+          "severity",
+          "text",
+          "scope",
+          "waiver",
+          "detail"
+        ],
+        "title": "SupplyFinding",
         "type": "object"
       },
       "SupplyFxRates": {
@@ -32587,6 +35281,85 @@
         "title": "SupplyInsight",
         "type": "object"
       },
+      "SupplyInsightsPage": {
+        "additionalProperties": true,
+        "description": "The Insights page: counts of findings, the runway scatter, distributors, market.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "distributors": {
+            "$ref": "#/components/schemas/SupplyDistributorBehaviour"
+          },
+          "lead_times": {
+            "items": {
+              "$ref": "#/components/schemas/LeadTimeBucket"
+            },
+            "title": "Lead Times",
+            "type": "array"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LifecycleInsights"
+          },
+          "market": {
+            "$ref": "#/components/schemas/SupplyMarket"
+          },
+          "market_trends": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "description": "The last stored values of each market figure over all followed parts, oldest first.",
+            "title": "Market Trends",
+            "type": "object"
+          },
+          "price_movers": {
+            "$ref": "#/components/schemas/PriceMovers"
+          },
+          "scatter": {
+            "items": {
+              "$ref": "#/components/schemas/ScatterPoint"
+            },
+            "title": "Scatter",
+            "type": "array"
+          },
+          "scatter_missing": {
+            "$ref": "#/components/schemas/ScatterMissing"
+          },
+          "sourcing": {
+            "$ref": "#/components/schemas/Sourcing"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "integer"
+          },
+          "trade": {
+            "$ref": "#/components/schemas/Trade"
+          }
+        },
+        "required": [
+          "tracked",
+          "counts",
+          "scatter",
+          "scatter_missing",
+          "distributors",
+          "market",
+          "market_trends",
+          "sourcing",
+          "lifecycle",
+          "lead_times",
+          "price_movers",
+          "trade"
+        ],
+        "title": "SupplyInsightsPage",
+        "type": "object"
+      },
       "SupplyListing": {
         "additionalProperties": true,
         "properties": {
@@ -32758,6 +35531,159 @@
           "part_count"
         ],
         "title": "SupplyManufacturer",
+        "type": "object"
+      },
+      "SupplyMarket": {
+        "additionalProperties": true,
+        "properties": {
+          "compared_with": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compared With"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "min_sample": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Sample"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyMarketScope"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "signals": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MarketSignal"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Groups where something is moving together.",
+            "title": "Signals"
+          }
+        },
+        "required": [
+          "day",
+          "scopes"
+        ],
+        "title": "SupplyMarket",
+        "type": "object"
+      },
+      "SupplyMarketHistory": {
+        "additionalProperties": true,
+        "description": "One metric over the stored days, a line per group.",
+        "properties": {
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/MarketSeries"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "metric",
+          "series"
+        ],
+        "title": "SupplyMarketHistory",
+        "type": "object"
+      },
+      "SupplyMarketMetric": {
+        "additionalProperties": true,
+        "properties": {
+          "before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The same figure at the earlier snapshot, or null when none was stored.",
+            "title": "Before"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "before"
+        ],
+        "title": "SupplyMarketMetric",
+        "type": "object"
+      },
+      "SupplyMarketScope": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "all",
+              "manufacturer",
+              "category"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SupplyMarketMetric"
+            },
+            "title": "Metrics",
+            "type": "object"
+          },
+          "sample": {
+            "title": "Sample",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "kind",
+          "sample",
+          "metrics"
+        ],
+        "title": "SupplyMarketScope",
         "type": "object"
       },
       "SupplyMatched": {
@@ -34090,6 +37016,91 @@
         "title": "SupplyReadNow",
         "type": "object"
       },
+      "SupplyRecentChange": {
+        "additionalProperties": true,
+        "description": "Something that happened lately to a watched part.",
+        "properties": {
+          "alert": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyAlert"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The alert behind an opened or cleared change."
+          },
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the event recorded, for the kinds that carry figures.",
+            "title": "Detail"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a change to a project's BOM, which names the project in detail.",
+            "title": "Part Id"
+          },
+          "sku": {
+            "description": "The distributor number of a listing that went.",
+            "title": "Sku",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "alert_opened",
+              "alert_cleared",
+              "listing_gone",
+              "lifecycle_changed",
+              "normally_stocking_lost",
+              "moq_jump",
+              "family_member_new",
+              "param_changed",
+              "project_bom_changed"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "type",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "alert",
+          "sku"
+        ],
+        "title": "SupplyRecentChange",
+        "type": "object"
+      },
       "SupplyReviewAlias": {
         "additionalProperties": true,
         "description": "A spelling a distributor used that maps to no manufacturer yet.",
@@ -34433,6 +37444,33 @@
         "title": "SupplyRowOffer",
         "type": "object"
       },
+      "SupplyScorecard": {
+        "additionalProperties": true,
+        "properties": {
+          "distributors": {
+            "items": {
+              "$ref": "#/components/schemas/ScorecardRow"
+            },
+            "title": "Distributors",
+            "type": "array"
+          },
+          "min_events": {
+            "title": "Min Events",
+            "type": "integer"
+          },
+          "shared_parts": {
+            "title": "Shared Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "distributors",
+          "shared_parts",
+          "min_events"
+        ],
+        "title": "SupplyScorecard",
+        "type": "object"
+      },
       "SupplySignin": {
         "additionalProperties": true,
         "properties": {
@@ -34562,6 +37600,48 @@
         "title": "SupplySource",
         "type": "object"
       },
+      "SupplySubScore": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "enum": [
+              "lifecycle",
+              "sourcing",
+              "inventory",
+              "market",
+              "compliance"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "1 is good, 5 is bad.",
+            "title": "Score"
+          }
+        },
+        "required": [
+          "name",
+          "score",
+          "reasons"
+        ],
+        "title": "SupplySubScore",
+        "type": "object"
+      },
       "SupplySvhcList": {
         "additionalProperties": true,
         "description": "The ECHA Candidate List Prism holds.",
@@ -34644,6 +37724,63 @@
           "mutes"
         ],
         "title": "SupplyToApprove",
+        "type": "object"
+      },
+      "SupplyWaiver": {
+        "additionalProperties": true,
+        "properties": {
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "holds": {
+            "description": "Approved for the condition the part has now.",
+            "title": "Holds",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "outdated": {
+            "description": "Approved for a condition the part no longer has.",
+            "title": "Outdated",
+            "type": "boolean"
+          },
+          "proposed_by": {
+            "title": "Proposed By",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "approved"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "reason",
+          "proposed_by",
+          "decided_by",
+          "holds",
+          "outdated"
+        ],
+        "title": "SupplyWaiver",
         "type": "object"
       },
       "SupplyWatch": {
@@ -34960,17 +38097,14 @@
       "SyncResult": {
         "properties": {
           "error": {
-            "default": "",
             "title": "Error",
             "type": "string"
           },
           "matched": {
-            "default": 0,
             "title": "Matched",
             "type": "integer"
           },
           "records": {
-            "default": 0,
             "title": "Records",
             "type": "integer"
           },
@@ -34983,13 +38117,16 @@
             "type": "string"
           },
           "unmatched": {
-            "default": 0,
             "title": "Unmatched",
             "type": "integer"
           }
         },
         "required": [
-          "status"
+          "status",
+          "error",
+          "matched",
+          "unmatched",
+          "records"
         ],
         "title": "SyncResult",
         "type": "object"
@@ -35548,6 +38685,111 @@
         "title": "TrackProgress",
         "type": "object"
       },
+      "TrackRecord": {
+        "additionalProperties": true,
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/TrackRecordModel"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "reliability": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ReliabilityBin"
+              },
+              "type": "array"
+            },
+            "title": "Reliability",
+            "type": "object"
+          }
+        },
+        "required": [
+          "models",
+          "reliability"
+        ],
+        "title": "TrackRecord",
+        "type": "object"
+      },
+      "TrackRecordModel": {
+        "additionalProperties": true,
+        "properties": {
+          "checks": {
+            "title": "Checks",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "range",
+              "chance"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "needs": {
+            "title": "Needs",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "state": {
+            "enum": [
+              "learning",
+              "shown",
+              "paused"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "label",
+          "kind",
+          "state",
+          "checks",
+          "needs",
+          "score",
+          "since",
+          "reason"
+        ],
+        "title": "TrackRecordModel",
+        "type": "object"
+      },
       "TrackedProject": {
         "additionalProperties": true,
         "properties": {
@@ -36090,6 +39332,40 @@
         "title": "TrackingRoomAccount",
         "type": "object"
       },
+      "Trade": {
+        "additionalProperties": true,
+        "properties": {
+          "control": {
+            "$ref": "#/components/schemas/ControlMix"
+          },
+          "controlled": {
+            "items": {
+              "$ref": "#/components/schemas/ControlledPart"
+            },
+            "title": "Controlled",
+            "type": "array"
+          },
+          "origins": {
+            "items": {
+              "$ref": "#/components/schemas/Origin"
+            },
+            "title": "Origins",
+            "type": "array"
+          },
+          "other_origins": {
+            "title": "Other Origins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "origins",
+          "other_origins",
+          "control",
+          "controlled"
+        ],
+        "title": "Trade",
+        "type": "object"
+      },
       "TradeMark": {
         "additionalProperties": true,
         "properties": {
@@ -36145,6 +39421,58 @@
           "control"
         ],
         "title": "TradeMarkIn",
+        "type": "object"
+      },
+      "UnmatchedChanged": {
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "title": "UnmatchedChanged",
+        "type": "object"
+      },
+      "UnmatchedCounts": {
+        "description": "How many of a source's unmatched parts wait (in all and per reason), are linked, or were set aside.",
+        "properties": {
+          "ignored": {
+            "title": "Ignored",
+            "type": "integer"
+          },
+          "linked": {
+            "title": "Linked",
+            "type": "integer"
+          },
+          "mpn_shared": {
+            "title": "Mpn Shared",
+            "type": "integer"
+          },
+          "no_component": {
+            "title": "No Component",
+            "type": "integer"
+          },
+          "sap_code_shared": {
+            "title": "Sap Code Shared",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "waiting",
+          "no_component",
+          "sap_code_shared",
+          "mpn_shared",
+          "linked",
+          "ignored"
+        ],
+        "title": "UnmatchedCounts",
         "type": "object"
       },
       "UnmatchedPart": {
@@ -37798,6 +41126,67 @@
           "files"
         ],
         "title": "ViewerSupportFiles",
+        "type": "object"
+      },
+      "Wait": {
+        "additionalProperties": true,
+        "properties": {
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "quoted_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quoted Days"
+          },
+          "real_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Days"
+          }
+        },
+        "required": [
+          "n",
+          "quoted_days",
+          "real_days"
+        ],
+        "title": "Wait",
+        "type": "object"
+      },
+      "WaiverProposed": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "approved"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "title": "WaiverProposed",
         "type": "object"
       },
       "WatchRequest": {
@@ -57899,11 +61288,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Start Signin",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SigninStarted"
                 }
               }
             },
@@ -58098,9 +61483,6 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              },
               "text/csv": {}
             },
             "description": "The CSV template for an offers upload."
@@ -58120,9 +61502,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Dashboard Figures",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyDashboard"
                 }
               }
             },
@@ -58432,9 +61812,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Forecasts Insights",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ForecastInsights"
                 }
               }
             },
@@ -58559,9 +61937,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Insights Overview",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyInsightsPage"
                 }
               }
             },
@@ -58997,11 +62373,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Count Unmatched Parts",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UnmatchedCounts"
                 }
               }
             },
@@ -59054,11 +62426,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Ignore Unmatched Parts",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UnmatchedChanged"
                 }
               }
             },
@@ -59313,9 +62681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Market History",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyMarketHistory"
                 }
               }
             },
@@ -60219,9 +63585,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Assessment",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyAssessment"
                 }
               }
             },
@@ -60391,9 +63755,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Datasheet",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Datasheet"
                 }
               }
             },
@@ -60542,9 +63904,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Part Forecast",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartForecast"
                 }
               }
             },
@@ -61121,11 +64481,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Propose Waiver",
-                  "type": "object"
+                  "$ref": "#/components/schemas/WaiverProposed"
                 }
               }
             },
@@ -61325,9 +64681,6 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              },
               "application/zip": {}
             },
             "description": "The costing, trade classification and compliance files as one zip."

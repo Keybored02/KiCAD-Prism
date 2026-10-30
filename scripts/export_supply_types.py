@@ -31,6 +31,7 @@ SUPPLY_PATH = re.compile(r"^/api/v1/supply/")
 # Pydantic names a generic model's schema ``Items_SupplyWorkItem_``; TypeScript gets ``Items<SupplyWorkItem>``.
 GENERIC = re.compile(r"^(Items|Page)_(\w+?)_$")
 REF = "#/components/schemas/"
+IDENTIFIER = re.compile(r"^[A-Za-z_$][\w$]*$")
 
 
 class ExportError(Exception):
@@ -153,7 +154,8 @@ def _object_body(schema: dict[str, Any], indent: str) -> str:
     for field, value in schema.get("properties", {}).items():
         lines.extend(_doc(value.get("description"), inner))
         optional = "" if field in required else "?"
-        lines.append(f"{inner}{field}{optional}: {render_type(value, inner)};")
+        name = field if IDENTIFIER.match(field) else json.dumps(field)
+        lines.append(f"{inner}{name}{optional}: {render_type(value, inner)};")
     lines.append(f"{indent}}}")
     return "\n".join(lines)
 

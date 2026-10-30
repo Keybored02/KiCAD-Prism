@@ -86,6 +86,11 @@ export interface AlternativeCandidate {
   unknown: string[];
 }
 
+export interface ArrivalRecord {
+  on_time: number;
+  resolved: number;
+}
+
 export interface Arrivals {
   announced: number;
   arrived: number;
@@ -152,6 +157,19 @@ export interface AssessmentSettingsView {
   defaults: AssessmentSettings;
   ranges: SettingsRanges;
   settings: AssessmentSettings;
+}
+
+export interface BackInStock {
+  beyond_share: number;
+  connector_id: string;
+  high: string;
+  low: string;
+  median: string;
+  name: string;
+  provider: string;
+  quote_days: number | null;
+  ratio: number | null;
+  state: ForecastModelState;
 }
 
 export interface BomRead {
@@ -265,6 +283,17 @@ export interface BuildIn {
   build_quantity: number;
 }
 
+export interface BuyState {
+  "4w": ForecastModelState;
+  "8w": ForecastModelState;
+}
+
+/** Each distributor's own forecast: its most likely stock by day, and its price in 30 and 90 days. */
+export interface ByDistributor {
+  price: DistributorPrice[];
+  stock: DistributorStock[];
+}
+
 export interface CallsToday {
   interactive_spent: number;
   spent: number;
@@ -316,6 +345,11 @@ export interface CommentIn {
 export interface ComplianceDraft {
   parts: DraftPart[];
   summary: DraftSummary;
+}
+
+export interface ComplianceMix {
+  reach: ReachMix;
+  rohs: RohsMix;
 }
 
 export interface ComponentFollow {
@@ -402,11 +436,37 @@ export interface ConnectorStock {
   stock: number;
 }
 
+export interface ControlMix {
+  controlled: number;
+  disputed: number;
+  none: number;
+  unknown: number;
+}
+
+export interface ControlledPart {
+  by_person: boolean;
+  eccn: string;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  state: "controlled" | "disputed";
+}
+
 export interface CostDay {
   boards: number;
   cost_per_board: string;
   currency: string;
   day: string;
+}
+
+export interface Coverage {
+  cheapest: number;
+  connector_id: string;
+  in_stock: number;
+  listed: number;
+  name: string;
+  provider: string;
+  tracked: number;
 }
 
 export interface CreateSourceRequest {
@@ -441,6 +501,46 @@ export interface CrossReference {
   suggestions: DistributorSuggestion[];
 }
 
+export interface DashboardFigures {
+  at_risk: number;
+  lifecycle: number;
+  open_alerts: number;
+  out_of_stock: number;
+  waiting: number;
+  watched: number;
+}
+
+/** Parts likely out within four weeks, the model's state and the next expected events. */
+export interface DashboardForecast {
+  coming_up: ForecastEvent[];
+  likely_out_4w: number;
+  part_ids_likely_out_4w: string[];
+  state: ForecastModelState;
+}
+
+export interface DashboardProject {
+  count: number;
+  project_id: string;
+  project_name: string;
+  stats: SupplyGroupStats;
+  statuses: Record<string, number>;
+}
+
+export interface Datasheet {
+  /** The address a distributor gave; null when none did. */
+  url: string | null;
+}
+
+export interface Deadline {
+  date: string;
+  kind: "last_time_buy" | "last_time_ship" | "last_buy_date";
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  source: string;
+  url: string;
+}
+
 export interface DecisionRequest {
   approve: boolean;
 }
@@ -471,6 +571,18 @@ export interface DetailsRequest {
 export interface DismissIn {
   /** The reason kinds shown when it was dismissed; a new one brings it back. */
   reasons: string[];
+}
+
+export interface DistributorPrice {
+  connector_id: string;
+  h30: PriceAt;
+  h90: PriceAt;
+  now: number;
+}
+
+export interface DistributorStock {
+  connector_id: string;
+  path: StockPoint[];
 }
 
 /** A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part. */
@@ -512,6 +624,14 @@ export interface DraftSummary {
   reach_unknown: number;
   rohs_unknown: number;
   with_gaps: number;
+}
+
+export interface EndOfLife {
+  changes: number;
+  needs: number;
+  p12: ForecastChance;
+  p24: ForecastChance;
+  state: ForecastModelState;
 }
 
 export interface EndingComponent {
@@ -589,6 +709,12 @@ export interface FactSource {
   value: string;
 }
 
+export interface FailingFeed {
+  kind: "stores" | "connector";
+  name: string;
+  since: string | null;
+}
+
 export interface FillCandidate {
   connector: string;
   connector_id: string;
@@ -638,11 +764,85 @@ export interface FollowNumberIn {
   tier?: number | null;
 }
 
+export interface ForecastChance {
+  percent: number;
+  probability: number;
+  word: string;
+}
+
+export interface ForecastEvent {
+  date: string;
+  kind: "runout" | "price";
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  probability: number | null;
+  text: string;
+}
+
+export interface ForecastInputs {
+  drain_known: number;
+  from_similar?: number | null;
+  holders: number;
+  outages_modelled: number;
+  span_days: number;
+  weekly: boolean;
+}
+
+/** The Insights Forecasts section. */
+export interface ForecastInsights {
+  coming_up: ForecastEvent[];
+  currency: string;
+  lead_times: GroupLeadTime[];
+  lifecycle: LifecycleOutlook;
+  likely_out_4w: number;
+  prices: PriceOutlook;
+  track_record: TrackRecord;
+  warnings: GroupWarning[];
+}
+
+/** Where a forecast model stands: learning (not enough checks, or missing too often), shown, or paused. */
+export interface ForecastModelState {
+  checks: number;
+  needs: number;
+  reason: string;
+  state: "learning" | "shown" | "paused";
+}
+
+export interface ForecastWeek {
+  date: string;
+  percent: number;
+  probability: number;
+  week: number;
+  word: string;
+}
+
 /** What scheduled work still needs before the reset, what is kept for people, and what is free to spend now. */
 export interface FreeNow {
   free: number;
   kept_for_people: number;
   scheduled: number;
+}
+
+export interface GroupLeadTime {
+  direction: "stretching" | "easing" | "flat";
+  high: number;
+  kind: string;
+  low: number;
+  median: number;
+  now: number;
+  points: number;
+  scope: string;
+}
+
+export interface GroupWarning {
+  after: number;
+  before: number;
+  direction: "up" | "down";
+  kind: string;
+  metric: string;
+  scope: string;
+  since: string;
 }
 
 export interface HistoryConnector {
@@ -660,6 +860,24 @@ export interface HistoryEvent {
   day: string;
   kind: "restock" | "notice";
   text: string;
+}
+
+export interface Holders {
+  none: number;
+  one: number;
+  three_plus: number;
+  two: number;
+  unknown: number;
+}
+
+export interface IgnoreRequest {
+  ignore: boolean;
+  remote_parts: string[];
+}
+
+export interface InStock {
+  days: number;
+  share: number | null;
 }
 
 export interface InsightInputs {
@@ -715,6 +933,20 @@ export interface LastBuy {
   value: string;
 }
 
+export interface LastBuyLag {
+  available: boolean;
+  cases: number;
+  high?: number | null;
+  low?: number | null;
+  median?: number | null;
+  needs?: number | null;
+}
+
+export interface LeadTimeBucket {
+  bucket: "under_2w" | "2_to_8w" | "8_to_16w" | "16_to_26w" | "over_26w" | "none";
+  parts: number;
+}
+
 export interface LeadTimeTrend {
   after: number;
   before: number;
@@ -740,6 +972,38 @@ export interface LearnedAlias {
 export interface LibraryComponentOf {
   /** The catalog component the part counts for; null when the library has none. */
   component_id: string | null;
+}
+
+export interface LifecycleInsights {
+  compliance: ComplianceMix;
+  mix: LifecycleMix;
+  outlook: Outlook;
+}
+
+export interface LifecycleMix {
+  active: number;
+  last_time_buy: number;
+  nrnd: number;
+  obsolete: number;
+  unknown: number;
+}
+
+export interface LifecycleOutlook {
+  changes: number;
+  last_buy_lag: LastBuyLag;
+  needs: number;
+}
+
+export interface LikelyUp {
+  change: number;
+  flat: boolean;
+  high: number;
+  low: number;
+  manufacturer: string;
+  median: number;
+  mpn: string;
+  now: number;
+  part_id: string;
 }
 
 export interface LineAssessment {
@@ -861,6 +1125,20 @@ export interface MarketBehaviour {
   restock_order: RestockOrder | null;
 }
 
+export interface MarketSeries {
+  kind: "all" | "manufacturer" | "category";
+  points: Array<[string, number]>;
+  sample: number;
+  scope: string;
+}
+
+export interface MarketSignal {
+  kind: "manufacturer" | "category";
+  scope: string;
+  signal: "draining" | "lead_times";
+  text: string;
+}
+
 export interface MoneyLine {
   cost: string;
   key: string;
@@ -874,6 +1152,17 @@ export interface MoneyOther {
   cost: string;
   count: number;
   share: number;
+}
+
+export interface NamedDays {
+  days: number;
+  name: string;
+  parts: number;
+}
+
+export interface NamedParts {
+  name: string;
+  parts: number;
 }
 
 export interface NativePrice {
@@ -944,11 +1233,29 @@ export interface OpenRestock {
   quoted_lead_days?: number | null;
 }
 
+export interface Origin {
+  country: string;
+  parts: number;
+}
+
 export interface OtherNumberListing {
   connector: string;
   id: string;
   raw_mpn: string;
   sku: string;
+}
+
+export interface OutEverywhere {
+  "4w": ForecastChance;
+  "8w": ForecastChance;
+}
+
+export interface Outlook {
+  "2_to_5_years": number;
+  ended: number;
+  no_signs: number;
+  under_2_years: number;
+  unknown: number;
 }
 
 export interface OutlookSignal {
@@ -1088,6 +1395,27 @@ export interface PartFollowed {
   watch: SupplyWatch | null;
 }
 
+/** Everything the part sheet's Forecast section and chart bands need. Nothing is saved by asking at a quantity. */
+export interface PartForecast {
+  available: boolean;
+  back?: BackInStock[] | null;
+  buy_state?: BuyState | null;
+  by_distributor?: ByDistributor | null;
+  end_of_life?: EndOfLife | null;
+  inputs?: ForecastInputs | null;
+  /** Each model's state, with what it rests on. */
+  models: Record<string, Record<string, unknown>>;
+  out_everywhere?: OutEverywhere | null;
+  out_now?: boolean | null;
+  path?: StockBand[] | null;
+  price?: PriceForecast | null;
+  quantity?: number | null;
+  reason?: "no_readings" | "too_few_readings" | null;
+  runout?: Runout | null;
+  today: string;
+  weeks?: ForecastWeek[] | null;
+}
+
 /** Stock and price a line per distributor over the last ``days`` days. */
 export interface PartHistory {
   connectors: HistoryConnector[];
@@ -1190,9 +1518,57 @@ export interface PreferredStanding {
   stock: number;
 }
 
+export interface PriceAt {
+  date: string;
+  high: number;
+  low: number;
+  median: number;
+}
+
 export interface PriceDay {
   day: string;
   price: number;
+}
+
+export interface PriceForecast {
+  h30: PriceHorizon;
+  h90: PriceHorizon;
+  inputs: PriceInputs;
+  now: number;
+}
+
+export interface PriceHorizon {
+  date: string;
+  flat: boolean;
+  high: number;
+  low: number;
+  median: number;
+  state: ForecastModelState;
+}
+
+export interface PriceInputs {
+  own_moves: number;
+  pooled_moves: number;
+  readings: number;
+  span_days: number;
+}
+
+export interface PriceMove {
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  percent: number;
+}
+
+export interface PriceMovers {
+  down: PriceMove[];
+  up: PriceMove[];
+}
+
+export interface PriceOutlook {
+  flat: number;
+  likeliest_up: LikelyUp[];
+  parts: number;
 }
 
 export interface PriceQuantity {
@@ -1235,6 +1611,13 @@ export interface ProjectCalls {
 export interface ProjectChip {
   count: number;
   key: "unchecked" | "out" | "short" | "limiting" | "not_priced" | "end_of_life" | "alerts";
+}
+
+export interface ProjectCost {
+  currency: string;
+  points: Array<[string, number]>;
+  project_id: string;
+  project_name: string;
 }
 
 export interface ProjectCostPoint {
@@ -1449,6 +1832,18 @@ export interface ProjectTrackingState {
   variants: string[];
 }
 
+export interface Promises {
+  kept: number | null;
+  median_days_late: number | null;
+  resolved: number;
+}
+
+export interface ProposeWaiverRequest {
+  check: string;
+  quantity?: number | null;
+  reason: string;
+}
+
 export interface ProposedAlternate {
   component_id: string;
   component_mpn: string;
@@ -1517,7 +1912,7 @@ export interface PushOffersResult {
 export interface PushToken {
   created_at: string;
   created_by: string;
-  last_used_at?: string | null;
+  last_used_at: string | null;
   prefix: string;
 }
 
@@ -1565,6 +1960,13 @@ export interface PushedOffer {
 export interface QuoteCoverage {
   of: number;
   parts: number;
+}
+
+export interface ReachMix {
+  affected: number;
+  compliant: number;
+  not_applicable: number;
+  unknown: number;
 }
 
 export interface RejectManyRequest {
@@ -1633,7 +2035,7 @@ export interface ReleaseCompliance {
 
 export interface ReleaseFinding {
   check: string;
-  severity: "ok" | "warning" | "error" | "fatal" | "unknown";
+  severity: "ok" | "warning" | "error" | "fatal";
   text: string;
 }
 
@@ -1652,6 +2054,12 @@ export interface ReleaseSnapshot {
   tag: string;
 }
 
+export interface ReliabilityBin {
+  cases: number;
+  happened: number;
+  said: number;
+}
+
 /** When the provider's day seems to reset (UTC), once readings from different days agree. */
 export interface ResetSuggestion {
   from: string;
@@ -1659,6 +2067,15 @@ export interface ResetSuggestion {
   to: string;
   tz: string;
   windows: number;
+}
+
+export interface Resilience {
+  none: number;
+  not_read: number;
+  one: number;
+  three_plus: number;
+  two: number;
+  unknown: number;
 }
 
 export interface RestockOrder {
@@ -1677,6 +2094,11 @@ export interface RestockRecord {
   stock_outs: number;
 }
 
+export interface RestockedFirst {
+  first: number | null;
+  rounds: number;
+}
+
 export interface RestrictionIn {
   level: "not_for_new_designs" | "retired";
   reason?: string;
@@ -1690,11 +2112,27 @@ export interface ReviewCounts {
   unresolved: number;
 }
 
+export interface RiskRow {
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  not_read: number;
+  one: number;
+  out: number;
+  two_plus: number;
+}
+
 /** A RoHS exemption a person named from the manufacturer's declaration. */
 export interface RohsExemption {
   code: string;
   declared_by: string;
   note: string;
+}
+
+export interface RohsMix {
+  compliant: number;
+  disputed: number;
+  not_applicable: number;
+  not_compliant: number;
+  unknown: number;
 }
 
 export interface RoomFigure {
@@ -1738,11 +2176,44 @@ export interface RulesRequest {
   target_price?: string | null;
 }
 
+/** A range of dates (10% to 90%) with the most likely in the middle. */
+export interface Runout {
+  high: string;
+  low: string;
+  median: string;
+  percent: number;
+  probability: number;
+  state: ForecastModelState;
+  word: string;
+}
+
 export interface RunoutForecast {
   high_date: string;
   low_date: string;
   median_date: string;
   p: number;
+}
+
+export interface Runway {
+  few_readings: number;
+  out_now: number;
+  runs_out_2w: number;
+  runs_out_8w: number;
+  runs_out_later: number;
+  steady: number;
+}
+
+export interface ScatterMissing {
+  no_lead_time: number;
+  no_rate: number;
+}
+
+export interface ScatterPoint {
+  days_to_zero: number;
+  lead_days: number;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
 }
 
 export interface ScheduleIn {
@@ -1752,6 +2223,19 @@ export interface ScheduleIn {
 /** Which spare work is on. Spare budget is the calls nothing else needs, at any hour. */
 export interface ScheduleSettings {
   spare: SpareWork;
+}
+
+/** One distributor's record on the parts two or more distributors list. A figure is null until it rests on min_events. */
+export interface ScorecardRow {
+  connector_id: string;
+  in_stock: InStock;
+  name: string;
+  parts: number;
+  promises: Promises;
+  provider: string;
+  restocked_first: RestockedFirst;
+  stock_outs: StockOuts;
+  wait: Wait;
 }
 
 export interface SearchRequest {
@@ -1808,6 +2292,11 @@ export interface SheetRows {
   rows: string[][];
 }
 
+export interface SigninStarted {
+  /** Where the administrator signs in at the provider. */
+  url: string;
+}
+
 export interface SimilarIn {
   connector_id: string;
   packaging: string;
@@ -1827,6 +2316,11 @@ export interface SkippedProjectLine {
   reason: string;
 }
 
+export interface Sourcing {
+  coverage: Coverage[];
+  resilience: Resilience;
+}
+
 export interface SpareWork {
   library: boolean;
   notices: boolean;
@@ -1839,6 +2333,11 @@ export interface Spent {
   spent: number;
 }
 
+export interface StatusCount {
+  count: number;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+}
+
 export interface StatusRequest {
   components: LineIn[];
 }
@@ -1849,11 +2348,28 @@ export interface StockAnomaly {
   to: number;
 }
 
+export interface StockBand {
+  day: string;
+  high: number;
+  low: number;
+  median: number;
+}
+
 export interface StockDay {
   day: string;
   /** How many listings stood behind the day, so a jump from a new one is not read as a restock. */
   listings: number;
   stock: number;
+}
+
+export interface StockOuts {
+  median_days_out: number | null;
+  n: number;
+}
+
+export interface StockPoint {
+  day: string;
+  median: number;
 }
 
 /** What the stores hold of a component: the same four states on every screen. */
@@ -1896,6 +2412,17 @@ export interface SupplyAlert {
   severity: "warning" | "error" | "fatal";
   snoozed_until: string | null;
   state: "open" | "acknowledged" | "snoozed" | "resolved";
+}
+
+export interface SupplyAssessment {
+  /** When the clock alone changes the answer. */
+  changes_at: string | null;
+  findings: SupplyFinding[];
+  health: number;
+  need: number | null;
+  part_id: string;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  sub_scores: SupplySubScore[];
 }
 
 /** An approved alternate of a line's component. Its stock and offers count for the line. */
@@ -2180,6 +2707,43 @@ export interface SupplyCsvResult {
   row_count: number;
 }
 
+/** The Dashboard page in one read. */
+export interface SupplyDashboard {
+  alerts_by_day: Array<Record<string, number | string>>;
+  /** Enabled connectors. */
+  connectors: number;
+  /** Last-time-buy and last-ship dates in the next year, soonest first. */
+  deadlines: Deadline[];
+  /** Library components whose part is ending and nobody has decided about. */
+  ending_components: number;
+  /** Enabled feeds whose last read failed, with their last good read. */
+  failing_feeds: FailingFeed[];
+  /** Each figure's stored values over the last 30 days, oldest first. */
+  figure_history: Record<string, number[]>;
+  figures: DashboardFigures;
+  forecast: DashboardForecast;
+  holders: Holders;
+  insights_ready: number;
+  /** Tracked parts with no reading yet. */
+  no_data: number;
+  project_costs: ProjectCost[];
+  /** The tracked projects with their closed-row figures. */
+  projects: DashboardProject[];
+  recent_changes: SupplyRecentChange[];
+  /** Lifecycle against availability, a row per lifecycle. */
+  risk_grid: RiskRow[];
+  runway: Runway;
+  statuses: StatusCount[];
+}
+
+export interface SupplyDistributorBehaviour {
+  arrivals: ArrivalRecord | null;
+  leaders: NamedParts[];
+  repricing: NamedDays[];
+  restock_first: NamedParts[];
+  scorecard?: SupplyScorecard | null;
+}
+
 /** One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source. */
 export interface SupplyFact {
   /** True when two sources say different things. */
@@ -2187,6 +2751,15 @@ export interface SupplyFact {
   label: string;
   name: string;
   sources: FactSource[];
+}
+
+export interface SupplyFinding {
+  check: string;
+  detail: Record<string, unknown>;
+  scope: string;
+  severity: "ok" | "warning" | "error" | "fatal";
+  text: string;
+  waiver: SupplyWaiver | null;
 }
 
 /** The rates loaded: their day, the currencies they price and whether they are too old to trust. */
@@ -2286,6 +2859,23 @@ export interface SupplyInsight {
   zero_share: number | null;
 }
 
+/** The Insights page: counts of findings, the runway scatter, distributors, market. */
+export interface SupplyInsightsPage {
+  counts: Record<string, number>;
+  distributors: SupplyDistributorBehaviour;
+  lead_times: LeadTimeBucket[];
+  lifecycle: LifecycleInsights;
+  market: SupplyMarket;
+  /** The last stored values of each market figure over all followed parts, oldest first. */
+  market_trends: Record<string, number[]>;
+  price_movers: PriceMovers;
+  scatter: ScatterPoint[];
+  scatter_missing: ScatterMissing;
+  sourcing: Sourcing;
+  tracked: number;
+  trade: Trade;
+}
+
 export interface SupplyListing {
   connector_id: string;
   connector_name: string;
@@ -2325,6 +2915,34 @@ export interface SupplyManufacturer {
   id: string;
   name: string;
   part_count: number;
+}
+
+export interface SupplyMarket {
+  compared_with?: string | null;
+  day: string | null;
+  min_sample?: number | null;
+  scopes: SupplyMarketScope[];
+  /** Groups where something is moving together. */
+  signals?: MarketSignal[] | null;
+}
+
+/** One metric over the stored days, a line per group. */
+export interface SupplyMarketHistory {
+  metric: string;
+  series: MarketSeries[];
+}
+
+export interface SupplyMarketMetric {
+  /** The same figure at the earlier snapshot, or null when none was stored. */
+  before: number | null;
+  value: number;
+}
+
+export interface SupplyMarketScope {
+  kind: "all" | "manufacturer" | "category";
+  metrics: Record<string, SupplyMarketMetric>;
+  sample: number;
+  scope: string;
 }
 
 /** What Prism decided by itself and a person may undo. */
@@ -2553,6 +3171,22 @@ export interface SupplyReadNow {
   read: number;
 }
 
+/** Something that happened lately to a watched part. */
+export interface SupplyRecentChange {
+  /** The alert behind an opened or cleared change. */
+  alert: SupplyAlert | null;
+  at: string;
+  /** What the event recorded, for the kinds that carry figures. */
+  detail?: Record<string, unknown> | null;
+  manufacturer: string;
+  mpn: string;
+  /** Null for a change to a project's BOM, which names the project in detail. */
+  part_id: string | null;
+  /** The distributor number of a listing that went. */
+  sku: string;
+  type: "alert_opened" | "alert_cleared" | "listing_gone" | "lifecycle_changed" | "normally_stocking_lost" | "moq_jump" | "family_member_new" | "param_changed" | "project_bom_changed";
+}
+
 /** A spelling a distributor used that maps to no manufacturer yet. */
 export interface SupplyReviewAlias {
   alias_key: string;
@@ -2621,6 +3255,12 @@ export interface SupplyRowOffer {
   stock: number;
 }
 
+export interface SupplyScorecard {
+  distributors: ScorecardRow[];
+  min_events: number;
+  shared_parts: number;
+}
+
 export interface SupplySignin {
   expires_at: string | null;
   granted_at: string | null;
@@ -2629,6 +3269,13 @@ export interface SupplySignin {
   redirect_uri: string;
   signed_in: boolean;
   state: "none" | "ok" | "expired" | "refused";
+}
+
+export interface SupplySubScore {
+  name: "lifecycle" | "sourcing" | "inventory" | "market" | "compliance";
+  reasons: string[];
+  /** 1 is good, 5 is bad. */
+  score: number;
 }
 
 /** The ECHA Candidate List Prism holds. */
@@ -2646,6 +3293,18 @@ export interface SupplyToApprove {
   dismissals: ProposedDismissal[];
   mutes: ProposedMute[];
   waivers: ProposedWaiver[];
+}
+
+export interface SupplyWaiver {
+  decided_by: string | null;
+  /** Approved for the condition the part has now. */
+  holds: boolean;
+  id: string;
+  /** Approved for a condition the part no longer has. */
+  outdated: boolean;
+  proposed_by: string;
+  reason: string;
+  state: "proposed" | "approved";
 }
 
 export interface SupplyWatch {
@@ -2689,11 +3348,11 @@ export interface SupplyWorkItem {
 }
 
 export interface SyncResult {
-  error?: string;
-  matched?: number;
-  records?: number;
+  error: string;
+  matched: number;
+  records: number;
   status: "ok" | "error";
-  unmatched?: number;
+  unmatched: number;
 }
 
 export interface TaskRun {
@@ -2727,6 +3386,23 @@ export interface TrackProgress {
   reason: string;
   state: "running" | "done" | "failed" | "none";
   total: number;
+}
+
+export interface TrackRecord {
+  models: TrackRecordModel[];
+  reliability: Record<string, ReliabilityBin[]>;
+}
+
+export interface TrackRecordModel {
+  checks: number;
+  kind: "range" | "chance";
+  label: string;
+  needs: number;
+  reason: string;
+  score: number | null;
+  since: string | null;
+  state: "learning" | "shown" | "paused";
+  target: string;
 }
 
 export interface TrackedProject {
@@ -2778,11 +3454,32 @@ export interface TrackingRoomAccount {
   yesterday: ExpectedSpend;
 }
 
+export interface Trade {
+  control: ControlMix;
+  controlled: ControlledPart[];
+  origins: Origin[];
+  other_origins: number;
+}
+
 export interface TradeMark {
   control: "controlled" | "none";
   eccn: string;
   set_at: string;
   set_by: string;
+}
+
+export interface UnmatchedChanged {
+  changed: number;
+}
+
+/** How many of a source's unmatched parts wait (in all and per reason), are linked, or were set aside. */
+export interface UnmatchedCounts {
+  ignored: number;
+  linked: number;
+  mpn_shared: number;
+  no_component: number;
+  sap_code_shared: number;
+  waiting: number;
 }
 
 export interface UnmatchedPart {
@@ -2844,6 +3541,17 @@ export interface UsageRefreshed {
 export interface UsualBuild {
   build_quantity: number;
   project_id: string;
+}
+
+export interface Wait {
+  n: number;
+  quoted_days: number | null;
+  real_days: number | null;
+}
+
+export interface WaiverProposed {
+  id: string;
+  state: "proposed" | "approved";
 }
 
 export interface WatchRequest {

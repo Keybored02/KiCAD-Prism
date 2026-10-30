@@ -90,10 +90,16 @@ class ServerCheck(BaseModel):
 
 class SyncResult(BaseModel):
     status: Literal["ok", "error"]
-    error: str = ""
-    matched: int = 0
-    unmatched: int = 0
-    records: int = 0
+    error: str
+    matched: int
+    unmatched: int
+    records: int
+
+
+def _synced(source_id: str) -> SyncResult:
+    """Read the source now. A read that failed matched nothing."""
+
+    return SyncResult(**{"error": "", "matched": 0, "unmatched": 0, "records": 0, **sync.sync(_store(), _keyring(), source_id)})
 
 
 class UnmatchedPart(BaseModel):
@@ -178,7 +184,7 @@ async def check_inventory_source(source_id: str, _admin: AuthenticatedUser = Dep
 async def sync_inventory_source(source_id: str, _admin: AuthenticatedUser = Depends(require_admin)) -> SyncResult:
     """Read the source now. A failed read keeps the stock it had, marked stale."""
 
-    return await run_supply(lambda: SyncResult(**sync.sync(_store(), _keyring(), source_id)), upstream=True)
+    return await run_supply(lambda: _synced(source_id), upstream=True)
 
 
 @router.get("/{source_id}/unmatched")
@@ -207,7 +213,22 @@ class LinkRequest(BaseModel):
     component_id: str = Field(min_length=1, max_length=200)
 
 
-@router.get("/{source_id}/unmatched/counts")
+class UnmatchedCounts(BaseModel):
+    """How many of a source's unmatched parts wait (in all and per reason), are linked, or were set aside."""
+
+    waiting: int
+    no_component: int
+    sap_code_shared: int
+    mpn_shared: int
+    linked: int
+    ignored: int
+
+
+class UnmatchedChanged(BaseModel):
+    changed: int
+
+
+@router.get("/{source_id}/unmatched/counts", response_model=UnmatchedCounts)
 async def count_unmatched_parts(source_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, int]:
     """How many of the source's unmatched parts wait (in all and per reason), are linked, or were set aside."""
 
@@ -226,7 +247,7 @@ class IgnoreRequest(BaseModel):
     ignore: bool
 
 
-@router.post("/{source_id}/unmatched/ignore")
+@router.post("/{source_id}/unmatched/ignore", response_model=UnmatchedChanged)
 async def ignore_unmatched_parts(
     source_id: str, body: IgnoreRequest, approver: AuthenticatedUser = Depends(require_supply_approver),
 ) -> dict[str, int]:
@@ -248,6 +269,6 @@ async def link_unmatched_part(
     def run() -> SyncResult:
         with _store().connection() as conn:
             sync.link(conn, source_id, remote_part, body.component_id, approver.email)
-        return SyncResult(**sync.sync(_store(), _keyring(), source_id))
+        return _synced(source_id)
 
     return await _run(run)

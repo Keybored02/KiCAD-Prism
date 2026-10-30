@@ -165,6 +165,11 @@ class ApprovalState(TypedDict, total=True):
     unpinned_models: list[UnpinnedModel]
 
 
+class ArrivalRecord(TypedDict, total=True):
+    on_time: int
+    resolved: int
+
+
 class Arrivals(TypedDict, total=True):
     announced: int
     arrived: int
@@ -299,6 +304,19 @@ class AuthConfig(TypedDict, total=False):
 class AuthSuccessResponse(TypedDict, total=True):
     """The answer to a session mutation that has nothing else to say."""
     success: bool
+
+
+class BackInStock(TypedDict, total=True):
+    beyond_share: float
+    connector_id: str
+    high: str
+    low: str
+    median: str
+    name: str
+    provider: str
+    quote_days: int | None
+    ratio: float | None
+    state: ForecastModelState
 
 
 class BenchmarkMetrics(TypedDict, total=True):
@@ -631,6 +649,12 @@ class BundleRebuildOut(TypedDict, total=True):
 class BundleStore(TypedDict, total=True):
     archive_bytes: int
     archives: int
+
+
+class ByDistributor(TypedDict, total=True):
+    """Each distributor's own forecast: its most likely stock by day, and its price in 30 and 90 days."""
+    price: list[DistributorPrice]
+    stock: list[DistributorStock]
 
 
 class CacheEntry(TypedDict, total=False):
@@ -1300,6 +1324,11 @@ class ComplianceDraft(TypedDict, total=True):
     summary: DraftSummary
 
 
+class ComplianceMix(TypedDict, total=True):
+    reach: ReachMix
+    rohs: RohsMix
+
+
 class ComponentAsset(TypedDict, total=True):
     asset_type: str
     content_type: str
@@ -1590,11 +1619,37 @@ class ConnectorStock(TypedDict, total=True):
     stock: int
 
 
+class ControlMix(TypedDict, total=True):
+    controlled: int
+    disputed: int
+    none: int
+    unknown: int
+
+
+class ControlledPart(TypedDict, total=True):
+    by_person: bool
+    eccn: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    state: str
+
+
 class CostDay(TypedDict, total=True):
     boards: int
     cost_per_board: str
     currency: str
     day: str
+
+
+class Coverage(TypedDict, total=True):
+    cheapest: int
+    connector_id: str
+    in_stock: int
+    listed: int
+    name: str
+    provider: str
+    tracked: int
 
 
 class CreateCommentRequest(TypedDict, total=False):
@@ -1766,11 +1821,50 @@ class CrossReference(TypedDict, total=True):
     suggestions: list[DistributorSuggestion]
 
 
+class DashboardFigures(TypedDict, total=True):
+    at_risk: int
+    lifecycle: int
+    open_alerts: int
+    out_of_stock: int
+    waiting: int
+    watched: int
+
+
+class DashboardForecast(TypedDict, total=True):
+    """Parts likely out within four weeks, the model's state and the next expected events."""
+    coming_up: list[ForecastEvent]
+    likely_out_4w: int
+    part_ids_likely_out_4w: list[str]
+    state: ForecastModelState
+
+
+class DashboardProject(TypedDict, total=True):
+    count: int
+    project_id: str
+    project_name: str
+    stats: SupplyGroupStats
+    statuses: dict[str, int]
+
+
 class DatabasePoolMetrics(TypedDict, total=True):
     connectionWaitCount: int
     connectionWaitMaxMs: float
     connectionWaitMeanMs: float
     pool: dict[str, Any]
+
+
+class Datasheet(TypedDict, total=True):
+    url: str | None
+
+
+class Deadline(TypedDict, total=True):
+    date: str
+    kind: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    source: str
+    url: str
 
 
 class DebugLoggingCleared(TypedDict, total=True):
@@ -1991,6 +2085,18 @@ class DismissIn(TypedDict, total=True):
     reasons: list[str]
 
 
+class DistributorPrice(TypedDict, total=True):
+    connector_id: str
+    h30: PriceAt
+    h90: PriceAt
+    now: float
+
+
+class DistributorStock(TypedDict, total=True):
+    connector_id: str
+    path: list[StockPoint]
+
+
 class DistributorSuggestion(TypedDict, total=True):
     """A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part."""
     asked: bool
@@ -2121,6 +2227,14 @@ class DrillTool(TypedDict, total=True):
     slots: int
 
 
+class EndOfLife(TypedDict, total=True):
+    changes: int
+    needs: int
+    p12: ForecastChance
+    p24: ForecastChance
+    state: ForecastModelState
+
+
 class EndingComponent(TypedDict, total=True):
     id: str
     manufacturer: str
@@ -2248,6 +2362,12 @@ class FailedBuild(TypedDict, total=True):
     commit: str | None
     reason: str
     revisionKey: str | None
+
+
+class FailingFeed(TypedDict, total=True):
+    kind: str
+    name: str
+    since: str | None
 
 
 class FileItem(TypedDict, total=True):
@@ -2490,6 +2610,59 @@ class FootprintImportResult(TypedDict, total=False):
     selected_footprint: str | None
 
 
+class ForecastChance(TypedDict, total=True):
+    percent: int
+    probability: float
+    word: str
+
+
+class ForecastEvent(TypedDict, total=True):
+    date: str
+    kind: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    probability: float | None
+    text: str
+
+
+class ForecastInputs(TypedDict, total=False):
+    drain_known: int
+    from_similar: int | None
+    holders: int
+    outages_modelled: int
+    span_days: int
+    weekly: bool
+
+
+class ForecastInsights(TypedDict, total=True):
+    """The Insights Forecasts section."""
+    coming_up: list[ForecastEvent]
+    currency: str
+    lead_times: list[GroupLeadTime]
+    lifecycle: LifecycleOutlook
+    likely_out_4w: int
+    prices: PriceOutlook
+    track_record: TrackRecord
+    warnings: list[GroupWarning]
+
+
+class ForecastModelState(TypedDict, total=True):
+    """Where a forecast model stands: learning (not enough checks, or missing too often), shown, or paused."""
+    checks: int
+    needs: int
+    reason: str
+    state: str
+
+
+class ForecastWeek(TypedDict, total=True):
+    date: str
+    percent: int
+    probability: float
+    week: int
+    word: str
+
+
 class ForgeRelease(TypedDict, total=True):
     tag: str
     url: str
@@ -2569,6 +2742,27 @@ class GitAccessResponse(TypedDict, total=True):
     trusted_hosts: list[str]
 
 
+class GroupLeadTime(TypedDict, total=True):
+    direction: str
+    high: float
+    kind: str
+    low: float
+    median: float
+    now: float
+    points: int
+    scope: str
+
+
+class GroupWarning(TypedDict, total=True):
+    after: float
+    before: float
+    direction: str
+    kind: str
+    metric: str
+    scope: str
+    since: str
+
+
 class HTTPValidationError(TypedDict, total=False):
     detail: list[ValidationError]
 
@@ -2587,6 +2781,14 @@ class HistoryEvent(TypedDict, total=True):
     day: str
     kind: str
     text: str
+
+
+class Holders(TypedDict, total=True):
+    none: int
+    one: int
+    three_plus: int
+    two: int
+    unknown: int
 
 
 class HostKeyForgetResponse(TypedDict, total=True):
@@ -2721,6 +2923,11 @@ class ImportSessionPage(TypedDict, total=True):
 class ImportedProposalCsv(TypedDict, total=True):
     saved: int
     skipped_unknown_rows: int
+
+
+class InStock(TypedDict, total=True):
+    days: int
+    share: float | None
 
 
 class IncompleteCounts(TypedDict, total=True):
@@ -3076,6 +3283,15 @@ class LastBuy(TypedDict, total=True):
     value: str
 
 
+class LastBuyLag(TypedDict, total=False):
+    available: bool
+    cases: int
+    high: float | None
+    low: float | None
+    median: float | None
+    needs: int | None
+
+
 class LatencyTotals(TypedDict, total=True):
     count: int
     estimatedTotalMs: float
@@ -3088,6 +3304,11 @@ class LatencyTotals(TypedDict, total=True):
     routeCount: int
     status4xx: int
     status5xx: int
+
+
+class LeadTimeBucket(TypedDict, total=True):
+    bucket: str
+    parts: int
 
 
 class LeadTimeTrend(TypedDict, total=True):
@@ -3114,6 +3335,38 @@ class LearnedAlias(TypedDict, total=True):
 
 class LibraryComponentOf(TypedDict, total=True):
     component_id: str | None
+
+
+class LifecycleInsights(TypedDict, total=True):
+    compliance: ComplianceMix
+    mix: LifecycleMix
+    outlook: dict[str, Any]
+
+
+class LifecycleMix(TypedDict, total=True):
+    active: int
+    last_time_buy: int
+    nrnd: int
+    obsolete: int
+    unknown: int
+
+
+class LifecycleOutlook(TypedDict, total=True):
+    changes: int
+    last_buy_lag: LastBuyLag
+    needs: int
+
+
+class LikelyUp(TypedDict, total=True):
+    change: float
+    flat: bool
+    high: float
+    low: float
+    manufacturer: str
+    median: float
+    mpn: str
+    now: float
+    part_id: str
 
 
 class LineAssessment(TypedDict, total=True):
@@ -3300,6 +3553,20 @@ class MarketBehaviour(TypedDict, total=True):
     leadership: Leadership | None
     repricing: dict[str, int | float]
     restock_order: RestockOrder | None
+
+
+class MarketSeries(TypedDict, total=True):
+    kind: str
+    points: list[list[Any]]
+    sample: int
+    scope: str
+
+
+class MarketSignal(TypedDict, total=True):
+    kind: str
+    scope: str
+    signal: str
+    text: str
 
 
 class MateOut(TypedDict, total=True):
@@ -3623,6 +3890,17 @@ class MoveProjectsRequest(TypedDict, total=False):
     project_ids: list[str]
 
 
+class NamedDays(TypedDict, total=True):
+    days: float
+    name: str
+    parts: int
+
+
+class NamedParts(TypedDict, total=True):
+    name: str
+    parts: int
+
+
 class NativePrice(TypedDict, total=True):
     currency: str
     price: str
@@ -3723,6 +4001,11 @@ class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
     tools: list[str]
+
+
+class Origin(TypedDict, total=True):
+    country: str
+    parts: int
 
 
 class OtherNumberListing(TypedDict, total=True):
@@ -3854,6 +4137,26 @@ class PartFollowed(TypedDict, total=True):
     fits_nowhere: bool
     tier: PartTracking | None
     watch: SupplyWatch | None
+
+
+class PartForecast(TypedDict, total=False):
+    """Everything the part sheet's Forecast section and chart bands need. Nothing is saved by asking at a quantity."""
+    available: bool
+    back: list[BackInStock] | None
+    buy_state: dict[str, Any] | None
+    by_distributor: ByDistributor | None
+    end_of_life: EndOfLife | None
+    inputs: ForecastInputs | None
+    models: dict[str, dict[str, Any]]
+    out_everywhere: dict[str, Any] | None
+    out_now: bool | None
+    path: list[StockBand] | None
+    price: PriceForecast | None
+    quantity: int | None
+    reason: str | None
+    runout: Runout | None
+    today: str
+    weeks: list[ForecastWeek] | None
 
 
 class PartHistory(TypedDict, total=True):
@@ -4081,9 +4384,57 @@ class PreferredStanding(TypedDict, total=True):
     stock: int
 
 
+class PriceAt(TypedDict, total=True):
+    date: str
+    high: float
+    low: float
+    median: float
+
+
 class PriceDay(TypedDict, total=True):
     day: str
     price: int | float
+
+
+class PriceForecast(TypedDict, total=True):
+    h30: PriceHorizon
+    h90: PriceHorizon
+    inputs: PriceInputs
+    now: float
+
+
+class PriceHorizon(TypedDict, total=True):
+    date: str
+    flat: bool
+    high: float
+    low: float
+    median: float
+    state: ForecastModelState
+
+
+class PriceInputs(TypedDict, total=True):
+    own_moves: int
+    pooled_moves: int
+    readings: int
+    span_days: int
+
+
+class PriceMove(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+    part_id: str
+    percent: float
+
+
+class PriceMovers(TypedDict, total=True):
+    down: list[PriceMove]
+    up: list[PriceMove]
+
+
+class PriceOutlook(TypedDict, total=True):
+    flat: int
+    likeliest_up: list[LikelyUp]
+    parts: int
 
 
 class PriceQuantity(TypedDict, total=True):
@@ -4238,6 +4589,13 @@ class ProjectConfigSaved(TypedDict, total=True):
     config: PathConfig
     resolved: ResolvedPaths
     validation: PathConfigValidation
+
+
+class ProjectCost(TypedDict, total=True):
+    currency: str
+    points: list[list[Any]]
+    project_id: str
+    project_name: str
 
 
 class ProjectCostPoint(TypedDict, total=True):
@@ -4563,6 +4921,12 @@ class ProjectVariantCatalog(TypedDict, total=True):
     variants: list[VariantCatalogEntry]
 
 
+class Promises(TypedDict, total=True):
+    kept: float | None
+    median_days_late: float | None
+    resolved: int
+
+
 class ProposeWaiverRequest(TypedDict, total=False):
     check: str
     quantity: int | None
@@ -4668,7 +5032,7 @@ class PushOffersResult(TypedDict, total=True):
     recorded: int
 
 
-class PushToken(TypedDict, total=False):
+class PushToken(TypedDict, total=True):
     created_at: str
     created_by: str
     last_used_at: str | None
@@ -4732,6 +5096,13 @@ class QueueWaitOut(TypedDict, total=False):
 class QuoteCoverage(TypedDict, total=True):
     of: int
     parts: int
+
+
+class ReachMix(TypedDict, total=True):
+    affected: int
+    compliant: int
+    not_applicable: int
+    unknown: int
 
 
 class ReattachCommentRequest(TypedDict, total=False):
@@ -4893,6 +5264,12 @@ class ReleasedRevision(TypedDict, total=True):
     version: int
 
 
+class ReliabilityBin(TypedDict, total=True):
+    cases: int
+    happened: float
+    said: float
+
+
 class RenderHighlight(TypedDict, total=False):
     components: list[str]
     nets: list[str]
@@ -4983,6 +5360,15 @@ class RequestTraceOut(TypedDict, total=True):
     requests: list[TracedRequestOut]
 
 
+class Resilience(TypedDict, total=True):
+    none: int
+    not_read: int
+    one: int
+    three_plus: int
+    two: int
+    unknown: int
+
+
 class ResolvedPaths(TypedDict, total=False):
     """Fully resolved absolute paths."""
     design_outputs_dir: str | None
@@ -5026,6 +5412,11 @@ class RestockRecord(TypedDict, total=True):
     provider: str
     resolved: int
     stock_outs: int
+
+
+class RestockedFirst(TypedDict, total=True):
+    first: float | None
+    rounds: int
 
 
 class RestrictionIn(TypedDict, total=False):
@@ -5097,11 +5488,27 @@ class RevokeSessionsResponse(TypedDict, total=False):
     revoked: int
 
 
+class RiskRow(TypedDict, total=True):
+    lifecycle: str
+    not_read: int
+    one: int
+    out: int
+    two_plus: int
+
+
 class RohsExemption(TypedDict, total=True):
     """A RoHS exemption a person named from the manufacturer's declaration."""
     code: str
     declared_by: str
     note: str
+
+
+class RohsMix(TypedDict, total=True):
+    compliant: int
+    disputed: int
+    not_applicable: int
+    not_compliant: int
+    unknown: int
 
 
 class RoleAssignmentResponse(TypedDict, total=False):
@@ -5173,11 +5580,31 @@ class RulesRequest(TypedDict, total=False):
     target_price: str | None
 
 
+class Runout(TypedDict, total=True):
+    """A range of dates (10% to 90%) with the most likely in the middle."""
+    high: str
+    low: str
+    median: str
+    percent: int
+    probability: float
+    state: ForecastModelState
+    word: str
+
+
 class RunoutForecast(TypedDict, total=True):
     high_date: str
     low_date: str
     median_date: str
     p: int | float
+
+
+class Runway(TypedDict, total=True):
+    few_readings: int
+    out_now: int
+    runs_out_2w: int
+    runs_out_8w: int
+    runs_out_later: int
+    steady: int
 
 
 class SSHKeyResponse(TypedDict, total=False):
@@ -5202,6 +5629,19 @@ class ScanRequest(TypedDict, total=False):
     force: bool
 
 
+class ScatterMissing(TypedDict, total=True):
+    no_lead_time: int
+    no_rate: int
+
+
+class ScatterPoint(TypedDict, total=True):
+    days_to_zero: float
+    lead_days: float
+    manufacturer: str
+    mpn: str
+    part_id: str
+
+
 class ScheduleIn(TypedDict, total=True):
     spare: dict[str, bool]
 
@@ -5209,6 +5649,19 @@ class ScheduleIn(TypedDict, total=True):
 class ScheduleSettings(TypedDict, total=True):
     """Which spare work is on. Spare budget is the calls nothing else needs, at any hour."""
     spare: SpareWork
+
+
+class ScorecardRow(TypedDict, total=True):
+    """One distributor's record on the parts two or more distributors list. A figure is null until it rests on min_events."""
+    connector_id: str
+    in_stock: InStock
+    name: str
+    parts: int
+    promises: Promises
+    provider: str
+    restocked_first: RestockedFirst
+    stock_outs: StockOuts
+    wait: Wait
 
 
 class SearchRequest(TypedDict, total=False):
@@ -5361,6 +5814,10 @@ class SheetRows(TypedDict, total=True):
     rows: list[list[str]]
 
 
+class SigninStarted(TypedDict, total=True):
+    url: str
+
+
 class SimilarIn(TypedDict, total=True):
     connector_id: str
     packaging: str
@@ -5438,6 +5895,11 @@ class SourceResponse(TypedDict, total=True):
     source: SourceDiscovery
 
 
+class Sourcing(TypedDict, total=True):
+    coverage: list[Coverage]
+    resilience: Resilience
+
+
 class SpareWork(TypedDict, total=True):
     library: bool
     notices: bool
@@ -5461,6 +5923,11 @@ class StartDesignCompareResponse(TypedDict, total=True):
     job_id: str
 
 
+class StatusCount(TypedDict, total=True):
+    count: int
+    status: str
+
+
 class StatusReadiness(TypedDict, total=True):
     available_assets: list[str]
     progress: int
@@ -5473,10 +5940,27 @@ class StatusRequest(TypedDict, total=True):
     components: list[LineIn]
 
 
+class StockBand(TypedDict, total=True):
+    day: str
+    high: float
+    low: float
+    median: float
+
+
 class StockDay(TypedDict, total=True):
     day: str
     listings: int
     stock: int
+
+
+class StockOuts(TypedDict, total=True):
+    median_days_out: float | None
+    n: int
+
+
+class StockPoint(TypedDict, total=True):
+    day: str
+    median: float
 
 
 class StoresState(TypedDict, total=True):
@@ -5536,6 +6020,16 @@ class SupplyAlert(TypedDict, total=True):
     severity: str
     snoozed_until: str | None
     state: str
+
+
+class SupplyAssessment(TypedDict, total=True):
+    changes_at: str | None
+    findings: list[SupplyFinding]
+    health: int | float
+    need: int | None
+    part_id: str
+    status: str
+    sub_scores: list[SupplySubScore]
 
 
 class SupplyBomAlternate(TypedDict, total=True):
@@ -5779,12 +6273,50 @@ class SupplyCsvResult(TypedDict, total=True):
     row_count: int
 
 
+class SupplyDashboard(TypedDict, total=True):
+    """The Dashboard page in one read."""
+    alerts_by_day: list[dict[str, int | str]]
+    connectors: int
+    deadlines: list[Deadline]
+    ending_components: int
+    failing_feeds: list[FailingFeed]
+    figure_history: dict[str, list[int]]
+    figures: DashboardFigures
+    forecast: DashboardForecast
+    holders: Holders
+    insights_ready: int
+    no_data: int
+    project_costs: list[ProjectCost]
+    projects: list[DashboardProject]
+    recent_changes: list[SupplyRecentChange]
+    risk_grid: list[RiskRow]
+    runway: Runway
+    statuses: list[StatusCount]
+
+
+class SupplyDistributorBehaviour(TypedDict, total=False):
+    arrivals: ArrivalRecord | None
+    leaders: list[NamedParts]
+    repricing: list[NamedDays]
+    restock_first: list[NamedParts]
+    scorecard: SupplyScorecard | None
+
+
 class SupplyFact(TypedDict, total=True):
     """One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source."""
     disagree: bool
     label: str
     name: str
     sources: list[FactSource]
+
+
+class SupplyFinding(TypedDict, total=True):
+    check: str
+    detail: dict[str, Any]
+    scope: str
+    severity: str
+    text: str
+    waiver: SupplyWaiver | None
 
 
 class SupplyFxRates(TypedDict, total=True):
@@ -5866,6 +6398,22 @@ class SupplyInsight(TypedDict, total=True):
     zero_share: int | float | None
 
 
+class SupplyInsightsPage(TypedDict, total=True):
+    """The Insights page: counts of findings, the runway scatter, distributors, market."""
+    counts: dict[str, int]
+    distributors: SupplyDistributorBehaviour
+    lead_times: list[LeadTimeBucket]
+    lifecycle: LifecycleInsights
+    market: SupplyMarket
+    market_trends: dict[str, list[float]]
+    price_movers: PriceMovers
+    scatter: list[ScatterPoint]
+    scatter_missing: ScatterMissing
+    sourcing: Sourcing
+    tracked: int
+    trade: Trade
+
+
 class SupplyListing(TypedDict, total=True):
     connector_id: str
     connector_name: str
@@ -5896,6 +6444,32 @@ class SupplyManufacturer(TypedDict, total=True):
     id: str
     name: str
     part_count: int
+
+
+class SupplyMarket(TypedDict, total=False):
+    compared_with: str | None
+    day: str | None
+    min_sample: int | None
+    scopes: list[SupplyMarketScope]
+    signals: list[MarketSignal] | None
+
+
+class SupplyMarketHistory(TypedDict, total=True):
+    """One metric over the stored days, a line per group."""
+    metric: str
+    series: list[MarketSeries]
+
+
+class SupplyMarketMetric(TypedDict, total=True):
+    before: float | None
+    value: float
+
+
+class SupplyMarketScope(TypedDict, total=True):
+    kind: str
+    metrics: dict[str, SupplyMarketMetric]
+    sample: int
+    scope: str
 
 
 class SupplyMatched(TypedDict, total=True):
@@ -6092,6 +6666,18 @@ class SupplyReadNow(TypedDict, total=True):
     read: int
 
 
+class SupplyRecentChange(TypedDict, total=False):
+    """Something that happened lately to a watched part."""
+    alert: SupplyAlert | None
+    at: str
+    detail: dict[str, Any] | None
+    manufacturer: str
+    mpn: str
+    part_id: str | None
+    sku: str
+    type: str
+
+
 class SupplyReviewAlias(TypedDict, total=True):
     """A spelling a distributor used that maps to no manufacturer yet."""
     alias_key: str
@@ -6150,6 +6736,12 @@ class SupplyRowOffer(TypedDict, total=True):
     stock: int
 
 
+class SupplyScorecard(TypedDict, total=True):
+    distributors: list[ScorecardRow]
+    min_events: int
+    shared_parts: int
+
+
 class SupplySignin(TypedDict, total=True):
     expires_at: str | None
     granted_at: str | None
@@ -6174,6 +6766,12 @@ class SupplySource(TypedDict, total=True):
     uom: str
 
 
+class SupplySubScore(TypedDict, total=True):
+    name: str
+    reasons: list[str]
+    score: int | float
+
+
 class SupplySvhcList(TypedDict, total=True):
     """The ECHA Candidate List Prism holds."""
     loaded: bool
@@ -6189,6 +6787,16 @@ class SupplyToApprove(TypedDict, total=True):
     dismissals: list[ProposedDismissal]
     mutes: list[ProposedMute]
     waivers: list[ProposedWaiver]
+
+
+class SupplyWaiver(TypedDict, total=True):
+    decided_by: str | None
+    holds: bool
+    id: str
+    outdated: bool
+    proposed_by: str
+    reason: str
+    state: str
 
 
 class SupplyWatch(TypedDict, total=True):
@@ -6244,7 +6852,7 @@ class SyncQueued(TypedDict, total=True):
     status: str
 
 
-class SyncResult(TypedDict, total=False):
+class SyncResult(TypedDict, total=True):
     error: str
     matched: int
     records: int
@@ -6361,6 +6969,23 @@ class TrackProgress(TypedDict, total=True):
     total: int
 
 
+class TrackRecord(TypedDict, total=True):
+    models: list[TrackRecordModel]
+    reliability: dict[str, list[ReliabilityBin]]
+
+
+class TrackRecordModel(TypedDict, total=True):
+    checks: int
+    kind: str
+    label: str
+    needs: int
+    reason: str
+    score: float | None
+    since: str | None
+    state: str
+    target: str
+
+
 class TrackedProject(TypedDict, total=True):
     all_variants: bool
     build_quantity: int
@@ -6433,6 +7058,13 @@ class TrackingRoomAccount(TypedDict, total=True):
     yesterday: ExpectedSpend
 
 
+class Trade(TypedDict, total=True):
+    control: ControlMix
+    controlled: list[ControlledPart]
+    origins: list[Origin]
+    other_origins: int
+
+
 class TradeMark(TypedDict, total=True):
     control: str
     eccn: str
@@ -6443,6 +7075,20 @@ class TradeMark(TypedDict, total=True):
 class TradeMarkIn(TypedDict, total=False):
     control: str
     eccn: str
+
+
+class UnmatchedChanged(TypedDict, total=True):
+    changed: int
+
+
+class UnmatchedCounts(TypedDict, total=True):
+    """How many of a source's unmatched parts wait (in all and per reason), are linked, or were set aside."""
+    ignored: int
+    linked: int
+    mpn_shared: int
+    no_component: int
+    sap_code_shared: int
+    waiting: int
 
 
 class UnmatchedPart(TypedDict, total=False):
@@ -6720,6 +7366,17 @@ class ViewerSupportFile(TypedDict, total=True):
 
 class ViewerSupportFiles(TypedDict, total=True):
     files: list[ViewerSupportFile]
+
+
+class Wait(TypedDict, total=True):
+    n: int
+    quoted_days: float | None
+    real_days: float | None
+
+
+class WaiverProposed(TypedDict, total=True):
+    id: str
+    state: str
 
 
 class WatchRequest(TypedDict, total=False):
@@ -7439,7 +8096,7 @@ class GeneratedClient:
             query={"variant": variant, "build_quantity": build_quantity},
         )
 
-    def count_unmatched_parts(self, source_id: str) -> dict[str, int]:
+    def count_unmatched_parts(self, source_id: str) -> UnmatchedCounts:
         """Count Unmatched Parts"""
         return self._request(
             "GET",
@@ -7626,7 +8283,7 @@ class GeneratedClient:
             "/api/v1/supply/fx",
         )
 
-    def dashboard_figures(self) -> dict[str, Any]:
+    def dashboard_figures(self) -> SupplyDashboard:
         """Dashboard Figures"""
         return self._request(
             "GET",
@@ -8026,7 +8683,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def forecasts_insights(self) -> dict[str, Any]:
+    def forecasts_insights(self) -> ForecastInsights:
         """Forecasts Insights"""
         return self._request(
             "GET",
@@ -8090,7 +8747,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def get_assessment(self, part_id: str, *, quantity: int | None = None) -> dict[str, Any]:
+    def get_assessment(self, part_id: str, *, quantity: int | None = None) -> SupplyAssessment:
         """Get Assessment"""
         return self._request(
             "GET",
@@ -8329,7 +8986,7 @@ class GeneratedClient:
             "/api/v1/auth/me",
         )
 
-    def get_datasheet(self, part_id: str) -> dict[str, Any]:
+    def get_datasheet(self, part_id: str) -> Datasheet:
         """Get Datasheet"""
         return self._request(
             "GET",
@@ -8995,7 +9652,7 @@ class GeneratedClient:
             "/api/v1/workspace/bootstrap",
         )
 
-    def ignore_unmatched_parts(self, source_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def ignore_unmatched_parts(self, source_id: str, *, body: dict[str, Any] | None = None) -> UnmatchedChanged:
         """Ignore Unmatched Parts"""
         return self._request(
             "POST",
@@ -9076,7 +9733,7 @@ class GeneratedClient:
             query={"commit": commit},
         )
 
-    def insights_overview(self) -> dict[str, Any]:
+    def insights_overview(self) -> SupplyInsightsPage:
         """Insights Overview"""
         return self._request(
             "GET",
@@ -9576,7 +10233,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def market_history(self, *, metric: str) -> dict[str, Any]:
+    def market_history(self, *, metric: str) -> SupplyMarketHistory:
         """Market History"""
         return self._request(
             "GET",
@@ -9729,7 +10386,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def part_forecast(self, part_id: str, *, quantity: int | None = None) -> dict[str, Any]:
+    def part_forecast(self, part_id: str, *, quantity: int | None = None) -> PartForecast:
         """Part Forecast"""
         return self._request(
             "GET",
@@ -9953,7 +10610,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def propose_waiver(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+    def propose_waiver(self, part_id: str, *, body: dict[str, Any] | None = None) -> WaiverProposed:
         """Propose Waiver"""
         return self._request(
             "POST",
@@ -10739,7 +11396,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def start_signin(self, connector_id: str) -> dict[str, str]:
+    def start_signin(self, connector_id: str) -> SigninStarted:
         """Start Signin"""
         return self._request(
             "POST",

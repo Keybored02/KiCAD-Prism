@@ -95,6 +95,7 @@ async def project_parts_page(
 
 @router.get(
     "/{project_id}/costing.zip",
+    response_class=Response,
     responses={200: {"description": "The costing, trade classification and compliance files as one zip.", "content": {"application/zip": {}}}},
 )
 async def costing_zip(

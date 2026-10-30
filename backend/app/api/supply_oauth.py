@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 
 from app.api import supply_connectors
+from app.api.supply_connectors_models import SigninStarted
 from app.core.security import AuthenticatedUser, require_admin
 from app.services.supply import oauth
 from app.services.supply.connectors import ConnectorNotFound
@@ -29,7 +30,7 @@ def _service():
     return supply_connectors.service
 
 
-@router.post("/connectors/{connector_id}/signin")
+@router.post("/connectors/{connector_id}/signin", response_model=SigninStarted)
 async def start_signin(connector_id: str, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, str]:
     try:
         url = await asyncio.to_thread(oauth.start, _service(), connector_id, admin.email)
