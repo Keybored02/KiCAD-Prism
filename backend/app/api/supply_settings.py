@@ -6,13 +6,16 @@ Everyone who can read supply data sees the settings and the defaults. Changing t
 from __future__ import annotations
 
 from functools import partial
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_call import run_supply
+from app.api.supply_models import Items
+from app.api.supply_settings_models import (
+    AssessmentSettingsBody, AssessmentSettingsView, MakerSpellingBody, SuffixBody, SupplyMakerGroup, SupplyNumberEnding,
+)
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply import fx, maker_seeds, number_suffixes
 from app.services.supply import settings as workspace
@@ -20,25 +23,6 @@ from app.services.supply.assessment import settings as rules
 
 router = APIRouter(prefix="/api/supply/settings", tags=["supply"])
 _run = partial(run_supply, invalid="invalid_settings")
-
-
-class AssessmentSettingsBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    lead_time_days: int
-    last_buy_error_days: int = 180
-    late_hours: int = 48
-    spares_mode: str = "flat"
-    spares_percent: float = 0.0
-    spares_small_passives: float = 2.0
-    spares_others: float = 0.0
-    alert_price_rise_percent: int = 20
-    alert_likely_out_percent: int = 70
-    base_currency: str = Field(default_factory=lambda: workspace.DEFAULTS.pricing.base_currency)
-    price_quantity: int = 100
-    prefer_distributors: bool = False
-    distributor_order: list[str] = []
-    severity: Dict[str, str]
 
 
 def _store():
@@ -65,29 +49,21 @@ def _view(conn, current: workspace.Settings) -> dict[str, Any]:
     }
 
 
-class MakerSpellingBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    spelling: str
-    # The group (a maker) it joins; none starts a new one.
-    group_key: str | None = None
-
-
-@router.get("/makers")
+@router.get("/makers", response_model=Items[SupplyMakerGroup])
 async def get_makers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return {"groups": maker_seeds.groups(conn)}
+            return {"items": maker_seeds.groups(conn)}
 
     return await _run(read)
 
 
-@router.post("/makers", status_code=201)
+@router.post("/makers", status_code=201, response_model=Items[SupplyMakerGroup])
 async def add_maker_spelling(body: MakerSpellingBody, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
             maker_seeds.add(conn, body.spelling, body.group_key, admin.email)
-            return {"groups": maker_seeds.groups(conn)}
+            return {"items": maker_seeds.groups(conn)}
 
     return await _run(run)
 
@@ -101,28 +77,21 @@ async def remove_maker_spelling(alias_key: str, admin: AuthenticatedUser = Depen
     await _run(run)
 
 
-class SuffixBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ending: str
-    kind: str
-
-
-@router.get("/number-endings")
+@router.get("/number-endings", response_model=Items[SupplyNumberEnding])
 async def get_number_endings(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return {"endings": number_suffixes.listing_all(conn)}
+            return {"items": number_suffixes.listing_all(conn)}
 
     return await _run(read)
 
 
-@router.post("/number-endings", status_code=201)
+@router.post("/number-endings", status_code=201, response_model=Items[SupplyNumberEnding])
 async def add_number_ending(body: SuffixBody, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
             number_suffixes.add(conn, body.ending, body.kind, admin.email)
-            return {"endings": number_suffixes.listing_all(conn)}
+            return {"items": number_suffixes.listing_all(conn)}
 
     return await _run(run)
 
@@ -136,7 +105,7 @@ async def remove_number_ending(key: str, admin: AuthenticatedUser = Depends(requ
     await _run(run)
 
 
-@router.get("/assessment")
+@router.get("/assessment", response_model=AssessmentSettingsView)
 async def get_assessment_settings(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -145,7 +114,7 @@ async def get_assessment_settings(_user: AuthenticatedUser = Depends(require_sup
     return await _run(read)
 
 
-@router.put("/assessment")
+@router.put("/assessment", response_model=AssessmentSettingsView)
 async def put_assessment_settings(
     body: AssessmentSettingsBody, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:

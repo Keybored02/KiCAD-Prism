@@ -41,7 +41,7 @@ import type {
   SupplySvhcList,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
-import type { SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck } from "@/types/supply.generated";
+import type { Items, SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding } from "@/types/supply.generated";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply";
@@ -244,7 +244,7 @@ function otherSupplyMakerRequest(partId: string, key: string): Promise<{ rejecte
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
-export type { SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck };
+export type { SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding };
 
 export function getFxRates(signal?: AbortSignal): Promise<SupplyFxRates> {
   return fetchJson(`${BASE}/fx`, { signal }, "Could not load the exchange rates");
@@ -258,31 +258,24 @@ function enterFxRatesRequest(day: string, rates: Record<string, number>): Promis
   return post(`${BASE}/fx/rates`, { day, rates }, "Could not save the exchange rates");
 }
 
-export interface SupplyNumberEnding {
-  suffix_key: string;
-  suffix_text: string;
-  kind: "packaging" | "grade";
-  source: string;
+export function listNumberEndings(signal?: AbortSignal): Promise<SupplyNumberEnding[]> {
+  return fetchJson<Items<SupplyNumberEnding>>(`${BASE}/settings/number-endings`, { signal }, "Could not load the endings").then((list) => list.items);
 }
 
-export function listNumberEndings(signal?: AbortSignal): Promise<{ endings: SupplyNumberEnding[] }> {
-  return fetchJson(`${BASE}/settings/number-endings`, { signal }, "Could not load the endings");
-}
-
-function addNumberEndingRequest(ending: string, kind: "packaging" | "grade"): Promise<{ endings: SupplyNumberEnding[] }> {
-  return post(`${BASE}/settings/number-endings`, { ending, kind }, "Could not add the ending");
+function addNumberEndingRequest(ending: string, kind: SupplyNumberEnding["kind"]): Promise<SupplyNumberEnding[]> {
+  return post<Items<SupplyNumberEnding>>(`${BASE}/settings/number-endings`, { ending, kind }, "Could not add the ending").then((list) => list.items);
 }
 
 function removeNumberEndingRequest(key: string): Promise<void> {
   return send(`${BASE}/settings/number-endings/${encodeURIComponent(key)}`, "DELETE", undefined, "Could not remove the ending");
 }
 
-export function listMakerSpellings(signal?: AbortSignal): Promise<{ groups: SupplyMakerGroup[] }> {
-  return fetchJson(`${BASE}/settings/makers`, { signal }, "Could not load the spellings");
+export function listMakerSpellings(signal?: AbortSignal): Promise<SupplyMakerGroup[]> {
+  return fetchJson<Items<SupplyMakerGroup>>(`${BASE}/settings/makers`, { signal }, "Could not load the spellings").then((list) => list.items);
 }
 
-function addMakerSpellingRequest(spelling: string, groupKey: string | null): Promise<{ groups: SupplyMakerGroup[] }> {
-  return post(`${BASE}/settings/makers`, { spelling, group_key: groupKey }, "Could not add the spelling");
+function addMakerSpellingRequest(spelling: string, groupKey: string | null): Promise<SupplyMakerGroup[]> {
+  return post<Items<SupplyMakerGroup>>(`${BASE}/settings/makers`, { spelling, group_key: groupKey }, "Could not add the spelling").then((list) => list.items);
 }
 
 function removeMakerSpellingRequest(key: string): Promise<void> {

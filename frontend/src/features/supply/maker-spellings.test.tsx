@@ -11,12 +11,12 @@ const groups = [{ group_key: "texas instruments", name: "Texas Instruments", spe
   { alias_key: "texas instruments", alias_text: "Texas Instruments", source: "seeded" }, { alias_key: "ti", alias_text: "TI", source: "seeded" },
 ] }];
 
-beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); mocked.listMakerSpellings.mockResolvedValue({ groups }); });
+beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); mocked.listMakerSpellings.mockResolvedValue(groups); });
 afterEach(cleanup);
 
 describe("the known spellings of makers", () => {
   it("lists them by maker, adds one to a maker and removes one", async () => {
-    mocked.addMakerSpelling.mockResolvedValue({ groups });
+    mocked.addMakerSpelling.mockResolvedValue(groups);
     mocked.removeMakerSpelling.mockResolvedValue(undefined);
     render(<MakerSpellings />);
     fireEvent.click(await screen.findByRole("button", { name: /Known spellings of makers/ }));

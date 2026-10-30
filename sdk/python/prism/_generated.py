@@ -136,6 +136,30 @@ class ApprovalState(TypedDict, total=True):
     unpinned_models: list[UnpinnedModel]
 
 
+class AssessmentCheck(TypedDict, total=True):
+    area: str
+    id: str
+    label: str
+
+
+class AssessmentSettings(TypedDict, total=True):
+    """The workspace's assessment, pricing, alerts and spares settings, as one form."""
+    alert_likely_out_percent: int
+    alert_price_rise_percent: int
+    base_currency: str
+    distributor_order: list[str]
+    last_buy_error_days: int
+    late_hours: int
+    lead_time_days: int
+    prefer_distributors: bool
+    price_quantity: int
+    severity: dict[str, str]
+    spares_mode: str
+    spares_others: float
+    spares_percent: float
+    spares_small_passives: float
+
+
 class AssessmentSettingsBody(TypedDict, total=False):
     alert_likely_out_percent: int
     alert_price_rise_percent: int
@@ -151,6 +175,14 @@ class AssessmentSettingsBody(TypedDict, total=False):
     spares_others: float
     spares_percent: float
     spares_small_passives: float
+
+
+class AssessmentSettingsView(TypedDict, total=True):
+    checks: list[AssessmentCheck]
+    currencies: list[str]
+    defaults: AssessmentSettings
+    ranges: SettingsRanges
+    settings: AssessmentSettings
 
 
 class AssetBrowseResult(TypedDict, total=True):
@@ -2462,8 +2494,16 @@ class Items_SupplyAlert_(TypedDict, total=True):
     items: list[SupplyAlert]
 
 
+class Items_SupplyMakerGroup_(TypedDict, total=True):
+    items: list[SupplyMakerGroup]
+
+
 class Items_SupplyNotice_(TypedDict, total=True):
     items: list[SupplyNotice]
+
+
+class Items_SupplyNumberEnding_(TypedDict, total=True):
+    items: list[SupplyNumberEnding]
 
 
 class Items_SupplyWorkItem_(TypedDict, total=True):
@@ -2816,6 +2856,12 @@ class LookupRequest(TypedDict, total=False):
     build_quantity: int | None
     lines: list[LineIn]
     project_id: str
+
+
+class MakerSpelling(TypedDict, total=True):
+    alias_key: str
+    alias_text: str
+    source: str
 
 
 class MakerSpellingBody(TypedDict, total=False):
@@ -4305,6 +4351,16 @@ class SetUserPasswordResponse(TypedDict, total=True):
     sessions_revoked: int
 
 
+class SettingsRanges(TypedDict, total=True):
+    alert_likely_out_percent: list[Any]
+    alert_price_rise_percent: list[Any]
+    last_buy_error_days: list[Any]
+    late_hours: list[Any]
+    lead_time_days: list[Any]
+    price_quantity: list[Any]
+    spares: list[Any]
+
+
 class SheetPdf(TypedDict, total=True):
     media_type: str
     path: str
@@ -4501,6 +4557,12 @@ class SupplyFxRatesSaved(TypedDict, total=True):
     stale: bool
 
 
+class SupplyMakerGroup(TypedDict, total=True):
+    group_key: str
+    name: str
+    spellings: list[MakerSpelling]
+
+
 class SupplyNotice(TypedDict, total=True):
     created_at: str
     created_by: str
@@ -4524,6 +4586,13 @@ class SupplyNoticeCheck(TypedDict, total=True):
     new: int
     problems: list[ConnectorProblem]
     read: int
+
+
+class SupplyNumberEnding(TypedDict, total=True):
+    kind: str
+    source: str
+    suffix_key: str
+    suffix_text: str
 
 
 class SupplySource(TypedDict, total=True):
@@ -5265,7 +5334,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_maker_spelling(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_maker_spelling(self, *, body: dict[str, Any] | None = None) -> Items_SupplyMakerGroup_:
         """Add Maker Spelling"""
         return self._request(
             "POST",
@@ -5290,7 +5359,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_number_ending(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_number_ending(self, *, body: dict[str, Any] | None = None) -> Items_SupplyNumberEnding_:
         """Add Number Ending"""
         return self._request(
             "POST",
@@ -6351,7 +6420,7 @@ class GeneratedClient:
             query={"quantity": quantity},
         )
 
-    def get_assessment_settings(self) -> dict[str, Any]:
+    def get_assessment_settings(self) -> AssessmentSettingsView:
         """Get Assessment Settings"""
         return self._request(
             "GET",
@@ -6739,7 +6808,7 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
-    def get_makers(self) -> dict[str, Any]:
+    def get_makers(self) -> Items_SupplyMakerGroup_:
         """Get Makers"""
         return self._request(
             "GET",
@@ -6785,7 +6854,7 @@ class GeneratedClient:
             query={"subpath": subpath},
         )
 
-    def get_number_endings(self) -> dict[str, Any]:
+    def get_number_endings(self) -> Items_SupplyNumberEnding_:
         """Get Number Endings"""
         return self._request(
             "GET",
@@ -8266,7 +8335,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def put_assessment_settings(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def put_assessment_settings(self, *, body: dict[str, Any] | None = None) -> AssessmentSettingsView:
         """Put Assessment Settings"""
         return self._request(
             "PUT",

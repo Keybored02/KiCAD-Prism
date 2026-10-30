@@ -123,6 +123,8 @@ def render_type(schema: dict[str, Any], indent: str = "") -> str:
     kind = schema.get("type")
     if isinstance(kind, list):
         return " | ".join(render_type({**schema, "type": one}, indent) for one in kind)
+    if kind == "array" and "prefixItems" in schema:
+        return "[" + ", ".join(render_type(item, indent) for item in schema["prefixItems"]) + "]"
     if kind == "array":
         inner = render_type(schema.get("items") or {}, indent)
         return f"Array<{inner}>" if " " in inner and not inner.startswith("{") else f"{inner}[]"

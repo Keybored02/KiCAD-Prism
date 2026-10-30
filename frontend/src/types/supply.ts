@@ -1,12 +1,13 @@
-import type { ComponentRestriction, SupplyAlert, SupplyNotice } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, SupplyAlert, SupplyNotice } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, CheckProgress, CheckStarted, ComponentRestriction, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PicksMade, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCompliance, SupplyComplianceState, SupplyFact, SupplyNotice, SupplyNoticeCheck, SupplySvhcList,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, CheckProgress, CheckStarted, ComponentRestriction, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PicksMade, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCompliance, SupplyComplianceState, SupplyFact, SupplyMakerGroup, SupplyNotice, SupplyNoticeCheck, SupplySvhcList,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
 export type RestrictionLevel = ComponentRestriction["level"];
 export type SupplyNoticeKind = SupplyNotice["kind"];
+export type AssessmentSeverity = AssessmentSettings["severity"][string];
 
 /** How far a supply job has got (backend `progress.job_progress`); jobs add their own details beside it. */
 export interface JobProgress {
@@ -471,12 +472,6 @@ export interface SupplyToApprove {
   dismissals?: Array<{ id: string; component_id: string; component_name: string; component_mpn: string; reasons: string[]; proposed_by: string; proposed_at: string }>;
   /** Alerts someone asked QA to switch off on a part. */
   mutes?: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; kind: string; proposed_by: string; proposed_at: string }>;
-}
-
-export interface SupplyMakerGroup {
-  group_key: string;
-  name: string;
-  spellings: Array<{ alias_key: string; alias_text: string; source: string }>;
 }
 
 export interface SupplyOtherNumberGroup {
@@ -1071,45 +1066,6 @@ export interface ReleaseSnapshot {
   status: SupplyStatus;
   assessment: { parts: number; tracked: number; not_tracked: number; needing_a_look: number; attention: ReleaseCheckLine[] };
   compliance: unknown;
-}
-
-export type AssessmentSeverity = "ok" | "warning" | "error" | "fatal";
-
-export interface AssessmentSettings {
-  lead_time_days: number;
-  /** A last date to buy this many days away or less makes a last time buy an error; past it, fatal. */
-  last_buy_error_days: number;
-  /** A read is late when it is this many hours past when the part's schedule wanted it. */
-  late_hours: number;
-  /** Spares a costing orders: one percent for every part ("flat"), or by kind of part ("package"). */
-  spares_mode: "flat" | "package";
-  spares_percent: number;
-  spares_small_passives: number;
-  spares_others: number;
-  /** The price rise, and the chance of running out within four weeks, that raise an alert when a part has no rule of its own. */
-  alert_price_rise_percent: number;
-  alert_likely_out_percent: number;
-  /** Prices in other currencies are converted to this one. */
-  base_currency: string;
-  /** Lists and price history price at this quantity, unless a part has its own. */
-  price_quantity: number;
-  /** Price the BOM at a preferred distributor with enough stock, else the cheapest. */
-  prefer_distributors?: boolean;
-  /** Connector ids, the most preferred first. */
-  distributor_order?: string[];
-  severity: Record<string, AssessmentSeverity>;
-}
-
-export interface AssessmentSettingsView {
-  settings: AssessmentSettings;
-  defaults: AssessmentSettings;
-  checks: Array<{ id: string; label: string; area: string }>;
-  ranges: {
-    lead_time_days: [number, number]; last_buy_error_days: [number, number]; late_hours: [number, number]; price_quantity: [number, number];
-    spares: [number, number]; alert_price_rise_percent: [number, number]; alert_likely_out_percent: [number, number];
-  };
-  /** The currencies a workspace can cost in: the euro and every one with an exchange rate. */
-  currencies: string[];
 }
 
 /** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */

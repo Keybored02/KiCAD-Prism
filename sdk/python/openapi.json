@@ -877,6 +877,134 @@
         "title": "ApprovalState",
         "type": "object"
       },
+      "AssessmentCheck": {
+        "additionalProperties": true,
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "area"
+        ],
+        "title": "AssessmentCheck",
+        "type": "object"
+      },
+      "AssessmentSettings": {
+        "additionalProperties": true,
+        "description": "The workspace's assessment, pricing, alerts and spares settings, as one form.",
+        "properties": {
+          "alert_likely_out_percent": {
+            "title": "Alert Likely Out Percent",
+            "type": "integer"
+          },
+          "alert_price_rise_percent": {
+            "description": "The price rise, and the chance of running out within four weeks, that raise an alert when a part has no rule of its own.",
+            "title": "Alert Price Rise Percent",
+            "type": "integer"
+          },
+          "base_currency": {
+            "description": "Prices in other currencies are converted to this one.",
+            "title": "Base Currency",
+            "type": "string"
+          },
+          "distributor_order": {
+            "description": "Connector ids, the most preferred first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Distributor Order",
+            "type": "array"
+          },
+          "last_buy_error_days": {
+            "description": "A last date to buy this many days away or less makes a last time buy an error; past it, fatal.",
+            "title": "Last Buy Error Days",
+            "type": "integer"
+          },
+          "late_hours": {
+            "description": "A read is late when it is this many hours past when the part's schedule wanted it.",
+            "title": "Late Hours",
+            "type": "integer"
+          },
+          "lead_time_days": {
+            "title": "Lead Time Days",
+            "type": "integer"
+          },
+          "prefer_distributors": {
+            "description": "Price the BOM at a preferred distributor with enough stock, else the cheapest.",
+            "title": "Prefer Distributors",
+            "type": "boolean"
+          },
+          "price_quantity": {
+            "description": "Lists and price history price at this quantity, unless a part has its own.",
+            "title": "Price Quantity",
+            "type": "integer"
+          },
+          "severity": {
+            "additionalProperties": {
+              "enum": [
+                "ok",
+                "warning",
+                "error",
+                "fatal"
+              ],
+              "type": "string"
+            },
+            "title": "Severity",
+            "type": "object"
+          },
+          "spares_mode": {
+            "description": "Spares a costing orders: one percent for every part (\"flat\"), or by kind of part (\"package\").",
+            "enum": [
+              "flat",
+              "package"
+            ],
+            "title": "Spares Mode",
+            "type": "string"
+          },
+          "spares_others": {
+            "title": "Spares Others",
+            "type": "number"
+          },
+          "spares_percent": {
+            "title": "Spares Percent",
+            "type": "number"
+          },
+          "spares_small_passives": {
+            "title": "Spares Small Passives",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lead_time_days",
+          "last_buy_error_days",
+          "late_hours",
+          "spares_mode",
+          "spares_percent",
+          "spares_small_passives",
+          "spares_others",
+          "alert_price_rise_percent",
+          "alert_likely_out_percent",
+          "base_currency",
+          "price_quantity",
+          "prefer_distributors",
+          "distributor_order",
+          "severity"
+        ],
+        "title": "AssessmentSettings",
+        "type": "object"
+      },
       "AssessmentSettingsBody": {
         "additionalProperties": false,
         "properties": {
@@ -959,6 +1087,44 @@
           "severity"
         ],
         "title": "AssessmentSettingsBody",
+        "type": "object"
+      },
+      "AssessmentSettingsView": {
+        "additionalProperties": true,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/AssessmentCheck"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "currencies": {
+            "description": "The currencies a workspace can cost in: the euro and every one with an exchange rate.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Currencies",
+            "type": "array"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/AssessmentSettings"
+          },
+          "ranges": {
+            "$ref": "#/components/schemas/SettingsRanges"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/AssessmentSettings"
+          }
+        },
+        "required": [
+          "settings",
+          "defaults",
+          "checks",
+          "ranges",
+          "currencies"
+        ],
+        "title": "AssessmentSettingsView",
         "type": "object"
       },
       "AssetBrowseResult": {
@@ -13516,6 +13682,23 @@
         "title": "Items[SupplyAlert]",
         "type": "object"
       },
+      "Items_SupplyMakerGroup_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyMakerGroup"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyMakerGroup]",
+        "type": "object"
+      },
       "Items_SupplyNotice_": {
         "additionalProperties": true,
         "properties": {
@@ -13531,6 +13714,23 @@
           "items"
         ],
         "title": "Items[SupplyNotice]",
+        "type": "object"
+      },
+      "Items_SupplyNumberEnding_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyNumberEnding"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyNumberEnding]",
         "type": "object"
       },
       "Items_SupplyWorkItem_": {
@@ -15559,6 +15759,30 @@
         "title": "LookupRequest",
         "type": "object"
       },
+      "MakerSpelling": {
+        "additionalProperties": true,
+        "properties": {
+          "alias_key": {
+            "title": "Alias Key",
+            "type": "string"
+          },
+          "alias_text": {
+            "title": "Alias Text",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias_key",
+          "alias_text",
+          "source"
+        ],
+        "title": "MakerSpelling",
+        "type": "object"
+      },
       "MakerSpellingBody": {
         "additionalProperties": false,
         "properties": {
@@ -15571,6 +15795,7 @@
                 "type": "null"
               }
             ],
+            "description": "The group (a maker) it joins; none starts a new one.",
             "title": "Group Key"
           },
           "spelling": {
@@ -23278,6 +23503,120 @@
         "title": "SetUserPasswordResponse",
         "type": "object"
       },
+      "SettingsRanges": {
+        "additionalProperties": true,
+        "properties": {
+          "alert_likely_out_percent": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Alert Likely Out Percent",
+            "type": "array"
+          },
+          "alert_price_rise_percent": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Alert Price Rise Percent",
+            "type": "array"
+          },
+          "last_buy_error_days": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Last Buy Error Days",
+            "type": "array"
+          },
+          "late_hours": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Late Hours",
+            "type": "array"
+          },
+          "lead_time_days": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Lead Time Days",
+            "type": "array"
+          },
+          "price_quantity": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Price Quantity",
+            "type": "array"
+          },
+          "spares": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Spares",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lead_time_days",
+          "last_buy_error_days",
+          "late_hours",
+          "price_quantity",
+          "spares",
+          "alert_price_rise_percent",
+          "alert_likely_out_percent"
+        ],
+        "title": "SettingsRanges",
+        "type": "object"
+      },
       "SheetPdf": {
         "additionalProperties": true,
         "properties": {
@@ -24229,6 +24568,33 @@
         "title": "SupplyFxRatesSaved",
         "type": "object"
       },
+      "SupplyMakerGroup": {
+        "additionalProperties": true,
+        "properties": {
+          "group_key": {
+            "title": "Group Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spellings": {
+            "items": {
+              "$ref": "#/components/schemas/MakerSpelling"
+            },
+            "title": "Spellings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "group_key",
+          "name",
+          "spellings"
+        ],
+        "title": "SupplyMakerGroup",
+        "type": "object"
+      },
       "SupplyNotice": {
         "additionalProperties": true,
         "properties": {
@@ -24376,6 +24742,39 @@
           "problems"
         ],
         "title": "SupplyNoticeCheck",
+        "type": "object"
+      },
+      "SupplyNumberEnding": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "packaging",
+              "grade"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "suffix_key": {
+            "title": "Suffix Key",
+            "type": "string"
+          },
+          "suffix_text": {
+            "title": "Suffix Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "suffix_key",
+          "suffix_text",
+          "kind",
+          "source"
+        ],
+        "title": "SupplyNumberEnding",
         "type": "object"
       },
       "SupplySource": {
@@ -51792,9 +52191,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Assessment Settings",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AssessmentSettingsView"
                 }
               }
             },
@@ -51823,9 +52220,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Put Assessment Settings",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AssessmentSettingsView"
                 }
               }
             },
@@ -51856,9 +52251,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Makers",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyMakerGroup_"
                 }
               }
             },
@@ -51887,9 +52280,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Maker Spelling",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyMakerGroup_"
                 }
               }
             },
@@ -51955,9 +52346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Number Endings",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyNumberEnding_"
                 }
               }
             },
@@ -51986,9 +52375,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Number Ending",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyNumberEnding_"
                 }
               }
             },

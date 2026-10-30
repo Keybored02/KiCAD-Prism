@@ -52,6 +52,64 @@ export interface AlternateRequest {
   mpn: string;
 }
 
+export interface AssessmentCheck {
+  area: string;
+  id: string;
+  label: string;
+}
+
+/** The workspace's assessment, pricing, alerts and spares settings, as one form. */
+export interface AssessmentSettings {
+  alert_likely_out_percent: number;
+  /** The price rise, and the chance of running out within four weeks, that raise an alert when a part has no rule of its own. */
+  alert_price_rise_percent: number;
+  /** Prices in other currencies are converted to this one. */
+  base_currency: string;
+  /** Connector ids, the most preferred first. */
+  distributor_order: string[];
+  /** A last date to buy this many days away or less makes a last time buy an error; past it, fatal. */
+  last_buy_error_days: number;
+  /** A read is late when it is this many hours past when the part's schedule wanted it. */
+  late_hours: number;
+  lead_time_days: number;
+  /** Price the BOM at a preferred distributor with enough stock, else the cheapest. */
+  prefer_distributors: boolean;
+  /** Lists and price history price at this quantity, unless a part has its own. */
+  price_quantity: number;
+  severity: Record<string, "ok" | "warning" | "error" | "fatal">;
+  /** Spares a costing orders: one percent for every part ("flat"), or by kind of part ("package"). */
+  spares_mode: "flat" | "package";
+  spares_others: number;
+  spares_percent: number;
+  spares_small_passives: number;
+}
+
+export interface AssessmentSettingsBody {
+  alert_likely_out_percent?: number;
+  alert_price_rise_percent?: number;
+  base_currency?: string;
+  distributor_order?: string[];
+  last_buy_error_days?: number;
+  late_hours?: number;
+  lead_time_days: number;
+  prefer_distributors?: boolean;
+  price_quantity?: number;
+  severity: Record<string, string>;
+  spares_mode?: string;
+  spares_others?: number;
+  spares_percent?: number;
+  spares_small_passives?: number;
+}
+
+export interface AssessmentSettingsView {
+  checks: AssessmentCheck[];
+  /** The currencies a workspace can cost in: the euro and every one with an exchange rate. */
+  currencies: string[];
+  defaults: AssessmentSettings;
+  ranges: SettingsRanges;
+  settings: AssessmentSettings;
+}
+
 export interface CheckLine {
   manufacturer?: string;
   mpn?: string;
@@ -301,6 +359,18 @@ export interface LocalStockRow {
   status: string;
   uom: string;
   updated_at: string;
+}
+
+export interface MakerSpelling {
+  alias_key: string;
+  alias_text: string;
+  source: string;
+}
+
+export interface MakerSpellingBody {
+  /** The group (a maker) it joins; none starts a new one. */
+  group_key?: string | null;
+  spelling: string;
 }
 
 export interface ManualRates {
@@ -571,6 +641,16 @@ export interface ServerCheck {
   server: string;
 }
 
+export interface SettingsRanges {
+  alert_likely_out_percent: [number, number];
+  alert_price_rise_percent: [number, number];
+  last_buy_error_days: [number, number];
+  late_hours: [number, number];
+  lead_time_days: [number, number];
+  price_quantity: [number, number];
+  spares: [number, number];
+}
+
 export interface SheetRequest {
   xlsx_base64: string;
 }
@@ -601,6 +681,11 @@ export interface SubstitutesAsked {
   found: number;
   problems: ConnectorProblem[];
   resolved: number;
+}
+
+export interface SuffixBody {
+  ending: string;
+  kind: string;
 }
 
 export interface SupplyAlert {
@@ -658,6 +743,12 @@ export interface SupplyFxRatesSaved {
   stale: boolean;
 }
 
+export interface SupplyMakerGroup {
+  group_key: string;
+  name: string;
+  spellings: MakerSpelling[];
+}
+
 export interface SupplyNotice {
   created_at: string;
   created_by: string;
@@ -683,6 +774,13 @@ export interface SupplyNoticeCheck {
   new: number;
   problems: ConnectorProblem[];
   read: number;
+}
+
+export interface SupplyNumberEnding {
+  kind: "packaging" | "grade";
+  source: string;
+  suffix_key: string;
+  suffix_text: string;
 }
 
 /** The ECHA Candidate List Prism holds. */
