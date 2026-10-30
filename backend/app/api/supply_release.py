@@ -15,6 +15,10 @@ from app.services.supply import clock
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.api.supply_call import run_supply
+from app.api.supply_models import JobProgress
+from app.api.supply_release_models import (
+    ProjectPartsPage, ProjectSupply, ReleaseBomKept, ReleaseCheck, ReleaseCompliance, ReleaseSnapshot,
+)
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
     catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
@@ -31,7 +35,7 @@ def _store():
     return supply_connectors.service.store
 
 
-@router.get("/{project_id}/supply")
+@router.get("/{project_id}/supply", response_model=ProjectSupply, response_model_exclude_unset=True)
 async def project_overview(
     project_id: str,
     build_quantity: int | None = Query(default=None, ge=1, le=1_000_000),
@@ -55,7 +59,7 @@ async def project_overview(
     return await _run(read)
 
 
-@router.get("/{project_id}/parts")
+@router.get("/{project_id}/parts", response_model=ProjectPartsPage, response_model_exclude_unset=True)
 async def project_parts_page(
     project_id: str,
     build_quantity: int | None = Query(default=None, ge=1, le=1_000_000),
@@ -124,7 +128,7 @@ def _build_of_project(project_id: str, build_id: str) -> None:
         raise HTTPException(status_code=404, detail="Build not found")
 
 
-@router.get("/{project_id}/release-builds/{build_id}/check")
+@router.get("/{project_id}/release-builds/{build_id}/check", response_model=ReleaseCheck)
 async def release_check_for(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
@@ -144,7 +148,7 @@ async def release_check_for(
     return await _run(read)
 
 
-@router.post("/{project_id}/release-builds/{build_id}/read-bom")
+@router.post("/{project_id}/release-builds/{build_id}/read-bom", response_model=ReleaseBomKept)
 async def read_release_bom(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_tracker),
 ) -> dict[str, Any]:
@@ -170,7 +174,11 @@ async def read_release_bom(
     return await _run(run)
 
 
-@router.get("/{project_id}/releases/{build_id}/compliance")
+@router.get(
+    "/{project_id}/releases/{build_id}/compliance",
+    response_model=ReleaseCompliance,
+    responses={200: {"content": {"text/csv": {}}, "description": "The draft as JSON, or as CSV with format=csv."}},
+)
 async def release_compliance(
     project_id: str,
     build_id: str,
@@ -198,7 +206,7 @@ async def release_compliance(
     return {"tag": snapshot["tag"], "created_at": snapshot["created_at"], "draft": snapshot["compliance"]}
 
 
-@router.get("/{project_id}/releases/{build_id}/supply")
+@router.get("/{project_id}/releases/{build_id}/supply", response_model=ReleaseSnapshot)
 async def release_snapshot(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader)
 ) -> dict[str, Any]:
@@ -211,7 +219,7 @@ async def release_snapshot(
     return await _run(read)
 
 
-@router.get("/{project_id}/releases/{build_id}/supply-status")
+@router.get("/{project_id}/releases/{build_id}/supply-status", response_model=JobProgress)
 async def release_snapshot_status(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader)
 ) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 import type {
-  PartPrice, RowDistributor, SupplyBomBuy, SupplyBomLineResult, SupplyBomRollup, SupplyComponentStanding, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
+  PartPrice, ProjectSupplyPart, ReleaseCheckLine, RowDistributor, SupplyBomBuy, SupplyBomLineResult, SupplyBomRollup, SupplyComponentStanding, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
 } from "@/types/supply.generated";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
@@ -271,4 +271,19 @@ export function bomRollupFixture(overrides: Partial<SupplyBomRollup> = {}): Supp
 
 export function standingFixture(overrides: Partial<SupplyComponentStanding> = {}): SupplyComponentStanding {
   return { status: "unknown", stock: null, watched: false, unit_price: null, currency: "", restriction: null, ...overrides };
+}
+
+export function projectLineFixture(overrides: Partial<ProjectSupplyPart> = {}): ProjectSupplyPart {
+  return {
+    key: "k1", manufacturer: "Acme", mpn: "MPN-1", quantity: 1, references: "R1", part_id: "p1", state: "tracked", status: "ok", stock: 0,
+    lifecycle: "active", short: false, unit_price: null, unit_currency: null, unit_price_in_total: null, buy_quantity: null, test_data: false,
+    notes: 0, need: 1, line_cost: null, alerts: 0, prism_id: "", in_library: true, alternates: [], status_from: null, stores: null, ...overrides,
+  };
+}
+
+export function releaseLineFixture(overrides: Partial<ReleaseCheckLine> = {}): ReleaseCheckLine {
+  return {
+    manufacturer: "Acme", mpn: "MPN-1", quantity: 1, state: "tracked", part_id: "p1", health: 10, status: "ok", findings: [], waived: 0,
+    alternates: [], status_from: null, ...overrides,
+  };
 }

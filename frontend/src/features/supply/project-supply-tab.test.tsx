@@ -17,7 +17,7 @@ vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button typ
 import { ProjectSupplyTab } from "./project-supply-tab";
 import * as api from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
-import { bomRollupFixture } from "./supply-test-fixtures";
+import { bomRollupFixture, projectLineFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
@@ -30,8 +30,8 @@ const rollup = bomRollupFixture({
 const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
   available: true, variant: "", variants: [], rollup,
   parts: [
-    { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", short: false, unit_price: "0.1", notes: 0, need: 200 },
-    { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", short: true, unit_price: "1.2", notes: 2, need: 100 },
+    projectLineFixture({ key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", short: false, unit_price: "0.1", notes: 0, need: 200 }),
+    projectLineFixture({ key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", short: true, unit_price: "1.2", notes: 2, need: 100 }),
   ],
   releases: [{
     build_id: "b1", tag: "v1.0", created_at: "2026-09-01T00:00:00Z", health: 9, status: "ok", parts: 2, needing_a_look: 0,
@@ -227,7 +227,7 @@ describe("the project Supply tab", () => {
   });
 
   it("counts a line without a part number as not covered, and lists it under Unchecked", async () => {
-    const noMpn = { key: "none:796638-2|TB", manufacturer: "", mpn: "", quantity: 1, references: "J2", part_id: null, state: "no_mpn" as const, status: null, stock: null, lifecycle: null, short: false, unit_price: null, notes: 0, need: 1 };
+    const noMpn = projectLineFixture({ key: "none:796638-2|TB", manufacturer: "", mpn: "", quantity: 1, references: "J2", part_id: null, state: "no_mpn", status: null, stock: null, lifecycle: null, short: false, unit_price: null, notes: 0, need: 1 });
     const base = supply();
     mocked.getProjectSupply.mockResolvedValue(supply({ parts: [...(base.parts ?? []), noMpn] }));
     serve([...(base.parts ?? []), noMpn]);

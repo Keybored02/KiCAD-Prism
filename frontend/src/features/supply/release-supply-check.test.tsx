@@ -7,15 +7,16 @@ vi.mock("./release-check-api", () => ({ getReleaseCheck: vi.fn() }));
 
 import * as api from "./release-check-api";
 import { ReleaseSupplyCheck, ReleaseSupplySummary } from "./release-supply-check";
+import { releaseLineFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
 const available: ReleaseCheck = {
   available: true, health: 5.4, status: "error", parts: 40, tracked: 38, not_tracked: 2, needing_a_look: 1, without_number: 0,
-  attention: [{
+  attention: [releaseLineFixture({
     manufacturer: "Acme", mpn: "OBS-1", quantity: 2, state: "tracked", part_id: "p1", health: 0, status: "fatal",
     findings: [{ check: "obsolete", severity: "fatal", text: "The manufacturer lists this part as obsolete." }], waived: 0,
-  }],
+  })],
   lines: [],
 };
 

@@ -1,7 +1,7 @@
-import type { AssessmentSettings, ComponentRestriction, StoresState, SupplyAlert, SupplyBomAlternate, SupplyBomComment, SupplyBomLineResult, SupplyBomRollup, SupplyChoice, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, ReleaseCheckResult, ReleaseCheckUnavailable, StoresState, SupplyAlert, SupplyChoice, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectTrackingPreview, ProjectTrackingState, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, StoresState, SubstitutesAsked, SupplyAlert, SupplyBomAlternate, SupplyBomBuy, SupplyBomComment, SupplyBomLineResult, SupplyBomLookup, SupplyBomRollup, SupplyBomWatchResult, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentStanding, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectCostPoint, ProjectMoney, ProjectPartsPage, ProjectSupply, ProjectSupplyPart, ProjectSupplyRelease, ProjectTrackingPreview, ProjectTrackingState, ReleaseBomKept, ReleaseCheckLine, ReleaseCheckResult, ReleaseCheckUnavailable, ReleaseSnapshot, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, StoresState, SubstitutesAsked, SupplyAlert, SupplyBomAlternate, SupplyBomBuy, SupplyBomComment, SupplyBomLineResult, SupplyBomLookup, SupplyBomRollup, SupplyBomWatchResult, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentStanding, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
@@ -161,14 +161,6 @@ export type PartsFilter =
 /** Which listings a watch counts: all, or only one packaging. */
 export type WatchPackaging = "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
 
-/** A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project. */
-export interface ProjectPartsPage extends SupplyPartsPage {
-  items: Array<SupplyPartRow & { line: ProjectSupplyPart | null }>;
-  /** Lines no part matches; on the first page only. */
-  unmatched: ProjectSupplyPart[];
-  chips: Array<{ key: "unchecked" | "out" | "short" | "limiting" | "not_priced" | "end_of_life" | "alerts"; count: number }>;
-}
-
 /** Where a forecast model stands: learning (not enough checks, or missing too often), shown, or paused. */
 export interface ForecastModelState {
   state: ForecastState;
@@ -313,137 +305,8 @@ export interface SupplyAssessment {
   sub_scores: SupplySubScore[];
 }
 
-export interface ReleaseCheckLine {
-  manufacturer: string;
-  mpn: string;
-  quantity: number;
-  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
-  part_id: string | null;
-  health: number | null;
-  status: SupplyStatus | null;
-  findings: Array<{ check: string; severity: FindingSeverity; text: string }>;
-  waived: number;
-}
-
 /** The supply check on a BOM before release. `available` is false when that revision's BOM has not been read. */
-export type ReleaseCheck =
-  | { available: false; reason: string }
-  | {
-      available: true;
-      health: number | null;
-      status: SupplyStatus;
-      parts: number;
-      tracked: number;
-      not_tracked: number;
-      needing_a_look: number;
-      /** Rows of the BOM that name no part number, which the check cannot look at. */
-      without_number: number;
-      attention: ReleaseCheckLine[];
-      lines: ReleaseCheckLine[];
-    };
-
-/** The supply check frozen when a release was published, kept beside the release record. */
-export interface ReleaseSnapshot {
-  id: string;
-  build_id: string;
-  tag: string;
-  created_at: string;
-  health: number | null;
-  status: SupplyStatus;
-  assessment: { parts: number; tracked: number; not_tracked: number; needing_a_look: number; attention: ReleaseCheckLine[] };
-  compliance: unknown;
-}
-
-/** One part of a project's stored BOM, as the project's Supply tab lists it. */
-export interface ProjectSupplyPart {
-  key: string;
-  manufacturer: string;
-  mpn: string;
-  quantity: number;
-  references: string;
-  part_id: string | null;
-  state: SupplyBomLineResult["state"];
-  status: SupplyStatus | null;
-  stock: number | null;
-  lifecycle: SupplyLifecycle | null;
-  short: boolean;
-  /** In the offer's currency, `unit_currency`. */
-  unit_price: string | null;
-  unit_currency?: string | null;
-  /** The unit price in the total's currency: what `line_cost` is made of. Null when it can't be converted. */
-  unit_price_in_total?: string | null;
-  notes: number;
-  /** Pieces the build needs, spares included. */
-  need?: number | null;
-  /** What the line costs for the build, in the total's currency; null when bought with another line or not priced. */
-  line_cost?: string | null;
-  /** Open alerts on the part. */
-  alerts?: number;
-  /** The catalog component the symbol places; empty when none. */
-  prism_id?: string;
-  stores?: StoresState | null;
-  /** Pieces the line's purchase buys (the need rounded to the offer's minimum and multiple); `unit_price` is the price at it. */
-  buy_quantity?: number | null;
-  /** From a simulated connector: test data, marked wherever it shows. */
-  test_data?: boolean;
-  /** Whether a catalog component has the line; null for a line without a part number. */
-  in_library?: boolean | null;
-  /** The component's approved alternates; `stock` and `short` count them. */
-  alternates?: SupplyBomAlternate[];
-  status_from?: string | null;
-}
-
-export interface ProjectCostPoint {
-  boards: number;
-  cost_per_board: string | null;
-  cost_build: string | null;
-  currency: string | null;
-  /** Parts the stock cannot cover at this size. */
-  short: number;
-  lines_priced: number;
-  lines: number;
-}
-
-export interface ProjectMoney {
-  lines: Array<{ key: string; part_id: string | null; mpn: string; manufacturer: string; cost: string; share: number }>;
-  other: { count: number; cost: string; share: number };
-  total: string;
-}
-
-export interface ProjectSupplyRelease {
-  build_id: string;
-  tag: string;
-  created_at: string;
-  health: number | null;
-  status: SupplyStatus;
-  parts: number;
-  needing_a_look: number;
-  /** Parts that were fine when it was published and are not today. */
-  changed_since: Array<{ part_id: string; manufacturer: string; mpn: string; was: SupplyStatus | null; now: SupplyStatus }>;
-}
-
-export interface ProjectSupply {
-  available: boolean;
-  variant: string;
-  variants: string[];
-  /** The boards the page is worked out for, and the tracked project's usual build (null when it is not tracked). */
-  build_quantity?: number;
-  usual_build?: number | null;
-  /** The spares the page is worked out with, in percent; null is by kind of part. */
-  attrition_percent?: number | null;
-  rollup?: SupplyBomRollup;
-  parts?: ProjectSupplyPart[];
-  /** The cost of one board a day, oldest first: the days that price every line and are not one price read wrong. */
-  cost_history?: Array<{ day: string; cost_per_board: string; currency: string; boards: number }>;
-  /** The days left out because one price was read wrong. */
-  cost_history_left_out?: Array<{ day: string; cost_per_board: string; currency: string; boards: number }>;
-  /** The cost at 1, 10, 100, 1,000 and 10,000 boards and the chosen size. */
-  cost_curve?: ProjectCostPoint[];
-  /** The lines that cost the most for the build, with their share, and what all the others cost. */
-  money?: ProjectMoney | null;
-  releases: ProjectSupplyRelease[];
-  notes: SupplyBomComment[];
-}
+export type ReleaseCheck = ReleaseCheckResult | ReleaseCheckUnavailable;
 
 /** The Dashboard page in one read. */
 export interface SupplyDashboard {

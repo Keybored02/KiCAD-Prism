@@ -5521,6 +5521,61 @@
         "title": "ChangePasswordRequest",
         "type": "object"
       },
+      "ChangedPart": {
+        "additionalProperties": true,
+        "properties": {
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "now": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Now",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "was": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "warning",
+                  "error",
+                  "fatal",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Was"
+          }
+        },
+        "required": [
+          "part_id",
+          "manufacturer",
+          "mpn",
+          "was",
+          "now"
+        ],
+        "title": "ChangedPart",
+        "type": "object"
+      },
       "CheckAccessRequest": {
         "properties": {
           "url": {
@@ -7473,6 +7528,28 @@
         "title": "ComparisonReviewOut",
         "type": "object"
       },
+      "ComplianceDraft": {
+        "additionalProperties": true,
+        "description": "The draft RoHS and REACH declaration of a BOM: a working document, not a declaration.",
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/DraftPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DraftSummary"
+          }
+        },
+        "required": [
+          "parts",
+          "summary"
+        ],
+        "title": "ComplianceDraft",
+        "type": "object"
+      },
       "ComponentAsset": {
         "additionalProperties": true,
         "properties": {
@@ -8914,6 +8991,35 @@
           "stock"
         ],
         "title": "ConnectorStock",
+        "type": "object"
+      },
+      "CostDay": {
+        "additionalProperties": true,
+        "properties": {
+          "boards": {
+            "title": "Boards",
+            "type": "integer"
+          },
+          "cost_per_board": {
+            "title": "Cost Per Board",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "cost_per_board",
+          "currency",
+          "boards"
+        ],
+        "title": "CostDay",
         "type": "object"
       },
       "CreateCommentRequest": {
@@ -11588,6 +11694,84 @@
         "title": "DraftKlcResult",
         "type": "object"
       },
+      "DraftPart": {
+        "additionalProperties": true,
+        "properties": {
+          "exemptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Exemptions",
+            "type": "array"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "on_candidate_list": {
+            "items": {
+              "type": "string"
+            },
+            "title": "On Candidate List",
+            "type": "array"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "reach": {
+            "title": "Reach",
+            "type": "string"
+          },
+          "reach_stated": {
+            "title": "Reach Stated",
+            "type": "string"
+          },
+          "references": {
+            "title": "References",
+            "type": "string"
+          },
+          "rohs": {
+            "title": "Rohs",
+            "type": "string"
+          },
+          "rohs_stated": {
+            "title": "Rohs Stated",
+            "type": "string"
+          },
+          "svhc_stated": {
+            "title": "Svhc Stated",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manufacturer",
+          "mpn",
+          "quantity",
+          "references",
+          "rohs",
+          "reach",
+          "on_candidate_list",
+          "gaps",
+          "exemptions",
+          "rohs_stated",
+          "reach_stated",
+          "svhc_stated"
+        ],
+        "title": "DraftPart",
+        "type": "object"
+      },
       "DraftPreview": {
         "properties": {
           "png_base64": {
@@ -11638,6 +11822,45 @@
           "name"
         ],
         "title": "DraftSetupRequest",
+        "type": "object"
+      },
+      "DraftSummary": {
+        "additionalProperties": true,
+        "properties": {
+          "candidate_list_loaded": {
+            "title": "Candidate List Loaded",
+            "type": "boolean"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "reach_unknown": {
+            "title": "Reach Unknown",
+            "type": "integer"
+          },
+          "rohs_unknown": {
+            "title": "Rohs Unknown",
+            "type": "integer"
+          },
+          "with_gaps": {
+            "title": "With Gaps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parts",
+          "with_gaps",
+          "rohs_unknown",
+          "reach_unknown",
+          "candidate_list_loaded",
+          "note"
+        ],
+        "title": "DraftSummary",
         "type": "object"
       },
       "DrillSummary": {
@@ -15710,6 +15933,47 @@
         "title": "JobPhasesOut",
         "type": "object"
       },
+      "JobProgress": {
+        "additionalProperties": true,
+        "description": "How far a supply job has got. Every supply job answers this shape (``progress.job_progress``).",
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "done",
+              "failed",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "done",
+          "total",
+          "failed",
+          "reason"
+        ],
+        "title": "JobProgress",
+        "type": "object"
+      },
       "JobRecord": {
         "additionalProperties": true,
         "description": "One ``ws_jobs`` row as ``JobService.enqueue`` answers it.",
@@ -19229,6 +19493,76 @@
         "title": "ModelPage",
         "type": "object"
       },
+      "MoneyLine": {
+        "additionalProperties": true,
+        "properties": {
+          "cost": {
+            "title": "Cost",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "share": {
+            "title": "Share",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "cost",
+          "share"
+        ],
+        "title": "MoneyLine",
+        "type": "object"
+      },
+      "MoneyOther": {
+        "additionalProperties": true,
+        "properties": {
+          "cost": {
+            "title": "Cost",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "share": {
+            "title": "Share",
+            "type": "number"
+          }
+        },
+        "required": [
+          "count",
+          "cost",
+          "share"
+        ],
+        "title": "MoneyOther",
+        "type": "object"
+      },
       "Monorepo": {
         "properties": {
           "last_synced": {
@@ -22426,6 +22760,34 @@
         "title": "ProjectCalls",
         "type": "object"
       },
+      "ProjectChip": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "enum": [
+              "unchecked",
+              "out",
+              "short",
+              "limiting",
+              "not_priced",
+              "end_of_life",
+              "alerts"
+            ],
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "ProjectChip",
+        "type": "object"
+      },
       "ProjectCommentsSourceUrls": {
         "additionalProperties": true,
         "description": "The helper URLs a KiCad comments source needs for one project.",
@@ -22677,6 +23039,72 @@
         "title": "ProjectConfigSaved",
         "type": "object"
       },
+      "ProjectCostPoint": {
+        "additionalProperties": true,
+        "properties": {
+          "boards": {
+            "title": "Boards",
+            "type": "integer"
+          },
+          "cost_build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Build"
+          },
+          "cost_per_board": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Board"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "lines": {
+            "title": "Lines",
+            "type": "integer"
+          },
+          "lines_priced": {
+            "title": "Lines Priced",
+            "type": "integer"
+          },
+          "short": {
+            "description": "Parts the stock cannot cover at this size.",
+            "title": "Short",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "boards",
+          "cost_per_board",
+          "cost_build",
+          "currency",
+          "short",
+          "lines_priced",
+          "lines"
+        ],
+        "title": "ProjectCostPoint",
+        "type": "object"
+      },
       "ProjectDeleted": {
         "additionalProperties": true,
         "description": "A removed project and what happened to its files and repository.",
@@ -22870,6 +23298,33 @@
         "title": "ProjectIn",
         "type": "object"
       },
+      "ProjectMoney": {
+        "additionalProperties": true,
+        "description": "The lines that cost the most for the build, with their share, and what all the others cost.",
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/MoneyLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "other": {
+            "$ref": "#/components/schemas/MoneyOther"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lines",
+          "other",
+          "total"
+        ],
+        "title": "ProjectMoney",
+        "type": "object"
+      },
       "ProjectName": {
         "additionalProperties": true,
         "properties": {
@@ -22977,6 +23432,512 @@
           "readme"
         ],
         "title": "ProjectOverview",
+        "type": "object"
+      },
+      "ProjectPartRow": {
+        "additionalProperties": true,
+        "properties": {
+          "changes_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changes At"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "dated_by": {
+            "title": "Dated By",
+            "type": "string"
+          },
+          "distributors": {
+            "items": {
+              "$ref": "#/components/schemas/RowDistributor"
+            },
+            "title": "Distributors",
+            "type": "array"
+          },
+          "dropped": {
+            "description": "Every distributor that lists it has stopped selling it.",
+            "title": "Dropped",
+            "type": "boolean"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As old as the oldest read the stock rests on.",
+            "title": "Fetched At"
+          },
+          "flags": {
+            "description": "Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RowForecast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Health"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "jlc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JlcClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shortest lead time quoted, in days.",
+            "title": "Lead Days"
+          },
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectSupplyPart"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part's BOM lines, merged."
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "manufacturer_provisional": {
+            "description": "The maker is as written and no distributor has confirmed it yet.",
+            "title": "Manufacturer Provisional",
+            "type": "boolean"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "offers": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyRowOffer"
+            },
+            "title": "Offers",
+            "type": "array"
+          },
+          "preferred_connector_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Connector Id"
+          },
+          "price_change_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cheapest price over 30 days, in percent.",
+            "title": "Price Change Percent"
+          },
+          "price_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "orderable",
+                  "backorder",
+                  "last_seen",
+                  "listed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "orderable: bought now; backorder: nothing in stock, with a lead time; last_seen: the price when it was last in stock; listed: list price only.",
+            "title": "Price Kind"
+          },
+          "price_lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Lead Days"
+          },
+          "price_native": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NativePrice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the price was before it was converted, when it was."
+          },
+          "price_quantity": {
+            "description": "The quantity the price is quoted at.",
+            "title": "Price Quantity",
+            "type": "integer"
+          },
+          "price_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowest, highest and median over the distributors that price it; null with fewer than two."
+          },
+          "price_seen_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Seen Day"
+          },
+          "price_test_data": {
+            "description": "The price comes from a simulated connector.",
+            "title": "Price Test Data",
+            "type": "boolean"
+          },
+          "price_unrated": {
+            "description": "Currencies priced by a distributor that have no exchange rate, so were left out.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Price Unrated",
+            "type": "array"
+          },
+          "priced_with": {
+            "title": "Priced With",
+            "type": "string"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_found",
+                  "gone"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared.",
+            "title": "Problem"
+          },
+          "project_names": {
+            "description": "The first two projects using it, by name.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Project Names",
+            "type": "array"
+          },
+          "runs_out_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The days until it is projected to run out.",
+            "title": "Runs Out Days"
+          },
+          "spark": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last 30 days of counted stock.",
+            "title": "Spark"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The counted stock; null until something that counts has been read.",
+            "title": "Stock"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "tracking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartTracking"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why and how often Prism follows it."
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In the base currency, at the part's price quantity.",
+            "title": "Unit Price"
+          },
+          "used_in": {
+            "description": "How many projects' BOMs carry this part, among those whose BOM Prism has read.",
+            "title": "Used In",
+            "type": "integer"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyWatchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "problem",
+          "stock",
+          "lifecycle",
+          "fetched_at",
+          "listings",
+          "dropped",
+          "unit_price",
+          "currency",
+          "price_quantity",
+          "price_kind",
+          "price_lead_days",
+          "price_range",
+          "price_native",
+          "price_seen_day",
+          "price_unrated",
+          "price_test_data",
+          "dated_by",
+          "tier",
+          "health",
+          "changes_at",
+          "priced_with",
+          "id",
+          "mpn",
+          "manufacturer",
+          "manufacturer_provisional",
+          "watch",
+          "tracking",
+          "used_in",
+          "jlc",
+          "project_names",
+          "distributors",
+          "offers",
+          "preferred_connector_id",
+          "price_change_percent",
+          "forecast",
+          "lead_days",
+          "flags",
+          "line"
+        ],
+        "title": "ProjectPartRow",
+        "type": "object"
+      },
+      "ProjectPartsPage": {
+        "additionalProperties": true,
+        "description": "A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project.",
+        "properties": {
+          "chips": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectChip"
+            },
+            "title": "Chips",
+            "type": "array"
+          },
+          "forecast_state": {
+            "additionalProperties": {
+              "enum": [
+                "learning",
+                "shown",
+                "paused"
+              ],
+              "type": "string"
+            },
+            "description": "The state of the forecast models the rows' forecasts come from.",
+            "title": "Forecast State",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectPartRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unmatched": {
+            "description": "Lines no part matches; on the first page only.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSupplyPart"
+            },
+            "title": "Unmatched",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "next_offset",
+          "forecast_state",
+          "unmatched",
+          "chips"
+        ],
+        "title": "ProjectPartsPage",
         "type": "object"
       },
       "ProjectPathConfig": {
@@ -23508,6 +24469,499 @@
           "results"
         ],
         "title": "ProjectSearchResults",
+        "type": "object"
+      },
+      "ProjectSupply": {
+        "additionalProperties": true,
+        "description": "How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes.",
+        "properties": {
+          "attrition_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The spares, in percent; null is by kind of part.",
+            "title": "Attrition Percent"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "build_quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The boards the page is worked out for.",
+            "title": "Build Quantity"
+          },
+          "cost_curve": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProjectCostPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cost at 1 to 10,000 boards and the chosen size.",
+            "title": "Cost Curve"
+          },
+          "cost_history": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CostDay"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cost of one board a day, oldest first.",
+            "title": "Cost History"
+          },
+          "cost_history_left_out": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CostDay"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The days left out because one price was read wrong.",
+            "title": "Cost History Left Out"
+          },
+          "money": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyBomComment"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "parts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProjectSupplyPart"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parts"
+          },
+          "releases": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSupplyRelease"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "rollup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyBomRollup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usual_build": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tracked project's usual build; null when it is not tracked.",
+            "title": "Usual Build"
+          },
+          "usual_spares": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tracked project's own spares: auto or a percent.",
+            "title": "Usual Spares"
+          },
+          "variant": {
+            "title": "Variant",
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "variant",
+          "variants",
+          "releases",
+          "notes"
+        ],
+        "title": "ProjectSupply",
+        "type": "object"
+      },
+      "ProjectSupplyPart": {
+        "additionalProperties": true,
+        "description": "One line of a project's stored BOM, as the project's Supply tab lists it.",
+        "properties": {
+          "alerts": {
+            "description": "Open alerts on the part.",
+            "title": "Alerts",
+            "type": "integer"
+          },
+          "alternates": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyBomAlternate"
+            },
+            "title": "Alternates",
+            "type": "array"
+          },
+          "buy_quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pieces the line's purchase buys: the need rounded to the offer's minimum and multiple.",
+            "title": "Buy Quantity"
+          },
+          "in_library": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Library"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "nrnd",
+                  "last_time_buy",
+                  "obsolete",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle"
+          },
+          "line_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the line costs for the build, in the total's currency; null when bought with another line or not priced.",
+            "title": "Line Cost"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "need": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pieces the build needs, spares included.",
+            "title": "Need"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "integer"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "prism_id": {
+            "description": "The catalog component the symbol places; empty when none.",
+            "title": "Prism Id",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "references": {
+            "title": "References",
+            "type": "string"
+          },
+          "short": {
+            "title": "Short",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "no_mpn",
+              "unknown",
+              "ambiguous",
+              "tracked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "warning",
+                  "error",
+                  "fatal",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "status_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status From"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          },
+          "stores": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoresState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test_data": {
+            "title": "Test Data",
+            "type": "boolean"
+          },
+          "unit_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Currency"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In the offer's currency, unit_currency.",
+            "title": "Unit Price"
+          },
+          "unit_price_in_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unit price in the total's currency; null when it cannot be converted.",
+            "title": "Unit Price In Total"
+          }
+        },
+        "required": [
+          "key",
+          "manufacturer",
+          "mpn",
+          "quantity",
+          "references",
+          "part_id",
+          "state",
+          "status",
+          "stock",
+          "lifecycle",
+          "short",
+          "unit_price",
+          "unit_currency",
+          "unit_price_in_total",
+          "buy_quantity",
+          "test_data",
+          "notes",
+          "need",
+          "line_cost",
+          "alerts",
+          "prism_id",
+          "in_library",
+          "alternates",
+          "status_from",
+          "stores"
+        ],
+        "title": "ProjectSupplyPart",
+        "type": "object"
+      },
+      "ProjectSupplyRelease": {
+        "additionalProperties": true,
+        "properties": {
+          "build_id": {
+            "title": "Build Id",
+            "type": "string"
+          },
+          "changed_since": {
+            "description": "Parts that were fine when it was published and are not today.",
+            "items": {
+              "$ref": "#/components/schemas/ChangedPart"
+            },
+            "title": "Changed Since",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "needing_a_look": {
+            "title": "Needing A Look",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "build_id",
+          "tag",
+          "created_at",
+          "health",
+          "status",
+          "parts",
+          "needing_a_look",
+          "changed_since"
+        ],
+        "title": "ProjectSupplyRelease",
         "type": "object"
       },
       "ProjectTracked": {
@@ -24560,6 +26014,382 @@
         "title": "RejectManyRequest",
         "type": "object"
       },
+      "ReleaseAssessment": {
+        "additionalProperties": true,
+        "properties": {
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/ReleaseCheckLine"
+            },
+            "title": "Attention",
+            "type": "array"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReleaseCheckLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "needing_a_look": {
+            "title": "Needing A Look",
+            "type": "integer"
+          },
+          "not_tracked": {
+            "title": "Not Tracked",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "integer"
+          },
+          "without_number": {
+            "description": "Rows of the BOM that name no part number, which the check cannot look at.",
+            "title": "Without Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "health",
+          "status",
+          "parts",
+          "tracked",
+          "not_tracked",
+          "needing_a_look",
+          "attention",
+          "lines",
+          "without_number"
+        ],
+        "title": "ReleaseAssessment",
+        "type": "object"
+      },
+      "ReleaseBomKept": {
+        "additionalProperties": true,
+        "properties": {
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "boolean"
+          },
+          "without_number": {
+            "title": "Without Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stored",
+          "parts",
+          "without_number"
+        ],
+        "title": "ReleaseBomKept",
+        "type": "object"
+      },
+      "ReleaseCheckLine": {
+        "additionalProperties": true,
+        "properties": {
+          "alternates": {
+            "description": "The approved alternates the line may be built with.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Alternates",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ReleaseFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "no_mpn",
+              "unknown",
+              "ambiguous",
+              "tracked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "warning",
+                  "error",
+                  "fatal",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "status_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The alternate the status is told by, when it is better than the line's own part.",
+            "title": "Status From"
+          },
+          "waived": {
+            "title": "Waived",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "manufacturer",
+          "mpn",
+          "quantity",
+          "state",
+          "part_id",
+          "health",
+          "status",
+          "findings",
+          "waived",
+          "alternates",
+          "status_from"
+        ],
+        "title": "ReleaseCheckLine",
+        "type": "object"
+      },
+      "ReleaseCheckResult": {
+        "additionalProperties": true,
+        "properties": {
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/ReleaseCheckLine"
+            },
+            "title": "Attention",
+            "type": "array"
+          },
+          "available": {
+            "const": true,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReleaseCheckLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "needing_a_look": {
+            "title": "Needing A Look",
+            "type": "integer"
+          },
+          "not_tracked": {
+            "title": "Not Tracked",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "integer"
+          },
+          "without_number": {
+            "description": "Rows of the BOM that name no part number, which the check cannot look at.",
+            "title": "Without Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "health",
+          "status",
+          "parts",
+          "tracked",
+          "not_tracked",
+          "needing_a_look",
+          "attention",
+          "lines",
+          "without_number",
+          "available"
+        ],
+        "title": "ReleaseCheckResult",
+        "type": "object"
+      },
+      "ReleaseCheckUnavailable": {
+        "additionalProperties": true,
+        "properties": {
+          "available": {
+            "const": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "reason"
+        ],
+        "title": "ReleaseCheckUnavailable",
+        "type": "object"
+      },
+      "ReleaseCompliance": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/ComplianceDraft"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "created_at",
+          "draft"
+        ],
+        "title": "ReleaseCompliance",
+        "type": "object"
+      },
+      "ReleaseFinding": {
+        "additionalProperties": true,
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "severity",
+          "text"
+        ],
+        "title": "ReleaseFinding",
+        "type": "object"
+      },
       "ReleaseQueuePage": {
         "additionalProperties": true,
         "properties": {
@@ -24623,6 +26453,90 @@
           "blocked"
         ],
         "title": "ReleaseQueueSummary",
+        "type": "object"
+      },
+      "ReleaseSnapshot": {
+        "additionalProperties": true,
+        "description": "The supply check frozen when a release was published.",
+        "properties": {
+          "assessment": {
+            "$ref": "#/components/schemas/ReleaseAssessment"
+          },
+          "build_id": {
+            "title": "Build Id",
+            "type": "string"
+          },
+          "commit_sha": {
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "compliance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComplianceDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "build_id",
+          "tag",
+          "commit_sha",
+          "created_by",
+          "created_at",
+          "health",
+          "status",
+          "assessment",
+          "compliance"
+        ],
+        "title": "ReleaseSnapshot",
         "type": "object"
       },
       "ReleaseStatusRequest": {
@@ -58856,9 +60770,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Project Parts Page",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectPartsPage"
                 }
               }
             },
@@ -58910,9 +60822,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Release Check For",
-                  "type": "object"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ReleaseCheckResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReleaseCheckUnavailable"
+                    }
+                  ],
+                  "title": "Response Release Check For"
                 }
               }
             },
@@ -58964,9 +60882,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Read Release Bom",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ReleaseBomKept"
                 }
               }
             },
@@ -59029,11 +60945,12 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Release Compliance"
+                  "$ref": "#/components/schemas/ReleaseCompliance"
                 }
-              }
+              },
+              "text/csv": {}
             },
-            "description": "Successful Response"
+            "description": "The draft as JSON, or as CSV with format=csv."
           },
           "422": {
             "content": {
@@ -59080,9 +60997,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Release Snapshot",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ReleaseSnapshot"
                 }
               }
             },
@@ -59134,9 +61049,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Release Snapshot Status",
-                  "type": "object"
+                  "$ref": "#/components/schemas/JobProgress"
                 }
               }
             },
@@ -59219,9 +61132,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Project Overview",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectSupply"
                 }
               }
             },
