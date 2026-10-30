@@ -2168,6 +2168,103 @@
         "title": "BomRead",
         "type": "object"
       },
+      "BomSkippedLine": {
+        "additionalProperties": true,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "no_mpn",
+              "not_in_library",
+              "needs_choice"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "reason"
+        ],
+        "title": "BomSkippedLine",
+        "type": "object"
+      },
+      "BomWatchPreview": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetShare"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "fits_nowhere": {
+            "description": "Nothing the change adds fits at any connector.",
+            "title": "Fits Nowhere",
+            "type": "boolean"
+          },
+          "watched": {
+            "$ref": "#/components/schemas/SupplyBomWatchResult"
+          }
+        },
+        "required": [
+          "connectors",
+          "fits_nowhere",
+          "watched"
+        ],
+        "title": "BomWatchPreview",
+        "type": "object"
+      },
+      "BomWatched": {
+        "additionalProperties": true,
+        "properties": {
+          "already_watched": {
+            "title": "Already Watched",
+            "type": "integer"
+          },
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetShare"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "fits_nowhere": {
+            "title": "Fits Nowhere",
+            "type": "boolean"
+          },
+          "lcsc_linked": {
+            "description": "LCSC numbers on the lines newly linked to their parts.",
+            "title": "Lcsc Linked",
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/BomSkippedLine"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "watched": {
+            "title": "Watched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "watched",
+          "already_watched",
+          "lcsc_linked",
+          "skipped",
+          "connectors",
+          "fits_nowhere"
+        ],
+        "title": "BomWatched",
+        "type": "object"
+      },
       "BudgetCall": {
         "additionalProperties": true,
         "properties": {
@@ -8411,6 +8508,24 @@
           "items"
         ],
         "title": "ComponentRevisionPage",
+        "type": "object"
+      },
+      "ComponentStandings": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SupplyComponentStanding"
+            },
+            "description": "By component id.",
+            "title": "Items",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ComponentStandings",
         "type": "object"
       },
       "ComponentUsage": {
@@ -15175,6 +15290,23 @@
         "title": "Items[SupplyAlert]",
         "type": "object"
       },
+      "Items_SupplyBomComment_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyBomComment"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyBomComment]",
+        "type": "object"
+      },
       "Items_SupplyCapacity_": {
         "additionalProperties": true,
         "properties": {
@@ -16844,6 +16976,53 @@
           "component_id"
         ],
         "title": "LibraryComponentOf",
+        "type": "object"
+      },
+      "LineAssessment": {
+        "additionalProperties": true,
+        "properties": {
+          "checks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Health"
+          },
+          "open": {
+            "description": "Findings that still count.",
+            "title": "Open",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "health",
+          "status",
+          "open",
+          "checks"
+        ],
+        "title": "LineAssessment",
         "type": "object"
       },
       "LineCandidate": {
@@ -19367,6 +19546,31 @@
         "title": "NewWorkItem",
         "type": "object"
       },
+      "NextBreak": {
+        "additionalProperties": true,
+        "properties": {
+          "extra": {
+            "description": "What buying that many costs in total against the order; negative is cheaper.",
+            "title": "Extra",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "unit_price": {
+            "title": "Unit Price",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quantity",
+          "unit_price",
+          "extra"
+        ],
+        "title": "NextBreak",
+        "type": "object"
+      },
       "NoticeAdded": {
         "additionalProperties": true,
         "properties": {
@@ -21618,6 +21822,36 @@
         "title": "PreferredIn",
         "type": "object"
       },
+      "PreferredStanding": {
+        "additionalProperties": true,
+        "description": "The distributor a person prefers for a part, and what it holds.",
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "connector_name": {
+            "title": "Connector Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "connector_name",
+          "provider",
+          "stock"
+        ],
+        "title": "PreferredStanding",
+        "type": "object"
+      },
       "PriceDay": {
         "additionalProperties": true,
         "properties": {
@@ -22563,7 +22797,7 @@
         "properties": {
           "all_variants": {
             "default": false,
-            "description": "Follow every design the project has, also those it gets later (variants is then ignored).",
+            "description": "Follow every design the project has, also those it gets later; variants is then ignored.",
             "title": "All Variants",
             "type": "boolean"
           },
@@ -26845,6 +27079,7 @@
         "type": "object"
       },
       "SheetRows": {
+        "additionalProperties": true,
         "properties": {
           "rows": {
             "items": {
@@ -27432,6 +27667,8 @@
         "type": "object"
       },
       "StoresState": {
+        "additionalProperties": true,
+        "description": "What the stores hold of a component: the same four states on every screen.",
         "properties": {
           "available": {
             "anyOf": [
@@ -27442,6 +27679,7 @@
                 "type": "null"
               }
             ],
+            "description": "Usable now (OK, at our locations, less allocated); null when none is held or units are mixed.",
             "title": "Available"
           },
           "since": {
@@ -27453,9 +27691,16 @@
                 "type": "null"
               }
             ],
+            "description": "The last good read of a feed that is down.",
             "title": "Since"
           },
           "state": {
+            "enum": [
+              "stock",
+              "none",
+              "not_connected",
+              "down"
+            ],
             "title": "State",
             "type": "string"
           }
@@ -27742,6 +27987,778 @@
         "title": "SupplyAlert",
         "type": "object"
       },
+      "SupplyBomAlternate": {
+        "additionalProperties": true,
+        "description": "An approved alternate of a line's component. Its stock and offers count for the line.",
+        "properties": {
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          }
+        },
+        "required": [
+          "part_id",
+          "manufacturer",
+          "mpn",
+          "stock",
+          "status"
+        ],
+        "title": "SupplyBomAlternate",
+        "type": "object"
+      },
+      "SupplyBomBuy": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_name": {
+            "title": "Connector Name",
+            "type": "string"
+          },
+          "covers": {
+            "description": "False when no offer holds enough stock; the cheapest is shown anyway.",
+            "title": "Covers",
+            "type": "boolean"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "extended": {
+            "title": "Extended",
+            "type": "string"
+          },
+          "in_base": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The extended price in the workspace's currency, when it can be told.",
+            "title": "In Base"
+          },
+          "next_break": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextBreak"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part bought: the line's own, or the approved alternate whose offer won.",
+            "title": "Part Id"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "What must be ordered: the need rounded up to the minimum order and multiples.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          },
+          "test_data": {
+            "title": "Test Data",
+            "type": "boolean"
+          },
+          "unit_price": {
+            "title": "Unit Price",
+            "type": "string"
+          },
+          "waste": {
+            "description": "Pieces bought beyond the need, because of the smallest order and its multiples.",
+            "title": "Waste",
+            "type": "integer"
+          },
+          "waste_cost": {
+            "title": "Waste Cost",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quantity",
+          "unit_price",
+          "currency",
+          "extended",
+          "in_base",
+          "covers",
+          "connector_name",
+          "provider",
+          "test_data",
+          "sku",
+          "product_url",
+          "waste",
+          "waste_cost",
+          "next_break",
+          "part_id"
+        ],
+        "title": "SupplyBomBuy",
+        "type": "object"
+      },
+      "SupplyBomComment": {
+        "additionalProperties": true,
+        "description": "A note on a line of a project's BOM.",
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "author_name": {
+            "title": "Author Name",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "line_key": {
+            "title": "Line Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "line_key",
+          "body",
+          "author",
+          "author_name",
+          "created_at"
+        ],
+        "title": "SupplyBomComment",
+        "type": "object"
+      },
+      "SupplyBomLineResult": {
+        "additionalProperties": true,
+        "description": "One line of a lookup. A line without a part has only the first fields.",
+        "properties": {
+          "alternates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SupplyBomAlternate"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alternates"
+          },
+          "assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineAssessment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bought_with": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On the later lines of a part: the key of the line that carries the purchase.",
+            "title": "Bought With"
+          },
+          "buy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyBomBuy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "in_library": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether a catalog component has the line; null for a line without a part number.",
+            "title": "In Library"
+          },
+          "jlc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JlcClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_time_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Days"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "nrnd",
+                  "last_time_buy",
+                  "obsolete",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle"
+          },
+          "manufacturer_match": {
+            "anyOf": [
+              {
+                "enum": [
+                  "exact",
+                  "missing",
+                  "unmatched",
+                  "lcsc"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the manufacturer matched: missing and unmatched mean the part number alone found it; lcsc the symbol's LCSC number.",
+            "title": "Manufacturer Match"
+          },
+          "need": {
+            "title": "Need",
+            "type": "integer"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "part_need": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the whole part needs when it is on several lines.",
+            "title": "Part Need"
+          },
+          "preferred": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreferredStanding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_found",
+                  "gone"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "short": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short"
+          },
+          "state": {
+            "enum": [
+              "no_mpn",
+              "unknown",
+              "ambiguous",
+              "tracked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "warning",
+                  "error",
+                  "fatal",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "status_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The alternate the status is told by, when it is better than the line's own part.",
+            "title": "Status From"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          },
+          "stores": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoresState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stores state of the line's catalog component."
+          },
+          "usable": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Distributor stock plus available stores stock.",
+            "title": "Usable"
+          },
+          "watched": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watched"
+          }
+        },
+        "required": [
+          "state",
+          "part_id",
+          "manufacturer_match",
+          "in_library",
+          "need",
+          "stores"
+        ],
+        "title": "SupplyBomLineResult",
+        "type": "object"
+      },
+      "SupplyBomLookup": {
+        "additionalProperties": true,
+        "properties": {
+          "attrition_by_part": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attrition By Part"
+          },
+          "attrition_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The spares it priced with, a percent; null is by kind of part.",
+            "title": "Attrition Percent"
+          },
+          "build_quantity": {
+            "title": "Build Quantity",
+            "type": "integer"
+          },
+          "lines": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SupplyBomLineResult"
+            },
+            "title": "Lines",
+            "type": "object"
+          },
+          "rollup": {
+            "$ref": "#/components/schemas/SupplyBomRollup"
+          }
+        },
+        "required": [
+          "build_quantity",
+          "attrition_percent",
+          "attrition_by_part",
+          "lines",
+          "rollup"
+        ],
+        "title": "SupplyBomLookup",
+        "type": "object"
+      },
+      "SupplyBomRollup": {
+        "additionalProperties": true,
+        "properties": {
+          "at_risk": {
+            "description": "Parts whose status is error or fatal.",
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "can_build": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Build"
+          },
+          "converted": {
+            "title": "Converted",
+            "type": "boolean"
+          },
+          "cost_build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Build"
+          },
+          "cost_per_board": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Board"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0 to 10, weighted by units needed; null when nothing has data.",
+            "title": "Health"
+          },
+          "health_status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Health Status",
+            "type": "string"
+          },
+          "limited_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limited By"
+          },
+          "lines": {
+            "title": "Lines",
+            "type": "integer"
+          },
+          "lines_priced": {
+            "description": "How many lines the cost covers.",
+            "title": "Lines Priced",
+            "type": "integer"
+          },
+          "needs_a_look": {
+            "title": "Needs A Look",
+            "type": "integer"
+          },
+          "not_tracked": {
+            "title": "Not Tracked",
+            "type": "integer"
+          },
+          "original_costs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Before conversion, per currency; empty when nothing was converted.",
+            "title": "Original Costs",
+            "type": "object"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "priced": {
+            "title": "Priced",
+            "type": "integer"
+          },
+          "rates_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rates Day"
+          },
+          "short": {
+            "title": "Short",
+            "type": "integer"
+          },
+          "test_data": {
+            "title": "Test Data",
+            "type": "boolean"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "integer"
+          },
+          "waste_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waste Cost"
+          },
+          "watched": {
+            "title": "Watched",
+            "type": "integer"
+          },
+          "without_stock_data": {
+            "title": "Without Stock Data",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lines",
+          "tracked",
+          "not_tracked",
+          "watched",
+          "at_risk",
+          "needs_a_look",
+          "short",
+          "priced",
+          "lines_priced",
+          "currency",
+          "converted",
+          "test_data",
+          "rates_day",
+          "cost_build",
+          "original_costs",
+          "waste_cost",
+          "cost_per_board",
+          "can_build",
+          "limited_by",
+          "without_stock_data",
+          "parts",
+          "health",
+          "health_status"
+        ],
+        "title": "SupplyBomRollup",
+        "type": "object"
+      },
+      "SupplyBomWatchResult": {
+        "additionalProperties": true,
+        "properties": {
+          "already_watched": {
+            "title": "Already Watched",
+            "type": "integer"
+          },
+          "lcsc_linked": {
+            "description": "LCSC numbers on the lines newly linked to their parts.",
+            "title": "Lcsc Linked",
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/BomSkippedLine"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "watched": {
+            "title": "Watched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "watched",
+          "already_watched",
+          "lcsc_linked",
+          "skipped"
+        ],
+        "title": "SupplyBomWatchResult",
+        "type": "object"
+      },
       "SupplyCapacity": {
         "additionalProperties": true,
         "properties": {
@@ -27943,6 +28960,114 @@
           "reason"
         ],
         "title": "SupplyComplianceState",
+        "type": "object"
+      },
+      "SupplyComponentStanding": {
+        "additionalProperties": true,
+        "description": "Where a catalog component stands, for the catalog table.",
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "local_available": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Usable stores stock; absent when the stores hold none, null when units are mixed.",
+            "title": "Local Available"
+          },
+          "restriction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_for_new_designs",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restriction"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the distributors hold, summed.",
+            "title": "Stock"
+          },
+          "stores": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoresState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test_data": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From a simulated connector: test data, marked wherever it shows.",
+            "title": "Test Data"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The main part's headline unit price at the distributors.",
+            "title": "Unit Price"
+          },
+          "watched": {
+            "title": "Watched",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "stock",
+          "watched",
+          "unit_price",
+          "currency",
+          "restriction"
+        ],
+        "title": "SupplyComponentStanding",
         "type": "object"
       },
       "SupplyComponentWatch": {
@@ -33360,6 +34485,61 @@
           "role"
         ],
         "title": "UpsertRoleRequest",
+        "type": "object"
+      },
+      "UsageBuild": {
+        "additionalProperties": true,
+        "properties": {
+          "missing": {
+            "description": "Projects without a semantic index.",
+            "title": "Missing",
+            "type": "integer"
+          },
+          "projects": {
+            "title": "Projects",
+            "type": "integer"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projects",
+          "missing",
+          "queued"
+        ],
+        "title": "UsageBuild",
+        "type": "object"
+      },
+      "UsageRefreshed": {
+        "additionalProperties": true,
+        "description": "Projects whose BOM usage was read again, left as it was, without a semantic index, and removed.",
+        "properties": {
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          },
+          "without_index": {
+            "title": "Without Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "updated",
+          "unchanged",
+          "without_index",
+          "removed"
+        ],
+        "title": "UsageRefreshed",
         "type": "object"
       },
       "UserPasswordDeletedResponse": {
@@ -52941,9 +54121,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Components Status",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ComponentStandings"
                 }
               }
             },
@@ -52985,9 +54163,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Lookup",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyBomLookup"
                 }
               }
             },
@@ -53061,11 +54237,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Build Usage",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UsageBuild"
                 }
               }
             },
@@ -53087,11 +54259,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Refresh Usage",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UsageRefreshed"
                 }
               }
             },
@@ -53123,9 +54291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Watch",
-                  "type": "object"
+                  "$ref": "#/components/schemas/BomWatched"
                 }
               }
             },
@@ -53167,9 +54333,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Preview Watch",
-                  "type": "object"
+                  "$ref": "#/components/schemas/BomWatchPreview"
                 }
               }
             },
@@ -57372,9 +58536,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Comments",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyBomComment_"
                 }
               }
             },
@@ -57424,9 +58586,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Comment",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyBomComment"
                 }
               }
             },

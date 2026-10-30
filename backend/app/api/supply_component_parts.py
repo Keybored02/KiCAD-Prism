@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_call import run_supply as _run
+from app.api.supply_models import StoresState
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import component_parts
 from app.services.supply.inventory import levels
@@ -123,14 +124,6 @@ class LocalStockRow(BaseModel):
     stale: bool
     fetched_at: str
     updated_at: str
-
-
-class StoresState(BaseModel):
-    # stock, none, not_connected or down: the same words on every screen.
-    state: str
-    available: float | None
-    # The last good read of a feed that is down.
-    since: str | None
 
 
 class LocalStock(BaseModel):

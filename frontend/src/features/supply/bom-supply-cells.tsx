@@ -58,7 +58,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
         >
           {formatStock(result.stock)}
           <span className="text-muted-foreground"> / {(result.part_need ?? result.need).toLocaleString()}</span>
-          <AlternatesNote alternates={result.alternates} statusFrom={result.status_from} />
+          <AlternatesNote alternates={result.alternates ?? undefined} statusFrom={result.status_from} />
         </span>
       );
     case "Unit price":

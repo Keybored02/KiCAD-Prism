@@ -6,11 +6,12 @@ from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
+from app.api.supply_bom_models import CommentIn, SupplyBomComment
 from app.api.supply_call import run_supply
+from app.api.supply_models import Items
 from app.core.security import AuthenticatedUser, require_supply_commenter, require_supply_reader
 from app.services.supply import bom_comments
 
@@ -18,18 +19,11 @@ router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
 _run = partial(run_supply, invalid="invalid_comment")
 
 
-class CommentIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    line_key: str = Field(min_length=1, max_length=bom_comments.MAX_KEY)
-    body: str = Field(min_length=1, max_length=bom_comments.MAX_BODY)
-
-
 def _store():
     return supply_connectors.service.store
 
 
-@router.get("/{project_id}/bom-comments")
+@router.get("/{project_id}/bom-comments", response_model=Items[SupplyBomComment])
 async def list_comments(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 
@@ -40,7 +34,7 @@ async def list_comments(project_id: str, user: AuthenticatedUser = Depends(requi
     return await _run(read)
 
 
-@router.post("/{project_id}/bom-comments", status_code=201)
+@router.post("/{project_id}/bom-comments", status_code=201, response_model=SupplyBomComment)
 async def add_comment(project_id: str, body: CommentIn, user: AuthenticatedUser = Depends(require_supply_commenter)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 

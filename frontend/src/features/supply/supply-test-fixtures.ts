@@ -1,6 +1,6 @@
 import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 import type {
-  PartPrice, RowDistributor, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
+  PartPrice, RowDistributor, SupplyBomBuy, SupplyBomLineResult, SupplyBomRollup, SupplyComponentStanding, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
 } from "@/types/supply.generated";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
@@ -248,4 +248,27 @@ export function dashboardFixture(overrides: Partial<SupplyDashboard> = {}): Supp
     projects: [],
     ...overrides,
   };
+}
+
+export function bomLineFixture(overrides: Partial<SupplyBomLineResult> = {}): SupplyBomLineResult {
+  return { state: "tracked", part_id: "p1", manufacturer_match: "exact", in_library: true, need: 1, stores: null, ...overrides };
+}
+
+export function bomBuyFixture(overrides: Partial<SupplyBomBuy> = {}): SupplyBomBuy {
+  return {
+    quantity: 1, unit_price: "1", currency: "EUR", extended: "1", in_base: "1", covers: true, connector_name: "Mouser", provider: "mouser",
+    test_data: false, sku: "SKU-1", product_url: "", waste: 0, waste_cost: "0", next_break: null, part_id: "p1", ...overrides,
+  };
+}
+
+export function bomRollupFixture(overrides: Partial<SupplyBomRollup> = {}): SupplyBomRollup {
+  return {
+    lines: 0, tracked: 0, not_tracked: 0, watched: 0, at_risk: 0, needs_a_look: 0, short: 0, priced: 0, lines_priced: 0, currency: null,
+    converted: false, test_data: false, rates_day: null, cost_build: null, original_costs: {}, waste_cost: null, cost_per_board: null,
+    can_build: null, limited_by: null, without_stock_data: 0, parts: 0, health: null, health_status: "unknown", ...overrides,
+  };
+}
+
+export function standingFixture(overrides: Partial<SupplyComponentStanding> = {}): SupplyComponentStanding {
+  return { status: "unknown", stock: null, watched: false, unit_price: null, currency: "", restriction: null, ...overrides };
 }

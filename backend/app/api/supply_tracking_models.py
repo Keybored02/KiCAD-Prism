@@ -26,7 +26,7 @@ class ProjectIn(BaseModel):
                                 description="The designs to follow: '' is the base design, the rest are named variants.")
     connector_ids: Optional[list[str]] = Field(default=None, max_length=50,
                                                description="The distributors the project is bought from; null means all but the assembly-only ones.")
-    all_variants: bool = Field(default=False, description="Follow every design the project has, also those it gets later (variants is then ignored).")
+    all_variants: bool = Field(default=False, description="Follow every design the project has, also those it gets later; variants is then ignored.")
     packaging: ProjectPackaging = Field(default="cut_tape", description="The packaging the project prefers: decides which listing is followed.")
     build_quantity: Optional[int] = Field(default=None, ge=1, le=1_000_000,
                                           description="The usual build, in boards. Null keeps the one it has (100 for a new project).")

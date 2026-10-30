@@ -1,7 +1,7 @@
-import type { AssessmentSettings, ComponentRestriction, JlcClass, SupplyAlert, SupplyChoice, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, StoresState, SupplyAlert, SupplyBomAlternate, SupplyBomComment, SupplyBomLineResult, SupplyBomRollup, SupplyChoice, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectTrackingPreview, ProjectTrackingState, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, SubstitutesAsked, SupplyAlert, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectTrackingPreview, ProjectTrackingState, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, StoresState, SubstitutesAsked, SupplyAlert, SupplyBomAlternate, SupplyBomBuy, SupplyBomComment, SupplyBomLineResult, SupplyBomLookup, SupplyBomRollup, SupplyBomWatchResult, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentStanding, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
@@ -58,45 +58,6 @@ export interface SupplyMarketHistory {
   series: Array<{ kind: "all" | "manufacturer" | "category"; scope: string; sample: number; points: Array<[string, number]> }>;
 }
 
-/** What the stores hold of a component: the same four states on every screen (UX-03). */
-export interface StoresState {
-  state: "stock" | "none" | "not_connected" | "down";
-  /** Usable now (OK, at our locations, less allocated); null when none is held or units are mixed. */
-  available: number | null;
-  /** The last good read of a feed that is down. */
-  since: string | null;
-}
-
-/** Where a catalog component stands, for the catalog table. */
-export interface SupplyComponentStanding {
-  status: SupplyStatus;
-  /** What the distributors hold, summed. */
-  stock: number | null;
-  watched: boolean;
-  /** The main part's headline unit price at the distributors. */
-  unit_price?: string | null;
-  currency?: string;
-  /** From a simulated connector: test data, marked wherever it shows. */
-  test_data?: boolean;
-  /** Usable local stock (OK, at our locations, less allocated); absent when the local inventory holds none, null when units are mixed. */
-  local_available?: number | null;
-  stores?: StoresState;
-  /** What the library decided about the component: marked for no new designs, or retired. */
-  restriction?: RestrictionLevel | null;
-}
-
-/** RoHS and REACH of a part, and the substances a supplier declared for it. */
-/** A note on a line of a project's BOM. */
-export interface SupplyBomComment {
-  id: string;
-  line_key: string;
-  body: string;
-  author: string;
-  author_name: string;
-  created_at: string;
-}
-
-
 /** One distinct part on a BOM: what goes into a lookup. `quantity` is fitted parts per board. */
 export interface BomLineInput {
   key: string;
@@ -110,126 +71,6 @@ export interface BomLineInput {
   /** The symbol's value (10k) and the footprint's name, checked against the distributor's value and package. */
   value?: string;
   footprint?: string;
-}
-
-export interface SupplyBomBuy {
-  /** What must be ordered: the need rounded up to the minimum order and multiples. */
-  quantity: number;
-  unit_price: string;
-  currency: string;
-  extended: string;
-  /** False when no offer holds enough stock; the cheapest is shown anyway. */
-  covers: boolean;
-  connector_name: string;
-  /** The connector's provider key, for its colour. */
-  provider?: string;
-  /** From a simulated connector: test data, marked wherever it shows. */
-  test_data?: boolean;
-  sku: string;
-  product_url: string;
-  /** Pieces bought beyond the need, because of the smallest order and its multiples, and their cost. */
-  waste?: number;
-  waste_cost?: string;
-  /** The next price break above the order; `extra` is what buying that many costs in total against the order (negative: cheaper). */
-  next_break?: { quantity: number; unit_price: string; extra: string } | null;
-  /** The part bought: the line's own, or the approved alternate whose offer won. */
-  part_id?: string | null;
-}
-
-/** An approved alternate of a line's component. Its stock and offers count for the line. */
-export interface SupplyBomAlternate {
-  part_id: string;
-  manufacturer: string;
-  mpn: string;
-  stock: number | null;
-  status: SupplyStatus;
-}
-
-export interface SupplyBomLineResult {
-  jlc?: JlcClass | null;
-  /** "tracked" has data; the rest say why a line has none. */
-  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
-  part_id: string | null;
-  /** The stores state of the line's catalog component; absent when the line has none. */
-  stores?: StoresState | null;
-  /** Distributor stock plus available stores stock: what the build can draw on. */
-  usable?: number | null;
-  /** How the manufacturer matched: "missing" and "unmatched" mean the part number alone found it; "lcsc" the symbol's LCSC number. */
-  manufacturer_match: "exact" | "missing" | "unmatched" | "lcsc" | null;
-  /** Whether a catalog component has the line; null for a line without a part number. Only library parts are tracked. */
-  in_library?: boolean | null;
-  need: number;
-  watched?: boolean;
-  status?: SupplyStatus;
-  problem?: SupplyProblem | null;
-  stock?: number | null;
-  lifecycle?: SupplyLifecycle;
-  lead_time_days?: number | null;
-  fetched_at?: string | null;
-  /** What the whole part needs when it is on several lines; `need` is this line's own. */
-  part_need?: number;
-  short?: boolean;
-  buy?: SupplyBomBuy | null;
-  /** Set on the later lines of a part: the key of the line that carries the purchase. */
-  bought_with?: string | null;
-  /** The distributor a person prefers for the part, and what it holds. */
-  preferred?: { connector_id: string; connector_name: string; provider: string; stock: number } | null;
-  /** How the part stands: its health, status and how many findings still count. */
-  assessment?: { health: number; status: SupplyStatus; open: number; checks?: string[] };
-  /** The component's approved alternates; `stock` and `buy` count them. */
-  alternates?: SupplyBomAlternate[];
-  /** The alternate the status is told by, when it is better than the line's own part. */
-  status_from?: string | null;
-}
-
-export interface SupplyBomRollup {
-  /** Some of the cost comes from a simulated connector. */
-  test_data?: boolean;
-  lines: number;
-  tracked: number;
-  not_tracked: number;
-  watched: number;
-  /** Parts whose status is error or fatal. */
-  at_risk: number;
-  /** Parts with a warning as well: at risk and those that only need a look. */
-  needs_a_look?: number;
-  short: number;
-  priced: number;
-  /** How many lines the cost covers. */
-  lines_priced: number;
-  parts: number;
-  currency: string | null;
-  /** True when the total was converted to the base currency; `rates_day` says which day's rates. */
-  converted?: boolean;
-  rates_day?: string | null;
-  cost_build: string | null;
-  /** Before conversion, per currency the offers are quoted in; empty when nothing was converted. */
-  original_costs?: Record<string, string>;
-  cost_per_board: string | null;
-  /** What rounding to smallest orders and multiples buys beyond the need, in the total's currency. */
-  waste_cost?: string | null;
-  can_build: number | null;
-  limited_by: string | null;
-  without_stock_data: number;
-  /** 0 to 10, weighted by units needed; null when nothing has data. */
-  health: number | null;
-  health_status: SupplyStatus;
-}
-
-export interface SupplyBomLookup {
-  build_quantity: number;
-  /** The spares it priced with, a percent; null is by kind of part. */
-  attrition_percent?: number | null;
-  lines: Record<string, SupplyBomLineResult>;
-  rollup: SupplyBomRollup;
-}
-
-export interface SupplyBomWatchResult {
-  watched: number;
-  already_watched: number;
-  /** LCSC numbers on the lines newly linked to their parts. */
-  lcsc_linked?: number;
-  skipped: Array<{ key: string; reason: "no_mpn" | "no_manufacturer" | "unknown_manufacturer" }>;
 }
 
 /** A spelling a distributor used that maps to no manufacturer yet. */

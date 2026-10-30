@@ -392,6 +392,26 @@ class BomRead(TypedDict, total=False):
     total: int
 
 
+class BomSkippedLine(TypedDict, total=True):
+    key: str
+    reason: str
+
+
+class BomWatchPreview(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    watched: SupplyBomWatchResult
+
+
+class BomWatched(TypedDict, total=True):
+    already_watched: int
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    lcsc_linked: int
+    skipped: list[BomSkippedLine]
+    watched: int
+
+
 class BudgetCall(TypedDict, total=False):
     calls: int
     day: str | None
@@ -1465,6 +1485,10 @@ class ComponentRevision(TypedDict, total=True):
 
 class ComponentRevisionPage(TypedDict, total=True):
     items: list[ComponentRevision]
+
+
+class ComponentStandings(TypedDict, total=True):
+    items: dict[str, SupplyComponentStanding]
 
 
 class ComponentUsage(TypedDict, total=True):
@@ -2731,6 +2755,10 @@ class Items_SupplyAlert_(TypedDict, total=True):
     items: list[SupplyAlert]
 
 
+class Items_SupplyBomComment_(TypedDict, total=True):
+    items: list[SupplyBomComment]
+
+
 class Items_SupplyCapacity_(TypedDict, total=True):
     items: list[SupplyCapacity]
 
@@ -3016,6 +3044,13 @@ class Leadership(TypedDict, total=True):
 
 class LibraryComponentOf(TypedDict, total=True):
     component_id: str | None
+
+
+class LineAssessment(TypedDict, total=True):
+    checks: list[str]
+    health: int | float
+    open: int
+    status: str
 
 
 class LineCandidate(TypedDict, total=True):
@@ -3510,6 +3545,12 @@ class NewWorkItem(TypedDict, total=False):
     title: str
 
 
+class NextBreak(TypedDict, total=True):
+    extra: str
+    quantity: int
+    unit_price: str
+
+
 class NoticeAdded(TypedDict, total=True):
     id: str
 
@@ -3920,6 +3961,14 @@ class PoolAndWorkers(TypedDict, total=True):
 
 class PreferredIn(TypedDict, total=True):
     connector_id: str
+
+
+class PreferredStanding(TypedDict, total=True):
+    """The distributor a person prefers for a part, and what it holds."""
+    connector_id: str
+    connector_name: str
+    provider: str
+    stock: int
 
 
 class PriceDay(TypedDict, total=True):
@@ -5047,6 +5096,7 @@ class StockDay(TypedDict, total=True):
 
 
 class StoresState(TypedDict, total=True):
+    """What the stores hold of a component: the same four states on every screen."""
     available: float | None
     since: str | None
     state: str
@@ -5104,6 +5154,111 @@ class SupplyAlert(TypedDict, total=True):
     state: str
 
 
+class SupplyBomAlternate(TypedDict, total=True):
+    """An approved alternate of a line's component. Its stock and offers count for the line."""
+    manufacturer: str
+    mpn: str
+    part_id: str
+    status: str
+    stock: int | None
+
+
+class SupplyBomBuy(TypedDict, total=True):
+    connector_name: str
+    covers: bool
+    currency: str
+    extended: str
+    in_base: str | None
+    next_break: NextBreak | None
+    part_id: str | None
+    product_url: str
+    provider: str
+    quantity: int
+    sku: str
+    test_data: bool
+    unit_price: str
+    waste: int
+    waste_cost: str
+
+
+class SupplyBomComment(TypedDict, total=True):
+    """A note on a line of a project's BOM."""
+    author: str
+    author_name: str
+    body: str
+    created_at: str
+    id: str
+    line_key: str
+
+
+class SupplyBomLineResult(TypedDict, total=False):
+    """One line of a lookup. A line without a part has only the first fields."""
+    alternates: list[SupplyBomAlternate] | None
+    assessment: LineAssessment | None
+    bought_with: str | None
+    buy: SupplyBomBuy | None
+    fetched_at: str | None
+    in_library: bool | None
+    jlc: JlcClass | None
+    lead_time_days: int | None
+    lifecycle: str | None
+    manufacturer_match: str | None
+    need: int
+    part_id: str | None
+    part_need: int | None
+    preferred: PreferredStanding | None
+    problem: str | None
+    short: bool | None
+    state: str
+    status: str | None
+    status_from: str | None
+    stock: int | None
+    stores: StoresState | None
+    usable: int | None
+    watched: bool | None
+
+
+class SupplyBomLookup(TypedDict, total=True):
+    attrition_by_part: dict[str, float] | None
+    attrition_percent: float | None
+    build_quantity: int
+    lines: dict[str, SupplyBomLineResult]
+    rollup: SupplyBomRollup
+
+
+class SupplyBomRollup(TypedDict, total=True):
+    at_risk: int
+    can_build: int | None
+    converted: bool
+    cost_build: str | None
+    cost_per_board: str | None
+    currency: str | None
+    health: int | float | None
+    health_status: str
+    limited_by: str | None
+    lines: int
+    lines_priced: int
+    needs_a_look: int
+    not_tracked: int
+    original_costs: dict[str, str]
+    parts: int
+    priced: int
+    rates_day: str | None
+    short: int
+    test_data: bool
+    tracked: int
+    waste_cost: str | None
+    watched: int
+    without_stock_data: int
+
+
+class SupplyBomWatchResult(TypedDict, total=True):
+    already_watched: int
+    lcsc_linked: int
+    skipped: list[BomSkippedLine]
+    watched: int
+
+
 class SupplyCapacity(TypedDict, total=True):
     calls_per_day: int
     connector_id: str
@@ -5145,6 +5300,19 @@ class SupplyCompliance(TypedDict, total=True):
 class SupplyComplianceState(TypedDict, total=True):
     reason: str
     state: str
+
+
+class SupplyComponentStanding(TypedDict, total=False):
+    """Where a catalog component stands, for the catalog table."""
+    currency: str
+    local_available: float | None
+    restriction: str | None
+    status: str
+    stock: int | None
+    stores: StoresState | None
+    test_data: bool | None
+    unit_price: str | None
+    watched: bool
 
 
 class SupplyComponentWatch(TypedDict, total=True):
@@ -5971,6 +6139,20 @@ class UpsertRoleRequest(TypedDict, total=True):
     role: str
 
 
+class UsageBuild(TypedDict, total=True):
+    missing: int
+    projects: int
+    queued: int
+
+
+class UsageRefreshed(TypedDict, total=True):
+    """Projects whose BOM usage was read again, left as it was, without a semantic index, and removed."""
+    removed: int
+    unchanged: int
+    updated: int
+    without_index: int
+
+
 class UserPasswordDeletedResponse(TypedDict, total=True):
     deleted: bool
     email: str
@@ -6361,7 +6543,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> SupplyBomComment:
         """Add Comment"""
         return self._request(
             "POST",
@@ -6569,7 +6751,7 @@ class GeneratedClient:
             "/api/v1/supply/budget",
         )
 
-    def build_usage(self) -> dict[str, int]:
+    def build_usage(self) -> UsageBuild:
         """Build Usage"""
         return self._request(
             "POST",
@@ -6765,7 +6947,7 @@ class GeneratedClient:
             query={"category": category, "page": page, "page_size": page_size, "include_total": include_total},
         )
 
-    def components_status(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def components_status(self, *, body: dict[str, Any] | None = None) -> ComponentStandings:
         """Components Status"""
         return self._request(
             "POST",
@@ -8584,7 +8766,7 @@ class GeneratedClient:
             "/api/v1/remote-provider/categories",
         )
 
-    def list_comments(self, project_id: str) -> dict[str, Any]:
+    def list_comments(self, project_id: str) -> Items_SupplyBomComment_:
         """List Comments"""
         return self._request(
             "GET",
@@ -8943,7 +9125,7 @@ class GeneratedClient:
             "/api/v1/auth/logout",
         )
 
-    def lookup(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def lookup(self, *, body: dict[str, Any] | None = None) -> SupplyBomLookup:
         """Lookup"""
         return self._request(
             "POST",
@@ -9245,7 +9427,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def preview_watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def preview_watch(self, *, body: dict[str, Any] | None = None) -> BomWatchPreview:
         """Preview Watch"""
         return self._request(
             "POST",
@@ -9547,7 +9729,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def refresh_usage(self) -> dict[str, int]:
+    def refresh_usage(self) -> UsageRefreshed:
         """Refresh Usage"""
         return self._request(
             "POST",
@@ -10547,7 +10729,7 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
-    def watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def watch(self, *, body: dict[str, Any] | None = None) -> BomWatched:
         """Watch"""
         return self._request(
             "POST",

@@ -6,6 +6,7 @@ vi.mock("./catalog-supply-api", () => ({ getComponentsStatus: vi.fn() }));
 import { CatalogSupplyDot } from "./catalog-supply-dot";
 import * as api from "./catalog-supply-api";
 import { useCatalogSupply } from "./use-catalog-supply";
+import { standingFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 const rows = [
@@ -15,7 +16,7 @@ const rows = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.getComponentsStatus.mockResolvedValue({ c1: { status: "warning", stock: 40, watched: true } });
+  mocked.getComponentsStatus.mockResolvedValue({ c1: standingFixture({ status: "warning", stock: 40, watched: true }) });
 });
 afterEach(cleanup);
 
@@ -42,7 +43,7 @@ describe("supply status in the catalog", () => {
   });
 
   it("shows a dot for a tracked component and nothing otherwise", () => {
-    const { container, rerender } = render(<CatalogSupplyDot standing={{ status: "error", stock: 0, watched: true }} />);
+    const { container, rerender } = render(<CatalogSupplyDot standing={standingFixture({ status: "error", stock: 0, watched: true })} />);
     expect(screen.getByRole("img", { name: "At risk" })).toBeTruthy();
     expect(container.querySelector("[title]")?.getAttribute("title")).toBe("Watched, 0 in stock");
     rerender(<CatalogSupplyDot standing={undefined} />);

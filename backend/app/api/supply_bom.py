@@ -13,11 +13,25 @@ from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.api.supply_access import is_approver
+from app.api.supply_bom_models import (
+    SHEET_MAX_BYTES,
+    BomWatched,
+    BomWatchPreview,
+    ComponentStandings,
+    LineIn,
+    LookupRequest,
+    SheetRequest,
+    SheetRows,
+    StatusRequest,
+    SupplyBomLookup,
+    UsageBuild,
+    UsageRefreshed,
+    WatchRequest,
+)
 from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import admission, bom_lookup, catalog_read, clock, project_bom, project_supply, spreadsheet, usage
@@ -25,48 +39,6 @@ from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 _run = partial(run_supply, invalid="invalid_request")
-
-
-class LineIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    key: str = Field(min_length=1, max_length=200)
-    manufacturer: str = Field(default="", max_length=200)
-    mpn: str = Field(default="", max_length=200)
-    # Fitted parts per board. A line with none fitted is not sent.
-    quantity: int = Field(default=1, ge=1, le=100_000)
-    # The catalog component placed on the symbol. When the catalog knows it, its manufacturer and part number win.
-    prism_id: str = Field(default="", max_length=100)
-    # The LCSC number on the symbol, such as C7950.
-    lcsc: str = Field(default="", max_length=14, pattern=r"^(C\d{1,12})?$")
-    # The symbol's value and the footprint's name, checked against the distributor's value and package.
-    value: str = Field(default="", max_length=60)
-    footprint: str = Field(default="", max_length=200)
-
-
-class LookupRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # The project the BOM is from: left out, the build and spares are its usual ones (one board, the workspace's spares, when it
-    # is not tracked or there is no project).
-    project_id: str = Field(default="", max_length=200)
-    build_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
-    # Spares on top of what the boards use, as a percentage of the quantity.
-    # Null asks for spares by kind of part (small passives get some, the rest none).
-    attrition_percent: float | None = Field(default=0, ge=0, le=100)
-    lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
-
-
-MAX_STATUS_COMPONENTS = 200
-
-
-class WatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    lines: list[LineIn] = Field(max_length=bom_lookup.MAX_WATCH_LINES)
-    # Tier 1 is read daily; tier 2 weekly or monthly. A part already followed is only ever raised.
-    tier: int = Field(default=2, ge=1, le=2)
-    rate: str = Field(default="weekly", pattern="^(weekly|monthly)$")
 
 
 def _store():
@@ -88,7 +60,7 @@ def _lcsc_connector() -> str | None:
     return found[0] if len(found) == 1 else None
 
 
-@router.post("/usage/refresh")
+@router.post("/usage/refresh", response_model=UsageRefreshed)
 async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, int]:
     """Read where parts are used from the projects' existing semantic indexes. Builds none, so it is cheap."""
 
@@ -116,7 +88,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
 MAX_BUILDS_PER_REQUEST = 25
 
 
-@router.post("/usage/build")
+@router.post("/usage/build", response_model=UsageBuild)
 async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, int]:
     """Queue the semantic index of projects that have none, so their BOMs can be read.
 
@@ -142,14 +114,7 @@ async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)
     return await _run(run)
 
 
-class StatusRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # Catalog components by id; the key of each line is the component id.
-    components: list[LineIn] = Field(max_length=MAX_STATUS_COMPONENTS)
-
-
-@router.post("/components-status")
+@router.post("/components-status", response_model=ComponentStandings, response_model_exclude_unset=True)
 async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Where each catalog component stands, for the catalog table: distributor status, stock and price, and its stores state
     (``stores``; ``local_available`` is its available figure). Without stores data, components with no distributor data are left out."""
@@ -167,7 +132,7 @@ async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depe
     return await _run(read)
 
 
-@router.post("/lookup")
+@router.post("/lookup", response_model=SupplyBomLookup, response_model_exclude_unset=True)
 async def lookup(body: LookupRequest, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Stock, price and status of the BOM's lines for a build, with the build and spares it was priced for."""
 
@@ -199,7 +164,7 @@ def _watching(body: WatchRequest, actor: str, approver: bool):
     return change
 
 
-@router.post("/watch/preview")
+@router.post("/watch/preview", response_model=BomWatchPreview, response_model_exclude_unset=True)
 async def preview_watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """What tracking these lines at a tier would cost each distributor's budget. Changes nothing."""
 
@@ -211,7 +176,7 @@ async def preview_watch(body: WatchRequest, user: AuthenticatedUser = Depends(re
     return await _run(run)
 
 
-@router.post("/watch")
+@router.post("/watch", response_model=BomWatched, response_model_exclude_unset=True)
 async def watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """Track these lines where there is room. Refused when nothing fits at any distributor."""
 
@@ -223,22 +188,10 @@ async def watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_su
     return await _run(run)
 
 
-# An uploaded BOM is at most 2 MB, the limit the upload form states.
-SHEET_MAX_BYTES = 2 * 1024 * 1024
 SHEET_MAX_UNPACKED = 40 * 1024 * 1024
 
 
-class SheetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    xlsx_base64: str = Field(min_length=1, max_length=SHEET_MAX_BYTES * 4 // 3 + 16)
-
-
-class SheetRows(BaseModel):
-    rows: list[list[str]]
-
-
-@router.post("/sheet")
+@router.post("/sheet", response_model=SheetRows)
 async def read_sheet(body: SheetRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> SheetRows:
     """The first sheet of an uploaded Excel BOM as rows of text. Nothing is stored."""
 

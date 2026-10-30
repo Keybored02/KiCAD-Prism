@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SupplyBomLookup, SupplyBomRollup } from "@/types/supply";
+import type { SupplyBomLookup } from "@/types/supply";
 import { buildFileLines, guessMapping, parseTable } from "./bom-file-model";
 
 vi.mock("./supply-api", async (importOriginal) => ({
@@ -11,13 +11,14 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import { BomFileView } from "./bom-file-view";
 import * as api from "./supply-api";
+import { bomLineFixture, bomRollupFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
-const rollup: SupplyBomRollup = {
+const rollup = bomRollupFixture({
   lines: 2, tracked: 1, not_tracked: 1, watched: 1, at_risk: 0, short: 0, priced: 1, lines_priced: 1, parts: 1, currency: "EUR",
   cost_build: "5.00", cost_per_board: "5.00", can_build: 10, limited_by: null, without_stock_data: 0, health: 8, health_status: "ok",
-};
+});
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
@@ -54,8 +55,8 @@ describe("reading a BOM file", () => {
 describe("the BOM file view", () => {
   it("maps the columns, checks the parts and shows what was found", async () => {
     const lookup: SupplyBomLookup = {
-      build_quantity: 5, rollup,
-      lines: { "acme | r10k": { state: "tracked", part_id: "p1", manufacturer_match: "exact", need: 10, watched: true, status: "ok", stock: 500, short: false, buy: null } },
+      build_quantity: 5, attrition_percent: 0, attrition_by_part: null, rollup,
+      lines: { "acme | r10k": bomLineFixture({ state: "tracked", part_id: "p1", manufacturer_match: "exact", need: 10, watched: true, status: "ok", stock: 500, short: false, buy: null }) },
     };
     mocked.lookupSupplyBom.mockResolvedValue(lookup);
     render(<BomFileView />);

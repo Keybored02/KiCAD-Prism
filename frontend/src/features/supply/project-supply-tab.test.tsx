@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectSupply, ProjectSupplyPart, SupplyBomRollup } from "@/types/supply";
+import type { ProjectSupply, ProjectSupplyPart } from "@/types/supply";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
@@ -17,14 +17,15 @@ vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button typ
 import { ProjectSupplyTab } from "./project-supply-tab";
 import * as api from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
+import { bomRollupFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
-const rollup: SupplyBomRollup = {
+const rollup = bomRollupFixture({
   lines: 3, tracked: 2, not_tracked: 1, watched: 2, at_risk: 1, short: 1, priced: 2, lines_priced: 2, parts: 2,
   currency: "EUR", cost_build: "12.50", cost_per_board: "12.50", can_build: 400, limited_by: "k1", without_stock_data: 0,
   health: 7.4, health_status: "warning",
-};
+});
 
 const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
   available: true, variant: "", variants: [], rollup,
@@ -107,7 +108,7 @@ describe("the project Supply tab", () => {
 
   it("follows the cost of a board over time and names what rounding wastes", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({
-      rollup: { ...rollup, waste_cost: "3.20" },
+      rollup: bomRollupFixture({ ...rollup, waste_cost: "3.20" }),
       cost_history: [
         { day: "2026-09-01", cost_per_board: "12.0000", currency: "EUR", boards: 100 },
         { day: "2026-10-01", cost_per_board: "13.5000", currency: "EUR", boards: 100 },
@@ -175,7 +176,7 @@ describe("the project Supply tab", () => {
 
   it("answers whether the boards can be built and what stops it, and a chip filters the parts", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({
-      rollup: { ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 },
+      rollup: bomRollupFixture({ ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 }),
     }));
     renderTab();
     // One of the three lines is not tracked, so the answer stays open.

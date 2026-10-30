@@ -5,15 +5,14 @@ import { CreateComponentDialog } from "@/components/workspace/create-component-d
 import { canWriteCatalog } from "@/lib/roles";
 import type { SemanticComponent } from "@/types/prism-selection";
 import type { User } from "@/types/auth";
+import type { BomSkippedLine } from "@/types/supply.generated";
 import { BomRowDrawer } from "./bom-row-drawer";
 import { rowLines, type BomLineDetail } from "./bom-supply";
 import { PartSheet } from "./part-sheet";
 import type { BomSupply } from "./use-bom-supply";
 
-const WHY: Record<string, string> = {
+const WHY: Record<BomSkippedLine["reason"], string> = {
   no_mpn: "it has no part number",
-  no_manufacturer: "it names no manufacturer",
-  unknown_manufacturer: "its maker could not be told apart from another with the same number",
   needs_choice: "several makers have this number and the line does not say which",
   not_in_library: "it is not in the Component Database",
 };
