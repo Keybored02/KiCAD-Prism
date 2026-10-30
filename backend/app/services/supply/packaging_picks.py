@@ -26,13 +26,16 @@ from app.services.supply import admission, budget, clock, counted, params, parts
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
+from app.services.supply.errors import Refused
 
 PRICE_QUANTITIES = (1, 100, 1000)
 MAX_WAITING = 500
 
 
-class PickError(ValueError):
+class PickError(Refused):
     """The choice cannot be made. The message is safe to show."""
+
+    code = "invalid_pick"
 
 
 def _listings(conn, part_id: str, connector_id: str) -> list[dict[str, Any]]:

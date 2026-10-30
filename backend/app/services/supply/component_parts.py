@@ -22,18 +22,23 @@ import psycopg
 from app.services.supply import clock, parts
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import _DASH_CODES, alias_key, match_key
+from app.services.supply.errors import Refused
 
 SYSTEM = "system"
 MAIN, ALTERNATE = "main", "alternate"
 PENDING, APPROVED, REJECTED = "pending", "approved", "rejected"
 
 
-class ComponentPartError(ValueError):
+class ComponentPartError(Refused):
     """The request is not valid. The message is safe to show."""
+
+    code = "component_part_error"
 
 
 class NotInLibrary(ComponentPartError):
     """The part has no library component, so it cannot be followed."""
+
+    code = "not_in_library"
 
     def __init__(self, mpn: str) -> None:
         super().__init__(f"{mpn.strip()} is not in the Component Database. Add it there to follow it.")

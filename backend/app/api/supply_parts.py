@@ -5,47 +5,24 @@ Everyone who can read supply data sees parts, stock and history. Following a par
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Literal, Optional, TypeVar
+from functools import partial
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review, watches
+from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_request")
 
 
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, (watches.WatchNotFound, parts.PartNotFound)):
-        return HTTPException(status_code=404, detail="Not found")
-    if isinstance(exc, component_parts.NotInLibrary):
-        return HTTPException(status_code=400, detail={"code": "not_in_library", "message": str(exc)})
-    if isinstance(exc, parts.UnknownManufacturer):
-        return HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)})
-    if isinstance(exc, watches.WatchError):
-        return HTTPException(status_code=400, detail={"code": "watch_error", "message": str(exc)})
-    if isinstance(exc, refresh.TooSoon):
-        return HTTPException(status_code=429, detail={"code": "read_too_soon", "message": str(exc)})
-    if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)})
-    raise exc
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except Exception as exc:
-        raise _http_error(exc) from exc
 
 
 @router.get("/parts")
@@ -229,14 +206,14 @@ async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(
 async def read_part_on_view(part_id: str, reader: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part."""
 
-    return await _run(lambda: refresh.read_on_view(supply_connectors.service, [part_id], reader.email))
+    return await run_supply(lambda: refresh.read_on_view(supply_connectors.service, [part_id], reader.email), invalid="invalid_request")
 
 
 @router.post("/parts/{part_id}/refresh")
 async def read_part_now(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part."""
 
-    return await _run(lambda: refresh.read_now(supply_connectors.service, part_id, writer.email))
+    return await run_supply(lambda: refresh.read_now(supply_connectors.service, part_id, writer.email), invalid="invalid_request")
 
 
 @router.get("/manufacturers")

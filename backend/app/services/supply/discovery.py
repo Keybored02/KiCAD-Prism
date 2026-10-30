@@ -22,6 +22,7 @@ from app.services.supply.makers import same_maker
 from app.services.supply.models import Offer, PartMatch
 from app.services.supply.providers.base import SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
+from app.services.supply.errors import Missing
 
 EXACT = "exact"
 MANUAL = "manual"
@@ -36,7 +37,7 @@ _STICKY = frozenset({MANUAL, REJECTED})
 _WAITING = frozenset({UNRESOLVED, NEAR})
 
 
-class ListingNotFound(KeyError):
+class ListingNotFound(Missing):
     """No listing with this id."""
 
 

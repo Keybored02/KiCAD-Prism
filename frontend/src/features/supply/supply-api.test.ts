@@ -31,12 +31,10 @@ describe("uploadSupplyCsv", () => {
 
   it("turns a refused file into an error that carries the rows to fix", async () => {
     fetchMock.mockResolvedValue(jsonResponse(400, {
-      detail: {
-        code: "csv_rejected",
-        message: "The file was not imported. 2 problem(s) found.",
-        error_count: 2,
-        errors: [{ line: 3, column: "stock", message: "Required." }],
-      },
+      code: "csv_rejected",
+      detail: "The file was not imported. 2 problem(s) found.",
+      error_count: 2,
+      errors: [{ line: 3, column: "stock", message: "Required." }],
     }));
     const error = await uploadSupplyCsv("c1", file).catch((caught) => caught);
     expect(error).toBeInstanceOf(CsvRejectedError);
@@ -55,7 +53,7 @@ describe("uploadSupplyCsv", () => {
   });
 
   it("passes other server errors through with their message", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(400, { detail: { code: "not_csv", message: "Only a CSV connector takes an offers file." } }));
+    fetchMock.mockResolvedValue(jsonResponse(400, { code: "not_csv", detail: "Only a CSV connector takes an offers file." }));
     const error = await uploadSupplyCsv("c1", file).catch((caught) => caught);
     expect(error).not.toBeInstanceOf(CsvRejectedError);
     expect(error.message).toBe("Only a CSV connector takes an offers file.");

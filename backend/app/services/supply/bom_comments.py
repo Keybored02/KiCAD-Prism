@@ -11,18 +11,21 @@ import uuid
 from typing import Any
 
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Missing, Refused
 
 MAX_BODY = 1000
 MAX_KEY = 200
 MAX_PER_LINE = 200
 
 
-class CommentNotFound(KeyError):
+class CommentNotFound(Missing):
     """No comment with this id on this project."""
 
 
-class CommentError(ValueError):
+class CommentError(Refused):
     """The change does not apply. The message is safe to show."""
+
+    code = "invalid_comment"
 
 
 def _dto(row) -> dict[str, Any]:

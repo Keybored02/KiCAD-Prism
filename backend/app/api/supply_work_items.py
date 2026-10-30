@@ -6,21 +6,22 @@ administrators accept, reject or reopen them; the owner, whoever opened one, or 
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date
-from typing import Any, Callable, Literal, Optional, TypeVar
+from functools import partial
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import work_items
 
 router = APIRouter(prefix="/api/supply/work-items", tags=["supply"])
+_run = partial(run_supply, missing=True)
 
-T = TypeVar("T")
 
 Action = Literal["investigate", "alternate", "not_for_new_designs", "retire", "replace", "last_time_buy", "other"]
 
@@ -58,17 +59,6 @@ class DecideIn(BaseModel):
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except work_items.NotAllowed as exc:
-        raise HTTPException(status_code=403, detail={"code": "not_allowed", "message": str(exc)}) from exc
-    except work_items.WorkItemError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_work_item", "message": str(exc)}) from exc
 
 
 @router.get("")

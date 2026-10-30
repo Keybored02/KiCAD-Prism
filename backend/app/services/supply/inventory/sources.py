@@ -13,17 +13,20 @@ from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.inventory import registry
 from app.services.supply.inventory.inventree import InvenTreeError, base_url
+from app.services.supply.errors import Missing, Refused
 
 KIND_INVENTREE = "inventree"
 TOKEN_FIELD = "inventory_token"
 MAX_NAME = 120
 
 
-class SourceError(ValueError):
+class SourceError(Refused):
     """The change is not valid. The message is safe to show."""
 
+    code = "invalid_source"
 
-class SourceNotFound(KeyError):
+
+class SourceNotFound(Missing):
     """No inventory source with this id."""
 
 

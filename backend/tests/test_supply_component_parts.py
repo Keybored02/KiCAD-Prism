@@ -41,6 +41,8 @@ class ComponentPartsTests(unittest.TestCase):
         cls.cp = component_parts
         cls.users = {role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role) for role in ("viewer", "designer", "qa", "admin")}
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_component_parts.router)
         cls.service_patch = unittest.mock.patch.object(supply_connectors, "service", type("S", (), {"store": cls.store})())
         cls.service_patch.start()
@@ -157,7 +159,7 @@ class ComponentPartsTests(unittest.TestCase):
 
         self.assertEqual(self._call("qa", "DELETE", f"{base}/alternates/{alternate['part_id']}").status, 204)
         self.assertEqual([part["role"] for part in self._call("qa", "GET", f"{base}/parts").json["parts"]], ["main"])
-        self.assertEqual(self._call("qa", "DELETE", f"{base}/alternates/{alternate['part_id']}").json["detail"]["code"], "component_part_error")
+        self.assertEqual(self._call("qa", "DELETE", f"{base}/alternates/{alternate['part_id']}").json["code"], "component_part_error")
 
     # --- only library parts are followed (D12, D14) ---------------------------------------------------------------
 
@@ -195,10 +197,13 @@ class ComponentPartsTests(unittest.TestCase):
         body = {"title": "EOL", "kind": "end_of_life", "parts": [{"manufacturer": "Nobody", "mpn": f"LOOSE-{uuid.uuid4().hex[:8]}"}]}
         from app.api import supply_pcn
 
+        from app.core.errors import install_error_handlers
+
         app = type(self.app)()
+        install_error_handlers(app)
         app.include_router(supply_pcn.router)
         answer = _request(app, "POST", "/api/supply/notices", user=self.users["admin"], body=body)
-        self.assertEqual((answer.status, answer.json["detail"]["code"]), (400, "not_in_library"))
+        self.assertEqual((answer.status, answer.json["code"]), (400, "not_in_library"))
 
     def test_one_off_results_for_non_library_numbers_expire(self) -> None:
         from datetime import datetime, timedelta, timezone

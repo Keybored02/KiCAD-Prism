@@ -23,6 +23,7 @@ from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.progress import job_progress
 from app.services.supply.identity import alias_key, match_key
+from app.services.supply.errors import Refused
 
 TIER_1, TIER_2 = 1, 2
 RATES = ("daily", "weekly", "monthly")
@@ -32,8 +33,10 @@ BASE_VARIANT = ""
 MAX_PROJECT_PARTS = 5000
 
 
-class TrackingError(ValueError):
+class TrackingError(Refused):
     """The request breaks a tracking rule. The message is safe to show."""
+
+    code = "invalid_request"
 
 
 def check_tier(tier: Any, rate: Any) -> tuple[int, str]:

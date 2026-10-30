@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from supply_api_helpers import request as _request  # noqa: E402
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import bom_fields, parts_view, usage  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -134,6 +135,7 @@ class UsageDatabaseTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_bom.router)
         cls.app.include_router(supply_parts.router)
         supply_connectors.register_validation_redaction(cls.app)

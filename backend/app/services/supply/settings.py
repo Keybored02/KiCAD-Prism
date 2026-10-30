@@ -22,6 +22,7 @@ from app.core.config import settings as deployment
 from app.services.supply.assessment import settings as assessment_rules
 from app.services.supply.assessment.settings import AssessmentSettings
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 PRICE_QUANTITY_RANGE = (1, 1_000_000)
 SPARES_RANGE = (0, 100)
@@ -96,8 +97,10 @@ class Settings:
 DEFAULTS = Settings(pricing=Pricing(base_currency=deployment.SUPPLY_BASE_CURRENCY))
 
 
-class SettingsError(ValueError):
+class SettingsError(Refused):
     """The settings are not valid. The message is safe to show."""
+
+    code = "invalid_settings"
 
 
 def _whole(payload: Mapping, name: str, default: int, label: str, low: int, high: int) -> int:

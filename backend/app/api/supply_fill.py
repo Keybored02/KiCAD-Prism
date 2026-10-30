@@ -6,19 +6,19 @@ catalog's metadata edit.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_writer
 from app.services.supply import fill
 
 router = APIRouter(prefix="/api/supply/fill", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, missing=True)
 
 
 class SearchRequest(BaseModel):
@@ -40,15 +40,6 @@ class DetailsRequest(BaseModel):
 def _service() -> fill.FillService:
     # Built per call so a replaced connector service (tests) is the one used.
     return fill.FillService(supply_connectors.service)
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except fill.FillError as exc:
-        raise HTTPException(status_code=400, detail={"code": "fill_error", "message": str(exc)}) from exc
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
 
 
 @router.post("/search")

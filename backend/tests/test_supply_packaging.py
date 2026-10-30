@@ -53,6 +53,8 @@ class PackagingPickTests(unittest.TestCase):
             stock_pooling="separate", credential_fields=(), factory=lambda config: FakeProvider(config), default_daily_budget=1000,
         ), replace=True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_packaging.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)

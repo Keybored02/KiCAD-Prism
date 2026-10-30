@@ -21,6 +21,7 @@ from typing import Any, Callable
 from app.services.supply import accounts, alerts, clock, compliance, ledger, notice_budget, oauth, pcn, quota, trouble
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
+from app.services.supply import errors
 
 # How often each kind is read for a part.
 EVERY = {"notices": timedelta(days=7), "substances": timedelta(days=30)}
@@ -278,7 +279,7 @@ ASK_ACTION = "part.check_notices"
 ASK_COOLDOWN = timedelta(hours=1)
 
 
-class TooSoon(ValueError):
+class TooSoon(errors.TooSoon):
     """The same person asked for this part's notices a short while ago."""
 
 

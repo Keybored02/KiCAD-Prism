@@ -5,21 +5,21 @@ Everyone who can read supply data sees the settings and the defaults. Changing t
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Dict, TypeVar
+from functools import partial
+from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply import fx, maker_seeds, number_suffixes
 from app.services.supply import settings as workspace
 from app.services.supply.assessment import settings as rules
 
 router = APIRouter(prefix="/api/supply/settings", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_settings")
 
 
 class AssessmentSettingsBody(BaseModel):
@@ -63,13 +63,6 @@ def _view(conn, current: workspace.Settings) -> dict[str, Any]:
                    "price_quantity": list(workspace.PRICE_QUANTITY_RANGE)},
         "currencies": _currencies(conn, current.pricing.base_currency),
     }
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_settings", "message": str(exc)}) from exc
 
 
 class MakerSpellingBody(BaseModel):

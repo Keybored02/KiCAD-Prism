@@ -11,21 +11,20 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply as _run
+from app.core.errors import BadRequest
 from app.core.security import AuthenticatedUser, get_current_user, require_admin
 from app.services.supply import push
-from app.services.supply.connectors import ConnectorError, ConnectorNotFound
 from app.services.supply.csv_format import MAX_ROWS, parse_offer_records
 from app.services.supply.inventory import sources
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
 
 
 class PriceTier(BaseModel):
@@ -127,17 +126,6 @@ def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except (ConnectorNotFound, sources.SourceNotFound) as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except push.PushError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "message": str(exc)}) from exc
-    except (ConnectorError, sources.SourceError) as exc:
-        raise HTTPException(status_code=400, detail={"code": getattr(exc, "code", "invalid_source"), "message": str(exc)}) from exc
-
-
 def _pusher(target_kind: str) -> Callable:
     """The caller of a push: the target's own push token, or an administrator. Returns the actor written to the audit."""
 
@@ -175,11 +163,11 @@ async def push_connector_offers(
         push.require_file_fed(connector)
         parsed = parse_offer_records([offer.model_dump(mode="json") for offer in body.offers], default_currency=connector["currency"])
         if parsed.error_count:
-            raise HTTPException(status_code=400, detail={
-                "code": "offers_rejected", "message": f"Nothing was taken. {parsed.error_count} problem(s) found.",
-                "error_count": parsed.error_count,
-                "errors": [{"row": e.line, "field": e.column, "message": e.message} for e in parsed.errors],
-            })
+            raise BadRequest(
+                f"Nothing was taken. {parsed.error_count} problem(s) found.", code="offers_rejected",
+                error_count=parsed.error_count,
+                errors=[{"row": e.line, "field": e.column, "message": e.message} for e in parsed.errors],
+            )
         done = push.push_offers(
             _store(), supply_connectors.service, connector_id, parsed.rows, actor=actor, replace=body.replace, filename="push",
         )

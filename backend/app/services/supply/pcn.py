@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 from app.services.supply import clock, parts
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Missing, Refused
 
 KINDS = ("end_of_life", "nrnd", "last_time_buy", "change")
 KIND_LABEL = {
@@ -48,12 +49,14 @@ _KIND_WORDS = (
 )
 
 
-class NoticeNotFound(KeyError):
+class NoticeNotFound(Missing):
     """No notice with this id."""
 
 
-class NoticeError(ValueError):
+class NoticeError(Refused):
     """The notice does not apply. The message is safe to show."""
+
+    code = "invalid_notice"
 
 
 def add(

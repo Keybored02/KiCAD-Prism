@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping
 
 from app.services.supply import attention, clock, parts
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 # Kinds a person may switch off. A lost part, a change notice and an obsolete part are facts and stay on.
 MUTABLE = ("out_of_stock", "below_threshold", "rupture_soon", "likely_out", "price_up", "target_price_missed", "assessment_worse")
@@ -21,8 +22,10 @@ PRICE_RISE_RANGE = (1, 500)
 LIKELY_OUT_RANGE = (50, 99)
 
 
-class RuleError(ValueError):
+class RuleError(Refused):
     """The rules do not apply. The message is safe to show."""
+
+    code = "invalid_rules"
 
 
 @dataclass(frozen=True, slots=True)

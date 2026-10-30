@@ -78,6 +78,8 @@ class PanelPayloadTests(unittest.TestCase):
         from supply_api_helpers import request
 
         app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(app)
         app.include_router(self.remote_provider.router)
         with mock.patch.object(supply_connectors, "service", self.connectors):
             return request(app, "POST", f"/api/remote-provider/supply/parts/{part_id}/refresh", user=self.users[role])

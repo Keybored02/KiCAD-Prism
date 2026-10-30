@@ -6,19 +6,19 @@ spelling and pinning or rejecting a listing follow catalog QA (admin, qa).
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Optional, TypeVar
+from functools import partial
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_tracker
 from app.services.supply import discovery, parts, review, settle
 
 router = APIRouter(prefix="/api/supply/review", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_request")
 
 
 class ConfirmAliasRequest(BaseModel):
@@ -39,23 +39,6 @@ class ConfirmAliasRequest(BaseModel):
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, (discovery.ListingNotFound, parts.PartNotFound)):
-        return HTTPException(status_code=404, detail="Not found")
-    if isinstance(exc, parts.AliasError):
-        return HTTPException(status_code=400, detail={"code": "alias_error", "message": str(exc)})
-    if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)})
-    raise exc
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except Exception as exc:
-        raise _http_error(exc) from exc
 
 
 @router.get("")

@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply import clock, fx
-from app.services.supply.providers.base import ProviderError
 
 router = APIRouter(prefix="/api/supply/fx", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_rates", upstream="The exchange rates could not be fetched.")
 
 
 class ManualRates(BaseModel):
@@ -39,15 +38,6 @@ def _view(rates: fx.Rates) -> dict[str, Any]:
         "currencies": sorted(rates.per_eur),
         "stale": fx.is_stale(rates, today),
     }
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_rates", "message": str(exc)}) from exc
-    except ProviderError as exc:
-        raise HTTPException(status_code=502, detail={"code": exc.code, "message": "The exchange rates could not be fetched."}) from exc
 
 
 @router.get("")

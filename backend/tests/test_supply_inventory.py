@@ -537,7 +537,7 @@ class InventorySyncTests(unittest.TestCase):
         cleared = _request(self.app, "PATCH", f"/api/supply/inventory-sources/{made.json['id']}", user=self.users["admin"], body={"token": ""})
         self.assertFalse(cleared.json["has_token"])
         bad = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body={**body, "base_url": f"http://{HOST}"})
-        self.assertEqual((bad.status, bad.json["detail"]["code"]), (400, "invalid_source"))
+        self.assertEqual((bad.status, bad.json["code"]), (400, "invalid_source"))
 
     def test_a_server_that_cannot_be_reached_says_why(self) -> None:
         from app.api import supply_inventory
@@ -557,7 +557,7 @@ class InventorySyncTests(unittest.TestCase):
 
         with unittest.mock.patch.object(supply_inventory, "InvenTreeClient", Down):
             answer = _request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/check", user=self.users["admin"])
-        self.assertEqual((answer.status, answer.json["code"], answer.json["detail"]), (502, "upstream_failure", "unavailable: connection refused"))
+        self.assertEqual((answer.status, answer.json["code"], answer.json["detail"]), (502, "unavailable", "connection refused"))
 
     def test_qa_links_an_unmatched_part_and_its_stock_lands_at_once(self) -> None:
         import dataclasses
@@ -571,7 +571,7 @@ class InventorySyncTests(unittest.TestCase):
         path = f"/api/supply/inventory-sources/{source_id}/unmatched/4/link"
         self.assertEqual(_request(self.app, "POST", path, user=self.users["designer"], body={"component_id": str(component["id"])}).status, 403)
         missing = _request(self.app, "POST", path, user=self.users["qa"], body={"component_id": "no-such-component"})
-        self.assertEqual((missing.status, missing.json["detail"]["code"]), (400, "invalid_source"))
+        self.assertEqual((missing.status, missing.json["code"]), (400, "invalid_source"))
         reading = dataclasses.replace(registry.get_spec("inventree"), factory=lambda url, token: _client(server, token))
         with unittest.mock.patch.dict(registry._specs, {"inventree": reading}):
             linked = _request(self.app, "POST", path, user=self.users["qa"], body={"component_id": str(component["id"])})

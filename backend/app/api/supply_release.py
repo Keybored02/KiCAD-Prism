@@ -6,14 +6,15 @@ cannot open is not found. The check reads existing semantic indexes and calls no
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.services.supply import clock
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
     catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
@@ -22,22 +23,12 @@ from app.services.supply import (
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_request")
 
 
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except release_check.SnapshotNotFound as exc:
-        raise HTTPException(status_code=404, detail="No supply snapshot for this build") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
 @router.get("/{project_id}/supply")

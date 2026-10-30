@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from supply_api_helpers import request as _request  # noqa: E402
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import compliance, spreadsheet  # noqa: E402
 
 
@@ -75,6 +76,7 @@ class SheetEndpointTests(unittest.TestCase):
         from app.core.security import AuthenticatedUser
 
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_bom.router)
         cls.users = {role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role) for role in ("viewer", "designer")}
 
@@ -89,7 +91,7 @@ class SheetEndpointTests(unittest.TestCase):
     def test_a_damaged_upload_is_a_bad_request(self) -> None:
         status, body = self._post("designer", {"xlsx_base64": "not base64!"})
         self.assertEqual(status, 400)
-        self.assertEqual(body["detail"]["message"], "The Excel file did not arrive intact.")
+        self.assertEqual(body["detail"], "The Excel file did not arrive intact.")
 
     def test_roles_that_cannot_read_supply_are_refused(self) -> None:
         encoded = base64.b64encode(_workbook(["MPN"])).decode()

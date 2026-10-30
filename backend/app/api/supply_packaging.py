@@ -5,20 +5,18 @@ Everyone who reads supply data sees the picks; administrators, designers and QA 
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver
+from app.api.supply_call import run_supply as _run
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import packaging_auto, packaging_picks, parts
 
 router = APIRouter(prefix="/api/supply/packaging", tags=["supply"])
-
-T = TypeVar("T")
 
 
 class PickIn(BaseModel):
@@ -37,15 +35,6 @@ class SimilarIn(BaseModel):
 
 def _store():
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except parts.PartNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except packaging_picks.PickError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_pick", "message": str(exc)}) from exc
 
 
 @router.get("/several")

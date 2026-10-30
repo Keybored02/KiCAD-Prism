@@ -1,6 +1,6 @@
 /** Typed client for `/api/supply`. Errors are `ApiHttpError` with the server's code. */
 
-import { ApiHttpError, fetchApi, fetchJson, fetchText, readApiError } from "@/lib/api";
+import { ApiHttpError, apiErrorFrom, fetchApi, fetchJson, fetchText, readApiError } from "@/lib/api";
 import type {
   ForecastInsights,
   PartForecast,
@@ -189,18 +189,12 @@ async function uploadSupplyCsvRequest(id: string, file: File): Promise<SupplyCsv
   });
   if (response.ok) return (await response.json()) as SupplyCsvResult;
   if (response.status === 413) throw new ApiHttpError(413, "The file is larger than 5 MB.");
-  const payload = (await response.clone().json().catch(() => null)) as { detail?: unknown } | null;
-  const detail = payload?.detail;
-  if (detail && typeof detail === "object" && (detail as { code?: string }).code === "csv_rejected") {
-    const rejected = detail as { message?: string; errors?: SupplyCsvRowError[]; error_count?: number };
-    throw new CsvRejectedError(
-      rejected.message ?? "The file was not imported.",
-      rejected.errors ?? [],
-      rejected.error_count ?? rejected.errors?.length ?? 0,
-    );
+  const error = await apiErrorFrom(response, "Could not upload the file");
+  if (error.code === "csv_rejected") {
+    const { errors, error_count: errorCount } = error.payload as { errors?: SupplyCsvRowError[]; error_count?: number };
+    throw new CsvRejectedError(error.message, errors ?? [], errorCount ?? errors?.length ?? 0);
   }
-  const said = detail && typeof detail === "object" ? (detail as { message?: unknown }).message : undefined;
-  throw new ApiHttpError(response.status, typeof said === "string" && said ? said : await readApiError(response, "Could not upload the file"));
+  throw error;
 }
 
 async function clearSupplyCsvRequest(id: string): Promise<void> {

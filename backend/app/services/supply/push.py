@@ -31,6 +31,7 @@ from app.services.supply.inventory.inventree import STATUS_OK
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import ProviderSpec
 from app.services.supply.store import SupplyStore
+from app.services.supply.errors import Refused
 
 TOKEN_PREFIX = "prism_push_"
 TOKEN_RANDOM_LENGTH = 40
@@ -43,12 +44,11 @@ _AVAILABLE = frozenset({"", "ok", "available"})
 _BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
-class PushError(ValueError):
+class PushError(Refused):
     """The push was not taken. ``code`` and the message are safe to show."""
 
     def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+        super().__init__(message, code=code)
 
 
 # --- tokens -----------------------------------------------------------------

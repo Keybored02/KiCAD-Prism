@@ -17,6 +17,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from app.services.supply import clock, counted, facts, offer_rules, parts, spreadsheet
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 MAX_LIST_BYTES = 5 * 1024 * 1024
 # A spreadsheet is a zip file: what it holds once unpacked is capped too, so a small file cannot fill memory.
@@ -32,8 +33,10 @@ _COLUMNS = {
 }
 
 
-class ComplianceError(ValueError):
+class ComplianceError(Refused):
     """The input does not apply. The message is safe to show."""
+
+    code = "invalid_compliance"
 
 
 def valid_cas(number: str) -> bool:

@@ -8,8 +8,7 @@ echoed back.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -17,21 +16,20 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.supply_call import run_supply as _run
 from app.core.config import settings
+from app.core.errors import BadRequest
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply import capacity, connector_check, oauth
-from app.services.supply.connectors import ConnectorError, ConnectorNotFound, ConnectorService
+from app.services.supply.connectors import ConnectorService
 from app.services.supply.csv_format import MAX_BYTES, TEMPLATE
 from app.services.supply.csv_import_service import CsvImportService, CsvRejected
 from app.services.supply.providers import registry
-from app.services.trackers.secrets import SecretStoreLocked
 
 _PREFIX = "/api/supply"
 
 router = APIRouter(prefix=_PREFIX, tags=["supply"])
 service = ConnectorService()
-
-T = TypeVar("T")
 
 
 class CreateConnectorRequest(BaseModel):
@@ -82,30 +80,6 @@ class PauseRequest(BaseModel):
 
 def _actor(user: AuthenticatedUser) -> str:
     return user.email
-
-
-def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, ConnectorNotFound):
-        return HTTPException(status_code=404, detail="Connector not found")
-    if isinstance(exc, SecretStoreLocked):
-        # "Not set" and "invalid" need different fixes, and neither message carries key material.
-        if "disabled" in str(exc):
-            return HTTPException(
-                status_code=503,
-                detail="Credential encryption is not set up: TRACKER_CREDENTIAL_ROOT_KEY is empty on the server",
-            )
-        return HTTPException(status_code=503, detail="Credential encryption is locked")
-    if isinstance(exc, ConnectorError):
-        status = 409 if exc.code == "duplicate" else 403 if exc.code == "provider_disabled" else 400
-        return HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)})
-    raise exc
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except Exception as exc:
-        raise _http_error(exc) from exc
 
 
 def _provider_dto(spec) -> dict[str, Any]:
@@ -245,17 +219,14 @@ def _csv_service() -> CsvImportService:
     return CsvImportService(service, store=service.store)
 
 
-def _rejection(exc: CsvRejected) -> HTTPException:
+def _rejection(exc: CsvRejected) -> BadRequest:
     parsed = exc.parsed
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "csv_rejected",
-            "message": f"The file was not imported. {parsed.error_count} problem(s) found.",
-            "error_count": parsed.error_count,
-            "errors": [{"line": e.line, "column": e.column, "message": e.message} for e in parsed.errors],
-            "ignored_columns": list(parsed.ignored_columns),
-        },
+    return BadRequest(
+        f"The file was not imported. {parsed.error_count} problem(s) found.",
+        code="csv_rejected",
+        error_count=parsed.error_count,
+        errors=[{"line": e.line, "column": e.column, "message": e.message} for e in parsed.errors],
+        ignored_columns=list(parsed.ignored_columns),
     )
 
 
@@ -285,16 +256,14 @@ async def upload_offers_csv(
     if len(content) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="The file is too large")
 
-    def run() -> dict[str, Any]:
+    def load() -> dict[str, Any]:
         info, parsed = _csv_service().import_file(connector_id, content, actor=_actor(admin), filename=filename)
         return {**info.to_dto(), "ignored_columns": list(parsed.ignored_columns)}
 
     try:
-        return await asyncio.to_thread(run)
+        return await _run(load)
     except CsvRejected as exc:
         raise _rejection(exc) from exc
-    except Exception as exc:
-        raise _http_error(exc) from exc
 
 
 @router.delete("/connectors/{connector_id}/csv", status_code=204)

@@ -24,6 +24,8 @@ from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import ProviderConfig, ProviderSpec, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
+from app.services.supply.errors import Missing
+from app.services.supply.errors import Refused
 
 _UPDATABLE = frozenset({
     "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days", "keep_days", "keep_unused", "catalogue",
@@ -32,16 +34,21 @@ _UPDATABLE = frozenset({
 _MAX_REASON = 200
 
 
-class ConnectorError(ValueError):
+#: Statuses other than 400, by code.
+_CONNECTOR_STATUS = {"duplicate": 409, "provider_disabled": 403}
+
+
+class ConnectorError(Refused):
     """A request the connector rules reject. ``code`` is stable; the message is safe to show."""
 
     def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+        super().__init__(message, code=code, status_code=_CONNECTOR_STATUS.get(code, 400))
 
 
-class ConnectorNotFound(KeyError):
+class ConnectorNotFound(Missing):
     """No connector with this id."""
+
+    default_detail = "Connector not found"
 
 
 def _settings_allow_dev() -> bool:

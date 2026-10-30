@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from app.services.supply import clock, counted, parts
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 
 
-class PreferenceError(ValueError):
+class PreferenceError(Refused):
     """The choice cannot be made. The message is safe to show."""
+
+    code = "invalid_preference"
 
 
 def get(conn, part_id: str) -> str | None:

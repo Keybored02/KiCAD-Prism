@@ -63,6 +63,8 @@ class DetailsTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_oauth.router)
         cls.app.include_router(supply_connectors.router)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)

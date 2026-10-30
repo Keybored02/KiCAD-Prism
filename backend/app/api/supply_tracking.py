@@ -7,24 +7,24 @@ a preview does exactly what the change would and rolls it back, so the figures s
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Literal, TypeVar
+from functools import partial
+from typing import Any, Callable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
 from app.api.supply_access import is_approver
-from app.services.supply import admission, budget_view, clock, component_parts, component_watches, parts, project_bom, room, tracking, usage, watches
+from app.api.supply_call import run_supply
+from app.services.supply import admission, budget_view, clock, component_watches, parts, project_bom, room, tracking, usage, watches
 from app.services.supply import settings as supply_settings
 from app.services.supply.progress import job_progress
 
 router = APIRouter(prefix="/api/supply/tracking", tags=["supply"])
+_run = partial(run_supply, invalid="invalid_request")
 budget_router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
 
 
 class ProjectIn(BaseModel):
@@ -89,23 +89,6 @@ class ComponentFollowIn(BaseModel):
 
 def _store():
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except admission.NoRoom as exc:
-        raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
-    except (parts.PartNotFound, watches.WatchNotFound) as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except component_parts.NotInLibrary as exc:
-        raise HTTPException(status_code=400, detail={"code": "not_in_library", "message": str(exc)}) from exc
-    except parts.UnknownManufacturer as exc:
-        raise HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)}) from exc
-    except watches.WatchError as exc:
-        raise HTTPException(status_code=400, detail={"code": "watch_error", "message": str(exc)}) from exc
-    except (tracking.TrackingError, supply_settings.SettingsError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
 def _read_project_bom(conn, project_id: str) -> str:
@@ -382,7 +365,7 @@ async def budget(user: AuthenticatedUser = Depends(require_supply_reader)) -> li
     """Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it;
     projects the caller may not see are not named."""
 
-    visible = await _run(lambda: usage.visible_project_ids(user.role))
+    visible = await run_supply(lambda: usage.visible_project_ids(user.role), invalid="invalid_request")
 
     def read() -> list[dict[str, Any]]:
         with _store().connection() as conn:

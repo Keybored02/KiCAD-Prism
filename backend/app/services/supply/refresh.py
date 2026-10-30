@@ -18,6 +18,7 @@ from app.services.supply import clock as supply_clock
 from app.services.supply import poller, parts, retention, trouble
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.connectors import ConnectorService
+from app.services.supply import errors
 
 COOLDOWN = timedelta(minutes=15)
 ACTION = "part.refresh"
@@ -35,8 +36,10 @@ _STOPPED_TEXT = {
 }
 
 
-class TooSoon(ValueError):
+class TooSoon(errors.TooSoon):
     """The same person asked for this part a short while ago. The message says how long to wait."""
+
+    code = "read_too_soon"
 
 
 def _wait_text(remaining: timedelta) -> str:

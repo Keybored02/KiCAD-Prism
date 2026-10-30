@@ -6,20 +6,20 @@ write access (admin, designer). Alerts are in-app only; nothing is sent anywhere
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Literal, TypeVar
+from functools import partial
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver, require_supply_editor
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import alert_rules, alerts, clock
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="decided", invalid_status=409, missing=True)
 
 
 class SnoozeRequest(BaseModel):
@@ -31,21 +31,6 @@ class SnoozeRequest(BaseModel):
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except alerts.AlertNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except alerts.AlertError as exc:
-        raise HTTPException(status_code=409, detail={"code": "alert_state", "message": str(exc)}) from exc
-    except alert_rules.RuleError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_rules", "message": str(exc)}) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail={"code": "decided", "message": str(exc)}) from exc
 
 
 @router.get("/alerts")

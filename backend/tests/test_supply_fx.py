@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import fx  # noqa: E402
 from app.services.supply.providers.base import ProviderError  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
@@ -77,6 +78,7 @@ class FxDatabaseTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_fx.router)
         cls.app.include_router(supply_bom.router)
         supply_connectors.register_validation_redaction(cls.app)

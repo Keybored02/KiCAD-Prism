@@ -23,6 +23,7 @@ from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SUBSTITUTES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
+from app.services.supply import errors
 
 ACTION = "part.substitutes"
 FRESH_DAYS = 30
@@ -39,7 +40,7 @@ _STOPPED_TEXT = {
 }
 
 
-class TooSoon(ValueError):
+class TooSoon(errors.TooSoon):
     """The part's substitutes were asked for a short while ago."""
 
 
