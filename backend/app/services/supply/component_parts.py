@@ -22,7 +22,7 @@ import psycopg
 from app.services.supply import clock, parts
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import _DASH_CODES, alias_key, match_key
-from app.services.supply.errors import Refused
+from app.services.supply.errors import Clash, Refused
 
 SYSTEM = "system"
 MAIN, ALTERNATE = "main", "alternate"
@@ -243,10 +243,19 @@ def propose_alternate(conn, component_id: str, manufacturer: str, mpn: str, acto
     return {"part_id": part.id, "manufacturer": part.manufacturer_name, "mpn": part.mpn, "approval": PENDING}
 
 
-def decide(conn, component_id: str, part_id: str, approve: bool, actor: str) -> dict[str, Any]:
-    """Approve or reject an alternate. A decision can be changed later; the main part is not decided here."""
+def decide(conn, component_id: str, part_id: str, approve: bool, actor: str, *, main_part_id: str | None = None) -> dict[str, Any]:
+    """Approve or reject an alternate. A decision can be changed later; the main part is not decided here.
+
+    ``main_part_id`` is the main part the decider was shown ("" for none): an alternate is judged against the main part, so
+    a decision taken on a screen from before the main part changed is refused. None skips the check."""
 
     actor = actor_text(actor)
+    if main_part_id is not None:
+        current = conn.execute(
+            "SELECT part_id FROM component_parts WHERE component_id = %s AND role = 'main' FOR UPDATE", (component_id,)
+        ).fetchone()
+        if (current["part_id"] if current else "") != main_part_id:
+            raise Clash("The component's main part changed since this was shown. Look at the alternate again.")
     approval = APPROVED if approve else REJECTED
     row = conn.execute(
         """

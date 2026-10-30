@@ -462,6 +462,46 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("401", "error")],
                          "kept, marked stale, until the next read replaces it")
 
+    def test_a_read_under_settings_changed_while_it_ran_stores_nothing(self) -> None:
+        from app.services.supply.inventory import sources
+        from app.services.supply.providers.base import Unavailable
+
+        sap = str(uuid.uuid4().int)[:9]
+        self._component(sap_code=sap)
+        source_id = self._source()
+        self._sync(source_id, self._server(sap, "X", "Y", [{"pk": 501, "part": 1, "quantity": 5, "status": 10}]))
+        store, ring = self.store, self.ring
+
+        def edited_meanwhile(server: FakeServer) -> FakeServer:
+            # The edit lands between reading the source's settings and storing what was read under them.
+            class Edited(type(server)):  # type: ignore[misc]
+                def send(self, **kwargs):
+                    if not getattr(self, "edited", False):
+                        self.edited = True
+                        with store.connection() as conn:
+                            sources.update(conn, ring, source_id, AUTHOR, category_id=9)
+                    return super().send(**kwargs)
+
+            server.__class__ = Edited
+            return server
+
+        result = self._sync(source_id, edited_meanwhile(self._server(sap, "X", "Y", [{"pk": 502, "part": 1, "quantity": 7, "status": 10}])),
+                            NOW + timedelta(days=1))
+        self.assertEqual(result["status"], "error")
+        self.assertIn("superseded", result["error"])
+        self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("501", "error")],
+                         "the old category's stock is not published as fresh")
+
+        class EditedThenDown(FakeServer):
+            def send(self, **kwargs):
+                with store.connection() as conn:
+                    sources.update(conn, ring, source_id, AUTHOR, category_id=10)
+                raise Unavailable("down")
+
+        self.assertIn("superseded", self._sync(source_id, EditedThenDown({}), NOW + timedelta(days=2))["error"])
+        with self.store.connection() as conn:
+            self.assertIsNone(sources.get(conn, source_id)["last_sync_at"], "the failed old read does not settle the new settings' read")
+
     def test_two_components_with_one_mpn_are_told_apart_by_any_spelling_of_the_maker(self) -> None:
         from app.services.supply import parts
 

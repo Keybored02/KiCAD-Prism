@@ -67,6 +67,11 @@ class LineCheckTests(unittest.TestCase):
 
 
 class CheckTests(unittest.TestCase):
+    def test_a_stated_rohs_status_and_declared_substances_stand_with_no_offer(self) -> None:
+        found = ids(checks.evaluate(facts([], rohs_stated=["not_compliant"], svhc_listed=["lead"]), DEFAULTS))
+        self.assertIn("rohs_noncompliant", found)
+        self.assertIn("reach_svhc", found)
+
     def test_a_healthy_part_has_no_findings(self) -> None:
         self.assertEqual(checks.evaluate(facts(), DEFAULTS), [])
 

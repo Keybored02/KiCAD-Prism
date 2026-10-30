@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import type { SupplyPartGroup, SupplyStatus } from "@/types/supply";
+import type { SupplyGroupStats, SupplyPartGroup, SupplyStatus } from "@/types/supply";
 import { formatAgo, formatPrice, STATUS_FILL } from "./supply-format";
 
 const ORDER: readonly SupplyStatus[] = ["fatal", "error", "warning", "ok", "unknown"];
@@ -18,13 +18,18 @@ export function StatusBar({ group, className = "w-56" }: { group: Pick<SupplyPar
   );
 }
 
+/** "29 of 56 lines" when the cost leaves lines unpriced (a subtotal); empty when it covers the whole BOM. */
+export function partial(stats: Pick<SupplyGroupStats, "lines" | "lines_priced"> | null | undefined): string {
+  return stats?.lines != null && stats.lines_priced != null && stats.lines_priced < stats.lines ? `${stats.lines_priced} of ${stats.lines} lines` : "";
+}
+
 /** The second line of a project row: cost, boards, BOM age and alerts. */
 export function ProjectRowSummary({ group }: { group: SupplyPartGroup }) {
   const stats = group.stats;
   const cost = stats?.cost_per_board && stats.currency ? formatPrice(stats.cost_per_board, stats.currency) : null;
   const change = stats?.cost_change_percent;
   const third = [
-    cost ? `${cost} a board${change ? ` ${change > 0 ? "▲" : "▼"} ${Math.abs(change)}% in 30 d` : ""}` : "",
+    cost ? `${cost} a board${partial(stats) ? ` for ${partial(stats)}` : ""}${change ? ` ${change > 0 ? "▲" : "▼"} ${Math.abs(change)}% in 30 d` : ""}` : "",
     // A line that can't be checked makes the count a bound, not an answer: say so, as the project page does.
     stats?.unchecked ? `unconfirmed · ${stats.unchecked.toLocaleString()} unchecked`
       : stats?.boards !== undefined && stats.boards !== null ? `can build ${stats.boards.toLocaleString()}` : "",

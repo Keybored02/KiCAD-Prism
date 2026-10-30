@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,15 +17,20 @@ const LISTS: Array<{ key: WorkItemList; label: string }> = [
 ];
 const STATE_LABEL: Record<WorkItemState, string> = { open: "Open", accepted: "Accepted", rejected: "Rejected", done: "Done" };
 
+/** One list of work items; the Review page reads the live one too, to know whether anything waits (one read, shared). */
+export function useWorkItems(list: WorkItemList) {
+  const fetcher = useCallback((signal: AbortSignal) => listWorkItems(list, signal), [list]);
+  return useLoaded<SupplyWorkItem[]>(`work-items/list/${list}`, fetcher, "Could not load the work items");
+}
+
 /** Supply > Review: the work items people opened about components and parts, by list. QA accepts or rejects them; the owner,
- * whoever opened one, or QA marks it done. */
+ * whoever opened one, or QA marks it done. The lists stay reachable when the open one is empty (done and rejected items
+ * are reopened from theirs). */
 export function WorkItemsSection({ email, canFollow, canDecide }: { email: string; canFollow: boolean; canDecide: boolean }) {
   const [list, setList] = useState<WorkItemList>("live");
-  const fetcher = useCallback((signal: AbortSignal) => listWorkItems(list, signal), [list]);
-  const loaded = useLoaded<SupplyWorkItem[]>(`work-items/list/${list}`, fetcher, "Could not load the work items");
+  const loaded = useWorkItems(list);
   const [open, setOpen] = useState<SupplyWorkItem | null>(null);
   const items = loaded.data ?? [];
-  if (loaded.status === "ready" && items.length === 0 && list === "live") return null;
   return (
     <CollapsibleSection id="review-work-items" title="Work items" count={items.length} startOpen>
       <div role="group" aria-label="Work item lists" className="flex flex-wrap gap-1 px-3 py-2">
@@ -34,6 +40,14 @@ export function WorkItemsSection({ email, canFollow, canDecide }: { email: strin
           </Button>
         ))}
       </div>
+      {loaded.status === "error" ? (
+        <Alert variant="destructive" className="mx-3 mb-2 w-auto">
+          <AlertDescription className="flex items-center justify-between gap-3">
+            {loaded.error}
+            <Button size="sm" variant="outline" onClick={loaded.retry}>Retry</Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <ul className="divide-y">
         {items.map((item) => (
           <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">

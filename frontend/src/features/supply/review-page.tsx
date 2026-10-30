@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 
-import { canEditSupply, canReviewSupply } from "@/lib/roles";
+import { canFollowSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { listInventorySources } from "./inventory-api";
 import { useReviewCount } from "./review-count";
 import { ReviewView } from "./review-view";
 import { UnmatchedStockSection } from "./unmatched-stock";
-import { WorkItemsSection } from "./work-items-section";
+import { useWorkItems, WorkItemsSection } from "./work-items-section";
 import { useLoaded } from "./use-loaded";
 
 /** Unmatched parts across every local inventory source; undefined until known. */
@@ -26,13 +26,14 @@ export function useReviewWaiting(allowed: boolean): number | undefined {
 /** Supply > Review: matching questions, then work items and the unmatched local stock. */
 export function ReviewPage({ user }: { user: User | null }) {
   const unmatched = useUnmatchedCount(true);
+  const live = useWorkItems("live");
   return (
     <ReviewView
       user={user}
-      othersWaiting={(unmatched ?? 0) > 0}
+      othersWaiting={(unmatched ?? 0) > 0 || (live.data?.length ?? 0) > 0}
       after={(
         <>
-          <WorkItemsSection email={user?.email ?? ""} canFollow={canEditSupply(user?.role)} canDecide={canReviewSupply(user?.role)} />
+          <WorkItemsSection email={user?.email ?? ""} canFollow={canFollowSupply(user?.role)} canDecide={canReviewSupply(user?.role)} />
           <UnmatchedStockSection canDecide={canReviewSupply(user?.role)} />
         </>
       )}

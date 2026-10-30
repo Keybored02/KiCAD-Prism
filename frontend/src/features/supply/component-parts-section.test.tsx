@@ -43,7 +43,7 @@ describe("a component's parts", () => {
     decideAlternate.mockImplementation(async () => { getComponentParts.mockResolvedValue({ component_id: "c", parts: [parts[0], part("ALT-1", { approval: "approved" })] }); });
     render(<ComponentPartsSection componentId="c" canPropose={false} canDecide />);
     fireEvent.click(await screen.findByRole("button", { name: "Approve ALT-1" }));
-    await waitFor(() => expect(decideAlternate).toHaveBeenCalledWith("c", "ALT-1", true));
+    await waitFor(() => expect(decideAlternate).toHaveBeenCalledWith("c", "ALT-1", true, "MAIN-1"));
     expect(await screen.findByText("Approved")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /MAIN-1/ })).toBeNull();
     expect(screen.queryByLabelText("Alternate part number")).toBeNull();

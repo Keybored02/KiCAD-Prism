@@ -6,6 +6,7 @@ import { ChartCard } from "./chart-card";
 import { RISK_AVAILABILITY, RISK_LIFECYCLE } from "./parts-filters";
 import { PriceAtQuantity } from "./price-at-quantity";
 import { counts } from "./project-row-text";
+import { partial } from "./project-row-summary";
 import { formatPrice } from "./supply-format";
 import { TestDataChip } from "./test-data-chip";
 
@@ -150,6 +151,7 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
                       {stats.cost_per_board && stats.currency ? (
                         <PriceAtQuantity price={formatPrice(stats.cost_per_board, stats.currency)} quantity={stats.build_quantity} />
                       ) : "–"}
+                      {stats.cost_per_board && partial(stats) ? <div className="text-xs text-muted-foreground">{partial(stats)}</div> : null}
                       <TestDataChip show={stats.cost_per_board ? stats.test_data : false} />
                       {stats.cost_change_percent ? <span className={cn("ml-1 text-xs", stats.cost_change_percent > 0 ? "text-warning" : "text-success")}>{stats.cost_change_percent > 0 ? "▲" : "▼"} {Math.abs(stats.cost_change_percent)}%</span> : null}
                     </td>

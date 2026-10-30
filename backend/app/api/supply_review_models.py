@@ -146,6 +146,8 @@ class ProposedAlternate(SupplyModel):
     manufacturer: str
     proposed_by: str
     proposed_at: str
+    main_part_id: str = Field(description="The component's main part the alternate is judged against; empty when it has none. Sent back with the decision.")
+    main_mpn: str
 
 
 class ProposedDismissal(SupplyModel):

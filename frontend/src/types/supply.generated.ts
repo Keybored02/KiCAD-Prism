@@ -547,6 +547,8 @@ export interface Deadline {
 
 export interface DecisionRequest {
   approve: boolean;
+  /** The main part the decider was shown (empty for none); the decision is refused (409) when it has changed since. */
+  main_part_id?: string | null;
 }
 
 /** A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``). */
@@ -1850,6 +1852,9 @@ export interface ProposedAlternate {
   component_id: string;
   component_mpn: string;
   component_name: string;
+  main_mpn: string;
+  /** The component's main part the alternate is judged against; empty when it has none. Sent back with the decision. */
+  main_part_id: string;
   manufacturer: string;
   mpn: string;
   part_id: string;
@@ -2777,6 +2782,10 @@ export interface SupplyGroupStats {
   cost_per_board?: string | null;
   currency?: string | null;
   end_of_life: number;
+  /** BOM lines of the usual build. */
+  lines?: number | null;
+  /** BOM lines the cost covers: under `lines`, the cost is a subtotal. */
+  lines_priced?: number | null;
   one_distributor: number;
   out: number;
   packaging?: string | null;

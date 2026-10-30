@@ -10,6 +10,7 @@ import type { SupplyWorkItem } from "./work-items-api";
 import * as api from "./work-items-api";
 import { WorkItemButton } from "./work-item-dialog";
 import { WorkItemsSection } from "./work-items-section";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 const item = (over: Partial<SupplyWorkItem> = {}): SupplyWorkItem => ({
@@ -25,7 +26,10 @@ beforeEach(() => {
   mocked.decideWorkItem.mockResolvedValue(item({ state: "accepted" }));
   mocked.workItemHistory.mockResolvedValue([{ at: "2026-10-20T10:00:00Z", actor: "dee@example.com", action: "create", detail: {} }]);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  forgetServerState([]);
+});
 
 describe("work items in Review", () => {
   it("lists an item with its subject, action, owner, recheck and projects, and QA accepts it", async () => {
@@ -42,6 +46,22 @@ describe("work items in Review", () => {
     expect(row.getByRole("button", { name: "Done" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Mine" }));
     await waitFor(() => expect(mocked.listWorkItems).toHaveBeenLastCalledWith("mine", expect.anything()));
+  });
+
+  it("keeps the lists when nothing is open, so a done item can still be found and reopened", async () => {
+    mocked.listWorkItems.mockImplementation(async (list) => (list === "done" ? [item({ state: "done" })] : []));
+    render(<WorkItemsSection email="qa@example.com" canFollow canDecide />);
+    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reopen" }));
+    await waitFor(() => expect(mocked.decideWorkItem).toHaveBeenCalledWith("w1", "open"));
+  });
+
+  it("says a list could not be read instead of showing it empty", async () => {
+    mocked.listWorkItems.mockRejectedValueOnce(new Error("Service Unavailable"));
+    render(<WorkItemsSection email="qa@example.com" canFollow canDecide />);
+    expect(await screen.findByText("Service Unavailable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Find a second source")).toBeTruthy();
   });
 
   it("offers no Done to someone who neither owns nor opened the item", async () => {

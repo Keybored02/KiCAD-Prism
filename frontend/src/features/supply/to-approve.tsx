@@ -53,9 +53,9 @@ export function ToApprove({ items, canDecide, onDecided }: { items: SupplyToAppr
           <Row
             key={`${item.component_id}:${item.part_id}`} kind="Alternate"
             title={`${item.mpn}, ${item.manufacturer} for ${item.component_name || item.component_mpn}`}
-            detail={`${item.proposed_by}, ${formatAgo(item.proposed_at)}`}
+            detail={[item.main_mpn ? `vs ${item.main_mpn}` : "", `${item.proposed_by}, ${formatAgo(item.proposed_at)}`].filter(Boolean).join(" · ")}
             to={componentHref(item.component_id)}
-            decide={async (approve) => { await decideAlternate(item.component_id, item.part_id, approve); }} canDecide={canDecide} onDecided={onDecided}
+            decide={async (approve) => { await decideAlternate(item.component_id, item.part_id, approve, item.main_part_id); }} canDecide={canDecide} onDecided={onDecided}
           />
         ))}
         {dismissals.map((item) => (

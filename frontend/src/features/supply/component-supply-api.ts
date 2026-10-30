@@ -14,8 +14,9 @@ function proposeAlternateRequest(componentId: string, manufacturer: string, mpn:
   return fetchJson<ComponentParts>(path(componentId, "alternates"), { method: "POST", body: JSON.stringify({ manufacturer, mpn }) }, "Could not propose the alternate");
 }
 
-function decideAlternateRequest(componentId: string, partId: string, approve: boolean): Promise<ComponentParts> {
-  return fetchJson<ComponentParts>(path(componentId, "alternates", partId, "decision"), { method: "POST", body: JSON.stringify({ approve }) }, "Could not record the decision");
+/** `mainPartId` is the main part the screen showed ("" for none): the server refuses the decision if it has changed since. */
+function decideAlternateRequest(componentId: string, partId: string, approve: boolean, mainPartId: string): Promise<ComponentParts> {
+  return fetchJson<ComponentParts>(path(componentId, "alternates", partId, "decision"), { method: "POST", body: JSON.stringify({ approve, main_part_id: mainPartId }) }, "Could not record the decision");
 }
 
 async function removeAlternateRequest(componentId: string, partId: string): Promise<void> {
