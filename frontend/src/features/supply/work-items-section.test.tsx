@@ -6,7 +6,7 @@ vi.mock("./work-items-api", () => ({
   listWorkItems: vi.fn(), createWorkItem: vi.fn(), updateWorkItem: vi.fn(), decideWorkItem: vi.fn(), workItemHistory: vi.fn(),
 }));
 
-import type { SupplyWorkItem } from "@/types/supply";
+import type { SupplyWorkItem } from "./work-items-api";
 import * as api from "./work-items-api";
 import { WorkItemButton } from "./work-item-dialog";
 import { WorkItemsSection } from "./work-items-section";

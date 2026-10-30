@@ -7453,76 +7453,6 @@
         "title": "CreateFolderRequest",
         "type": "object"
       },
-      "CreateIn": {
-        "additionalProperties": false,
-        "properties": {
-          "action": {
-            "enum": [
-              "investigate",
-              "alternate",
-              "not_for_new_designs",
-              "retire",
-              "replace",
-              "last_time_buy",
-              "other"
-            ],
-            "title": "Action",
-            "type": "string"
-          },
-          "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
-          },
-          "owner": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Owner",
-            "type": "string"
-          },
-          "recheck_on": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recheck On"
-          },
-          "subject_id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Subject Id",
-            "type": "string"
-          },
-          "subject_kind": {
-            "enum": [
-              "component",
-              "part"
-            ],
-            "title": "Subject Kind",
-            "type": "string"
-          },
-          "title": {
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "subject_kind",
-          "subject_id",
-          "title",
-          "action"
-        ],
-        "title": "CreateIn",
-        "type": "object"
-      },
       "CreateManualComponentRequest": {
         "properties": {
           "category": {
@@ -8166,32 +8096,6 @@
           "loggers"
         ],
         "title": "DebugLoggingWindow",
-        "type": "object"
-      },
-      "DecideIn": {
-        "additionalProperties": false,
-        "properties": {
-          "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
-          },
-          "state": {
-            "enum": [
-              "open",
-              "accepted",
-              "rejected",
-              "done"
-            ],
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": [
-          "state"
-        ],
-        "title": "DecideIn",
         "type": "object"
       },
       "DecisionRequest": {
@@ -12558,6 +12462,40 @@
         "title": "IssuedPushToken",
         "type": "object"
       },
+      "Items_SupplyWorkItem_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyWorkItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyWorkItem]",
+        "type": "object"
+      },
+      "Items_WorkItemEvent_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItemEvent"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[WorkItemEvent]",
+        "type": "object"
+      },
       "JobCancelOut": {
         "description": "The job after a cancel request, and the status that request reached.",
         "properties": {
@@ -16101,6 +16039,76 @@
           "project_ids"
         ],
         "title": "MoveProjectsRequest",
+        "type": "object"
+      },
+      "NewWorkItem": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "investigate",
+              "alternate",
+              "not_for_new_designs",
+              "retire",
+              "replace",
+              "last_time_buy",
+              "other"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "owner": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Owner",
+            "type": "string"
+          },
+          "recheck_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recheck On"
+          },
+          "subject_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "subject_kind": {
+            "enum": [
+              "component",
+              "part"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_kind",
+          "subject_id",
+          "title",
+          "action"
+        ],
+        "title": "NewWorkItem",
         "type": "object"
       },
       "NoticeIn": {
@@ -22146,6 +22154,118 @@
         "title": "SupplySource",
         "type": "object"
       },
+      "SupplyWorkItem": {
+        "additionalProperties": true,
+        "description": "An engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it\ntouches (as the caller may see them), QA's disposition and when to look again.",
+        "properties": {
+          "action": {
+            "enum": [
+              "investigate",
+              "alternate",
+              "not_for_new_designs",
+              "retire",
+              "replace",
+              "last_time_buy",
+              "other"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItemEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItemProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "recheck_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recheck On"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "accepted",
+              "rejected",
+              "done"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "subject_kind": {
+            "enum": [
+              "component",
+              "part"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "subject_name": {
+            "title": "Subject Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_kind",
+          "subject_id",
+          "subject_name",
+          "title",
+          "action",
+          "owner",
+          "state",
+          "evidence",
+          "projects",
+          "recheck_on",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SupplyWorkItem",
+        "type": "object"
+      },
       "SymbolImportResult": {
         "additionalProperties": true,
         "description": "``selection_required`` stops before writing; ``imported`` carries the component.",
@@ -23361,80 +23481,6 @@
           }
         },
         "title": "UpdateFolderRequest",
-        "type": "object"
-      },
-      "UpdateIn": {
-        "additionalProperties": false,
-        "properties": {
-          "action": {
-            "anyOf": [
-              {
-                "enum": [
-                  "investigate",
-                  "alternate",
-                  "not_for_new_designs",
-                  "retire",
-                  "replace",
-                  "last_time_buy",
-                  "other"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Action"
-          },
-          "clear_recheck": {
-            "default": false,
-            "title": "Clear Recheck",
-            "type": "boolean"
-          },
-          "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
-          },
-          "owner": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Owner"
-          },
-          "recheck_on": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recheck On"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "maxLength": 160,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "title": "UpdateIn",
         "type": "object"
       },
       "UpdateProjectTrackerRequest": {
@@ -25070,6 +25116,180 @@
           "createdAt"
         ],
         "title": "WebhookView",
+        "type": "object"
+      },
+      "WorkItemChange": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "investigate",
+                  "alternate",
+                  "not_for_new_designs",
+                  "retire",
+                  "replace",
+                  "last_time_buy",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "clear_recheck": {
+            "default": false,
+            "title": "Clear Recheck",
+            "type": "boolean"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "recheck_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recheck On"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "WorkItemChange",
+        "type": "object"
+      },
+      "WorkItemDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "accepted",
+              "rejected",
+              "done"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "WorkItemDecision",
+        "type": "object"
+      },
+      "WorkItemEvent": {
+        "additionalProperties": true,
+        "description": "One change in a work item's history.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "title": "Detail",
+            "type": "object"
+          }
+        },
+        "required": [
+          "at",
+          "actor",
+          "action",
+          "detail"
+        ],
+        "title": "WorkItemEvent",
+        "type": "object"
+      },
+      "WorkItemEvidence": {
+        "additionalProperties": true,
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "by",
+          "at"
+        ],
+        "title": "WorkItemEvidence",
+        "type": "object"
+      },
+      "WorkItemProject": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "title": "WorkItemProject",
         "type": "object"
       },
       "WorkerInfo": {
@@ -50555,12 +50775,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response List Work Items",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Items_SupplyWorkItem_"
                 }
               }
             },
@@ -50588,7 +50803,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateIn"
+                "$ref": "#/components/schemas/NewWorkItem"
               }
             }
           },
@@ -50599,9 +50814,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Work Item",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyWorkItem"
                 }
               }
             },
@@ -50642,7 +50855,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateIn"
+                "$ref": "#/components/schemas/WorkItemChange"
               }
             }
           },
@@ -50653,9 +50866,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Work Item",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyWorkItem"
                 }
               }
             },
@@ -50697,12 +50908,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response Work Item History",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Items_WorkItemEvent_"
                 }
               }
             },
@@ -50743,7 +50949,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DecideIn"
+                "$ref": "#/components/schemas/WorkItemDecision"
               }
             }
           },
@@ -50754,9 +50960,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Decide Work Item",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyWorkItem"
                 }
               }
             },

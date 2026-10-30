@@ -8,8 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { WorkItemAction } from "@/types/supply";
-import { createWorkItem } from "./work-items-api";
+import { createWorkItem, type WorkItemAction } from "./work-items-api";
 
 export const ACTION_LABEL: Record<WorkItemAction, string> = {
   investigate: "Investigate",
