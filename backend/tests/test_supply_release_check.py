@@ -405,6 +405,27 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual([(row["day"], float(row["cost_per_board"])) for row in left_out], [(today - timedelta(days=3), 1476446.14)])
         self.assertIsNone(cost_history.change_percent(kept), "no kept day is 30 days before the latest")
 
+    def test_a_changed_currency_starts_a_new_cost_series(self) -> None:
+        from datetime import date, timedelta
+
+        from app.services.supply import cost_history
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_bom_cost_history")
+
+        clear()
+        self.addCleanup(clear)
+        today = date(2026, 3, 1)
+        with self.store.connection() as conn:
+            for back, cost, currency in ((40, "12.0000", "EUR"), (35, "12.5000", "EUR"), (0, "18.0000", "USD")):
+                conn.execute(
+                    "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                    "VALUES ('prj_59', '', %s, %s, %s, 1, 1, '{}'::jsonb, 100)", (today - timedelta(days=back), cost, currency))
+            kept, _left_out = cost_history.series(conn, "prj_59", "", 90)
+        self.assertEqual([(row["currency"], float(row["cost_per_board"])) for row in kept], [("USD", 18.0)], "the EUR days are another series")
+        self.assertIsNone(cost_history.change_percent(kept), "18 USD is not compared with 12 EUR")
+
     def test_a_tracked_project_is_costed_for_its_usual_build_and_a_changed_one_starts_a_new_series(self) -> None:
         from datetime import timedelta
 

@@ -10618,6 +10618,18 @@
           "approve": {
             "title": "Approve",
             "type": "boolean"
+          },
+          "main_part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The main part the decider was shown (empty for none); the decision is refused (409) when it has changed since.",
+            "title": "Main Part Id"
           }
         },
         "required": [
@@ -27160,6 +27172,15 @@
             "title": "Component Name",
             "type": "string"
           },
+          "main_mpn": {
+            "title": "Main Mpn",
+            "type": "string"
+          },
+          "main_part_id": {
+            "description": "The component's main part the alternate is judged against; empty when it has none. Sent back with the decision.",
+            "title": "Main Part Id",
+            "type": "string"
+          },
           "manufacturer": {
             "title": "Manufacturer",
             "type": "string"
@@ -27189,7 +27210,9 @@
           "mpn",
           "manufacturer",
           "proposed_by",
-          "proposed_at"
+          "proposed_at",
+          "main_part_id",
+          "main_mpn"
         ],
         "title": "ProposedAlternate",
         "type": "object"
@@ -34716,6 +34739,30 @@
           "end_of_life": {
             "title": "End Of Life",
             "type": "integer"
+          },
+          "lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "BOM lines of the usual build.",
+            "title": "Lines"
+          },
+          "lines_priced": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "BOM lines the cost covers: under `lines`, the cost is a subtotal.",
+            "title": "Lines Priced"
           },
           "one_distributor": {
             "title": "One Distributor",

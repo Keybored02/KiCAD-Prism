@@ -145,8 +145,26 @@ describe("the parts list", () => {
       .mockResolvedValueOnce({ items: [partRowFixture({ id: "p2", mpn: "LM324" })], total: 2, limit: 50, offset: 50, next_offset: null, forecast_state: {} });
     renderView();
     expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", undefined, "", 50, 50, "", "");
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", expect.any(AbortSignal), "", 50, 50, "", "");
     expect(screen.getByText("2 parts")).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not read a failed page again while its end stays in view, only on Retry", async () => {
+    // An observer that reports the end in view every time one is made, as a sentinel left on screen would be.
+    class Seen { constructor(private readonly callback: IntersectionObserverCallback) {} observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); } disconnect() {} unobserve() {} }
+    vi.stubGlobal("IntersectionObserver", Seen);
+    mocked.listSupplyParts
+      .mockResolvedValueOnce({ items: [partRowFixture()], total: 2, limit: 50, offset: 0, next_offset: 50, forecast_state: {} })
+      .mockRejectedValueOnce(new Error("Service Unavailable"))
+      .mockResolvedValueOnce({ items: [partRowFixture({ id: "p2", mpn: "LM324" })], total: 2, limit: 50, offset: 50, next_offset: null, forecast_state: {} });
+    renderView();
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mocked.listSupplyParts).toHaveBeenCalledTimes(2);
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
+    expect(mocked.listSupplyParts).toHaveBeenCalledTimes(3);
     vi.unstubAllGlobals();
   });
 

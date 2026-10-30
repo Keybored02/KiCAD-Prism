@@ -196,6 +196,13 @@ def _read_capped(response: requests.Response, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """Scheme, host and port: what a redirect must keep for headers and a body to follow it."""
+
+    parts = urlsplit(url)
+    return parts.scheme.lower(), (parts.hostname or "").lower(), parts.port or {"https": 443, "http": 80}.get(parts.scheme.lower())
+
 def _label(url: str) -> str:
     """Host and path only; never the query."""
 
@@ -305,13 +312,17 @@ class SafeHttpClient:
             if not location:
                 raise ProviderError("redirect without a location")
             next_url = urljoin(url, location)
-            if urlsplit(next_url).hostname != urlsplit(url).hostname:
-                send_headers = {
-                    key: value for key, value in send_headers.items() if key.lower() in _PORTABLE_HEADERS
-                }
             if response.status == 303 or (response.status in (301, 302) and method == "POST"):
                 method, body = "GET", None
                 send_headers = {k: v for k, v in send_headers.items() if k.lower() != "content-type"}
+            if _origin(next_url) != _origin(url):
+                # A body can carry a secret (an OAuth form's client_secret), so it never follows a redirect to another origin,
+                # as the credential headers do not.
+                if body is not None:
+                    raise ProviderError(f"refused a redirect that would send the request body to {_label(next_url)}")
+                send_headers = {
+                    key: value for key, value in send_headers.items() if key.lower() in _PORTABLE_HEADERS
+                }
             url = next_url
         raise ProviderError("too many redirects")
 

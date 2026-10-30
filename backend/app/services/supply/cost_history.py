@@ -6,7 +6,7 @@ series (the project page's chart, its change figures, the Projects view and the 
 * a day that priced fewer lines than today does (the BOM was costed while some prices were missing, so it reads far too low);
 * a day whose figure is over ``OUTLIER_TIMES`` the series median (one price read wrong), which the page lists with its day.
 
-A changed usual build starts a new series (``SAME_SERIES``), as a currency change does for prices.
+A changed usual build or a changed currency starts a new series (``SAME_SERIES``): figures in two currencies are never compared.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from datetime import timedelta
 from typing import Any, Sequence
 
 OUTLIER_TIMES = 5
-# The rows of the series a project is on now: the build size of its newest row. ``h`` is the history table.
+# The rows of the series a project is on now: the build size and currency of its newest row. ``h`` is the history table.
 SAME_SERIES = (
-    "h.build_quantity = (SELECT l.build_quantity FROM supply_bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
+    "(h.build_quantity, h.currency) = (SELECT l.build_quantity, l.currency FROM supply_bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
     "ORDER BY l.day DESC LIMIT 1)"
 )
 

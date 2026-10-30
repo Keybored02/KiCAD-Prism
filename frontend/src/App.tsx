@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useRef, useState, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { User, AuthConfig } from './types/auth';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { IS_APPLE_PLATFORM } from '@/lib/shortcuts';
 import { insideKiCad } from '@/lib/kicad-host';
 import { roleLabel } from '@/lib/roles';
 import { useHotkeys } from '@/hooks/use-hotkeys';
-import { clearWorkspaceDataCache } from '@/hooks/use-workspace-data';
+import { useSignedInUser } from '@/hooks/use-signed-in-user';
 import { CommandPalette } from '@/components/command-palette';
 import { TopSearch } from '@/components/top-search';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
@@ -93,7 +93,9 @@ function PasswordChangeGate({
 }
 
 function App() {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useSignedInUser();
+    // The mount effect reads auth once; `setUser` never changes, so it is read through a ref rather than re-running the effect.
+    const signIn = useRef(setUser);
     const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
     const [loading, setLoading] = useState(true);
     const [authError, setAuthError] = useState<string | null>(null);
@@ -125,27 +127,6 @@ function App() {
         { combo: '/', handler: focusSearchField },
     ]);
 
-    const loadCurrentUser = async (config: AuthConfig, signal?: AbortSignal) => {
-        try {
-            const currentUser = await fetchCurrentUser(signal);
-            if (signal?.aborted) {
-                return;
-            }
-            setUser(currentUser);
-            setAuthError(null);
-        } catch (err) {
-            if (signal?.aborted) {
-                return;
-            }
-            if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
-                setUser(null);
-                setAuthError(config.auth_enabled && err.status === 403 ? err.message : null);
-                return;
-            }
-            throw err;
-        }
-    };
-
     // Fetch auth configuration on mount
     useEffect(() => {
         const controller = new AbortController();
@@ -158,13 +139,30 @@ function App() {
 
                 setAuthConfig(config);
                 setAuthError(null);
-                await loadCurrentUser(config, controller.signal);
+                try {
+                    const currentUser = await fetchCurrentUser(controller.signal);
+                    if (controller.signal.aborted) {
+                        return;
+                    }
+                    signIn.current(currentUser);
+                    setAuthError(null);
+                } catch (err) {
+                    if (controller.signal.aborted) {
+                        return;
+                    }
+                    if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
+                        signIn.current(null);
+                        setAuthError(config.auth_enabled && err.status === 403 ? err.message : null);
+                        return;
+                    }
+                    throw err;
+                }
             } catch (err) {
                 if (controller.signal.aborted) {
                     return;
                 }
                 console.error('Failed to fetch auth config:', err);
-                setUser(null);
+                signIn.current(null);
                 setAuthError('Failed to initialize authentication');
             } finally {
                 if (!controller.signal.aborted) {
@@ -200,11 +198,10 @@ function App() {
         };
         window.addEventListener('kicad-prism-auth-error', handleAuthError);
         return () => window.removeEventListener('kicad-prism-auth-error', handleAuthError);
-    }, []);
+    }, [setUser]);
 
     const handleLogout = () => {
         void fetchApi('/api/auth/logout', { method: 'POST' }).finally(() => {
-            clearWorkspaceDataCache();
             setUser(null);
             setAuthError(null);
             setSessionExpired(false);

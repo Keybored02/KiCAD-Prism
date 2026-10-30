@@ -13,13 +13,13 @@ const RunwayScatter = lazy(() => import("./runway-scatter"));
 
 
 function KindList({ kind, onOpen }: { kind: Exclude<PartsFilter, "">; onOpen: (partId: string) => void }) {
-  const { status, items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed("watched", "", kind);
+  const { status, items, hasMore, loadingMore, moreFailed, loadMore } = useSupplyPartsFeed("watched", "", kind);
   if (status === "loading") return <Skeleton className="h-24 w-full" aria-label="Loading parts" />;
   if (items.length === 0) return <p className="border border-dashed p-4 text-sm text-muted-foreground">No part has this finding.</p>;
   return (
     <>
       <PartsTable items={items} selectedId={null} onOpen={onOpen} />
-      <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
+      <LoadMore hasMore={hasMore} loading={loadingMore} failed={moreFailed} onLoad={() => void loadMore()} />
     </>
   );
 }

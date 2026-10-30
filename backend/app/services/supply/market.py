@@ -110,7 +110,10 @@ def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, l
     if not part_ids:
         return {}
     rows = conn.execute(
-        "SELECT id AS listing_id, part_id FROM supply_listings WHERE part_id = ANY(%s) AND supply_counted(match_state)", (list(part_ids),),
+        # The listings the stock, lead and lifecycle figures count (``parts_view``): a disabled connector's kept prices are history,
+        # not today's market.
+        "SELECT l.id AS listing_id, l.part_id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
+        "WHERE l.part_id = ANY(%s) AND supply_counted(l.match_state) AND c.enabled", (list(part_ids),),
     ).fetchall()
     quantities = price_quantity.of_parts(conn, part_ids)
     kept = price_breaks.load(conn, [row["listing_id"] for row in rows])

@@ -256,6 +256,26 @@ class ComponentPartsTests(unittest.TestCase):
             self.cp.decide(conn, component_id, proposed["part_id"], True, "qa@example.com")
             self.assertEqual(waiting(), [], "decided")
 
+    def test_a_decision_taken_against_a_main_part_that_has_since_changed_is_refused(self) -> None:
+        from app.services.supply import review
+        from app.services.supply.errors import Clash
+
+        component = self._component()
+        component_id = str(component["id"])
+        other, replacement = self._component(), self._component()
+        with self.store.connection() as conn:
+            self.cp.sync_main(conn, [component_id, str(other["id"]), str(replacement["id"])])
+            alternate = self.cp.propose_alternate(conn, component_id, other["manufacturer"], other["mpn"], AUTHOR)["part_id"]
+            (shown,) = [item for item in review.to_approve(conn)["alternates"] if item["component_id"] == component_id]
+            old_main = self.cp.parts_of(conn, component_id)[0]["part_id"]
+            self.assertEqual((shown["main_part_id"], shown["main_mpn"]), (old_main, component["mpn"]), "the queue shows what it is judged against")
+            self.cp._set_main(conn, component_id, self.cp.parts_of(conn, str(replacement["id"]))[0]["part_id"])  # noqa: SLF001
+            with self.assertRaises(Clash):
+                self.cp.decide(conn, component_id, alternate, True, "qa@example.com", main_part_id=shown["main_part_id"])
+            self.assertEqual({row["part_id"]: row["approval"] for row in self.cp.parts_of(conn, component_id)}[alternate], "pending")
+            (again,) = [item for item in review.to_approve(conn)["alternates"] if item["component_id"] == component_id]
+            self.cp.decide(conn, component_id, alternate, True, "qa@example.com", main_part_id=again["main_part_id"])
+
     def test_a_new_main_part_sends_approved_alternates_back_to_qa(self) -> None:
         component = self._component()
         component_id = str(component["id"])

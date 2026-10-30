@@ -24,6 +24,7 @@ export function ComponentPartsSection({ componentId, canPropose, canDecide }: { 
   const fetcher = useCallback(async (signal: AbortSignal) => (await getComponentParts(componentId, signal)).parts, [componentId]);
   const loaded = useLoaded<ComponentPart[]>(`components/${componentId}/parts`, fetcher, "Could not load the component's parts");
   const parts = loaded.data;
+  const mainPartId = parts?.find((part) => part.role === "main")?.part_id ?? "";
   const failed = loaded.status === "error" ? loaded.error : "";
   const [busy, setBusy] = useState(false);
   const [maker, setMaker] = useState("");
@@ -74,11 +75,11 @@ export function ComponentPartsSection({ componentId, canPropose, canDecide }: { 
                 <span className="flex shrink-0 gap-1">
                   {part.approval !== "approved" ? (
                     <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} aria-label={`Approve ${part.mpn}`} title="Approve"
-                      onClick={() => void act(() => decideAlternate(componentId, part.part_id, true), `Approved ${part.mpn}`)}><Check className="h-4 w-4" /></Button>
+                      onClick={() => void act(() => decideAlternate(componentId, part.part_id, true, mainPartId), `Approved ${part.mpn}`)}><Check className="h-4 w-4" /></Button>
                   ) : null}
                   {part.approval !== "rejected" ? (
                     <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} aria-label={`Reject ${part.mpn}`} title="Reject"
-                      onClick={() => void act(() => decideAlternate(componentId, part.part_id, false), `Rejected ${part.mpn}`)}><X className="h-4 w-4" /></Button>
+                      onClick={() => void act(() => decideAlternate(componentId, part.part_id, false, mainPartId), `Rejected ${part.mpn}`)}><X className="h-4 w-4" /></Button>
                   ) : null}
                   <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} aria-label={`Remove ${part.mpn}`} title="Remove"
                     onClick={() => void act(() => removeAlternate(componentId, part.part_id), `Removed ${part.mpn}`)}><Trash2 className="h-4 w-4" /></Button>

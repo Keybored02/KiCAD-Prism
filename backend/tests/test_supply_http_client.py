@@ -275,6 +275,24 @@ class RedirectTests(unittest.TestCase):
         self.assertEqual(second["method"], "POST")
         self.assertEqual(json.loads(second["body"]), {"a": 1})
 
+    def test_a_body_never_follows_a_redirect_to_another_origin(self) -> None:
+        secret = "sentinel-" + "form-value"
+        for status in (307, 308):
+            for location in ("https://auth.api.example.com/collect", "http://api.example.com/token", "https://api.example.com:8443/token"):
+                client, transport = _client(_response(status, location=location), _response(200, {}), allowed=("api.example.com",))
+                with self.assertRaises(ProviderError):
+                    client.request("POST", "https://api.example.com/token", form={"client_secret": secret})
+                self.assertEqual(len(transport.calls), 1, (status, location))
+            client, transport = _client(_response(status, location="https://auth.api.example.com/x"), _response(200, {}))
+            with self.assertRaises(ProviderError):
+                client.request("POST", "https://api.example.com/token", json={"client_secret": secret})
+            self.assertEqual(len(transport.calls), 1, "JSON bodies too")
+
+    def test_a_get_still_follows_a_redirect_to_another_allowed_host(self) -> None:
+        client, transport = _client(_response(307, location="https://auth.api.example.com/x"), _response(200, {}))
+        client.request("GET", "https://api.example.com/x")
+        self.assertEqual(transport.calls[1]["url"], "https://auth.api.example.com/x")
+
     def test_leaving_the_host_drops_custom_headers(self) -> None:
         client, transport = _client(
             _response(302, location="https://files.example.com/ds.pdf"), _response(200, {}),

@@ -1886,8 +1886,9 @@ class DebugLoggingWindow(TypedDict, total=True):
     until: str
 
 
-class DecisionRequest(TypedDict, total=True):
+class DecisionRequest(TypedDict, total=False):
     approve: bool
+    main_part_id: str | None
 
 
 class DecisionState(TypedDict, total=True):
@@ -4942,6 +4943,8 @@ class ProposedAlternate(TypedDict, total=True):
     component_id: str
     component_mpn: str
     component_name: str
+    main_mpn: str
+    main_part_id: str
     manufacturer: str
     mpn: str
     part_id: str
@@ -6338,6 +6341,8 @@ class SupplyGroupStats(TypedDict, total=False):
     cost_per_board: str | None
     currency: str | None
     end_of_life: int
+    lines: int | None
+    lines_priced: int | None
     one_distributor: int
     out: int
     packaging: str | None

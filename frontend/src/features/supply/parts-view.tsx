@@ -54,7 +54,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
   const canEdit = canEditSupply(user?.role);
   const canFollow = canFollowSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
+  const { status, data, items, total, hasMore, loadingMore, moreFailed, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -133,7 +133,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
             ) : (
               <>
                 <PartsTable stickyHead layout={layout} items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} sort={sort} onSort={(next) => setParams({ partsSort: next })} />
-                <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
+                <LoadMore hasMore={hasMore} loading={loadingMore} failed={moreFailed} onLoad={() => void loadMore()} />
                 <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>
             )}

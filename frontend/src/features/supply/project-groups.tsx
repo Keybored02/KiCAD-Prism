@@ -24,11 +24,11 @@ const WORST_FIRST: readonly SupplyStatus[] = ["fatal", "error", "warning", "ok",
 
 /** One group's parts, loaded as they scroll into view. Mounted only while its group is open. */
 function GroupParts({ projectId, scope, query, only, vendor, layout, sort, onSort, selectedId, onOpen }: ShownProps & { projectId: string }) {
-  const { items, hasMore, loadingMore, loadMore } = useSupplyPartsFeed(scope, query, only, projectId, vendor, sort);
+  const { items, hasMore, loadingMore, moreFailed, loadMore } = useSupplyPartsFeed(scope, query, only, projectId, vendor, sort);
   return (
     <>
       <PartsTable showProjects={false} layout={layout} items={items} selectedId={selectedId} onOpen={onOpen} sort={sort} onSort={onSort} />
-      <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
+      <LoadMore hasMore={hasMore} loading={loadingMore} failed={moreFailed} onLoad={() => void loadMore()} />
     </>
   );
 }

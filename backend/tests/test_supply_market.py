@@ -171,6 +171,28 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertAlmostEqual(line[0][1], 100.0)
         self.assertAlmostEqual(line[1][1], 110.0, places=3)
 
+    def test_a_disabled_connector_s_prices_leave_the_price_index(self) -> None:
+        from datetime import datetime, timezone
+
+        for index in range(3):
+            self.follow("Acme", f"A-{index}", 100)
+
+        def price(mpn: str, day: date, unit: str) -> None:
+            with self.store.connection() as conn:
+                _reading(conn, f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), 100, price=unit)
+
+        for mpn in ("A-0", "A-1", "A-2"):
+            price(mpn, date(2026, 3, 1), "1.00")
+            price(mpn, date(2026, 3, 2), "2.00")
+        with self.store.connection() as conn:
+            self.assertEqual(len(market.price_changes(conn, [self.part_of("A-0")], datetime(2026, 3, 2, tzinfo=timezone.utc))), 1)
+            conn.execute("UPDATE supply_connectors SET enabled = false WHERE id = 'c1'")
+            self.assertEqual(market.price_changes(conn, [self.part_of("A-0")], datetime(2026, 3, 2, tzinfo=timezone.utc)), {})
+
+    def part_of(self, mpn: str) -> str:
+        with self.store.connection() as conn:
+            return conn.execute("SELECT id FROM supply_parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
+
     def test_the_history_is_for_readers_and_one_known_metric(self) -> None:
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=dropped").json,
                          {"metric": "dropped", "series": []})

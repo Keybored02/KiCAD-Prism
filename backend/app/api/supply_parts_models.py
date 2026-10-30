@@ -554,6 +554,8 @@ class SupplyGroupStats(SupplyModel):
     build_quantity: Optional[int] = Field(default=None, description="The usual build the cost and boards are worked out for.")
     unchecked: Optional[int] = Field(default=None, description="BOM lines no stock figure checks: the boards count is unconfirmed while any is.")
     test_data: Optional[bool] = Field(default=None, description="Some of the cost comes from a simulated connector.")
+    lines: Optional[int] = Field(default=None, description="BOM lines of the usual build.")
+    lines_priced: Optional[int] = Field(default=None, description="BOM lines the cost covers: under `lines`, the cost is a subtotal.")
     cost_change_percent: Optional[Number] = None
     alerts: Optional[int] = None
 

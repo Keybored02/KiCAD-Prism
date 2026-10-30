@@ -67,13 +67,14 @@ describe("waiting for approval", () => {
     const alternates = toApproveFixture({
       waivers: [],
       alternates: [{ component_id: "cmp-1", component_name: "R 10k 0603", component_mpn: "RC0603", part_id: "p9", mpn: "ERJ-3EKF1002V",
-        manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-16T10:00:00Z" }],
+        manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-16T10:00:00Z", main_part_id: "p1", main_mpn: "RC0603FR-0710KL" }],
     });
     render(<MemoryRouter><ToApprove items={alternates} canDecide onDecided={decided} /></MemoryRouter>);
     expect(screen.getByText("Alternate")).toBeTruthy();
     expect(screen.getByRole("link", { name: "ERJ-3EKF1002V, Panasonic for R 10k 0603" }).getAttribute("href")).toContain("component=cmp-1");
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
-    await waitFor(() => expect(componentApi.decideAlternate).toHaveBeenCalledWith("cmp-1", "p9", false));
+    expect(screen.getByText(/vs RC0603FR-0710KL/)).toBeTruthy();
+    await waitFor(() => expect(componentApi.decideAlternate).toHaveBeenCalledWith("cmp-1", "p9", false, "p1"));
     await waitFor(() => expect(decided).toHaveBeenCalledTimes(1));
   });
 

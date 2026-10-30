@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   PartsFilter,
@@ -27,28 +27,46 @@ export function useSupplyPartsList(scope: PartsScope, query: string, only: Parts
 
 const FEED_PAGE = 50;
 
+interface MorePages {
+  base: SupplyPartsPage | null;
+  items: SupplyPartRow[];
+  next: number | null;
+  /** The last next-page read failed: nothing is read again until `loadMore` is called (Retry). */
+  failed: boolean;
+}
+
 /** Parts a page at a time: the first page, then more as `loadMore` is called. A refresh starts again from the first page. */
 export function useSupplyPartsFeed(scope: PartsScope, query: string, only: PartsFilter = "", projectId = "", vendor = "", sort = "") {
   const first = useSupplyPartsList(scope, query, only, FEED_PAGE, projectId, vendor, sort);
-  const [more, setMore] = useState<{ base: SupplyPartsPage | null; items: SupplyPartRow[]; next: number | null }>({ base: null, items: [], next: null });
+  const [more, setMore] = useState<MorePages>({ base: null, items: [], next: null, failed: false });
   const [loadingMore, setLoadingMore] = useState(false);
+  const reading = useRef<AbortController | null>(null);
   const base = first.data;
-  // Pages loaded after a first page that has since been replaced belong to something else.
-  const extra = more.base === base ? more : { base, items: [] as SupplyPartRow[], next: base?.next_offset ?? null };
+  // Pages loaded after a first page that has since been replaced belong to something else, and so does a read in flight.
+  const extra = useMemo<MorePages>(() => (more.base === base ? more : { base, items: [], next: base?.next_offset ?? null, failed: false }), [more, base]);
+  useEffect(() => () => reading.current?.abort(), [base]);
   const loadMore = useCallback(async () => {
     if (!base || extra.next === null || loadingMore) return;
+    const controller = new AbortController();
+    reading.current = controller;
     setLoadingMore(true);
     try {
-      const page = await (sort ? listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE, projectId, vendor, sort) : listSupplyParts(scope, query, undefined, only, extra.next, FEED_PAGE, projectId, vendor));
-      setMore({ base, items: [...extra.items, ...page.items], next: page.next_offset ?? null });
+      const page = await (sort ? listSupplyParts(scope, query, controller.signal, only, extra.next, FEED_PAGE, projectId, vendor, sort) : listSupplyParts(scope, query, controller.signal, only, extra.next, FEED_PAGE, projectId, vendor));
+      if (!controller.signal.aborted) setMore({ base, items: [...extra.items, ...page.items], next: page.next_offset ?? null, failed: false });
     } catch {
-      // The sentinel asks again when it is next seen; the rows already loaded stay.
+      // The rows already loaded stay; the page is read again only when asked (a Retry), not each time the end is in view.
+      if (!controller.signal.aborted) setMore({ ...extra, failed: true });
     } finally {
-      setLoadingMore(false);
+      if (reading.current === controller) reading.current = null;
+      // A read replaced by a newer one (another first page) leaves the flag to that one.
+      setLoadingMore(reading.current !== null);
     }
-  }, [base, extra.items, extra.next, loadingMore, scope, query, only, projectId, vendor, sort]);
+  }, [base, extra, loadingMore, scope, query, only, projectId, vendor, sort]);
   const items = base ? [...base.items, ...extra.items] : [];
-  return { ...first, items, forecastState: base?.forecast_state, total: base?.total ?? 0, hasMore: extra.next !== null, loadingMore, loadMore };
+  return {
+    ...first, items, forecastState: base?.forecast_state, total: base?.total ?? 0,
+    hasMore: extra.next !== null, loadingMore, moreFailed: extra.failed, loadMore,
+  };
 }
 
 /** The manufacturers Prism knows, for suggestions. A failure just means no suggestions. */

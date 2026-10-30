@@ -19,7 +19,7 @@ A part with stock that matches nothing waits in ``inventory_unmatched`` with the
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from app.services.supply import clock
 from app.services.supply import credentials as sealed
@@ -183,6 +183,7 @@ def sync(
     moment = now or clock.now()
     with store.connection() as conn:
         row = sources.get(conn, source_id)
+    read_as = _settings(row)
     spec = registry.get_spec(row["kind"])
     try:
         factory = client_factory or spec.factory
@@ -196,10 +197,32 @@ def sync(
     except (ProviderError, sources.SourceError) as exc:
         message = f"{getattr(exc, 'code', 'invalid')}: {exc}"
         with store.connection() as conn:
+            if not _still(conn, source_id, read_as):
+                return SUPERSEDED
             fail(conn, source_id, message, moment)
         return {"status": "error", "error": message}
     with store.connection() as conn:
+        if not _still(conn, source_id, read_as):
+            return SUPERSEDED
         return {"status": "ok", **apply(conn, source_id, found, moment, level_source=spec.level_source)}
+
+
+# What a read depends on: a change to any of them (``sources.update``) makes stock read under the old ones stale.
+READ_SETTINGS = ("base_url", "credential_envelope", "category_id")
+SUPERSEDED = {"status": "error", "error": "superseded: the source changed while it was read; it is read again with its new settings."}
+
+
+def _settings(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    return tuple(row[column] for column in READ_SETTINGS)
+
+
+def _still(conn, source_id: str, read_as: tuple[Any, ...]) -> bool:
+    """Whether the source still has the settings it was read with, holding its row until the read is stored.
+
+    A read that took the old URL, token or category stores nothing, failure included: the edit already made the source due."""
+
+    row = conn.execute(f"SELECT {', '.join(READ_SETTINGS)} FROM inventory_sources WHERE id = %s FOR UPDATE", (source_id,)).fetchone()
+    return row is not None and _settings(row) == read_as
 
 
 def due(conn, now: datetime) -> list[str]:

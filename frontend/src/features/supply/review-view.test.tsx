@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiHttpError } from "@/lib/api";
@@ -83,6 +84,16 @@ describe("the review queue", () => {
     mocked.getSupplyReviewQueue.mockResolvedValue(queue({ aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 }, to_approve: toApproveFixture() }));
     render(<ReviewView user={qa} />);
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
+  });
+
+  it("does not say nothing to review when only an alternate waits", async () => {
+    mocked.getSupplyReviewQueue.mockResolvedValue(queue({
+      aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 },
+      to_approve: toApproveFixture({ alternates: [{ component_id: "cmp-1", component_name: "R 10k 0603", component_mpn: "RC0603", part_id: "p9", mpn: "ERJ-3EKF1002V", manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-20T10:00:00Z", main_part_id: "", main_mpn: "" }] }),
+    }));
+    render(<MemoryRouter><ReviewView user={qa} /></MemoryRouter>);
+    expect(await screen.findByText(/ERJ-3EKF1002V/)).toBeTruthy();
+    expect(screen.queryByText("Nothing to review")).toBeNull();
   });
 
   it("reports a load failure and retries", async () => {
