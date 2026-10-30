@@ -41,7 +41,7 @@ import type {
   SupplySvhcList,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
-import type { Items, SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding, UsageBuild, UsageRefreshed } from "@/types/supply.generated";
+import type { AliasConfirmed, AliasUndone, Items, ListingsRejected, MakerChosen, NumbersCounted, SettleUndone, SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding, UsageBuild, UsageRefreshed } from "@/types/supply.generated";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply";
@@ -200,7 +200,7 @@ export function getSupplyReviewQueue(signal?: AbortSignal): Promise<SupplyReview
   return fetchJson<SupplyReviewQueue>(`${BASE}/review`, { signal }, "Could not load the review queue");
 }
 
-function confirmSupplyAliasRequest(input: ConfirmAliasInput): Promise<{ listings_updated: number }> {
+function confirmSupplyAliasRequest(input: ConfirmAliasInput): Promise<AliasConfirmed> {
   return post(`${BASE}/review/aliases/confirm`, input, "Could not map the spelling");
 }
 
@@ -223,15 +223,15 @@ function rejectSupplyListingRequest(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
 }
 
-function markPartNumbersRequest(partId: string, keys: string[]): Promise<{ counted: number }> {
+function markPartNumbersRequest(partId: string, keys: string[]): Promise<NumbersCounted> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/numbers`, { keys }, "Could not record the numbers");
 }
 
-function chooseSupplyMakerRequest(partId: string, key: string): Promise<{ result: string }> {
+function chooseSupplyMakerRequest(partId: string, key: string): Promise<MakerChosen> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/choose`, { key }, "Could not record the choice");
 }
 
-function otherSupplyMakerRequest(partId: string, key: string): Promise<{ rejected: number }> {
+function otherSupplyMakerRequest(partId: string, key: string): Promise<ListingsRejected> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
@@ -273,15 +273,15 @@ function removeMakerSpellingRequest(key: string): Promise<void> {
   return send(`${BASE}/settings/makers/${encodeURIComponent(key)}`, "DELETE", undefined, "Could not remove the spelling");
 }
 
-function undoSettledPartRequest(partId: string): Promise<{ undone: boolean }> {
+function undoSettledPartRequest(partId: string): Promise<SettleUndone> {
   return post(`${BASE}/review/parts/${encodeURIComponent(partId)}/undo`, {}, "Could not take the maker back");
 }
 
-function undoLearnedAliasRequest(key: string): Promise<{ listings: number }> {
+function undoLearnedAliasRequest(key: string): Promise<AliasUndone> {
   return post(`${BASE}/review/aliases/${encodeURIComponent(key)}/undo`, {}, "Could not undo the spelling");
 }
 
-function rejectSupplyListingsRequest(listingIds: string[]): Promise<{ rejected: number }> {
+function rejectSupplyListingsRequest(listingIds: string[]): Promise<ListingsRejected> {
   return post(`${BASE}/review/listings/reject-many`, { listing_ids: listingIds }, "Could not take the listings off");
 }
 

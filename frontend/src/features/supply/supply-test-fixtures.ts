@@ -1,6 +1,6 @@
 import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 import type {
-  PartPrice, ProjectSupplyPart, ReleaseCheckLine, RowDistributor, SupplyBomBuy, SupplyBomLineResult, SupplyBomRollup, SupplyComponentStanding, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
+  PartPrice, ProjectSupplyPart, SupplyReviewListing, SupplyReviewQueue, SupplyToApprove, ReleaseCheckLine, RowDistributor, SupplyBomBuy, SupplyBomLineResult, SupplyBomRollup, SupplyComponentStanding, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
 } from "@/types/supply.generated";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
@@ -285,5 +285,24 @@ export function releaseLineFixture(overrides: Partial<ReleaseCheckLine> = {}): R
   return {
     manufacturer: "Acme", mpn: "MPN-1", quantity: 1, state: "tracked", part_id: "p1", health: 10, status: "ok", findings: [], waived: 0,
     alternates: [], status_from: null, ...overrides,
+  };
+}
+
+export function toApproveFixture(overrides: Partial<SupplyToApprove> = {}): SupplyToApprove {
+  return { waivers: [], alternates: [], dismissals: [], mutes: [], ...overrides };
+}
+
+export function reviewListingFixture(overrides: Partial<SupplyReviewListing> = {}): SupplyReviewListing {
+  return {
+    id: "l1", connector_id: "c1", connector_name: "Mouser", provider: "mouser", sku: "SKU-1", raw_mpn: "MPN-1", raw_manufacturer: "Acme",
+    match_state: "manufacturer_unresolved", match_reason: "", packaging: "cut_tape", reel_size: null, packaging_inferred: false,
+    first_seen_at: "2026-01-01T00:00:00Z", part: null, ...overrides,
+  };
+}
+
+export function reviewQueueFixture(overrides: Partial<SupplyReviewQueue> = {}): SupplyReviewQueue {
+  return {
+    aliases: [], listings: [], other_numbers: [], choices: [], matched: { aliases: [], parts: [] }, to_approve: toApproveFixture(),
+    counts: { aliases: 0, unresolved: 0, near: 0 }, manufacturers: [], ...overrides,
   };
 }

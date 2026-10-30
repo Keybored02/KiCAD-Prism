@@ -52,6 +52,14 @@ export interface AlertRules {
   target_price: string | null;
 }
 
+export interface AliasConfirmed {
+  listings_updated: number;
+}
+
+export interface AliasUndone {
+  listings: number;
+}
+
 export interface AlternateRequest {
   manufacturer?: string;
   mpn: string;
@@ -295,6 +303,10 @@ export interface CheckStarted {
   skipped: SkippedLine[];
 }
 
+export interface ChoiceRequest {
+  key: string;
+}
+
 export interface CommentIn {
   body: string;
   line_key: string;
@@ -344,6 +356,12 @@ export interface ComponentRestriction {
 export interface ComponentStandings {
   /** By component id. */
   items: Record<string, SupplyComponentStanding>;
+}
+
+export interface ConfirmAliasRequest {
+  alias_key: string;
+  manufacturer_id?: string | null;
+  new_manufacturer_name?: string | null;
 }
 
 export interface ConnectorHealth {
@@ -711,6 +729,14 @@ export interface Leadership {
   led: Record<string, number>;
 }
 
+export interface LearnedAlias {
+  alias_key: string;
+  alias_text: string;
+  first_seen_at: string;
+  manufacturer: string;
+  parts: number;
+}
+
 export interface LibraryComponentOf {
   /** The catalog component the part counts for; null when the library has none. */
   component_id: string | null;
@@ -744,12 +770,22 @@ export interface LinkRequest {
   component_id: string;
 }
 
+export interface ListingPart {
+  id: string;
+  manufacturer: string;
+  mpn: string;
+}
+
 export interface ListingPoll {
   error_streak: number;
   last_error_code: string;
   last_polled_at: string | null;
   next_poll_at: string | null;
   tier: "daily" | "weekly" | "monthly";
+}
+
+export interface ListingsRejected {
+  rejected: number;
 }
 
 export interface LoadList {
@@ -792,6 +828,10 @@ export interface LookupRequest {
   build_quantity?: number | null;
   lines: LineIn[];
   project_id?: string;
+}
+
+export interface MakerChosen {
+  result: "settled" | "conflict";
 }
 
 export interface MakerSpelling {
@@ -888,12 +928,27 @@ export interface NumberFollowed {
   watch: SupplyWatch;
 }
 
+export interface NumbersCounted {
+  counted: number;
+}
+
+export interface NumbersRequest {
+  keys: string[];
+}
+
 export interface OpenRestock {
   expected: string;
   kind: "lead_time" | "dated";
   late: boolean;
   quantity?: number | null;
   quoted_lead_days?: number | null;
+}
+
+export interface OtherNumberListing {
+  connector: string;
+  id: string;
+  raw_mpn: string;
+  sku: string;
 }
 
 export interface OutlookSignal {
@@ -1394,6 +1449,49 @@ export interface ProjectTrackingState {
   variants: string[];
 }
 
+export interface ProposedAlternate {
+  component_id: string;
+  component_mpn: string;
+  component_name: string;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  proposed_at: string;
+  proposed_by: string;
+}
+
+export interface ProposedDismissal {
+  component_id: string;
+  component_mpn: string;
+  component_name: string;
+  id: string;
+  proposed_at: string;
+  proposed_by: string;
+  reasons: string[];
+}
+
+export interface ProposedMute {
+  id: string;
+  kind: string;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  proposed_at: string;
+  proposed_by: string;
+}
+
+export interface ProposedWaiver {
+  check_id: string;
+  id: string;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  proposed_at: string;
+  proposed_by: string;
+  reason: string;
+  scope: string;
+}
+
 export interface PushLevelsRequest {
   items: PushedLevel[];
 }
@@ -1467,6 +1565,10 @@ export interface PushedOffer {
 export interface QuoteCoverage {
   of: number;
   parts: number;
+}
+
+export interface RejectManyRequest {
+  listing_ids: string[];
 }
 
 export interface ReleaseAssessment {
@@ -1582,6 +1684,12 @@ export interface RestrictionIn {
   replacement_component_id?: string;
 }
 
+export interface ReviewCounts {
+  aliases: number;
+  near: number;
+  unresolved: number;
+}
+
 /** A RoHS exemption a person named from the manufacturer's declaration. */
 export interface RohsExemption {
   code: string;
@@ -1679,6 +1787,17 @@ export interface SettingsRanges {
   lead_time_days: [number, number];
   price_quantity: [number, number];
   spares: [number, number];
+}
+
+export interface SettleUndone {
+  undone: boolean;
+}
+
+export interface SettledPart {
+  at: string;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
 }
 
 export interface SheetRequest {
@@ -2208,6 +2327,12 @@ export interface SupplyManufacturer {
   part_count: number;
 }
 
+/** What Prism decided by itself and a person may undo. */
+export interface SupplyMatched {
+  aliases: LearnedAlias[];
+  parts: SettledPart[];
+}
+
 export interface SupplyNotice {
   created_at: string;
   created_by: string;
@@ -2257,6 +2382,14 @@ export interface SupplyOffer {
   reach_affected: boolean | null;
   rohs: boolean | null;
   stock: number;
+}
+
+/** Listings pinned as a part although numbered otherwise. */
+export interface SupplyOtherNumberGroup {
+  listings: OtherNumberListing[];
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
 }
 
 /** A rule-based band with every signal behind it. */
@@ -2420,6 +2553,45 @@ export interface SupplyReadNow {
   read: number;
 }
 
+/** A spelling a distributor used that maps to no manufacturer yet. */
+export interface SupplyReviewAlias {
+  alias_key: string;
+  alias_text: string;
+  first_seen_at: string;
+  seen_at_provider: string;
+  waiting_listings: number;
+}
+
+export interface SupplyReviewListing {
+  connector_id: string;
+  connector_name: string;
+  first_seen_at: string;
+  id: string;
+  match_reason: string;
+  match_state: "manufacturer_unresolved" | "near";
+  packaging: string;
+  packaging_inferred: boolean;
+  /** The part this listing is a candidate for. */
+  part: ListingPart | null;
+  provider: string;
+  raw_manufacturer: string;
+  raw_mpn: string;
+  reel_size: number | null;
+  sku: string;
+}
+
+export interface SupplyReviewQueue {
+  aliases: SupplyReviewAlias[];
+  /** Parts whose maker waits for a person. */
+  choices: SupplyChoice[];
+  counts: ReviewCounts;
+  listings: SupplyReviewListing[];
+  manufacturers: SupplyManufacturer[];
+  matched: SupplyMatched;
+  other_numbers: SupplyOtherNumberGroup[];
+  to_approve: SupplyToApprove;
+}
+
 /** One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price]. */
 export interface SupplyRowOffer {
   /** Other packagings the same line is sold in, with the same terms. */
@@ -2466,6 +2638,14 @@ export interface SupplySvhcList {
   loaded_by: string;
   source_name: string;
   substances: number;
+}
+
+/** What QA and administrators have been asked to approve. */
+export interface SupplyToApprove {
+  alternates: ProposedAlternate[];
+  dismissals: ProposedDismissal[];
+  mutes: ProposedMute[];
+  waivers: ProposedWaiver[];
 }
 
 export interface SupplyWatch {

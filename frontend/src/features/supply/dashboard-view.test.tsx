@@ -19,6 +19,7 @@ vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null
 
 import * as api from "./supply-api";
 import { DashboardView } from "./dashboard-view";
+import { reviewQueueFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 const user: User = { name: "Ana", email: "ana@example.com", role: "designer" };
@@ -44,7 +45,7 @@ beforeEach(() => {
   mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture());
   mocked.listSupplyAlerts.mockResolvedValue({ items: [alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } })] });
   mocked.listSupplyParts.mockResolvedValue({ items: [], total: 3, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
-  mocked.getSupplyReviewQueue.mockResolvedValue({ aliases: [], listings: [], counts: { aliases: 1, unresolved: 2, near: 1 }, manufacturers: [] });
+  mocked.getSupplyReviewQueue.mockResolvedValue(reviewQueueFixture({ aliases: [], listings: [], counts: { aliases: 1, unresolved: 2, near: 1 }, manufacturers: [] }));
 });
 afterEach(cleanup);
 
