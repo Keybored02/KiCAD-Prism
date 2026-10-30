@@ -19,6 +19,20 @@ TABLES: tuple[str, ...] = (
     );
     """,
     """
+    -- A part's forecast as its sheet shows it, at the part's own quantity: kept when the daily run or a reader makes it, read again
+    -- while it is today's and no mark of what it is made from has come since (``forecast.store.kept_part``).
+    CREATE TABLE IF NOT EXISTS supply_part_forecasts (
+        part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
+        made_on DATE NOT NULL,
+        quantity INTEGER NOT NULL,
+        data JSONB NOT NULL,
+        computed_at TIMESTAMPTZ NOT NULL,
+        seen TEXT NOT NULL DEFAULT '1:1:',
+        snap BIGINT NOT NULL DEFAULT 0,
+        own BIGINT NOT NULL DEFAULT 0
+    );
+    """,
+    """
     CREATE TABLE IF NOT EXISTS supply_part_summaries (
         part_id TEXT PRIMARY KEY REFERENCES supply_parts(id) ON DELETE CASCADE,
         version SMALLINT NOT NULL DEFAULT 0,

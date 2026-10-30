@@ -78,7 +78,7 @@ class ForecastDbTests(unittest.TestCase):
         inputs.forget_lifecycle_rates()
         with self.store.connection() as conn:
             for table in ("supply_forecast_checks", "supply_forecasts", "supply_forecast_models", "supply_events", "supply_stock_events", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_part_tiers",
-                          "supply_part_insights", "supply_part_summaries", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_bom_usage", "supply_bom_usage_projects"):
+                          "supply_part_forecasts", "supply_part_insights", "supply_part_summaries", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_bom_usage", "supply_bom_usage_projects"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=ADMIN, provider="mouser", currency="EUR", display_name="Mouser", credentials={"api_key": "k"})["id"]
         self.other = self.connectors.create(actor=ADMIN, provider="digikey", storefront="IT", currency="EUR", display_name="DigiKey",
@@ -228,7 +228,8 @@ class ForecastDbTests(unittest.TestCase):
         check = self.rows("SELECT c.observed, c.inside, c.void FROM supply_forecast_checks c JOIN supply_forecasts f ON f.id = c.forecast_id WHERE f.target = 'runout'")[0]
         self.assertEqual((check["observed"], check["inside"], check["void"]), (10.0, True, False))
         self.assertEqual(states["runout"], "learning", "one check is not enough to be shown")
-        model = store.model_states(self.store.connection().__enter__())["runout"]
+        with self.store.connection() as conn:
+            model = store.model_states(conn)["runout"]
         self.assertEqual((model["checks"], model["needs"]), (1, 40))
 
     def test_a_forecast_about_a_day_nobody_read_is_voided_not_judged(self) -> None:
@@ -341,6 +342,49 @@ class ForecastDbTests(unittest.TestCase):
                 mock.patch.object(models, "MIN_CHANGES_TO_SHOW", 0):
             shown = views.part(conn, self.part_id, START, quantity=100)
         self.assertIn("p12", shown["end_of_life"], "and is shown once it rests on data")
+
+    def test_the_sheet_reads_the_kept_forecast_until_a_reading_changes_or_the_day_turns(self) -> None:
+        from app.services.supply.forecast import models, run, views
+
+        listing = self.listing(self.cid, "FALL-SKU")
+        self.falling(listing)
+        with mock.patch.dict(models.MIN_SPAN_DAYS, {30: 7, 90: 7}):
+            with self.store.connection() as conn:
+                run.run_part(conn, self.part_id, START)
+            with self.store.connection() as conn, mock.patch.object(run, "part_forecast", side_effect=AssertionError("worked out again")):
+                kept = views.part(conn, self.part_id, START)
+            self.assertTrue(kept["available"])
+            self.assertEqual(kept["runout"]["median"], (START + timedelta(days=10)).date().isoformat())
+
+            with self.store.connection() as conn, mock.patch.object(run, "part_forecast", wraps=run.part_forecast) as made:
+                self.assertEqual(views.part(conn, self.part_id, START, quantity=7)["quantity"], 7)
+                self.assertEqual(made.call_count, 1, "another quantity is worked out")
+                views.part(conn, self.part_id, START)
+                self.assertEqual(made.call_count, 1, "and leaves the kept one as it was")
+
+            self.readings(listing, [900], START, fetched_at=START)
+            with self.store.connection() as conn, mock.patch.object(run, "part_forecast", wraps=run.part_forecast) as made:
+                views.part(conn, self.part_id, START)
+                views.part(conn, self.part_id, START)
+            self.assertEqual(made.call_count, 1, "a new reading makes it stale; the one worked out then is kept")
+
+            with self.store.connection() as conn, mock.patch.object(run, "part_forecast", wraps=run.part_forecast) as made:
+                views.part(conn, self.part_id, START + timedelta(days=1))
+            self.assertEqual(made.call_count, 1, "a new day works it out again")
+
+    def test_the_pooled_outage_model_is_worked_out_again_once_a_stock_out_is_recorded(self) -> None:
+        from app.services.supply.forecast import inputs
+
+        listing = self.listing(self.cid, "OUT-SKU")
+        day = START.date()
+        with self.store.connection() as conn:
+            first = inputs.pooled(conn, day)
+            self.assertIs(inputs.pooled(conn, day), first, "kept while nothing changed")
+            conn.execute(
+                "INSERT INTO supply_stock_events (listing_id, day, kind, stock_before, stock_after) VALUES (%s, %s, 'stock_out', 10, 0)",
+                (listing, day - timedelta(days=3)),
+            )
+            self.assertIsNot(inputs.pooled(conn, day), first)
 
     def test_a_part_with_an_open_notice_and_distributors_dropping_it_is_likelier_to_end_but_never_certain(self) -> None:
         from app.services.supply.forecast import inputs

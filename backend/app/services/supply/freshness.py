@@ -1,4 +1,4 @@
-"""When a kept answer is stale: one rule for part summaries, part insights and project rollups.
+"""When a kept answer is stale: one rule for part summaries, part insights, part forecasts and project rollups.
 
 A change to what an answer is worked out from writes a mark, ``supply_dirty(kind, key, xid)`` (``schema.derived.SOURCES``
 names the tables and triggers; code that changes something no table shows calls ``mark``). A kept answer records the snapshot
@@ -18,6 +18,8 @@ READS: dict[str, tuple[str, ...]] = {
     "summary": ("summary", "outlook"),
     "rollup": ("rollup", "summary", "outlook"),
     "insight": ("insight", "summary"),
+    # A kept part forecast is made from the part's readings, its read rate and its price quantity: what its summary is made from.
+    "forecast": ("summary",),
 }
 
 # The snapshot an answer is about to read, as (seen, snap): take it before reading anything the answer is made from.
@@ -61,6 +63,7 @@ def mark_sql(conn, kind: str, keys_query: str, params: Sequence[object] = ()) ->
 _HOLDERS = {
     "summary": "SELECT 1 FROM supply_part_summaries s WHERE s.snap <= d.xid AND d.key IN (s.part_id, '*')",
     "insight": "SELECT 1 FROM supply_part_insights i WHERE i.snap <= d.xid AND d.key IN (i.part_id, '*')",
+    "forecast": "SELECT 1 FROM supply_part_forecasts f WHERE f.snap <= d.xid AND d.key IN (f.part_id, '*')",
     "rollup": "SELECT 1 FROM supply_project_rollups r WHERE r.snap <= d.xid AND (d.key IN (r.project_id, '*') OR d.key = ANY(r.part_ids))",
 }
 

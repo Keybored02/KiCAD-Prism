@@ -229,7 +229,12 @@ class BomLookupTests(unittest.TestCase):
             from app.services.supply import ending_parts
 
             ending_parts.set_restriction(conn, "cmp-2", "not_for_new_designs", "", "", "qa@example.com")
-        self.addCleanup(lambda: self.store.connection().__enter__().execute("DELETE FROM supply_component_restrictions"))
+
+        def unmark() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_component_restrictions")
+
+        self.addCleanup(unmark)
         marked = self.call("/api/supply/bom/components-status", body).json["items"]
         self.assertEqual(marked["cmp-2"], {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": "not_for_new_designs"},
                          "a marked component shows its mark though Prism does not track its part")
