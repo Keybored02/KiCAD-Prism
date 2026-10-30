@@ -328,7 +328,7 @@ class HardeningTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_connectors SET enabled = FALSE WHERE id = %s", (off,))
             listed = parts_view.summaries_for(conn, [part])[0]["stock"]
-            sheet = parts_view.part_detail(conn, part, now=START)["stock"]["total"]
+            sheet = parts_view.part_detail(conn, part, now=START)["stock"]
             alone = stock.part_stock(conn, part).total
         self.assertEqual((listed, sheet, alone), (40, 40, 40), "a disabled connector's stock counts nowhere")
 
@@ -347,7 +347,7 @@ class HardeningTests(unittest.TestCase):
         with self.store.connection() as conn:
             sheet = parts_view.part_detail(conn, part, now=START)
             items, _offers = parts_view.summaries_with_offers(conn, [part])
-        self.assertEqual((sheet["stock"]["total"], sheet["price"]["headline"]["unit_price"]), (7, "9.9"))
+        self.assertEqual((sheet["stock"], sheet["price"]["headline"]["unit_price"]), (7, "9.9"))
         self.assertEqual((items[0]["stock"], items[0]["unit_price"]), (7, "9.9"))
 
     def test_a_connector_can_keep_raw_samples_for_fewer_days(self) -> None:

@@ -54,6 +54,8 @@ export interface AlternateRequest {
 
 export interface AlternativeCandidate {
   differs: string[];
+  /** As old as the oldest read the stock rests on. */
+  fetched_at: string | null;
   /** None claims the parts are interchangeable: "ratings_met" is every listed rating known and met, in the same package. */
   grade: "ratings_met" | "similar" | "other_package" | "fails";
   grade_label: string;
@@ -61,8 +63,11 @@ export interface AlternativeCandidate {
   manufacturer: string;
   mpn: string;
   part_id: string;
+  /** Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared. */
+  problem: "not_found" | "gone" | null;
   same: string[];
   status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  /** The counted stock; null until something that counts has been read. */
   stock: number | null;
   /** Ratings the part lists and the candidate doesn't, so they can't be judged. */
   unknown: string[];
@@ -317,16 +322,22 @@ export interface EndingPart {
   dismissal_waiting: boolean;
   /** Someone dismissed it for the reasons it has now. */
   dismissed: boolean;
+  /** As old as the oldest read the stock rests on. */
+  fetched_at: string | null;
   /** The component's other approved parts that are not ending; retiring is offered only when none is left. */
   healthy: number;
   last_buy: LastBuy[];
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
   part_id: string;
+  /** Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared. */
+  problem: "not_found" | "gone" | null;
   projects: EndingProject[];
   reasons: EndingReason[];
   restriction: ComponentRestriction | null;
   /** Whether the ending part is the component's main part or an approved alternate. */
   role: "main" | "alternate";
   status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  /** The counted stock; null until something that counts has been read. */
   stock: number | null;
 }
 
@@ -767,11 +778,6 @@ export interface PartPrice {
 
 export interface PartReadOnView {
   read: number;
-}
-
-export interface PartStock {
-  by_connector: ConnectorStock[];
-  total: number | null;
 }
 
 /** How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null. */
@@ -1440,6 +1446,8 @@ export interface SupplyParameter {
 export interface SupplyPartDetail {
   /** Stock and price a line per distributor over the last 90 days: what the sheet's charts draw. */
   distributor_history: PartHistory;
+  /** As old as the oldest read the stock rests on. */
+  fetched_at: string | null;
   history: StockDay[];
   insight: SupplyInsight;
   jlc: JlcClass | null;
@@ -1453,11 +1461,14 @@ export interface SupplyPartDetail {
   /** The distributor a person prefers for this part: shown first. */
   preferred_connector_id: string | null;
   price: PartPrice;
+  /** Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared. */
   problem: "not_found" | "gone" | null;
   problem_text: string;
   restock_record: RestockRecord[];
   status: "ok" | "warning" | "error" | "fatal" | "unknown";
-  stock: PartStock;
+  /** The counted stock; null until something that counts has been read. */
+  stock: number | null;
+  stock_by_connector: ConnectorStock[];
   /** Why and how often Prism follows the part; null when nobody does. */
   tracking: PartTracking | null;
   trade: PartTrade;
@@ -1488,6 +1499,7 @@ export interface SupplyPartRow {
   distributors: RowDistributor[];
   /** Every distributor that lists it has stopped selling it. */
   dropped: boolean;
+  /** As old as the oldest read the stock rests on. */
   fetched_at: string | null;
   /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked. */
   flags: string[];
@@ -1522,6 +1534,7 @@ export interface SupplyPartRow {
   /** Currencies priced by a distributor that have no exchange rate, so were left out. */
   price_unrated: string[];
   priced_with: string;
+  /** Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared. */
   problem: "not_found" | "gone" | null;
   /** The first two projects using it, by name. */
   project_names: string[];
@@ -1530,7 +1543,7 @@ export interface SupplyPartRow {
   /** The last 30 days of counted stock. */
   spark?: number[] | null;
   status: "ok" | "warning" | "error" | "fatal" | "unknown";
-  /** Null until something that counts has been read. */
+  /** The counted stock; null until something that counts has been read. */
   stock: number | null;
   tier: "daily" | "weekly" | "monthly" | null;
   /** Why and how often Prism follows it. */

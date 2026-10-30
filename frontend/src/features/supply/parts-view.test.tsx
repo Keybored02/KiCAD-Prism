@@ -518,7 +518,8 @@ describe("the watch settings", () => {
     });
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
       status: "error", problem: "not_found", problem_text: "No distributor carries this part number",
-      stock: { total: null, by_connector: [] },
+      stock: null,
+      stock_by_connector: [],
     }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");

@@ -33,7 +33,7 @@ PARTS = {
 
 
 def detail(total: int | None) -> dict:
-    return {"stock": {"total": total}, "status": "ok", "problem_text": "", "lifecycle": "active", "tracking": None, "price": {}, "history": [1] * 90}
+    return {"stock": total, "status": "ok", "problem_text": "", "lifecycle": "active", "tracking": None, "price": {}, "history": [1] * 90}
 
 
 def run(app: SequenceApp, name: str, arguments: dict) -> dict:

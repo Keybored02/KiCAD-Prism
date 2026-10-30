@@ -1141,14 +1141,13 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "status": kept["status"],
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),
-        "stock": {
-            "total": kept["stock"],
-            "by_connector": [
-                {"connector_id": cid, "connector_name": names.get(cid, ""), "provider": providers.get(cid, ""), "stock": value}
-                for cid, value in (combined.by_connector.items() if combined else [])
-            ],
-        },
+        "stock": kept["stock"],
+        "stock_by_connector": [
+            {"connector_id": cid, "connector_name": names.get(cid, ""), "provider": providers.get(cid, ""), "stock": value}
+            for cid, value in (combined.by_connector.items() if combined else [])
+        ],
         "lifecycle": lifecycle.value,
+        "fetched_at": kept["fetched_at"],
         "listings": listings,
         "history": days,
         # Stock and price a line per distributor over the sheet's 90 days, so the sheet needs no second request for its charts.

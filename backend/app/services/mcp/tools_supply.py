@@ -79,7 +79,7 @@ async def _component_supply(app: Any, arguments: dict[str, Any], authorization: 
             return error
         parts.append({
             "part_id": part["part_id"], "role": part["role"], "manufacturer": part["manufacturer"], "mpn": part["mpn"],
-            "stock": (detail.get("stock") or {}).get("total"),
+            "stock": detail.get("stock"),
             **{key: detail.get(key) for key in _PART_FIELDS},
         })
     local, error = await _get(app, request, authorization, f"{_SUPPLY}/components/{component_id}/local-stock")

@@ -152,7 +152,8 @@ def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any
             found.append({
                 "part_id": row["id"], "manufacturer": item["manufacturer"], "mpn": item["mpn"], "grade": verdict["grade"],
                 "grade_label": grade_label(verdict), "same": verdict["same"], "differs": verdict["differs"], "unknown": verdict["unknown"],
-                "stock": item["stock"], "status": item["status"], "lifecycle": item["lifecycle"],
+                "stock": item["stock"], "status": item["status"], "lifecycle": item["lifecycle"], "problem": item["problem"],
+                "fetched_at": item["fetched_at"],
             })
     found.sort(key=lambda entry: (GRADES.index(entry["grade"]), -(entry["stock"] or 0), entry["mpn"]))
     return {

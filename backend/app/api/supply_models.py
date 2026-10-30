@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Generic, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -45,6 +45,18 @@ class JobProgress(SupplyModel):
     total: int
     failed: int
     reason: str
+
+
+class PartStanding(SupplyModel):
+    """How a part stands, the same fields wherever a part is shown: its status, why it has no stock when it should, the counted stock,
+    its lifecycle and when the stock was read. A shape that shows a part derives from this, so the names and types cannot drift."""
+
+    status: SupplyStatus
+    problem: Optional[Literal["not_found", "gone"]] = Field(
+        description="Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared.")
+    stock: Optional[int] = Field(description="The counted stock; null until something that counts has been read.")
+    lifecycle: Literal["active", "nrnd", "last_time_buy", "obsolete", "unknown"]
+    fetched_at: Optional[str] = Field(description="As old as the oldest read the stock rests on.")
 
 
 class DecisionState(SupplyModel):

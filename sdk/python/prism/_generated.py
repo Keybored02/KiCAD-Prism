@@ -95,12 +95,14 @@ class AlternateRequest(TypedDict, total=False):
 
 class AlternativeCandidate(TypedDict, total=True):
     differs: list[str]
+    fetched_at: str | None
     grade: str
     grade_label: str
     lifecycle: str
     manufacturer: str
     mpn: str
     part_id: str
+    problem: str | None
     same: list[str]
     status: str
     stock: int | None
@@ -1957,9 +1959,12 @@ class EndingPart(TypedDict, total=True):
     component: EndingComponent
     dismissal_waiting: bool
     dismissed: bool
+    fetched_at: str | None
     healthy: int
     last_buy: list[LastBuy]
+    lifecycle: str
     part_id: str
+    problem: str | None
     projects: list[EndingProject]
     reasons: list[EndingReason]
     restriction: ComponentRestriction | None
@@ -3616,11 +3621,6 @@ class PartReadOnView(TypedDict, total=True):
     read: int
 
 
-class PartStock(TypedDict, total=True):
-    by_connector: list[ConnectorStock]
-    total: int | None
-
-
 class PartTracking(TypedDict, total=True):
     """How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null."""
     rate: str
@@ -5178,6 +5178,7 @@ class SupplyParameter(TypedDict, total=True):
 class SupplyPartDetail(TypedDict, total=True):
     """The part sheet in one read."""
     distributor_history: PartHistory
+    fetched_at: str | None
     history: list[StockDay]
     insight: SupplyInsight
     jlc: JlcClass | None
@@ -5194,7 +5195,8 @@ class SupplyPartDetail(TypedDict, total=True):
     problem_text: str
     restock_record: list[RestockRecord]
     status: str
-    stock: PartStock
+    stock: int | None
+    stock_by_connector: list[ConnectorStock]
     tracking: PartTracking | None
     trade: PartTrade
     used_in: list[PartUse]

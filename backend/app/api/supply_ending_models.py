@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.supply_models import SupplyModel, SupplyStatus
+from app.api.supply_models import PartStanding, SupplyModel
 from app.services.supply import ending_parts
 
 RestrictionLevel = Literal["not_for_new_designs", "retired"]
@@ -59,13 +59,11 @@ class EndingProject(SupplyModel):
     quantity: int
 
 
-class EndingPart(SupplyModel):
+class EndingPart(PartStanding):
     component: EndingComponent
     part_id: str
     reasons: list[EndingReason]
     last_buy: list[LastBuy]
-    stock: Optional[int]
-    status: SupplyStatus
     projects: list[EndingProject]
     restriction: Optional[ComponentRestriction]
     dismissed: bool = Field(description="Someone dismissed it for the reasons it has now.")
