@@ -197,7 +197,7 @@ class TrackingApiTests(unittest.TestCase):
         self.assertTrue(spent)
         response = _request(self.app, "GET", "/api/supply/budget", user=self.users["qa"])
         self.assertEqual(response.status, 200, response.text)
-        (item,) = response.json
+        (item,) = response.json["items"]
         self.assertEqual((item["daily_budget"], item["committed"]["capacity"], item["pool"]["capacity"]), (40, 36, 4))
         self.assertEqual((item["pool"]["spent"], item["spent"]), (1, 1))
         self.assertEqual(item["tracking"]["admitted"], 3)

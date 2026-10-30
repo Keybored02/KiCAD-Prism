@@ -53,6 +53,39 @@
         "title": "AccessUserDeletedResponse",
         "type": "object"
       },
+      "AccountRoom": {
+        "additionalProperties": true,
+        "properties": {
+          "daily": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily"
+          },
+          "weekly": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly"
+          }
+        },
+        "required": [
+          "daily",
+          "weekly"
+        ],
+        "title": "AccountRoom",
+        "type": "object"
+      },
       "AcknowledgeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2081,6 +2114,465 @@
           "lines"
         ],
         "title": "BomOut",
+        "type": "object"
+      },
+      "BomRead": {
+        "additionalProperties": true,
+        "properties": {
+          "changed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When done: whether the project's parts differ from before.",
+            "title": "Changed"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "done",
+              "failed",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "done",
+          "total",
+          "failed",
+          "reason"
+        ],
+        "title": "BomRead",
+        "type": "object"
+      },
+      "BudgetCall": {
+        "additionalProperties": true,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "hour": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hour"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "calls"
+        ],
+        "title": "BudgetCall",
+        "type": "object"
+      },
+      "BudgetConnector": {
+        "additionalProperties": true,
+        "description": "Where a connector's call budget goes, today and over two weeks, and what tracking costs.",
+        "properties": {
+          "committed": {
+            "$ref": "#/components/schemas/Spent"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "daily_budget": {
+            "title": "Daily Budget",
+            "type": "integer"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetCall"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "free": {
+            "$ref": "#/components/schemas/FreeNow"
+          },
+          "hourly": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetCall"
+            },
+            "title": "Hourly",
+            "type": "array"
+          },
+          "library": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetLibrary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetNotices"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owners": {
+            "$ref": "#/components/schemas/BudgetOwners"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/Spent"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "refused_today": {
+            "title": "Refused Today",
+            "type": "integer"
+          },
+          "reset_in_seconds": {
+            "title": "Reset In Seconds",
+            "type": "integer"
+          },
+          "shares_account": {
+            "title": "Shares Account",
+            "type": "boolean"
+          },
+          "spare_spent": {
+            "title": "Spare Spent",
+            "type": "integer"
+          },
+          "spent": {
+            "title": "Spent",
+            "type": "integer"
+          },
+          "tracking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetShare"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "enabled",
+          "shares_account",
+          "day",
+          "reset_in_seconds",
+          "daily_budget",
+          "committed",
+          "pool",
+          "spare_spent",
+          "free",
+          "spent",
+          "refused_today",
+          "tracking",
+          "hourly",
+          "days",
+          "notices",
+          "library",
+          "owners"
+        ],
+        "title": "BudgetConnector",
+        "type": "object"
+      },
+      "BudgetLibrary": {
+        "additionalProperties": true,
+        "description": "Matching the library's parts nothing follows, from spare budget.",
+        "properties": {
+          "calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Calls A Day"
+          },
+          "days_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when no spare calls are expected.",
+            "title": "Days Left"
+          },
+          "found": {
+            "title": "Found",
+            "type": "integer"
+          },
+          "not_found": {
+            "title": "Not Found",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "waiting": {
+            "description": "Parts due a search here now.",
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "found",
+          "not_found",
+          "waiting",
+          "calls_a_day",
+          "days_left"
+        ],
+        "title": "BudgetLibrary",
+        "type": "object"
+      },
+      "BudgetNotices": {
+        "additionalProperties": true,
+        "description": "The change-notice quota of a provider that keeps one apart from its product calls (DigiKey).",
+        "properties": {
+          "interval_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Interval Days"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Per Day"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "used",
+          "parts",
+          "interval_days",
+          "per_day"
+        ],
+        "title": "BudgetNotices",
+        "type": "object"
+      },
+      "BudgetOwners": {
+        "additionalProperties": true,
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartCalls"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCalls"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "projects",
+          "parts"
+        ],
+        "title": "BudgetOwners",
+        "type": "object"
+      },
+      "BudgetShare": {
+        "additionalProperties": true,
+        "description": "One connector's committed share, and what a change adds to it.",
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "adds_calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adds Calls"
+          },
+          "admitted": {
+            "title": "Admitted",
+            "type": "integer"
+          },
+          "admitted_new": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admitted New"
+          },
+          "by_tier": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TierShare"
+            },
+            "description": "Committed calls a day and parts admitted, for tier 1 and tier 2.",
+            "title": "By Tier",
+            "type": "object"
+          },
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "committed": {
+            "title": "Committed",
+            "type": "integer"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "free": {
+            "title": "Free",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          },
+          "waiting_new": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting New"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "account",
+          "capacity",
+          "committed",
+          "free",
+          "by_tier",
+          "admitted",
+          "waiting"
+        ],
+        "title": "BudgetShare",
         "type": "object"
       },
       "BuildDetail": {
@@ -7137,6 +7629,26 @@
         "title": "ComponentDetail",
         "type": "object"
       },
+      "ComponentFollow": {
+        "additionalProperties": true,
+        "properties": {
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyComponentWatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "watch"
+        ],
+        "title": "ComponentFollow",
+        "type": "object"
+      },
       "ComponentFollowIn": {
         "additionalProperties": false,
         "properties": {
@@ -8229,6 +8741,35 @@
           "reason"
         ],
         "title": "ConnectorProblem",
+        "type": "object"
+      },
+      "ConnectorSearches": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "total",
+          "done"
+        ],
+        "title": "ConnectorSearches",
         "type": "object"
       },
       "ConnectorStock": {
@@ -11573,6 +12114,43 @@
         "title": "Exemption",
         "type": "object"
       },
+      "ExpectedSpend": {
+        "additionalProperties": true,
+        "description": "What tracking was expected to spend on the provider's previous day, and what it spent (null when nothing was counted).",
+        "properties": {
+          "expected": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Expected"
+          },
+          "spent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spent"
+          }
+        },
+        "required": [
+          "expected",
+          "spent"
+        ],
+        "title": "ExpectedSpend",
+        "type": "object"
+      },
       "FabricationLayer": {
         "additionalProperties": true,
         "properties": {
@@ -12980,6 +13558,31 @@
           "token_hint"
         ],
         "title": "ForgeSummary",
+        "type": "object"
+      },
+      "FreeNow": {
+        "additionalProperties": true,
+        "description": "What scheduled work still needs before the reset, what is kept for people, and what is free to spend now.",
+        "properties": {
+          "free": {
+            "title": "Free",
+            "type": "integer"
+          },
+          "kept_for_people": {
+            "title": "Kept For People",
+            "type": "integer"
+          },
+          "scheduled": {
+            "title": "Scheduled",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scheduled",
+          "kept_for_people",
+          "free"
+        ],
+        "title": "FreeNow",
         "type": "object"
       },
       "GenerateSSHKeyRequest": {
@@ -14519,6 +15122,23 @@
           "prefix"
         ],
         "title": "IssuedPushToken",
+        "type": "object"
+      },
+      "Items_BudgetConnector_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetConnector"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[BudgetConnector]",
         "type": "object"
       },
       "Items_PackagingSeveral_": {
@@ -16224,6 +16844,25 @@
           "component_id"
         ],
         "title": "LibraryComponentOf",
+        "type": "object"
+      },
+      "LineCandidate": {
+        "additionalProperties": true,
+        "properties": {
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "manufacturer"
+        ],
+        "title": "LineCandidate",
         "type": "object"
       },
       "LineChoiceIn": {
@@ -18832,6 +19471,30 @@
         "title": "NoticePart",
         "type": "object"
       },
+      "NumberFollowed": {
+        "additionalProperties": true,
+        "properties": {
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartTracking"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch": {
+            "$ref": "#/components/schemas/SupplyWatch"
+          }
+        },
+        "required": [
+          "watch",
+          "tier"
+        ],
+        "title": "NumberFollowed",
+        "type": "object"
+      },
       "NumbersRequest": {
         "additionalProperties": false,
         "properties": {
@@ -19742,6 +20405,104 @@
         "title": "PartAlertRules",
         "type": "object"
       },
+      "PartCalls": {
+        "additionalProperties": true,
+        "properties": {
+          "calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Calls A Day"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "pick_saves": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Pick Saves"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "tier",
+          "calls_a_day",
+          "pick_saves"
+        ],
+        "title": "PartCalls",
+        "type": "object"
+      },
+      "PartFollowed": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetShare"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "fits_nowhere": {
+            "description": "Nothing the change adds fits at any connector.",
+            "title": "Fits Nowhere",
+            "type": "boolean"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartTracking"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyWatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connectors",
+          "fits_nowhere",
+          "tier",
+          "watch"
+        ],
+        "title": "PartFollowed",
+        "type": "object"
+      },
       "PartHistory": {
         "additionalProperties": true,
         "description": "Stock and price a line per distributor over the last ``days`` days.",
@@ -20065,6 +20826,46 @@
           "reasons"
         ],
         "title": "PartTracking",
+        "type": "object"
+      },
+      "PartTrackingState": {
+        "additionalProperties": true,
+        "properties": {
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartTracking"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting_at": {
+            "description": "Connectors where the part waits for room.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Waiting At",
+            "type": "array"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyWatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tier",
+          "waiting_at",
+          "watch"
+        ],
+        "title": "PartTrackingState",
         "type": "object"
       },
       "PartTrade": {
@@ -21360,6 +22161,37 @@
         "title": "ProjectBranches",
         "type": "object"
       },
+      "ProjectCalls": {
+        "additionalProperties": true,
+        "properties": {
+          "calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Calls A Day"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "calls_a_day"
+        ],
+        "title": "ProjectCalls",
+        "type": "object"
+      },
       "ProjectCommentsSourceUrls": {
         "additionalProperties": true,
         "description": "The helper URLs a KiCad comments source needs for one project.",
@@ -21731,6 +22563,7 @@
         "properties": {
           "all_variants": {
             "default": false,
+            "description": "Follow every design the project has, also those it gets later (variants is then ignored).",
             "title": "All Variants",
             "type": "boolean"
           },
@@ -21745,6 +22578,7 @@
                 "type": "null"
               }
             ],
+            "description": "The usual build, in boards. Null keeps the one it has (100 for a new project).",
             "title": "Build Quantity"
           },
           "connector_ids": {
@@ -21760,10 +22594,12 @@
                 "type": "null"
               }
             ],
+            "description": "The distributors the project is bought from; null means all but the assembly-only ones.",
             "title": "Connector Ids"
           },
           "packaging": {
             "default": "cut_tape",
+            "description": "The packaging the project prefers: decides which listing is followed.",
             "enum": [
               "cut_tape",
               "custom_reel",
@@ -21784,9 +22620,11 @@
                 "type": "null"
               }
             ],
+            "description": "What the cost is worked out with: \"\" the workspace setting, \"auto\" by package, or a percent. Null keeps it.",
             "title": "Spares"
           },
           "variants": {
+            "description": "The designs to follow: '' is the base design, the rest are named variants.",
             "items": {
               "type": "string"
             },
@@ -21854,6 +22692,32 @@
           "message"
         ],
         "title": "ProjectNameUpdated",
+        "type": "object"
+      },
+      "ProjectOpen": {
+        "additionalProperties": true,
+        "description": "What a tracked project waits on a person for.",
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyChoice"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/TrackLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "choices",
+          "lines"
+        ],
+        "title": "ProjectOpen",
         "type": "object"
       },
       "ProjectOverview": {
@@ -22410,6 +23274,101 @@
           "results"
         ],
         "title": "ProjectSearchResults",
+        "type": "object"
+      },
+      "ProjectTracked": {
+        "additionalProperties": true,
+        "properties": {
+          "parts_created": {
+            "title": "Parts Created",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedProjectLine"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "variants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "variants",
+          "parts_created",
+          "skipped"
+        ],
+        "title": "ProjectTracked",
+        "type": "object"
+      },
+      "ProjectTrackingPreview": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetShare"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "fits_nowhere": {
+            "description": "Nothing the change adds fits at any connector.",
+            "title": "Fits Nowhere",
+            "type": "boolean"
+          },
+          "tracked": {
+            "$ref": "#/components/schemas/ProjectTracked"
+          }
+        },
+        "required": [
+          "connectors",
+          "fits_nowhere",
+          "tracked"
+        ],
+        "title": "ProjectTrackingPreview",
+        "type": "object"
+      },
+      "ProjectTrackingState": {
+        "additionalProperties": true,
+        "properties": {
+          "has_usage": {
+            "title": "Has Usage",
+            "type": "boolean"
+          },
+          "tracked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackedProject"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "variants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tracked",
+          "has_usage",
+          "variants"
+        ],
+        "title": "ProjectTrackingState",
         "type": "object"
       },
       "ProjectVariantCatalog": {
@@ -24662,6 +25621,57 @@
         "title": "RoleAssignmentResponse",
         "type": "object"
       },
+      "RoomFigure": {
+        "additionalProperties": true,
+        "properties": {
+          "limited_by": {
+            "title": "Limited By",
+            "type": "string"
+          },
+          "room": {
+            "title": "Room",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "room",
+          "limited_by"
+        ],
+        "title": "RoomFigure",
+        "type": "object"
+      },
+      "RoomHeadline": {
+        "additionalProperties": true,
+        "description": "The distributor that fills first, among those every part is read at.",
+        "properties": {
+          "daily": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomFigure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weekly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomFigure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "daily",
+          "weekly"
+        ],
+        "title": "RoomHeadline",
+        "type": "object"
+      },
       "RouteLatencyOut": {
         "properties": {
           "routes": {
@@ -25150,6 +26160,20 @@
           "spare"
         ],
         "title": "ScheduleIn",
+        "type": "object"
+      },
+      "ScheduleSettings": {
+        "additionalProperties": true,
+        "description": "Which spare work is on. Spare budget is the calls nothing else needs, at any hour.",
+        "properties": {
+          "spare": {
+            "$ref": "#/components/schemas/SpareWork"
+          }
+        },
+        "required": [
+          "spare"
+        ],
+        "title": "ScheduleSettings",
         "type": "object"
       },
       "SearchRequest": {
@@ -25890,6 +26914,51 @@
         "title": "SkippedLine",
         "type": "object"
       },
+      "SkippedProjectLine": {
+        "additionalProperties": true,
+        "description": "A BOM line tracking left out: not in the library, or a number several makers share (with the parts it could mean).",
+        "properties": {
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/LineCandidate"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mpn",
+          "reason"
+        ],
+        "title": "SkippedProjectLine",
+        "type": "object"
+      },
       "SlowQueriesOut": {
         "properties": {
           "available": {
@@ -26148,6 +27217,54 @@
           "forge"
         ],
         "title": "SourceResponse",
+        "type": "object"
+      },
+      "SpareWork": {
+        "additionalProperties": true,
+        "properties": {
+          "library": {
+            "title": "Library",
+            "type": "boolean"
+          },
+          "notices": {
+            "title": "Notices",
+            "type": "boolean"
+          },
+          "tier2_early": {
+            "title": "Tier2 Early",
+            "type": "boolean"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "waiting",
+          "tier2_early",
+          "notices",
+          "library"
+        ],
+        "title": "SpareWork",
+        "type": "object"
+      },
+      "Spent": {
+        "additionalProperties": true,
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "spent": {
+            "title": "Spent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capacity",
+          "spent"
+        ],
+        "title": "Spent",
         "type": "object"
       },
       "StageRunOut": {
@@ -26681,6 +27798,88 @@
         "title": "SupplyCapacity",
         "type": "object"
       },
+      "SupplyChoice": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "maker",
+              "unlisted",
+              "number"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyChoiceOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "kind",
+          "options"
+        ],
+        "title": "SupplyChoice",
+        "type": "object"
+      },
+      "SupplyChoiceOption": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "spelling": {
+            "title": "Spelling",
+            "type": "string"
+          },
+          "spellings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Spellings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "spelling",
+          "spellings",
+          "connectors",
+          "listings"
+        ],
+        "title": "SupplyChoiceOption",
+        "type": "object"
+      },
       "SupplyCompliance": {
         "additionalProperties": true,
         "description": "RoHS and REACH of a part, and the substances a supplier declared for it.",
@@ -26744,6 +27943,49 @@
           "reason"
         ],
         "title": "SupplyComplianceState",
+        "type": "object"
+      },
+      "SupplyComponentWatch": {
+        "additionalProperties": true,
+        "properties": {
+          "component_id": {
+            "title": "Component Id",
+            "type": "string"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "packaging": {
+            "enum": [
+              "any",
+              "cut_tape",
+              "custom_reel",
+              "tape_reel",
+              "tray",
+              "tube",
+              "bulk"
+            ],
+            "title": "Packaging",
+            "type": "string"
+          },
+          "rate": {
+            "title": "Rate",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "component_id",
+          "packaging",
+          "tier",
+          "rate",
+          "owner"
+        ],
+        "title": "SupplyComponentWatch",
         "type": "object"
       },
       "SupplyConnector": {
@@ -29648,6 +30890,85 @@
         "title": "SupplySvhcList",
         "type": "object"
       },
+      "SupplyWatch": {
+        "additionalProperties": true,
+        "properties": {
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "packaging": {
+            "enum": [
+              "any",
+              "cut_tape",
+              "custom_reel",
+              "tape_reel",
+              "tray",
+              "tube",
+              "bulk"
+            ],
+            "title": "Packaging",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "rate": {
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Rate",
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "tier": {
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Tier",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "manufacturer",
+          "mpn",
+          "tier",
+          "rate",
+          "threshold",
+          "pinned",
+          "packaging",
+          "owner"
+        ],
+        "title": "SupplyWatch",
+        "type": "object"
+      },
       "SupplyWatchSummary": {
         "additionalProperties": true,
         "properties": {
@@ -30129,6 +31450,25 @@
         "title": "ThumbnailsQueued",
         "type": "object"
       },
+      "TierShare": {
+        "additionalProperties": true,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "parts"
+        ],
+        "title": "TierShare",
+        "type": "object"
+      },
       "TokenExchangeResponse": {
         "properties": {
           "access_token": {
@@ -30368,6 +31708,169 @@
           "nested"
         ],
         "title": "TracedRequestOut",
+        "type": "object"
+      },
+      "TrackLine": {
+        "additionalProperties": true,
+        "description": "A BOM line whose number several makers share: pick the part it means.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/LineCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mpn",
+          "manufacturer",
+          "candidates"
+        ],
+        "title": "TrackLine",
+        "type": "object"
+      },
+      "TrackProgress": {
+        "additionalProperties": true,
+        "description": "How far the first searches of a project's parts have got, per distributor.",
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorSearches"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "done",
+              "failed",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "done",
+          "total",
+          "failed",
+          "reason",
+          "parts",
+          "connectors"
+        ],
+        "title": "TrackProgress",
+        "type": "object"
+      },
+      "TrackedProject": {
+        "additionalProperties": true,
+        "properties": {
+          "all_variants": {
+            "title": "All Variants",
+            "type": "boolean"
+          },
+          "build_quantity": {
+            "title": "Build Quantity",
+            "type": "integer"
+          },
+          "connector_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Ids"
+          },
+          "packaging": {
+            "enum": [
+              "cut_tape",
+              "custom_reel",
+              "tape_reel",
+              "tube_tray",
+              "smallest"
+            ],
+            "title": "Packaging",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "spares": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spares"
+          },
+          "tracked_at": {
+            "title": "Tracked At",
+            "type": "string"
+          },
+          "tracked_by": {
+            "title": "Tracked By",
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "variants",
+          "all_variants",
+          "packaging",
+          "build_quantity",
+          "spares",
+          "connector_ids",
+          "tracked_by",
+          "tracked_at"
+        ],
+        "title": "TrackedProject",
         "type": "object"
       },
       "TrackerDestinationView": {
@@ -30634,6 +32137,29 @@
         "title": "TrackerProviderErrorView",
         "type": "object"
       },
+      "TrackingPreview": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetShare"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "fits_nowhere": {
+            "description": "Nothing the change adds fits at any connector.",
+            "title": "Fits Nowhere",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connectors",
+          "fits_nowhere"
+        ],
+        "title": "TrackingPreview",
+        "type": "object"
+      },
       "TrackingReason": {
         "additionalProperties": true,
         "description": "Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``).",
@@ -30669,6 +32195,143 @@
           "ref"
         ],
         "title": "TrackingReason",
+        "type": "object"
+      },
+      "TrackingRoom": {
+        "additionalProperties": true,
+        "description": "How many more typical parts tracking has room for, per distributor and overall.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/TrackingRoomAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "headline": {
+            "$ref": "#/components/schemas/RoomHeadline"
+          }
+        },
+        "required": [
+          "headline",
+          "accounts"
+        ],
+        "title": "TrackingRoom",
+        "type": "object"
+      },
+      "TrackingRoomAccount": {
+        "additionalProperties": true,
+        "properties": {
+          "assembly_only": {
+            "title": "Assembly Only",
+            "type": "boolean"
+          },
+          "by_tier": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TierShare"
+            },
+            "description": "Calls a day committed to each tier, and the parts admitted.",
+            "title": "By Tier",
+            "type": "object"
+          },
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "carried_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Carried Percent"
+          },
+          "connector_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Connector Ids",
+            "type": "array"
+          },
+          "estimated_per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Estimated Per Day"
+          },
+          "factor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Factor"
+          },
+          "free": {
+            "title": "Free",
+            "type": "integer"
+          },
+          "measured_per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Per Day"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "room": {
+            "$ref": "#/components/schemas/AccountRoom"
+          },
+          "searched": {
+            "title": "Searched",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          },
+          "yesterday": {
+            "$ref": "#/components/schemas/ExpectedSpend"
+          }
+        },
+        "required": [
+          "connector_ids",
+          "name",
+          "assembly_only",
+          "capacity",
+          "free",
+          "waiting",
+          "searched",
+          "carried_percent",
+          "estimated_per_day",
+          "measured_per_day",
+          "factor",
+          "by_tier",
+          "yesterday",
+          "room"
+        ],
+        "title": "TrackingRoomAccount",
         "type": "object"
       },
       "TradeMark": {
@@ -31756,6 +33419,25 @@
           "role"
         ],
         "title": "UserSession",
+        "type": "object"
+      },
+      "UsualBuild": {
+        "additionalProperties": true,
+        "properties": {
+          "build_quantity": {
+            "title": "Build Quantity",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "build_quantity"
+        ],
+        "title": "UsualBuild",
         "type": "object"
       },
       "ValidationAsset": {
@@ -51519,12 +53201,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response Budget",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Items_BudgetConnector_"
                 }
               }
             },
@@ -56903,9 +58580,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Tracking Room",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TrackingRoom"
                 }
               }
             },
@@ -56927,9 +58602,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Schedule",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ScheduleSettings"
                 }
               }
             },
@@ -56958,9 +58631,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Put Schedule",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ScheduleSettings"
                 }
               }
             },
@@ -57286,9 +58957,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Component State",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ComponentFollow"
                 }
               }
             },
@@ -57339,9 +59008,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Follow Component",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ComponentFollow"
                 }
               }
             },
@@ -57383,9 +59050,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Follow Number",
-                  "type": "object"
+                  "$ref": "#/components/schemas/NumberFollowed"
                 }
               }
             },
@@ -57460,9 +59125,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Part State",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartTrackingState"
                 }
               }
             },
@@ -57513,9 +59176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Follow Part",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartFollowed"
                 }
               }
             },
@@ -57567,9 +59228,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Preview Part",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TrackingPreview"
                 }
               }
             },
@@ -57644,9 +59303,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Project State",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectTrackingState"
                 }
               }
             },
@@ -57696,9 +59353,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Track Project",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectTrackingPreview"
                 }
               }
             },
@@ -57751,9 +59406,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Keep Usual Build",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UsualBuild"
                 }
               }
             },
@@ -57842,9 +59495,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Project Open",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectOpen"
                 }
               }
             },
@@ -57896,9 +59547,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Preview Project",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectTrackingPreview"
                 }
               }
             },
@@ -57941,9 +59590,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Project Progress",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TrackProgress"
                 }
               }
             },
@@ -57986,9 +59633,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Read Project Bom",
-                  "type": "object"
+                  "$ref": "#/components/schemas/BomRead"
                 }
               }
             },

@@ -12,7 +12,7 @@ import { ComponentWatch } from "./component-watch";
 import * as api from "./tracking-api";
 
 const mocked = vi.mocked(api);
-const watch = { component_id: "cmp_1", packaging: "any" as const, owner: "ana@example.com" };
+const watch = { component_id: "cmp_1", packaging: "any" as const, tier: 2, rate: "weekly", owner: "ana@example.com" };
 
 beforeEach(() => {
   vi.clearAllMocks();

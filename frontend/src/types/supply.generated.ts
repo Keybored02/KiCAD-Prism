@@ -3,6 +3,11 @@
 //
 // The models typed supply routes declare. Untyped routes still use types/supply.ts.
 
+export interface AccountRoom {
+  daily: number | null;
+  weekly: number | null;
+}
+
 /** The facts behind an alert; which are present depends on its kind. */
 export interface AlertDetail {
   chance?: number | null;
@@ -141,6 +146,95 @@ export interface AssessmentSettingsView {
   settings: AssessmentSettings;
 }
 
+export interface BomRead {
+  /** When done: whether the project's parts differ from before. */
+  changed?: boolean | null;
+  done: number;
+  failed: number;
+  reason: string;
+  state: "running" | "done" | "failed" | "none";
+  total: number;
+}
+
+export interface BudgetCall {
+  calls: number;
+  day?: string | null;
+  hour?: number | null;
+  kind?: string | null;
+  purpose: string;
+}
+
+/** Where a connector's call budget goes, today and over two weeks, and what tracking costs. */
+export interface BudgetConnector {
+  committed: Spent;
+  connector_id: string;
+  daily_budget: number;
+  day: string;
+  days: BudgetCall[];
+  enabled: boolean;
+  free: FreeNow;
+  hourly: BudgetCall[];
+  library: BudgetLibrary | null;
+  name: string;
+  notices: BudgetNotices | null;
+  owners: BudgetOwners;
+  pool: Spent;
+  provider: string;
+  refused_today: number;
+  reset_in_seconds: number;
+  shares_account: boolean;
+  spare_spent: number;
+  spent: number;
+  tracking: BudgetShare | null;
+}
+
+/** Matching the library's parts nothing follows, from spare budget. */
+export interface BudgetLibrary {
+  calls_a_day: number;
+  /** Null when no spare calls are expected. */
+  days_left: number | null;
+  found: number;
+  not_found: number;
+  total: number;
+  /** Parts due a search here now. */
+  waiting: number;
+}
+
+/** The change-notice quota of a provider that keeps one apart from its product calls (DigiKey). */
+export interface BudgetNotices {
+  interval_days: number;
+  limit: number;
+  parts: number;
+  per_day: number;
+  used: number;
+}
+
+export interface BudgetOwners {
+  parts: PartCalls[];
+  projects: ProjectCalls[];
+}
+
+/** One connector's committed share, and what a change adds to it. */
+export interface BudgetShare {
+  account: string;
+  adds_calls?: number | null;
+  admitted: number;
+  admitted_new?: number | null;
+  /** Committed calls a day and parts admitted, for tier 1 and tier 2. */
+  by_tier: Record<string, TierShare>;
+  capacity: number;
+  committed: number;
+  connector_id: string;
+  free: number;
+  name: string;
+  waiting: number;
+  waiting_new?: number | null;
+}
+
+export interface BuildIn {
+  build_quantity: number;
+}
+
 export interface CallsToday {
   interactive_spent: number;
   spent: number;
@@ -169,6 +263,16 @@ export interface CheckStarted {
   parts: number;
   progress: CheckProgress;
   skipped: SkippedLine[];
+}
+
+export interface ComponentFollow {
+  watch: SupplyComponentWatch | null;
+}
+
+export interface ComponentFollowIn {
+  packaging?: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
+  rate?: string;
+  tier?: number;
 }
 
 export interface ComponentPart {
@@ -218,6 +322,13 @@ export interface ConnectorHealth {
 export interface ConnectorProblem {
   connector: string;
   reason: string;
+}
+
+export interface ConnectorSearches {
+  connector_id: string;
+  done: number;
+  name: string;
+  total: number;
 }
 
 export interface ConnectorStock {
@@ -370,6 +481,12 @@ export interface ExchangeMove {
   to: string;
 }
 
+/** What tracking was expected to spend on the provider's previous day, and what it spent (null when nothing was counted). */
+export interface ExpectedSpend {
+  expected: number;
+  spent: number | null;
+}
+
 export interface FactSource {
   observed_at: string;
   provider: string;
@@ -405,6 +522,32 @@ export interface FillSearchResult {
 export interface FillSkipped {
   connector: string;
   reason: string;
+}
+
+/** How a part is followed. Only the fields sent change; a tier sent without a rate is weekly; a null threshold clears it. */
+export interface FollowIn {
+  packaging?: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk" | null;
+  pinned?: boolean | null;
+  rate?: string | null;
+  threshold?: number | null;
+  tier?: number | null;
+}
+
+export interface FollowNumberIn {
+  manufacturer?: string;
+  mpn: string;
+  packaging?: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk" | null;
+  pinned?: boolean | null;
+  rate?: string | null;
+  threshold?: number | null;
+  tier?: number | null;
+}
+
+/** What scheduled work still needs before the reset, what is kept for people, and what is free to spend now. */
+export interface FreeNow {
+  free: number;
+  kept_for_people: number;
+  scheduled: number;
 }
 
 export interface HistoryConnector {
@@ -485,6 +628,11 @@ export interface Leadership {
 export interface LibraryComponentOf {
   /** The catalog component the part counts for; null when the library has none. */
   component_id: string | null;
+}
+
+export interface LineCandidate {
+  manufacturer: string;
+  part_id: string;
 }
 
 export interface LinkRequest {
@@ -599,6 +747,11 @@ export interface NoticeIn {
 export interface NoticePart {
   manufacturer: string;
   mpn: string;
+}
+
+export interface NumberFollowed {
+  tier: PartTracking | null;
+  watch: SupplyWatch;
 }
 
 export interface OpenRestock {
@@ -729,6 +882,23 @@ export interface PartAlertRules {
   target_price: string | null;
 }
 
+export interface PartCalls {
+  calls_a_day: number;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  pick_saves: number;
+  tier: number;
+}
+
+export interface PartFollowed {
+  connectors: BudgetShare[];
+  /** Nothing the change adds fits at any connector. */
+  fits_nowhere: boolean;
+  tier: PartTracking | null;
+  watch: SupplyWatch | null;
+}
+
 /** Stock and price a line per distributor over the last ``days`` days. */
 export interface PartHistory {
   connectors: HistoryConnector[];
@@ -785,6 +955,13 @@ export interface PartTracking {
   rate: "daily" | "weekly" | "monthly";
   reasons: TrackingReason[];
   tier: 1 | 2;
+}
+
+export interface PartTrackingState {
+  tier: PartTracking | null;
+  /** Connectors where the part waits for room. */
+  waiting_at: string[];
+  watch: SupplyWatch | null;
 }
 
 /** Export control: what distributors state, and a person's mark that wins over it. */
@@ -850,6 +1027,53 @@ export interface PriceTrend {
   days: number;
   now: string;
   was: string;
+}
+
+export interface ProjectCalls {
+  calls_a_day: number;
+  project_id: string;
+  project_name: string;
+}
+
+export interface ProjectIn {
+  /** Follow every design the project has, also those it gets later (variants is then ignored). */
+  all_variants?: boolean;
+  /** The usual build, in boards. Null keeps the one it has (100 for a new project). */
+  build_quantity?: number | null;
+  /** The distributors the project is bought from; null means all but the assembly-only ones. */
+  connector_ids?: string[] | null;
+  /** The packaging the project prefers: decides which listing is followed. */
+  packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest";
+  /** What the cost is worked out with: "" the workspace setting, "auto" by package, or a percent. Null keeps it. */
+  spares?: string | null;
+  /** The designs to follow: '' is the base design, the rest are named variants. */
+  variants?: string[];
+}
+
+/** What a tracked project waits on a person for. */
+export interface ProjectOpen {
+  choices: SupplyChoice[];
+  lines: TrackLine[];
+}
+
+export interface ProjectTracked {
+  parts_created: number;
+  project_id: string;
+  skipped: SkippedProjectLine[];
+  variants: string[];
+}
+
+export interface ProjectTrackingPreview {
+  connectors: BudgetShare[];
+  /** Nothing the change adds fits at any connector. */
+  fits_nowhere: boolean;
+  tracked: ProjectTracked;
+}
+
+export interface ProjectTrackingState {
+  has_usage: boolean;
+  tracked: TrackedProject | null;
+  variants: string[];
 }
 
 export interface PushLevelsRequest {
@@ -966,6 +1190,17 @@ export interface RohsExemption {
   note: string;
 }
 
+export interface RoomFigure {
+  limited_by: string;
+  room: number;
+}
+
+/** The distributor that fills first, among those every part is read at. */
+export interface RoomHeadline {
+  daily: RoomFigure | null;
+  weekly: RoomFigure | null;
+}
+
 /** A distributor that lists the part: stock above zero is filled. */
 export interface RowDistributor {
   connector_id: string;
@@ -1001,6 +1236,15 @@ export interface RunoutForecast {
   low_date: string;
   median_date: string;
   p: number;
+}
+
+export interface ScheduleIn {
+  spare: Record<string, boolean>;
+}
+
+/** Which spare work is on. Spare budget is the calls nothing else needs, at any hour. */
+export interface ScheduleSettings {
+  spare: SpareWork;
 }
 
 export interface SearchRequest {
@@ -1055,6 +1299,26 @@ export interface SimilarIn {
 export interface SkippedLine {
   mpn: string;
   reason: string;
+}
+
+/** A BOM line tracking left out: not in the library, or a number several makers share (with the parts it could mean). */
+export interface SkippedProjectLine {
+  candidates?: LineCandidate[] | null;
+  manufacturer?: string | null;
+  mpn: string;
+  reason: string;
+}
+
+export interface SpareWork {
+  library: boolean;
+  notices: boolean;
+  tier2_early: boolean;
+  waiting: boolean;
+}
+
+export interface Spent {
+  capacity: number;
+  spent: number;
 }
 
 export interface StockAnomaly {
@@ -1124,6 +1388,22 @@ export interface SupplyCapacity {
   usable_per_day: number;
 }
 
+export interface SupplyChoice {
+  kind: "maker" | "unlisted" | "number";
+  manufacturer: string;
+  mpn: string;
+  options: SupplyChoiceOption[];
+  part_id: string;
+}
+
+export interface SupplyChoiceOption {
+  connectors: string[];
+  key: string;
+  listings: number;
+  spelling: string;
+  spellings: string[];
+}
+
 /** RoHS and REACH of a part, and the substances a supplier declared for it. */
 export interface SupplyCompliance {
   exemptions: RohsExemption[];
@@ -1137,6 +1417,14 @@ export interface SupplyCompliance {
 export interface SupplyComplianceState {
   reason: string;
   state: string;
+}
+
+export interface SupplyComponentWatch {
+  component_id: string;
+  owner: string;
+  packaging: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
+  rate: string;
+  tier: number;
 }
 
 export interface SupplyConnector {
@@ -1634,6 +1922,18 @@ export interface SupplySvhcList {
   substances: number;
 }
 
+export interface SupplyWatch {
+  manufacturer: string;
+  mpn: string;
+  owner: string;
+  packaging: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
+  part_id: string;
+  pinned: boolean;
+  rate: "daily" | "weekly" | "monthly";
+  threshold: number | null;
+  tier: 1 | 2;
+}
+
 export interface SupplyWatchSummary {
   owner: string;
   packaging: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
@@ -1680,11 +1980,76 @@ export interface TaskRun {
   started_at: string | null;
 }
 
+export interface TierShare {
+  calls: number;
+  parts: number;
+}
+
+/** A BOM line whose number several makers share: pick the part it means. */
+export interface TrackLine {
+  candidates: LineCandidate[];
+  manufacturer: string;
+  mpn: string;
+}
+
+/** How far the first searches of a project's parts have got, per distributor. */
+export interface TrackProgress {
+  connectors: ConnectorSearches[];
+  done: number;
+  failed: number;
+  parts: number;
+  reason: string;
+  state: "running" | "done" | "failed" | "none";
+  total: number;
+}
+
+export interface TrackedProject {
+  all_variants: boolean;
+  build_quantity: number;
+  connector_ids: string[] | null;
+  packaging: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest";
+  project_id: string;
+  spares: string | null;
+  tracked_at: string;
+  tracked_by: string;
+  variants: string[];
+}
+
+export interface TrackingPreview {
+  connectors: BudgetShare[];
+  /** Nothing the change adds fits at any connector. */
+  fits_nowhere: boolean;
+}
+
 /** Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``). */
 export interface TrackingReason {
   kind: "project" | "person" | "component" | "legacy";
   ref: string;
   variant?: string | null;
+}
+
+/** How many more typical parts tracking has room for, per distributor and overall. */
+export interface TrackingRoom {
+  accounts: TrackingRoomAccount[];
+  headline: RoomHeadline;
+}
+
+export interface TrackingRoomAccount {
+  assembly_only: boolean;
+  /** Calls a day committed to each tier, and the parts admitted. */
+  by_tier: Record<string, TierShare>;
+  capacity: number;
+  carried_percent: number;
+  connector_ids: string[];
+  estimated_per_day: number;
+  factor: number;
+  free: number;
+  measured_per_day: number | null;
+  name: string;
+  room: AccountRoom;
+  searched: number;
+  waiting: number;
+  yesterday: ExpectedSpend;
 }
 
 export interface TradeMark {
@@ -1733,6 +2098,11 @@ export interface UpdateSupplyConnectorInput {
   reset_tz?: string | null;
   retention_days?: number | null;
   storefront?: string | null;
+}
+
+export interface UsualBuild {
+  build_quantity: number;
+  project_id: string;
 }
 
 export interface WorkItemChange {

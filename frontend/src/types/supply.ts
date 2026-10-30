@@ -1,7 +1,7 @@
-import type { AssessmentSettings, ComponentRestriction, JlcClass, SupplyAlert, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, JlcClass, SupplyAlert, SupplyChoice, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, RestockRecord, RowForecast, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCapacity, SupplyCompliance, SupplyComplianceState, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatchSummary, TrackingReason, UpdateSupplyConnectorInput,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectTrackingPreview, ProjectTrackingState, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, SubstitutesAsked, SupplyAlert, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
@@ -96,13 +96,6 @@ export interface SupplyBomComment {
   created_at: string;
 }
 
-
-/** A standing request to watch a component's part. */
-export interface SupplyComponentWatch {
-  component_id: string;
-  packaging: WatchPackaging;
-  owner: string;
-}
 
 /** One distinct part on a BOM: what goes into a lookup. `quantity` is fitted parts per board. */
 export interface BomLineInput {
@@ -267,23 +260,6 @@ export interface SupplyReviewListing {
   part: { id: string; mpn: string; manufacturer: string } | null;
 }
 
-export interface SupplyChoiceOption {
-  key: string;
-  spelling: string;
-  spellings: string[];
-  connectors: string[];
-  listings: number;
-}
-
-/** A part whose maker the answers do not settle: "maker" (not confirmed) or "unlisted" (no distributor lists its known maker). */
-export interface SupplyChoice {
-  part_id: string;
-  mpn: string;
-  manufacturer: string;
-  kind: "maker" | "unlisted" | "number";
-  options: SupplyChoiceOption[];
-}
-
 export interface SupplyMatched {
   aliases: Array<{ alias_key: string; alias_text: string; manufacturer: string; first_seen_at: string; parts: number }>;
   parts: Array<{ part_id: string; mpn: string; manufacturer: string; at: string }>;
@@ -343,19 +319,6 @@ export type PartsFilter =
   | `${"origin" | "listed" | "stocked" | "cheapest" | "repricing" | "leader" | "restock_first" | "risk"}:${string}`;
 /** Which listings a watch counts: all, or only one packaging. */
 export type WatchPackaging = "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
-
-/** How a person follows a part (`/api/supply/tracking/parts`), keyed by the part. */
-export interface SupplyWatch {
-  part_id: string;
-  manufacturer: string;
-  mpn: string;
-  tier: 1 | 2;
-  rate: "daily" | "weekly" | "monthly";
-  threshold: number | null;
-  pinned: boolean;
-  owner: string;
-  packaging: WatchPackaging;
-}
 
 /** A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project. */
 export interface ProjectPartsPage extends SupplyPartsPage {
@@ -550,104 +513,6 @@ export interface ReleaseSnapshot {
   compliance: unknown;
 }
 
-/** One connector's committed share, and what a change adds to it. */
-export interface BudgetShare {
-  connector_id: string;
-  name: string;
-  capacity: number;
-  committed: number;
-  free: number;
-  admitted: number;
-  waiting: number;
-  adds_calls?: number;
-  admitted_new?: number;
-  waiting_new?: number;
-}
-
-export interface TrackingPreview {
-  connectors: BudgetShare[];
-  /** Nothing the change adds fits at any connector. */
-  fits_nowhere: boolean;
-  tracked?: {
-    parts_created: number;
-    skipped: Array<{ mpn: string; reason: string; manufacturer?: string; candidates?: Array<{ part_id: string; manufacturer: string }> }>;
-  };
-}
-
-/** How far the first searches of a project's parts have got, per distributor. */
-export interface TrackProgress extends JobProgress {
-  parts: number;
-  connectors: Array<{ connector_id: string; name: string; total: number; done: number }>;
-}
-
-export interface ProjectTrackingState {
-  tracked: { project_id: string; variants: string[]; all_variants: boolean; packaging?: "cut_tape" | "custom_reel" | "tape_reel" | "tube_tray" | "smallest"; build_quantity?: number; spares?: string | null; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
-  has_usage: boolean;
-  variants: string[];
-}
-
-export interface BudgetCall {
-  hour?: number;
-  day?: string;
-  kind?: string;
-  purpose: string;
-  calls: number;
-}
-
-/** Where one connector's call budget goes (GET /api/supply/budget). */
-export interface BudgetNotices {
-  limit: number;
-  used: number;
-  parts: number;
-  interval_days: number;
-  per_day: number;
-}
-
-export interface BudgetLibrary {
-  total: number;
-  found: number;
-  not_found: number;
-  /** Parts due a search here now. */
-  waiting: number;
-  calls_a_day: number;
-  /** Null when no spare calls are expected. */
-  days_left: number | null;
-}
-
-export interface BudgetConnector {
-  connector_id: string;
-  name: string;
-  provider: string;
-  enabled: boolean;
-  shares_account: boolean;
-  day: string;
-  reset_in_seconds: number;
-  daily_budget: number;
-  committed: { capacity: number; spent: number };
-  pool: { capacity: number; spent: number };
-  spare_spent: number;
-  /** What scheduled work still needs before the reset, what is kept for people, and what is free to spend now. */
-  free?: { scheduled: number; kept_for_people: number; free: number };
-  spent: number;
-  refused_today: number;
-  tracking: BudgetShare | null;
-  hourly: BudgetCall[];
-  days: BudgetCall[];
-  /** The change-notice quota of a provider that keeps one apart from its product calls (DigiKey). */
-  notices?: BudgetNotices | null;
-  /** Matching the library's parts nothing follows, from spare budget. */
-  library?: BudgetLibrary | null;
-  owners: {
-    projects: Array<{ project_id: string; project_name: string; calls_a_day: number }>;
-    parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;
-  };
-}
-
-/** Which spare work is on. */
-export interface ScheduleSettings {
-  spare: { waiting: boolean; tier2_early: boolean; notices: boolean; library: boolean };
-}
-
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */
 export interface ProjectSupplyPart {
   key: string;
@@ -737,32 +602,6 @@ export interface ProjectSupply {
   money?: ProjectMoney | null;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];
-}
-
-/** One account's room for more tracked parts, counted in parts like the ones already searched. Null where too few were searched. */
-export interface TrackingRoomAccount {
-  connector_ids: string[];
-  name: string;
-  assembly_only: boolean;
-  capacity: number;
-  free: number;
-  waiting: number;
-  searched: number;
-  carried_percent: number;
-  estimated_per_day: number;
-  measured_per_day: number | null;
-  factor: number;
-  /** Calls a day committed to each tier, and the parts admitted. */
-  by_tier: Record<"1" | "2", { calls: number; parts: number }>;
-  /** What tracking was expected to spend on the provider's previous day, and what it spent (null when nothing was counted). */
-  yesterday: { expected: number; spent: number | null };
-  room: { daily: number | null; weekly: number | null };
-}
-
-export interface TrackingRoom {
-  /** The distributor that fills first, among those every part is read at. */
-  headline: { daily: { room: number; limited_by: string } | null; weekly: { room: number; limited_by: string } | null };
-  accounts: TrackingRoomAccount[];
 }
 
 /** The Dashboard page in one read. */
