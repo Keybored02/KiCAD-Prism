@@ -39,8 +39,14 @@ Dashboard, Tracking, Projects, Insights, Review, Sources, each lazy-loaded), `su
 (errors are `ApiHttpError`); `tracking-api.ts`, `inventory-api.ts`,
 `ending-api.ts`, `fill-api.ts`, `packaging-api.ts`, `release-check-api.ts`,
 `catalog-supply-api.ts` and `component-supply-api.ts` cover their areas.
-Types are hand-written in `frontend/src/types/supply.ts`; change them with the
-backend's response. Every read goes through `useLoaded` (`use-loaded.ts`), on
+A typed route's types are generated: its router declares a `response_model`
+(models in a sibling `backend/app/api/supply_*_models.py`, shared ones in
+`backend/app/api/supply_models.py`, every list `Items[...]`), and `scripts/export_supply_types.py`
+writes them to `frontend/src/types/supply.generated.ts` after
+`sdk/python/openapi.json` is regenerated (`backend/tests/test_supply_types.py`
+fails on drift). The API module imports them from there; work items are typed.
+Routes not typed yet keep their hand-written types in `frontend/src/types/supply.ts`,
+which shrinks as each area moves over. Every read goes through `useLoaded` (`use-loaded.ts`), on
 the app's server state (`@/lib/server-state`): a key names one resource
 (`connectors`, `parts/<id>/notices`, `projects/<id>/tracking`), so screens that
 show it share one answer and one request, and a return to a page starts from

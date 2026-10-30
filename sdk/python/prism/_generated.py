@@ -1326,16 +1326,6 @@ class CreateFolderRequest(TypedDict, total=False):
     parent_id: str | None
 
 
-class CreateIn(TypedDict, total=False):
-    action: str
-    note: str
-    owner: str
-    recheck_on: str | None
-    subject_id: str
-    subject_kind: str
-    title: str
-
-
 class CreateManualComponentRequest(TypedDict, total=False):
     category: str
     change_summary: str
@@ -1459,11 +1449,6 @@ class DebugLoggingWindow(TypedDict, total=True):
     """The DEBUG window currently in force."""
     loggers: list[str]
     until: str
-
-
-class DecideIn(TypedDict, total=False):
-    note: str
-    state: str
 
 
 class DecisionRequest(TypedDict, total=True):
@@ -2302,6 +2287,14 @@ class IssuedPushToken(TypedDict, total=True):
     token: str
 
 
+class Items_SupplyWorkItem_(TypedDict, total=True):
+    items: list[SupplyWorkItem]
+
+
+class Items_WorkItemEvent_(TypedDict, total=True):
+    items: list[WorkItemEvent]
+
+
 class JobCancelOut(TypedDict, total=True):
     """The job after a cancel request, and the status that request reached."""
     job_id: str
@@ -2956,6 +2949,16 @@ class MoveProjectRequest(TypedDict, total=False):
 class MoveProjectsRequest(TypedDict, total=False):
     folder_id: str | None
     project_ids: list[str]
+
+
+class NewWorkItem(TypedDict, total=False):
+    action: str
+    note: str
+    owner: str
+    recheck_on: str | None
+    subject_id: str
+    subject_kind: str
+    title: str
 
 
 class NoticeIn(TypedDict, total=False):
@@ -4141,6 +4144,25 @@ class SupplySource(TypedDict, total=True):
     uom: str
 
 
+class SupplyWorkItem(TypedDict, total=True):
+    """An engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it
+touches (as the caller may see them), QA's disposition and when to look again."""
+    action: str
+    created_at: str
+    created_by: str
+    evidence: list[WorkItemEvidence]
+    id: str
+    owner: str
+    projects: list[WorkItemProject]
+    recheck_on: str | None
+    state: str
+    subject_id: str
+    subject_kind: str
+    subject_name: str
+    title: str
+    updated_at: str
+
+
 class SymbolImportResult(TypedDict, total=False):
     """``selection_required`` stops before writing; ``imported`` carries the component."""
     component: CatalogComponent | None
@@ -4327,15 +4349,6 @@ class UpdateComponentMetadataRequest(TypedDict, total=False):
 class UpdateFolderRequest(TypedDict, total=False):
     name: str | None
     parent_id: str | None
-
-
-class UpdateIn(TypedDict, total=False):
-    action: str | None
-    clear_recheck: bool
-    note: str
-    owner: str | None
-    recheck_on: str | None
-    title: str | None
 
 
 class UpdateProjectTrackerRequest(TypedDict, total=False):
@@ -4628,6 +4641,39 @@ class WebhookView(TypedDict, total=False):
     projectIds: list[str] | None
     status: str
     url: str
+
+
+class WorkItemChange(TypedDict, total=False):
+    action: str | None
+    clear_recheck: bool
+    note: str
+    owner: str | None
+    recheck_on: str | None
+    title: str | None
+
+
+class WorkItemDecision(TypedDict, total=False):
+    note: str
+    state: str
+
+
+class WorkItemEvent(TypedDict, total=True):
+    """One change in a work item's history."""
+    action: str
+    actor: str
+    at: str
+    detail: dict[str, Any]
+
+
+class WorkItemEvidence(TypedDict, total=True):
+    at: str
+    by: str
+    text: str
+
+
+class WorkItemProject(TypedDict, total=True):
+    name: str
+    project_id: str
 
 
 class WorkerInfo(TypedDict, total=False):
@@ -5412,7 +5458,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_work_item(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_work_item(self, *, body: dict[str, Any] | None = None) -> SupplyWorkItem:
         """Create Work Item"""
         return self._request(
             "POST",
@@ -5474,7 +5520,7 @@ class GeneratedClient:
             path_params={"decision_id": decision_id, "verdict": verdict},
         )
 
-    def decide_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def decide_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> SupplyWorkItem:
         """Decide Work Item"""
         return self._request(
             "POST",
@@ -7338,7 +7384,7 @@ class GeneratedClient:
             "/api/v1/settings/webhooks",
         )
 
-    def list_work_items(self, *, state: str = 'live', subject_kind: str = '', subject_id: str = '') -> list[dict[str, Any]]:
+    def list_work_items(self, *, state: str = 'live', subject_kind: str = '', subject_id: str = '') -> Items_SupplyWorkItem_:
         """List Work Items"""
         return self._request(
             "GET",
@@ -8897,7 +8943,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def update_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> SupplyWorkItem:
         """Update Work Item"""
         return self._request(
             "PATCH",
@@ -9005,7 +9051,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def work_item_history(self, item_id: str) -> list[dict[str, Any]]:
+    def work_item_history(self, item_id: str) -> Items_WorkItemEvent_:
         """Work Item History"""
         return self._request(
             "GET",

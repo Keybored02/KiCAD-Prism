@@ -68,14 +68,14 @@ class WorkItemTests(unittest.TestCase):
         self.assertEqual((accepted["state"], len(accepted["evidence"])), ("accepted", 2))
         self.assertEqual(self.call("PATCH", f"/{item['id']}", "viewer", {"note": "x"}).status, 403, "viewers have no Supply")
 
-        mine = self.call("GET", "", "designer", query="state=mine").json
-        due = self.call("GET", "", "qa", query="state=due").json
+        mine = self.call("GET", "", "designer", query="state=mine").json["items"]
+        due = self.call("GET", "", "qa", query="state=due").json["items"]
         self.assertEqual(([row["id"] for row in mine], [row["id"] for row in due]), ([item["id"]], [item["id"]]))
 
         done = self.call("POST", f"/{item['id']}/state", "designer", {"state": "done"}).json
         self.assertEqual(done["state"], "done", "its owner closes it")
-        self.assertEqual(self.call("GET", "", "designer", query="state=live").json, [])
-        history = self.call("GET", f"/{item['id']}/history", "qa").json
+        self.assertEqual(self.call("GET", "", "designer", query="state=live").json["items"], [])
+        history = self.call("GET", f"/{item['id']}/history", "qa").json["items"]
         self.assertEqual([entry["action"] for entry in history], ["create", "update", "accepted", "done"])
 
     def test_an_item_is_an_attention_row_that_rejection_or_done_closes_and_reopening_opens(self) -> None:
@@ -89,7 +89,7 @@ class WorkItemTests(unittest.TestCase):
             self.assertEqual(attention.summary(conn, datetime.now(timezone.utc)), [], "a work item is not an alert to count")
         rejected = self.call("POST", f"/{item['id']}/state", "qa", {"state": "rejected"}).json
         self.assertEqual(rejected["state"], "rejected")
-        self.assertEqual([row["id"] for row in self.call("GET", "", "qa", query="state=rejected").json], [item["id"]])
+        self.assertEqual([row["id"] for row in self.call("GET", "", "qa", query="state=rejected").json["items"]], [item["id"]])
         self.assertEqual(self.call("POST", f"/{item['id']}/state", "qa", {"state": "open"}).json["state"], "open", "QA opens it again")
         self.assertEqual(self.call("POST", f"/{item['id']}/state", "qa", {"state": "done"}).json["state"], "done")
         self.assertEqual(self.call("GET", "/not-a-number/history", "qa").status, 404)

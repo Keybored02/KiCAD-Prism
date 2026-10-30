@@ -8,14 +8,15 @@ from __future__ import annotations
 
 from datetime import date
 from functools import partial
-from typing import Any, Literal, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver
 from app.api.supply_call import run_supply
+from app.api.supply_models import Items
+from app.api.supply_work_items_models import NewWorkItem, SupplyWorkItem, WorkItemChange, WorkItemDecision, WorkItemEvent
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import work_items
 
@@ -23,62 +24,29 @@ router = APIRouter(prefix="/api/supply/work-items", tags=["supply"])
 _run = partial(run_supply, missing=True)
 
 
-Action = Literal["investigate", "alternate", "not_for_new_designs", "retire", "replace", "last_time_buy", "other"]
-
-
-class CreateIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    subject_kind: Literal["component", "part"]
-    subject_id: str = Field(min_length=1, max_length=100)
-    title: str = Field(min_length=1, max_length=work_items.MAX_TITLE)
-    action: Action
-    owner: str = Field(default="", max_length=200)
-    note: str = Field(default="", max_length=work_items.MAX_NOTE)
-    recheck_on: Optional[date] = None
-
-
-class UpdateIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    title: Optional[str] = Field(default=None, max_length=work_items.MAX_TITLE)
-    action: Optional[Action] = None
-    owner: Optional[str] = Field(default=None, max_length=200)
-    recheck_on: Optional[date] = None
-    clear_recheck: bool = False
-    note: str = Field(default="", max_length=work_items.MAX_NOTE)
-
-
-class DecideIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    state: Literal["open", "accepted", "rejected", "done"]
-    note: str = Field(default="", max_length=work_items.MAX_NOTE)
-
-
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
 
 
-@router.get("")
+@router.get("", response_model=Items[SupplyWorkItem])
 async def list_work_items(
     state: str = Query("live", max_length=16),
     subject_kind: str = Query("", max_length=16),
     subject_id: str = Query("", max_length=100),
     user: AuthenticatedUser = Depends(require_supply_reader),
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Work items, soonest recheck first: ``live`` (open or accepted), ``mine``, ``due`` or one state; optionally about one subject."""
 
-    def read() -> list[dict[str, Any]]:
+    def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return work_items.listed(conn, role=user.role, actor=user.email, state=state, subject_kind=subject_kind, subject_id=subject_id)
+            return {"items": work_items.listed(conn, role=user.role, actor=user.email, state=state, subject_kind=subject_kind, subject_id=subject_id)}
 
     return await _run(read)
 
 
-@router.post("", status_code=201)
-async def create_work_item(body: CreateIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+@router.post("", status_code=201, response_model=SupplyWorkItem)
+async def create_work_item(body: NewWorkItem, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
             item = work_items.create(conn, **body.model_dump(), actor=user.email)
@@ -87,8 +55,8 @@ async def create_work_item(body: CreateIn, user: AuthenticatedUser = Depends(req
     return await _run(run)
 
 
-@router.patch("/{item_id}")
-async def update_work_item(item_id: str, body: UpdateIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+@router.patch("/{item_id}", response_model=SupplyWorkItem)
+async def update_work_item(item_id: str, body: WorkItemChange, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         recheck: date | None | str = None if body.clear_recheck else (body.recheck_on if body.recheck_on is not None else "unchanged")
         with _store().connection() as conn:
@@ -99,8 +67,8 @@ async def update_work_item(item_id: str, body: UpdateIn, user: AuthenticatedUser
     return await _run(run)
 
 
-@router.post("/{item_id}/state")
-async def decide_work_item(item_id: str, body: DecideIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+@router.post("/{item_id}/state", response_model=SupplyWorkItem)
+async def decide_work_item(item_id: str, body: WorkItemDecision, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
             item = work_items.decide(conn, item_id, body.state, actor=user.email, approver=is_approver(user), note=body.note)
@@ -109,10 +77,10 @@ async def decide_work_item(item_id: str, body: DecideIn, user: AuthenticatedUser
     return await _run(run)
 
 
-@router.get("/{item_id}/history")
-async def work_item_history(item_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    def read() -> list[dict[str, Any]]:
+@router.get("/{item_id}/history", response_model=Items[WorkItemEvent])
+async def work_item_history(item_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return work_items.history(conn, item_id)
+            return {"items": work_items.history(conn, item_id)}
 
     return await _run(read)

@@ -5,12 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import type { SupplyWorkItem, WorkItemState } from "@/types/supply";
 import { CollapsibleSection } from "./collapsible-section";
 import { formatAgo } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 import { ACTION_LABEL } from "./work-item-dialog";
-import { decideWorkItem, listWorkItems, updateWorkItem, workItemHistory, type WorkItemList } from "./work-items-api";
+import { decideWorkItem, listWorkItems, updateWorkItem, workItemHistory, type SupplyWorkItem, type WorkItemList, type WorkItemState } from "./work-items-api";
 
 const LISTS: Array<{ key: WorkItemList; label: string }> = [
   { key: "live", label: "Open" }, { key: "mine", label: "Mine" }, { key: "due", label: "Due" }, { key: "done", label: "Done" }, { key: "rejected", label: "Rejected" },

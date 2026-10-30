@@ -1624,28 +1624,6 @@ export interface TrackingRoom {
 }
 
 /** The Dashboard page in one read. */
-export type WorkItemAction = "investigate" | "alternate" | "not_for_new_designs" | "retire" | "replace" | "last_time_buy" | "other";
-export type WorkItemState = "open" | "accepted" | "rejected" | "done";
-
-/** An engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it touches (as the
- * caller may see them), QA's disposition and when to look again. */
-export interface SupplyWorkItem {
-  id: string;
-  subject_kind: "component" | "part";
-  subject_id: string;
-  subject_name: string;
-  title: string;
-  action: WorkItemAction;
-  owner: string;
-  state: WorkItemState;
-  evidence: Array<{ text: string; by: string; at: string }>;
-  projects: Array<{ project_id: string; name: string }>;
-  recheck_on: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface SupplyDashboard {
   figures: Record<"watched" | "at_risk" | "out_of_stock" | "lifecycle" | "open_alerts" | "waiting", number>;
   /** Library components whose part is ending and nobody has decided about. */
