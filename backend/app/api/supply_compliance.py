@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_call import run_supply
+from app.api.supply_compliance_models import Declaration, LoadList, SupplyCompliance, SupplySvhcList
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_writer
 from app.services.supply import compliance, facts, parts
 
@@ -22,28 +23,12 @@ router = APIRouter(prefix="/api/supply", tags=["supply"])
 _run = partial(run_supply, invalid="invalid_compliance")
 
 
-class LoadList(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_name: str = Field(default="", max_length=200)
-    # Either the CSV text, or an Excel file as base64.
-    csv: str = Field(default="", max_length=compliance.MAX_LIST_BYTES)
-    xlsx_base64: str = Field(default="", max_length=compliance.MAX_LIST_BYTES * 4 // 3 + 16)
-
-
-class Declaration(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    cas: str = Field(min_length=1, max_length=20)
-    note: str = Field(default="", max_length=200)
-
-
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
 
 
-@router.get("/compliance/svhc")
+@router.get("/compliance/svhc", response_model=SupplySvhcList)
 async def svhc_list_info(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -52,7 +37,7 @@ async def svhc_list_info(_user: AuthenticatedUser = Depends(require_supply_reade
     return await _run(read)
 
 
-@router.post("/compliance/svhc")
+@router.post("/compliance/svhc", response_model=SupplySvhcList)
 async def load_svhc_list(body: LoadList, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         if bool(body.csv) == bool(body.xlsx_base64):
@@ -70,7 +55,7 @@ async def load_svhc_list(body: LoadList, admin: AuthenticatedUser = Depends(requ
     return await _run(run)
 
 
-@router.get("/parts/{part_id}/compliance")
+@router.get("/parts/{part_id}/compliance", response_model=SupplyCompliance)
 async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:

@@ -25,8 +25,8 @@ describe("reading rates", () => {
 
 describe("the exchange rates", () => {
   it("shows their day and that they are old, refreshes them and saves rates by hand", async () => {
-    mocked.refreshFxRates.mockResolvedValue({ ...stored, stale: false });
-    mocked.enterFxRates.mockResolvedValue(stored);
+    mocked.refreshFxRates.mockResolvedValue({ ...stored, stale: false, saved: 30 });
+    mocked.enterFxRates.mockResolvedValue({ ...stored, saved: 1 });
     render(<ExchangeRates />);
     fireEvent.click(await screen.findByRole("button", { name: /Exchange rates/ }));
     expect(await screen.findByText("From 2026-03-01")).toBeTruthy();

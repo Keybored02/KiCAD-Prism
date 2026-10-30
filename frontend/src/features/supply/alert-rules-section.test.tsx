@@ -15,8 +15,8 @@ const WATCH = { threshold: 100, pinned: false, owner: "ana@example.com", packagi
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.getAlertRules.mockResolvedValue({ muted: [], price_rise_percent: null, target_price: null, target_currency: "", mutable: MUTABLE });
-  mocked.saveAlertRules.mockImplementation(async (_id, rules) => rules);
+  mocked.getAlertRules.mockResolvedValue({ muted: [], muting: [], price_rise_percent: null, likely_out_percent: null, target_price: null, target_currency: "", mutable: MUTABLE });
+  mocked.saveAlertRules.mockImplementation(async (_id, rules) => ({ ...rules, muting: [] }));
 });
 afterEach(cleanup);
 
@@ -35,7 +35,7 @@ describe("the alert rules of a part", () => {
   });
 
   it("keeps an alert QA has yet to switch off unticked, marked as asked, and asks again on save", async () => {
-    mocked.getAlertRules.mockResolvedValue({ muted: [], muting: ["price_up"], price_rise_percent: null, target_price: null, target_currency: "", mutable: MUTABLE });
+    mocked.getAlertRules.mockResolvedValue({ muted: [], muting: ["price_up"], price_rise_percent: null, likely_out_percent: null, target_price: null, target_currency: "", mutable: MUTABLE });
     mocked.saveAlertRules.mockImplementation(async (_id, rules) => ({ ...rules, muted: [], muting: ["price_up"] }));
     render(<AlertRulesSection partId="p1" canEdit />);
     expect((await screen.findByLabelText("Price rises")).getAttribute("data-state")).toBe("unchecked");

@@ -163,6 +163,431 @@
         "title": "AgentTokenView",
         "type": "object"
       },
+      "AlertDetail": {
+        "additionalProperties": true,
+        "description": "The facts behind an alert; which are present depends on its kind.",
+        "properties": {
+          "chance": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chance"
+          },
+          "change_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Percent"
+          },
+          "change_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Summary"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "days_to_zero": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Zero"
+          },
+          "decrease_per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decrease Per Day"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "dropped": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dropped"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "kind_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind Label"
+          },
+          "last_time_buy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Time Buy"
+          },
+          "last_time_ship": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Time Ship"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle"
+          },
+          "new": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New"
+          },
+          "now": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Now"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "soon": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soon"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "was": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Was"
+          },
+          "was_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Was Status"
+          },
+          "weeks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weeks"
+          }
+        },
+        "title": "AlertDetail",
+        "type": "object"
+      },
+      "AlertRules": {
+        "additionalProperties": true,
+        "properties": {
+          "likely_out_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70.",
+            "title": "Likely Out Percent"
+          },
+          "muted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Muted",
+            "type": "array"
+          },
+          "muting": {
+            "description": "Kinds someone asked QA to switch off; they still raise alerts until approved.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Muting",
+            "type": "array"
+          },
+          "price_rise_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Rise Percent"
+          },
+          "target_currency": {
+            "title": "Target Currency",
+            "type": "string"
+          },
+          "target_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Price"
+          }
+        },
+        "required": [
+          "muted",
+          "muting",
+          "price_rise_percent",
+          "likely_out_percent",
+          "target_price",
+          "target_currency"
+        ],
+        "title": "AlertRules",
+        "type": "object"
+      },
       "AlignmentRequest": {
         "properties": {
           "offsetMm": {
@@ -4131,9 +4556,44 @@
         "title": "CheckAccessRequest",
         "type": "object"
       },
-      "CheckIn": {
+      "CheckLine": {
         "additionalProperties": false,
         "properties": {
+          "manufacturer": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Mpn",
+            "type": "string"
+          }
+        },
+        "title": "CheckLine",
+        "type": "object"
+      },
+      "CheckProgress": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "bom",
@@ -4142,26 +4602,77 @@
             "title": "Kind",
             "type": "string"
           },
-          "lines": {
-            "items": {
-              "$ref": "#/components/schemas/app__api__supply_checks__LineIn"
-            },
-            "maxItems": 4000,
-            "title": "Lines",
-            "type": "array"
-          },
           "project_id": {
-            "default": "",
-            "maxLength": 120,
             "title": "Project Id",
             "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "done",
+              "failed",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
+          "state",
+          "done",
+          "total",
+          "failed",
+          "reason",
+          "id",
           "kind",
-          "lines"
+          "project_id",
+          "created_at"
         ],
-        "title": "CheckIn",
+        "title": "CheckProgress",
+        "type": "object"
+      },
+      "CheckStarted": {
+        "additionalProperties": true,
+        "properties": {
+          "already_tracked": {
+            "title": "Already Tracked",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/CheckProgress"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedLine"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "parts",
+          "already_tracked",
+          "skipped",
+          "progress"
+        ],
+        "title": "CheckStarted",
         "type": "object"
       },
       "ChoiceRequest": {
@@ -8134,6 +8645,53 @@
         "title": "Declaration",
         "type": "object"
       },
+      "DeclaredSubstance": {
+        "additionalProperties": true,
+        "properties": {
+          "cas": {
+            "title": "Cas",
+            "type": "string"
+          },
+          "declared_at": {
+            "title": "Declared At",
+            "type": "string"
+          },
+          "declared_by": {
+            "description": "A person's address, or a distributor when from_distributor.",
+            "title": "Declared By",
+            "type": "string"
+          },
+          "from_distributor": {
+            "title": "From Distributor",
+            "type": "boolean"
+          },
+          "listed_as": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listed As"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cas",
+          "note",
+          "declared_by",
+          "declared_at",
+          "listed_as",
+          "from_distributor"
+        ],
+        "title": "DeclaredSubstance",
+        "type": "object"
+      },
       "DeleteDesignCompareResponse": {
         "additionalProperties": true,
         "properties": {
@@ -9952,6 +10510,35 @@
           "drill"
         ],
         "title": "FabricationView",
+        "type": "object"
+      },
+      "FactSource": {
+        "additionalProperties": true,
+        "properties": {
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "source",
+          "value",
+          "observed_at"
+        ],
+        "title": "FactSource",
         "type": "object"
       },
       "FailedBuild": {
@@ -12462,6 +13049,23 @@
         "title": "IssuedPushToken",
         "type": "object"
       },
+      "Items_SupplyAlert_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyAlert"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyAlert]",
+        "type": "object"
+      },
       "Items_SupplyWorkItem_": {
         "additionalProperties": true,
         "properties": {
@@ -13891,6 +14495,66 @@
         "title": "LineChoiceIn",
         "type": "object"
       },
+      "LineIn": {
+        "additionalProperties": false,
+        "properties": {
+          "footprint": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Footprint",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "lcsc": {
+            "default": "",
+            "maxLength": 14,
+            "pattern": "^(C\\d{1,12})?$",
+            "title": "Lcsc",
+            "type": "string"
+          },
+          "manufacturer": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Mpn",
+            "type": "string"
+          },
+          "prism_id": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Prism Id",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "value": {
+            "default": "",
+            "maxLength": 60,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "LineIn",
+        "type": "object"
+      },
       "LinkAssetRequest": {
         "properties": {
           "counterpart_asset_id": {
@@ -14086,6 +14750,7 @@
         "properties": {
           "csv": {
             "default": "",
+            "description": "The list as CSV text; or send xlsx_base64.",
             "maxLength": 5242880,
             "title": "Csv",
             "type": "string"
@@ -14098,6 +14763,7 @@
           },
           "xlsx_base64": {
             "default": "",
+            "description": "The list as an Excel file, base64.",
             "maxLength": 6990522,
             "title": "Xlsx Base64",
             "type": "string"
@@ -14388,7 +15054,7 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/app__api__supply_bom__LineIn"
+              "$ref": "#/components/schemas/LineIn"
             },
             "maxItems": 2000,
             "title": "Lines",
@@ -14498,6 +15164,7 @@
             "additionalProperties": {
               "type": "number"
             },
+            "description": "Units of the currency per euro, as the ECB quotes them.",
             "maxProperties": 60,
             "minProperties": 1,
             "title": "Rates",
@@ -16041,6 +16708,39 @@
         "title": "MoveProjectsRequest",
         "type": "object"
       },
+      "NewCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "bom",
+              "component"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CheckLine"
+            },
+            "maxItems": 4000,
+            "title": "Lines",
+            "type": "array"
+          },
+          "project_id": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "lines"
+        ],
+        "title": "NewCheck",
+        "type": "object"
+      },
       "NewWorkItem": {
         "additionalProperties": false,
         "properties": {
@@ -16432,6 +17132,83 @@
           "tools"
         ],
         "title": "OpsStatus",
+        "type": "object"
+      },
+      "PartAlertRules": {
+        "additionalProperties": true,
+        "description": "A part's rules, and the kinds that can be switched off.",
+        "properties": {
+          "likely_out_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70.",
+            "title": "Likely Out Percent"
+          },
+          "mutable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mutable",
+            "type": "array"
+          },
+          "muted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Muted",
+            "type": "array"
+          },
+          "muting": {
+            "description": "Kinds someone asked QA to switch off; they still raise alerts until approved.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Muting",
+            "type": "array"
+          },
+          "price_rise_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Rise Percent"
+          },
+          "target_currency": {
+            "title": "Target Currency",
+            "type": "string"
+          },
+          "target_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Price"
+          }
+        },
+        "required": [
+          "muted",
+          "muting",
+          "price_rise_percent",
+          "likely_out_percent",
+          "target_price",
+          "target_currency",
+          "mutable"
+        ],
+        "title": "PartAlertRules",
         "type": "object"
       },
       "PartManifest": {
@@ -20665,6 +21442,31 @@
         "title": "RevokeSessionsResponse",
         "type": "object"
       },
+      "RohsExemption": {
+        "additionalProperties": true,
+        "description": "A RoHS exemption a person named from the manufacturer's declaration.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "declared_by": {
+            "title": "Declared By",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "note",
+          "declared_by"
+        ],
+        "title": "RohsExemption",
+        "type": "object"
+      },
       "RoleAssignmentResponse": {
         "properties": {
           "email": {
@@ -21574,6 +22376,25 @@
         "title": "SimilarIn",
         "type": "object"
       },
+      "SkippedLine": {
+        "additionalProperties": true,
+        "properties": {
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mpn",
+          "reason"
+        ],
+        "title": "SkippedLine",
+        "type": "object"
+      },
       "SlowQueriesOut": {
         "properties": {
           "available": {
@@ -21936,7 +22757,7 @@
         "properties": {
           "components": {
             "items": {
-              "$ref": "#/components/schemas/app__api__supply_bom__LineIn"
+              "$ref": "#/components/schemas/LineIn"
             },
             "maxItems": 200,
             "title": "Components",
@@ -22085,6 +22906,304 @@
         "title": "Supply",
         "type": "object"
       },
+      "SupplyAlert": {
+        "additionalProperties": true,
+        "properties": {
+          "acknowledged_by": {
+            "title": "Acknowledged By",
+            "type": "string"
+          },
+          "detail": {
+            "$ref": "#/components/schemas/AlertDetail"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "out_of_stock",
+              "below_threshold",
+              "lifecycle",
+              "part_lost",
+              "rupture_soon",
+              "price_up",
+              "pcn",
+              "target_price_missed",
+              "assessment_worse",
+              "likely_out"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "severity": {
+            "enum": [
+              "warning",
+              "error",
+              "fatal"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "snoozed_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snoozed Until"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "acknowledged",
+              "snoozed",
+              "resolved"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "kind",
+          "severity",
+          "state",
+          "detail",
+          "opened_at",
+          "last_event_at",
+          "acknowledged_by",
+          "snoozed_until",
+          "resolved_at"
+        ],
+        "title": "SupplyAlert",
+        "type": "object"
+      },
+      "SupplyCompliance": {
+        "additionalProperties": true,
+        "description": "RoHS and REACH of a part, and the substances a supplier declared for it.",
+        "properties": {
+          "exemptions": {
+            "items": {
+              "$ref": "#/components/schemas/RohsExemption"
+            },
+            "title": "Exemptions",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyFact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "list": {
+            "$ref": "#/components/schemas/SupplySvhcList"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/SupplyComplianceState"
+          },
+          "rohs": {
+            "$ref": "#/components/schemas/SupplyComplianceState"
+          },
+          "substances": {
+            "items": {
+              "$ref": "#/components/schemas/DeclaredSubstance"
+            },
+            "title": "Substances",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rohs",
+          "reach",
+          "substances",
+          "exemptions",
+          "facts",
+          "list"
+        ],
+        "title": "SupplyCompliance",
+        "type": "object"
+      },
+      "SupplyComplianceState": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "reason"
+        ],
+        "title": "SupplyComplianceState",
+        "type": "object"
+      },
+      "SupplyFact": {
+        "additionalProperties": true,
+        "description": "One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source.",
+        "properties": {
+          "disagree": {
+            "description": "True when two sources say different things.",
+            "title": "Disagree",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/FactSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "sources",
+          "disagree"
+        ],
+        "title": "SupplyFact",
+        "type": "object"
+      },
+      "SupplyFxRates": {
+        "additionalProperties": true,
+        "description": "The rates loaded: their day, the currencies they price and whether they are too old to trust.",
+        "properties": {
+          "currencies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Currencies",
+            "type": "array"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "day",
+          "currencies",
+          "stale"
+        ],
+        "title": "SupplyFxRates",
+        "type": "object"
+      },
+      "SupplyFxRatesSaved": {
+        "additionalProperties": true,
+        "properties": {
+          "currencies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Currencies",
+            "type": "array"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "saved": {
+            "description": "How many rates were saved.",
+            "title": "Saved",
+            "type": "integer"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "day",
+          "currencies",
+          "stale",
+          "saved"
+        ],
+        "title": "SupplyFxRatesSaved",
+        "type": "object"
+      },
       "SupplySource": {
         "additionalProperties": true,
         "properties": {
@@ -22152,6 +23271,48 @@
           "mixed_freshness"
         ],
         "title": "SupplySource",
+        "type": "object"
+      },
+      "SupplySvhcList": {
+        "additionalProperties": true,
+        "description": "The ECHA Candidate List Prism holds.",
+        "properties": {
+          "loaded": {
+            "title": "Loaded",
+            "type": "boolean"
+          },
+          "loaded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loaded At"
+          },
+          "loaded_by": {
+            "title": "Loaded By",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "substances": {
+            "title": "Substances",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "loaded",
+          "substances",
+          "loaded_at",
+          "loaded_by",
+          "source_name"
+        ],
+        "title": "SupplySvhcList",
         "type": "object"
       },
       "SupplyWorkItem": {
@@ -24426,7 +25587,7 @@
         "properties": {
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/app__api__supply_bom__LineIn"
+              "$ref": "#/components/schemas/LineIn"
             },
             "maxItems": 200,
             "title": "Lines",
@@ -25711,85 +26872,6 @@
           "created_at"
         ],
         "title": "JobEvent",
-        "type": "object"
-      },
-      "app__api__supply_bom__LineIn": {
-        "additionalProperties": false,
-        "properties": {
-          "footprint": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Footprint",
-            "type": "string"
-          },
-          "key": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Key",
-            "type": "string"
-          },
-          "lcsc": {
-            "default": "",
-            "maxLength": 14,
-            "pattern": "^(C\\d{1,12})?$",
-            "title": "Lcsc",
-            "type": "string"
-          },
-          "manufacturer": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Manufacturer",
-            "type": "string"
-          },
-          "mpn": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Mpn",
-            "type": "string"
-          },
-          "prism_id": {
-            "default": "",
-            "maxLength": 100,
-            "title": "Prism Id",
-            "type": "string"
-          },
-          "quantity": {
-            "default": 1,
-            "maximum": 100000.0,
-            "minimum": 1.0,
-            "title": "Quantity",
-            "type": "integer"
-          },
-          "value": {
-            "default": "",
-            "maxLength": 60,
-            "title": "Value",
-            "type": "string"
-          }
-        },
-        "required": [
-          "key"
-        ],
-        "title": "LineIn",
-        "type": "object"
-      },
-      "app__api__supply_checks__LineIn": {
-        "additionalProperties": false,
-        "properties": {
-          "manufacturer": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Manufacturer",
-            "type": "string"
-          },
-          "mpn": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Mpn",
-            "type": "string"
-          }
-        },
-        "title": "LineIn",
         "type": "object"
       },
       "app__api__supply_connectors__CreateConnectorRequest": {
@@ -43629,9 +44711,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Alerts",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyAlert_"
                 }
               }
             },
@@ -44064,7 +45144,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CheckIn"
+                "$ref": "#/components/schemas/NewCheck"
               }
             }
           },
@@ -44075,9 +45155,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Start",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CheckStarted"
                 }
               }
             },
@@ -44119,9 +45197,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Progress",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CheckProgress"
                 }
               }
             },
@@ -44152,9 +45228,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Svhc List Info",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplySvhcList"
                 }
               }
             },
@@ -44183,9 +45257,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Load Svhc List",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplySvhcList"
                 }
               }
             },
@@ -45521,9 +46593,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Current Rates",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyFxRates"
                 }
               }
             },
@@ -45554,9 +46624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Enter Rates",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyFxRatesSaved"
                 }
               }
             },
@@ -45587,9 +46655,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Refresh Rates",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyFxRatesSaved"
                 }
               }
             },
@@ -47166,9 +48232,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Alert Rules",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartAlertRules"
                 }
               }
             },
@@ -47219,9 +48283,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Put Alert Rules",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AlertRules"
                 }
               }
             },
@@ -47416,9 +48478,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Part Compliance",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyCompliance"
                 }
               }
             },

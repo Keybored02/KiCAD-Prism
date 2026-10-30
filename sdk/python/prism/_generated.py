@@ -40,6 +40,48 @@ class AgentTokenView(TypedDict, total=False):
     scopes: list[str]
 
 
+class AlertDetail(TypedDict, total=False):
+    """The facts behind an alert; which are present depends on its kind."""
+    chance: int | float | None
+    change_percent: int | float | None
+    change_summary: str | None
+    confidence: str | None
+    currency: str | None
+    days: int | float | None
+    days_to_zero: int | float | None
+    decrease_per_day: int | float | None
+    description: str | None
+    dropped: bool | None
+    kind: str | None
+    kind_label: str | None
+    last_time_buy: str | None
+    last_time_ship: str | None
+    lifecycle: str | None
+    new: int | float | None
+    now: str | None
+    price: str | None
+    problem: str | None
+    soon: bool | None
+    stock: int | float | None
+    target: str | None
+    threshold: int | float | None
+    title: str | None
+    to: str | None
+    version: int | float | None
+    was: str | None
+    was_status: str | None
+    weeks: int | float | None
+
+
+class AlertRules(TypedDict, total=True):
+    likely_out_percent: int | None
+    muted: list[str]
+    muting: list[str]
+    price_rise_percent: int | None
+    target_currency: str
+    target_price: str | None
+
+
 class AlignmentRequest(TypedDict, total=False):
     offsetMm: list[float]
     rotationDeg: list[float]
@@ -744,10 +786,29 @@ class CheckAccessRequest(TypedDict, total=True):
     url: str
 
 
-class CheckIn(TypedDict, total=False):
+class CheckLine(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+
+
+class CheckProgress(TypedDict, total=True):
+    created_at: str
+    done: int
+    failed: int
+    id: str
     kind: str
-    lines: list[app__api__supply_checks__LineIn]
     project_id: str
+    reason: str
+    state: str
+    total: int
+
+
+class CheckStarted(TypedDict, total=True):
+    already_tracked: int
+    id: str
+    parts: int
+    progress: CheckProgress
+    skipped: list[SkippedLine]
 
 
 class ChoiceRequest(TypedDict, total=True):
@@ -1460,6 +1521,15 @@ class Declaration(TypedDict, total=False):
     note: str
 
 
+class DeclaredSubstance(TypedDict, total=True):
+    cas: str
+    declared_at: str
+    declared_by: str
+    from_distributor: bool
+    listed_as: str | None
+    note: str
+
+
 class DeleteDesignCompareResponse(TypedDict, total=True):
     status: str
 
@@ -1791,6 +1861,13 @@ class FabricationView(TypedDict, total=True):
     present: bool
     renderVersion: int
     size: BoardSize | None
+
+
+class FactSource(TypedDict, total=True):
+    observed_at: str
+    provider: str
+    source: str
+    value: str
 
 
 class FailedBuild(TypedDict, total=True):
@@ -2287,6 +2364,10 @@ class IssuedPushToken(TypedDict, total=True):
     token: str
 
 
+class Items_SupplyAlert_(TypedDict, total=True):
+    items: list[SupplyAlert]
+
+
 class Items_SupplyWorkItem_(TypedDict, total=True):
     items: list[SupplyWorkItem]
 
@@ -2523,6 +2604,17 @@ class LineChoiceIn(TypedDict, total=True):
     part_id: str
 
 
+class LineIn(TypedDict, total=False):
+    footprint: str
+    key: str
+    lcsc: str
+    manufacturer: str
+    mpn: str
+    prism_id: str
+    quantity: int
+    value: str
+
+
 class LinkAssetRequest(TypedDict, total=False):
     counterpart_asset_id: str
     file_path: str
@@ -2619,7 +2711,7 @@ class LoginStartResponse(TypedDict, total=True):
 class LookupRequest(TypedDict, total=False):
     attrition_percent: float | None
     build_quantity: int | None
-    lines: list[app__api__supply_bom__LineIn]
+    lines: list[LineIn]
     project_id: str
 
 
@@ -2951,6 +3043,12 @@ class MoveProjectsRequest(TypedDict, total=False):
     project_ids: list[str]
 
 
+class NewCheck(TypedDict, total=False):
+    kind: str
+    lines: list[CheckLine]
+    project_id: str
+
+
 class NewWorkItem(TypedDict, total=False):
     action: str
     note: str
@@ -3013,6 +3111,17 @@ class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
     tools: list[str]
+
+
+class PartAlertRules(TypedDict, total=True):
+    """A part's rules, and the kinds that can be switched off."""
+    likely_out_percent: int | None
+    mutable: list[str]
+    muted: list[str]
+    muting: list[str]
+    price_rise_percent: int | None
+    target_currency: str
+    target_price: str | None
 
 
 class PartManifest(TypedDict, total=True):
@@ -3827,6 +3936,13 @@ class RevokeSessionsResponse(TypedDict, total=False):
     revoked: int
 
 
+class RohsExemption(TypedDict, total=True):
+    """A RoHS exemption a person named from the manufacturer's declaration."""
+    code: str
+    declared_by: str
+    note: str
+
+
 class RoleAssignmentResponse(TypedDict, total=False):
     email: str
     has_password: bool
@@ -4018,6 +4134,11 @@ class SimilarIn(TypedDict, total=True):
     part_ids: list[str]
 
 
+class SkippedLine(TypedDict, total=True):
+    mpn: str
+    reason: str
+
+
 class SlowQueriesOut(TypedDict, total=False):
     available: bool
     order: str
@@ -4096,7 +4217,7 @@ class StatusReadiness(TypedDict, total=True):
 
 
 class StatusRequest(TypedDict, total=True):
-    components: list[app__api__supply_bom__LineIn]
+    components: list[LineIn]
 
 
 class StoresState(TypedDict, total=True):
@@ -4129,6 +4250,59 @@ class Supply(TypedDict, total=True):
     sources: list[SupplySource]
 
 
+class SupplyAlert(TypedDict, total=True):
+    acknowledged_by: str
+    detail: AlertDetail
+    id: int
+    kind: str
+    last_event_at: str | None
+    manufacturer: str
+    mpn: str
+    opened_at: str | None
+    part_id: str
+    resolved_at: str | None
+    severity: str
+    snoozed_until: str | None
+    state: str
+
+
+class SupplyCompliance(TypedDict, total=True):
+    """RoHS and REACH of a part, and the substances a supplier declared for it."""
+    exemptions: list[RohsExemption]
+    facts: list[SupplyFact]
+    list: SupplySvhcList
+    reach: SupplyComplianceState
+    rohs: SupplyComplianceState
+    substances: list[DeclaredSubstance]
+
+
+class SupplyComplianceState(TypedDict, total=True):
+    reason: str
+    state: str
+
+
+class SupplyFact(TypedDict, total=True):
+    """One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source."""
+    disagree: bool
+    label: str
+    name: str
+    sources: list[FactSource]
+
+
+class SupplyFxRates(TypedDict, total=True):
+    """The rates loaded: their day, the currencies they price and whether they are too old to trust."""
+    currencies: list[str]
+    day: str | None
+    stale: bool
+
+
+class SupplyFxRatesSaved(TypedDict, total=True):
+    currencies: list[str]
+    day: str | None
+    saved: int
+    stale: bool
+
+
 class SupplySource(TypedDict, total=True):
     display_name: str
     fetch_status: str
@@ -4142,6 +4316,15 @@ class SupplySource(TypedDict, total=True):
     stock: float
     stock_status: str
     uom: str
+
+
+class SupplySvhcList(TypedDict, total=True):
+    """The ECHA Candidate List Prism holds."""
+    loaded: bool
+    loaded_at: str | None
+    loaded_by: str
+    source_name: str
+    substances: int
 
 
 class SupplyWorkItem(TypedDict, total=True):
@@ -4528,7 +4711,7 @@ class ViewerSupportFiles(TypedDict, total=True):
 
 
 class WatchRequest(TypedDict, total=False):
-    lines: list[app__api__supply_bom__LineIn]
+    lines: list[LineIn]
     rate: str
     tier: int
 
@@ -4753,22 +4936,6 @@ class app__api__jobs__JobEvent(TypedDict, total=True):
     id: int
     percent: float | None
     stage: str | None
-
-
-class app__api__supply_bom__LineIn(TypedDict, total=False):
-    footprint: str
-    key: str
-    lcsc: str
-    manufacturer: str
-    mpn: str
-    prism_id: str
-    quantity: int
-    value: str
-
-
-class app__api__supply_checks__LineIn(TypedDict, total=False):
-    manufacturer: str
-    mpn: str
 
 
 class app__api__supply_connectors__CreateConnectorRequest(TypedDict, total=False):
@@ -5481,7 +5648,7 @@ class GeneratedClient:
             "/api/v1/supply/csv-template",
         )
 
-    def current_rates(self) -> dict[str, Any]:
+    def current_rates(self) -> SupplyFxRates:
         """Current Rates"""
         return self._request(
             "GET",
@@ -5809,7 +5976,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def enter_rates(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def enter_rates(self, *, body: dict[str, Any] | None = None) -> SupplyFxRatesSaved:
         """Enter Rates"""
         return self._request(
             "POST",
@@ -5944,7 +6111,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def get_alert_rules(self, part_id: str) -> dict[str, Any]:
+    def get_alert_rules(self, part_id: str) -> PartAlertRules:
         """Get Alert Rules"""
         return self._request(
             "GET",
@@ -7010,7 +7177,7 @@ class GeneratedClient:
             "/api/v1/settings/access/users",
         )
 
-    def list_alerts(self, *, include_resolved: bool = False) -> dict[str, Any]:
+    def list_alerts(self, *, include_resolved: bool = False) -> Items_SupplyAlert_:
         """List Alerts"""
         return self._request(
             "GET",
@@ -7399,7 +7566,7 @@ class GeneratedClient:
             "/api/v1/health/live",
         )
 
-    def load_svhc_list(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def load_svhc_list(self, *, body: dict[str, Any] | None = None) -> SupplySvhcList:
         """Load Svhc List"""
         return self._request(
             "POST",
@@ -7583,7 +7750,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def part_compliance(self, part_id: str) -> dict[str, Any]:
+    def part_compliance(self, part_id: str) -> SupplyCompliance:
         """Part Compliance"""
         return self._request(
             "GET",
@@ -7740,7 +7907,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def progress(self, request_id: str) -> dict[str, Any]:
+    def progress(self, request_id: str) -> CheckProgress:
         """Progress"""
         return self._request(
             "GET",
@@ -7867,7 +8034,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def put_alert_rules(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def put_alert_rules(self, part_id: str, *, body: dict[str, Any] | None = None) -> AlertRules:
         """Put Alert Rules"""
         return self._request(
             "PUT",
@@ -8019,7 +8186,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def refresh_rates(self) -> dict[str, Any]:
+    def refresh_rates(self) -> SupplyFxRatesSaved:
         """Refresh Rates"""
         return self._request(
             "POST",
@@ -8568,7 +8735,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def start(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def start(self, *, body: dict[str, Any] | None = None) -> CheckStarted:
         """Start"""
         return self._request(
             "POST",
@@ -8641,7 +8808,7 @@ class GeneratedClient:
             "/api/v1/supply/health",
         )
 
-    def svhc_list_info(self) -> dict[str, Any]:
+    def svhc_list_info(self) -> SupplySvhcList:
         """Svhc List Info"""
         return self._request(
             "GET",

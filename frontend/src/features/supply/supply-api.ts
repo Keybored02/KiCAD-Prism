@@ -41,6 +41,7 @@ import type {
   SupplySvhcList,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
+import type { SupplyFxRates, SupplyFxRatesSaved } from "@/types/supply.generated";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply";
@@ -243,21 +244,17 @@ function otherSupplyMakerRequest(partId: string, key: string): Promise<{ rejecte
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
-export interface SupplyFxRates {
-  day: string | null;
-  currencies: string[];
-  stale: boolean;
-}
+export type { SupplyFxRates, SupplyFxRatesSaved };
 
 export function getFxRates(signal?: AbortSignal): Promise<SupplyFxRates> {
   return fetchJson(`${BASE}/fx`, { signal }, "Could not load the exchange rates");
 }
 
-function refreshFxRatesRequest(): Promise<SupplyFxRates> {
+function refreshFxRatesRequest(): Promise<SupplyFxRatesSaved> {
   return post(`${BASE}/fx/refresh`, undefined, "Could not fetch the exchange rates");
 }
 
-function enterFxRatesRequest(day: string, rates: Record<string, number>): Promise<SupplyFxRates> {
+function enterFxRatesRequest(day: string, rates: Record<string, number>): Promise<SupplyFxRatesSaved> {
   return post(`${BASE}/fx/rates`, { day, rates }, "Could not save the exchange rates");
 }
 

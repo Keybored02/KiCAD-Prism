@@ -1,3 +1,20 @@
+import type { SupplyAlert } from "./supply.generated";
+
+export type {
+  AlertDetail, AlertRules, CheckProgress, CheckStarted, PartAlertRules, RulesRequest, SupplyAlert, SupplyCompliance, SupplyComplianceState, SupplyFact, SupplySvhcList,
+} from "./supply.generated";
+export type SupplyAlertKind = SupplyAlert["kind"];
+export type SupplyAlertState = SupplyAlert["state"];
+
+/** How far a supply job has got (backend `progress.job_progress`); jobs add their own details beside it. */
+export interface JobProgress {
+  state: "running" | "done" | "failed" | "none";
+  done: number;
+  total: number;
+  failed: number;
+  reason: string;
+}
+
 export type SupplyCredentialStatus = "none" | "ready" | "locked" | "unknown_key";
 
 export interface SupplyCredentialField {
@@ -272,41 +289,7 @@ export interface SupplyOutlook {
   signals: Array<{ text: string; source: string; weight: "hard" | "watch" | "soft" }>;
 }
 
-/** The ECHA Candidate List as loaded by an administrator. */
-export interface SupplySvhcList {
-  loaded: boolean;
-  substances: number;
-  loaded_at: string | null;
-  loaded_by: string;
-  source_name: string;
-}
-
-export interface SupplyComplianceState {
-  state: string;
-  reason: string;
-}
-
 /** RoHS and REACH of a part, and the substances a supplier declared for it. */
-/** One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source. */
-export interface SupplyFact {
-  name: string;
-  label: string;
-  sources: Array<{ provider: string; source: string; value: string; observed_at: string }>;
-  /** True when two sources say different things. */
-  disagree: boolean;
-}
-
-export interface SupplyCompliance {
-  rohs: SupplyComplianceState;
-  reach: SupplyComplianceState;
-  /** ``declared_by`` is a person's address, or a distributor when ``from_distributor``. */
-  substances: Array<{ cas: string; note: string; declared_by: string; declared_at: string; listed_as: string | null; from_distributor?: boolean }>;
-  /** RoHS exemptions a person named from the manufacturer's declaration. */
-  exemptions?: Array<{ code: string; note: string; declared_by: string }>;
-  list: SupplySvhcList;
-  facts?: SupplyFact[];
-}
-
 /** Whether someone is signed in at DigiKey for change notices. Never the tokens. */
 export interface SupplySignin {
   signed_in: boolean;
@@ -1043,34 +1026,6 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "pcn" | "target_price_missed" | "assessment_worse" | "likely_out";
-export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
-
-export interface SupplyAlert {
-  id: number;
-  part_id: string;
-  mpn: string;
-  manufacturer: string;
-  kind: SupplyAlertKind;
-  severity: "warning" | "error" | "fatal";
-  state: SupplyAlertState;
-  /** Facts behind the alert: stock, threshold, lifecycle or problem. */
-  detail: {
-    stock?: number; threshold?: number; lifecycle?: string; problem?: string; dropped?: boolean;
-    days_to_zero?: number; chance?: number; weeks?: number; decrease_per_day?: number; confidence?: string;
-    change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
-    version?: number; change_summary?: string;
-    price?: string; target?: string; was_status?: string; to?: string;
-    title?: string; kind?: string; kind_label?: string; last_time_buy?: string | null; last_time_ship?: string | null; soon?: boolean;
-    description?: string; new?: number;
-  };
-  opened_at: string | null;
-  last_event_at: string | null;
-  acknowledged_by: string;
-  snoozed_until: string | null;
-  resolved_at: string | null;
-}
-
 /** Something that happened lately to a watched part. */
 export interface SupplyRecentChange {
   at: string;
@@ -1270,15 +1225,6 @@ export interface TrackingPreview {
 }
 
 /** How far the first searches of a project's parts have got, per distributor. */
-/** Every supply job's progress: asked again until `state` is no longer "running". */
-export interface JobProgress {
-  state: "running" | "done" | "failed" | "none";
-  done: number;
-  total: number;
-  failed: number;
-  reason: string;
-}
-
 export interface TrackProgress extends JobProgress {
   parts: number;
   connectors: Array<{ connector_id: string; name: string; total: number; done: number }>;
@@ -1450,29 +1396,9 @@ export interface PackagingSimilar extends PackagingWaiting {
   sku: string;
 }
 
-/** How far a check someone asked for once has got: parts read everywhere they will be, of all of them. */
-export interface CheckProgress extends JobProgress {
-  id: string;
-  kind: "bom" | "component";
-  project_id: string;
-  created_at: string;
-}
-
 /** Which spare work is on. */
 export interface ScheduleSettings {
   spare: { waiting: boolean; tier2_early: boolean; notices: boolean; library: boolean };
-}
-
-/** What a person wants to hear about a part. */
-export interface AlertRules {
-  muted: string[];
-  /** Kinds someone asked QA to switch off; they still raise alerts until approved. */
-  muting?: string[];
-  price_rise_percent: number | null;
-  /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
-  likely_out_percent?: number | null;
-  target_price: string | null;
-  target_currency: string;
 }
 
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */

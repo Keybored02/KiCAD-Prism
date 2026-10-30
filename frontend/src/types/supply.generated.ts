@@ -3,9 +3,78 @@
 //
 // The models typed supply routes declare. Untyped routes still use types/supply.ts.
 
+/** The facts behind an alert; which are present depends on its kind. */
+export interface AlertDetail {
+  chance?: number | null;
+  change_percent?: number | null;
+  change_summary?: string | null;
+  confidence?: string | null;
+  currency?: string | null;
+  days?: number | null;
+  days_to_zero?: number | null;
+  decrease_per_day?: number | null;
+  description?: string | null;
+  dropped?: boolean | null;
+  kind?: string | null;
+  kind_label?: string | null;
+  last_time_buy?: string | null;
+  last_time_ship?: string | null;
+  lifecycle?: string | null;
+  new?: number | null;
+  now?: string | null;
+  price?: string | null;
+  problem?: string | null;
+  soon?: boolean | null;
+  stock?: number | null;
+  target?: string | null;
+  threshold?: number | null;
+  title?: string | null;
+  to?: string | null;
+  version?: number | null;
+  was?: string | null;
+  was_status?: string | null;
+  weeks?: number | null;
+}
+
+export interface AlertRules {
+  /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
+  likely_out_percent: number | null;
+  muted: string[];
+  /** Kinds someone asked QA to switch off; they still raise alerts until approved. */
+  muting: string[];
+  price_rise_percent: number | null;
+  target_currency: string;
+  target_price: string | null;
+}
+
 export interface AlternateRequest {
   manufacturer?: string;
   mpn: string;
+}
+
+export interface CheckLine {
+  manufacturer?: string;
+  mpn?: string;
+}
+
+export interface CheckProgress {
+  created_at: string;
+  done: number;
+  failed: number;
+  id: string;
+  kind: "bom" | "component";
+  project_id: string;
+  reason: string;
+  state: "running" | "done" | "failed" | "none";
+  total: number;
+}
+
+export interface CheckStarted {
+  already_tracked: number;
+  id: string;
+  parts: number;
+  progress: CheckProgress;
+  skipped: SkippedLine[];
 }
 
 export interface ComponentPart {
@@ -36,6 +105,23 @@ export interface CreateSourceRequest {
 
 export interface DecisionRequest {
   approve: boolean;
+}
+
+export interface DeclaredSubstance {
+  cas: string;
+  declared_at: string;
+  /** A person's address, or a distributor when from_distributor. */
+  declared_by: string;
+  from_distributor: boolean;
+  listed_as: string | null;
+  note: string;
+}
+
+export interface FactSource {
+  observed_at: string;
+  provider: string;
+  source: string;
+  value: string;
 }
 
 export interface InventorySource {
@@ -69,6 +155,14 @@ export interface LinkRequest {
   component_id: string;
 }
 
+export interface LoadList {
+  /** The list as CSV text; or send xlsx_base64. */
+  csv?: string;
+  source_name?: string;
+  /** The list as an Excel file, base64. */
+  xlsx_base64?: string;
+}
+
 export interface LocalStock {
   at_vendor: number | null;
   available: number | null;
@@ -96,6 +190,18 @@ export interface LocalStockRow {
   updated_at: string;
 }
 
+export interface ManualRates {
+  day: string;
+  /** Units of the currency per euro, as the ECB quotes them. */
+  rates: Record<string, number>;
+}
+
+export interface NewCheck {
+  kind: "bom" | "component";
+  lines: CheckLine[];
+  project_id?: string;
+}
+
 export interface NewWorkItem {
   action: "investigate" | "alternate" | "not_for_new_designs" | "retire" | "replace" | "last_time_buy" | "other";
   note?: string;
@@ -104,6 +210,19 @@ export interface NewWorkItem {
   subject_id: string;
   subject_kind: "component" | "part";
   title: string;
+}
+
+/** A part's rules, and the kinds that can be switched off. */
+export interface PartAlertRules {
+  /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
+  likely_out_percent: number | null;
+  mutable: string[];
+  muted: string[];
+  /** Kinds someone asked QA to switch off; they still raise alerts until approved. */
+  muting: string[];
+  price_rise_percent: number | null;
+  target_currency: string;
+  target_price: string | null;
 }
 
 export interface PriceTier {
@@ -181,6 +300,21 @@ export interface PushedOffer {
   stock: number;
 }
 
+/** A RoHS exemption a person named from the manufacturer's declaration. */
+export interface RohsExemption {
+  code: string;
+  declared_by: string;
+  note: string;
+}
+
+export interface RulesRequest {
+  likely_out_percent?: number | null;
+  muted?: string[];
+  price_rise_percent?: number | null;
+  target_currency?: string;
+  target_price?: string | null;
+}
+
 export interface ServerCategory {
   name: string;
   parent: number | null;
@@ -203,10 +337,79 @@ export interface SheetRows {
   rows: string[][];
 }
 
+export interface SkippedLine {
+  mpn: string;
+  reason: string;
+}
+
 export interface StoresState {
   available: number | null;
   since: string | null;
   state: string;
+}
+
+export interface SupplyAlert {
+  acknowledged_by: string;
+  detail: AlertDetail;
+  id: number;
+  kind: "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "pcn" | "target_price_missed" | "assessment_worse" | "likely_out";
+  last_event_at: string | null;
+  manufacturer: string;
+  mpn: string;
+  opened_at: string | null;
+  part_id: string;
+  resolved_at: string | null;
+  severity: "warning" | "error" | "fatal";
+  snoozed_until: string | null;
+  state: "open" | "acknowledged" | "snoozed" | "resolved";
+}
+
+/** RoHS and REACH of a part, and the substances a supplier declared for it. */
+export interface SupplyCompliance {
+  exemptions: RohsExemption[];
+  facts: SupplyFact[];
+  list: SupplySvhcList;
+  reach: SupplyComplianceState;
+  rohs: SupplyComplianceState;
+  substances: DeclaredSubstance[];
+}
+
+export interface SupplyComplianceState {
+  reason: string;
+  state: string;
+}
+
+/** One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source. */
+export interface SupplyFact {
+  /** True when two sources say different things. */
+  disagree: boolean;
+  label: string;
+  name: string;
+  sources: FactSource[];
+}
+
+/** The rates loaded: their day, the currencies they price and whether they are too old to trust. */
+export interface SupplyFxRates {
+  currencies: string[];
+  day: string | null;
+  stale: boolean;
+}
+
+export interface SupplyFxRatesSaved {
+  currencies: string[];
+  day: string | null;
+  /** How many rates were saved. */
+  saved: number;
+  stale: boolean;
+}
+
+/** The ECHA Candidate List Prism holds. */
+export interface SupplySvhcList {
+  loaded: boolean;
+  loaded_at: string | null;
+  loaded_by: string;
+  source_name: string;
+  substances: number;
 }
 
 /**
