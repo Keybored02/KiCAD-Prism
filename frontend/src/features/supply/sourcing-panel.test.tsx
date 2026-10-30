@@ -61,7 +61,7 @@ describe("the Supply tab", () => {
     renderPanel();
     expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
     cleanup();
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: { tier: 1, rate: "daily" } }));
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: { tier: 1, rate: "daily", reasons: [] } }));
     renderPanel();
     expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
   });

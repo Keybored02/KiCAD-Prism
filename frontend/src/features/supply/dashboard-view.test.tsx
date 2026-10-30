@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture());
   mocked.listSupplyAlerts.mockResolvedValue({ items: [alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } })] });
-  mocked.listSupplyParts.mockResolvedValue({ items: [], total: 3, limit: 50 });
+  mocked.listSupplyParts.mockResolvedValue({ items: [], total: 3, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
   mocked.getSupplyReviewQueue.mockResolvedValue({ aliases: [], listings: [], counts: { aliases: 1, unresolved: 2, near: 1 }, manufacturers: [] });
 });
 afterEach(cleanup);

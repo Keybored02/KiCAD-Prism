@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiHttpError } from "@/lib/api";
 import type { User, UserRole } from "@/types/auth";
 import { partForecastFixture } from "./forecast-test-fixtures";
-import { connectorFixture, partDetailFixture, partRowFixture } from "./supply-test-fixtures";
+import { connectorFixture, insightFixture, partDetailFixture, partRowFixture, priceFixture } from "./supply-test-fixtures";
 import { forgetServerState } from "@/lib/server-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -71,7 +71,7 @@ beforeEach(() => {
   mocked.listPartNotices.mockResolvedValue([]);
   mocked.getPartCompliance.mockResolvedValue({ rohs: { state: "unknown", reason: "" }, reach: { state: "unknown", reason: "" }, substances: [], exemptions: [], facts: [], list: { loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" } });
   mocked.getPartDatasheet.mockResolvedValue({ url: "" });
-  mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
+  mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100, offset: 0, next_offset: null, forecast_state: {} });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
   mocked.getPartHistory.mockResolvedValue({
     days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
@@ -129,7 +129,7 @@ describe("the parts list", () => {
   it("says plainly when a part has not been read yet", async () => {
     mocked.listSupplyParts.mockResolvedValue({
       items: [partRowFixture({ status: "unknown", stock: null, listings: 0, unit_price: null, currency: "", fetched_at: null, tier: null })],
-      total: 1, limit: 100,
+      total: 1, limit: 100, offset: 0, next_offset: null, forecast_state: {},
     });
     renderView();
     const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;
@@ -141,8 +141,8 @@ describe("the parts list", () => {
     class Seen { constructor(private readonly callback: IntersectionObserverCallback) {} observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); } disconnect() {} unobserve() {} }
     vi.stubGlobal("IntersectionObserver", Seen);
     mocked.listSupplyParts
-      .mockResolvedValueOnce({ items: [partRowFixture()], total: 2, limit: 50, offset: 0, next_offset: 50 })
-      .mockResolvedValueOnce({ items: [partRowFixture({ id: "p2", mpn: "LM324" })], total: 2, limit: 50, offset: 50, next_offset: null });
+      .mockResolvedValueOnce({ items: [partRowFixture()], total: 2, limit: 50, offset: 0, next_offset: 50, forecast_state: {} })
+      .mockResolvedValueOnce({ items: [partRowFixture({ id: "p2", mpn: "LM324" })], total: 2, limit: 50, offset: 50, next_offset: null, forecast_state: {} });
     renderView();
     expect(await screen.findByRole("button", { name: "LM324" })).toBeTruthy();
     expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("followed", "", undefined, "", 50, 50, "", "");
@@ -179,8 +179,8 @@ describe("the parts list", () => {
   });
 
   it("explains an empty list for each case", async () => {
-    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100 });
-    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 50 });
+    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0, next_offset: null, forecast_state: {} });
+    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
     renderView();
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Track a part" })).toHaveLength(2);
@@ -239,7 +239,7 @@ describe("a part", () => {
   });
 
   it("keeps one legend for the stock, with each vendor's stock, and puts the forecast under the price and the quantity try above the listings", async () => {
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ price: { currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null } }));
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ price: priceFixture({ currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null }) }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
     const stock = await within(sheet).findByRole("region", { name: "Stock" });
@@ -264,7 +264,7 @@ describe("a part", () => {
 
   it("gives the price its own heading, vendors legend and chart like the stock", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
-      price: { currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null },
+      price: priceFixture({ currency: "EUR", history: [["2026-03-01", 0.5]] as never, trend: null }),
       distributor_history: {
         days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
         connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [["2026-03-01", 0.5]] }],
@@ -311,11 +311,11 @@ describe("a part", () => {
 
   it("opens the stock trend beside the figure under its own Trend title, with no native hint", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
-      insight: {
+      insight: insightFixture({
         confidence: "high", trend: "falling", decrease_per_day: 50, days_to_zero: 6, days_to_threshold: 2,
         restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
         inputs: { points: 35, span_days: 34, points_in_run: 35, current: 300 },
-      },
+      }),
     }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
@@ -514,7 +514,7 @@ describe("the watch settings", () => {
 
   it("says why a part has no stock when it is lost, in the list and in the sheet", async () => {
     mocked.listSupplyParts.mockResolvedValue({
-      items: [partRowFixture({ status: "error", problem: "not_found", stock: null, unit_price: null, listings: 0 })], total: 1, limit: 100,
+      items: [partRowFixture({ status: "error", problem: "not_found", stock: null, unit_price: null, listings: 0 })], total: 1, limit: 100, offset: 0, next_offset: null, forecast_state: {},
     });
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
       status: "error", problem: "not_found", problem_text: "No distributor carries this part number",
@@ -528,11 +528,11 @@ describe("the watch settings", () => {
 
   it("shows the trend with its confidence and the readings it rests on", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
-      insight: {
+      insight: insightFixture({
         confidence: "high", trend: "falling", decrease_per_day: 50, days_to_zero: 6, days_to_threshold: 2,
         restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
         inputs: { points: 35, span_days: 34, points_in_run: 35, current: 300 },
-      },
+      }),
     }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
@@ -552,7 +552,7 @@ describe("the watch settings", () => {
   });
 
   it("reads where parts are used when the In use scope is chosen, then reloads the list", async () => {
-    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ used_in: 3 })], total: 1, limit: 100 });
+    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ used_in: 3 })], total: 1, limit: 100, offset: 0, next_offset: null, forecast_state: {} });
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "In use" }));
     expect(search()).toContain("partsScope=in_use");
@@ -572,7 +572,7 @@ describe("the watch settings", () => {
   });
 
   it("says why the In use scope is empty", async () => {
-    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 50 });
+    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
     renderView("designer", "/?partsScope=in_use");
     expect(await screen.findByText("No parts in use yet")).toBeTruthy();
     expect(screen.getByText(/Open a project BOM, then watch its parts/)).toBeTruthy();
@@ -581,8 +581,8 @@ describe("the watch settings", () => {
   it("lists the projects a part is used in, with links", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
       used_in: [
-        { project_id: "prj_1", project_name: "satnogs-comms-hardware", quantity: 44, references: "C201 C202" },
-        { project_id: "prj_2", project_name: "Another board", quantity: 1, references: "C1" },
+        { project_id: "prj_1", project_name: "satnogs-comms-hardware", quantity: 44, references: "C201 C202", only_in_variants: [] },
+        { project_id: "prj_2", project_name: "Another board", quantity: 1, references: "C1", only_in_variants: [] },
       ],
     }));
     renderView("designer", "/?part=p1");
@@ -615,7 +615,7 @@ describe("the watch settings", () => {
 
   it("quotes the price at the quantity it applies to", async () => {
     mocked.listSupplyParts.mockResolvedValue({
-      items: [partRowFixture({ unit_price: "0.1", price_quantity: 3000 })], total: 1, limit: 100,
+      items: [partRowFixture({ unit_price: "0.1", price_quantity: 3000 })], total: 1, limit: 100, offset: 0, next_offset: null, forecast_state: {},
     });
     renderView();
     const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;

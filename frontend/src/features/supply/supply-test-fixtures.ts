@@ -1,4 +1,7 @@
 import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyDashboard, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
+import type {
+  PartPrice, RowDistributor, SupplyHeadlinePrice, SupplyInsight, SupplyListing, SupplyRowOffer,
+} from "@/types/supply.generated";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
   return {
@@ -79,13 +82,42 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
     fetched_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
     tier: "daily",
     used_in: 0,
+    manufacturer_provisional: false,
+    tracking: null,
+    price_kind: "orderable",
+    price_lead_days: null,
+    price_range: null,
+    price_native: null,
+    price_seen_day: null,
+    price_unrated: [],
+    price_test_data: false,
+    dated_by: "oldest",
+    health: 10,
+    changes_at: null,
+    priced_with: "",
+    jlc: null,
+    project_names: [],
+    distributors: [],
+    offers: [],
+    preferred_connector_id: null,
+    price_change_percent: null,
+    forecast: null,
+    lead_days: null,
+    flags: [],
     ...overrides,
   };
 }
 
 export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): SupplyPartDetail {
   return {
-    part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
+    part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments", first_seen: null },
+    tracking: null,
+    packaging: { picks: {}, picked_by: {}, needs_pick: [] },
+    preferred_connector_id: null,
+    trade: { control: "unknown", eccn: [], stated: "", stated_eccn: [], mark: null },
+    jlc: null,
+    market_behaviour: { repricing: {}, leadership: null, exchange: {}, restock_order: null, arrivals: null },
+    restock_record: [],
     distributor_history: {
       days: 90, currency: "EUR", total: [["2026-03-01", 12500]], events: [],
       connectors: [{ connector_id: "c1", name: "Mouser EU", provider: "mouser", last_read: "2026-03-01T00:00:00Z", stale: false, stock: [["2026-03-01", 12500]], price: [] }],
@@ -94,39 +126,73 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
     status: "ok",
     problem: null,
     problem_text: "",
-    stock: { total: 12500, by_connector: [{ connector_id: "c1", connector_name: "Mouser EU", stock: 12500 }] },
+    stock: { total: 12500, by_connector: [{ connector_id: "c1", connector_name: "Mouser EU", provider: "mouser", stock: 12500 }] },
     lifecycle: "active",
     listings: [
-      {
-        id: "l1", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358D", packaging: "cut_tape",
-        match_state: "exact", counted: true,
+      listingFixture({
+        id: "l1", sku: "595-LM358D", packaging: "cut_tape", match_state: "exact", counted: true,
         offer: {
           fetched_at: new Date(Date.now() - 3600 * 1000).toISOString(), stock: 12500, incoming: [[5000, "2026-04-01"]],
           moq: 1, order_multiple: 1, price_breaks: [[1, "0.52"], [100, "0.31"]], currency: "EUR", lead_time_days: null,
-          lifecycle: "active", discontinued: false, rohs: true, marketplace: false, product_url: "https://example.invalid/p",
+          lifecycle: "active", discontinued: false, rohs: true, reach_affected: null, marketplace: false, product_url: "https://example.invalid/p",
         },
         poll: { tier: "daily", next_poll_at: null, last_polled_at: null, error_streak: 0, last_error_code: "" },
-      },
-      {
-        id: "l2", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358DR", packaging: "tape_reel",
-        match_state: "near", counted: false, offer: null, poll: null,
-      },
+      }),
+      listingFixture({ id: "l2", sku: "595-LM358DR", packaging: "tape_reel", match_state: "near" }),
     ],
     used_in: [],
-    price: { currency: "", history: [], trend: null },
+    price: priceFixture(),
     parameters: [],
     outlook: { band: "no_signs", label: "No signs of an end", method: "rule-based", signals: [] },
-    insight: {
-      confidence: "none", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,
-      restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
-      inputs: { points: 3, span_days: 2, points_in_run: 3, current: 12500 },
-    },
+    insight: insightFixture({ inputs: { points: 3, span_days: 2, points_in_run: 3, current: 12500 } }),
     history: [
       { day: "2026-02-27", stock: 9000, listings: 1 }, { day: "2026-02-28", stock: 11000, listings: 1 },
       { day: "2026-03-01", stock: 12500, listings: 1 },
     ],
     ...overrides,
   };
+}
+
+export function listingFixture(overrides: Partial<SupplyListing> = {}): SupplyListing {
+  return {
+    id: "l1", connector_id: "c1", connector_name: "Mouser EU", provider: "mouser", test_data: false, sku: "595-LM358D", packaging: "cut_tape",
+    reel_size: null, packaging_inferred: false, match_state: "exact", raw_mpn: "", raw_manufacturer: "", match_reason: "", page_url: "",
+    counted: false, offer: null, poll: null, ...overrides,
+  };
+}
+
+export function headlineFixture(overrides: Partial<SupplyHeadlinePrice> = {}): SupplyHeadlinePrice {
+  return {
+    unit_price: null, currency: "EUR", price_quantity: 100, price_kind: null, price_lead_days: null, price_range: null, price_native: null,
+    price_seen_day: null, price_unrated: [], price_test_data: false, ...overrides,
+  };
+}
+
+export function priceFixture(overrides: Partial<PartPrice> = {}): PartPrice {
+  return {
+    currency: "", history: [], trend: null, quantity: 100, default: 100, own: false, estimated_until: null, headline: headlineFixture(), ...overrides,
+  };
+}
+
+export function insightFixture(overrides: Partial<SupplyInsight> = {}): SupplyInsight {
+  return {
+    confidence: "none", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null, pace: null, recent_decrease_per_day: null,
+    days_to_zero_recent: null, beyond_year: false, restocks: 0, restock_interval_days: null, restock_expected_in_days: null, zero_share: null,
+    restock_latency_days: null, volatility: null, sources_change: null, concentration: null, anomalies: [], seasonality: null,
+    inputs: { points: 0, span_days: 0, points_in_run: 0, current: null }, lead_gap_days: null, lead_time_trend: null, ...overrides,
+  };
+}
+
+export function rowOfferFixture(overrides: Partial<SupplyRowOffer> = {}): SupplyRowOffer {
+  return {
+    connector_id: "c1", provider: "mouser", name: "Mouser EU", sku: "595-LM358D", skus: ["595-LM358D"], also_packaging: [], followed: false,
+    stock: 0, moq: 1, packaging: "cut_tape", reel_size: null, packaging_inferred: false, product_url: "", currency: "EUR", price_breaks: [],
+    base_currency: "EUR", base_price_breaks: null, ...overrides,
+  };
+}
+
+export function distributorFixture(overrides: Partial<RowDistributor> = {}): RowDistributor {
+  return { connector_id: "c1", provider: "mouser", name: "Mouser EU", stock: 0, price: null, currency: "", ...overrides };
 }
 
 export function capacityFixture(overrides: Partial<SupplyCapacity> = {}): SupplyCapacity {

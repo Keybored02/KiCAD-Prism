@@ -52,6 +52,16 @@ export interface AlternateRequest {
   mpn: string;
 }
 
+export interface Arrivals {
+  announced: number;
+  arrived: number;
+  median_delay_days: number | null;
+  on_time: number | null;
+  on_time_share: number | null;
+  open: number;
+  slipped: number;
+}
+
 export interface AssessmentCheck {
   area: string;
   id: string;
@@ -189,6 +199,13 @@ export interface ConnectorProblem {
   reason: string;
 }
 
+export interface ConnectorStock {
+  connector_id: string;
+  connector_name: string;
+  provider: string;
+  stock: number;
+}
+
 export interface CreateSourceRequest {
   base_url?: string;
   category_id?: number | null;
@@ -291,6 +308,15 @@ export interface EndingReason {
   text: string;
 }
 
+export interface ExchangeMove {
+  currency: string;
+  exchange_percent: number;
+  from: string;
+  in_base_percent: number;
+  local_percent: number;
+  to: string;
+}
+
 export interface FactSource {
   observed_at: string;
   provider: string;
@@ -328,6 +354,30 @@ export interface FillSkipped {
   reason: string;
 }
 
+export interface HistoryConnector {
+  connector_id: string;
+  last_read: string | null;
+  name: string;
+  price: Array<[string, number]>;
+  provider: string;
+  /** Not read for longer than the part's rate allows. */
+  stale: boolean;
+  stock: Array<[string, number]>;
+}
+
+export interface HistoryEvent {
+  day: string;
+  kind: "restock" | "notice";
+  text: string;
+}
+
+export interface InsightInputs {
+  current: number | null;
+  points: number;
+  points_in_run: number;
+  span_days: number;
+}
+
 export interface InventorySource {
   api_version: number | null;
   base_url: string;
@@ -355,13 +405,45 @@ export interface Items<T> {
   items: T[];
 }
 
+export interface JlcClass {
+  library: "Basic" | "Extended" | null;
+  preferred: boolean;
+}
+
 export interface LastBuy {
   source: string;
   value: string;
 }
 
+export interface LeadTimeTrend {
+  after: number;
+  before: number;
+  since: string;
+}
+
+export interface Leadership {
+  changes: number;
+  followed: number;
+  followed_share: number;
+  leader: string | null;
+  led: Record<string, number>;
+}
+
+export interface LibraryComponentOf {
+  /** The catalog component the part counts for; null when the library has none. */
+  component_id: string | null;
+}
+
 export interface LinkRequest {
   component_id: string;
+}
+
+export interface ListingPoll {
+  error_streak: number;
+  last_error_code: string;
+  last_polled_at: string | null;
+  next_poll_at: string | null;
+  tier: "daily" | "weekly" | "monthly";
 }
 
 export interface LoadList {
@@ -417,6 +499,20 @@ export interface ManualRates {
   rates: Record<string, number>;
 }
 
+export interface MarketBehaviour {
+  arrivals: Arrivals | null;
+  exchange: Record<string, ExchangeMove>;
+  leadership: Leadership | null;
+  /** Median days between a distributor's price changes. */
+  repricing: Record<string, number>;
+  restock_order: RestockOrder | null;
+}
+
+export interface NativePrice {
+  currency: string;
+  price: string;
+}
+
 export interface NewCheck {
   kind: "bom" | "component";
   lines: CheckLine[];
@@ -452,6 +548,20 @@ export interface NoticePart {
   mpn: string;
 }
 
+export interface OpenRestock {
+  expected: string;
+  kind: "lead_time" | "dated";
+  late: boolean;
+  quantity?: number | null;
+  quoted_lead_days?: number | null;
+}
+
+export interface OutlookSignal {
+  source: string;
+  text: string;
+  weight: "hard" | "watch" | "soft";
+}
+
 export interface PackagingListing {
   currency: string;
   fetched_at: string | null;
@@ -475,6 +585,12 @@ export interface PackagingListing {
   stock: number | null;
 }
 
+export interface PackagingNeedsPick {
+  connector: string;
+  connector_id: string;
+  listings: number;
+}
+
 export interface PackagingOptions {
   /** The viewer may take a listing off the part. */
   can_unpin: boolean;
@@ -496,6 +612,11 @@ export interface PackagingPicked {
   picked: string;
   /** Parts still waiting that the same packaging would suit; nothing applies until confirmed. */
   similar: PackagingSimilar[];
+}
+
+export interface PackagingPickedBy {
+  by: string;
+  note: string;
 }
 
 export interface PackagingProposal {
@@ -555,6 +676,86 @@ export interface PartAlertRules {
   target_price: string | null;
 }
 
+/** Stock and price a line per distributor over the last ``days`` days. */
+export interface PartHistory {
+  connectors: HistoryConnector[];
+  currency: string;
+  days: number;
+  /** Days worth marking on the axis: a restock, or a product change notice. */
+  events: HistoryEvent[];
+  total: Array<[string, number]>;
+}
+
+/** The part Prism knows for a manufacturer and number, and whether it follows it. */
+export interface PartLookup {
+  followed: boolean;
+  part_id: string | null;
+}
+
+export interface PartName {
+  first_seen: string | null;
+  id: string;
+  manufacturer: string;
+  mpn: string;
+}
+
+/** Picks made on this part, and the distributors where it still waits for one. */
+export interface PartPackaging {
+  needs_pick: PackagingNeedsPick[];
+  /** Who picked at each distributor (a person, or "auto" for Prism) and its note. */
+  picked_by: Record<string, PackagingPickedBy>;
+  picks: Record<string, string>;
+}
+
+/** The cheapest counted unit price per day. ``trend`` is the move over the last 30 days, or null when there is too little to read one. */
+export interface PartPrice {
+  currency: string;
+  /** The workspace default price quantity. */
+  default: number;
+  /** Days up to this one are drawn at 100 pieces, because the price breaks were not kept yet. */
+  estimated_until: string | null;
+  headline: SupplyHeadlinePrice;
+  history: PriceDay[];
+  /** Whether the part has its own price quantity. */
+  own: boolean;
+  /** The quantity the part is priced at. */
+  quantity: number;
+  trend: PriceTrend | null;
+}
+
+export interface PartReadOnView {
+  read: number;
+}
+
+export interface PartStock {
+  by_connector: ConnectorStock[];
+  total: number | null;
+}
+
+/** How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null. */
+export interface PartTracking {
+  rate: "daily" | "weekly" | "monthly";
+  reasons: TrackingReason[];
+  tier: 1 | 2;
+}
+
+/** Export control: what distributors state, and a person's mark that wins over it. */
+export interface PartTrade {
+  control: "controlled" | "none" | "disputed" | "unknown";
+  eccn: string[];
+  mark: TradeMark | null;
+  stated: string;
+  stated_eccn: string[];
+}
+
+export interface PartUse {
+  only_in_variants: string[];
+  project_id: string;
+  project_name: string;
+  quantity: number;
+  references: string;
+}
+
 export interface PauseRequest {
   reason: string;
 }
@@ -567,9 +768,40 @@ export interface PicksMade {
   picked: number;
 }
 
+export interface PriceDay {
+  day: string;
+  price: number;
+}
+
+export interface PriceQuantity {
+  default: number;
+  own: boolean;
+  quantity: number;
+}
+
+export interface PriceQuantityIn {
+  quantity?: number | null;
+}
+
+/** Lowest, highest and median over the distributors that price it. */
+export interface PriceRange {
+  high: string;
+  low: string;
+  median: string;
+  sellers: number;
+}
+
 export interface PriceTier {
   quantity: number;
   unit_price: number | string;
+}
+
+export interface PriceTrend {
+  change_percent: number;
+  currency: string;
+  days: number;
+  now: string;
+  was: string;
 }
 
 export interface PushLevelsRequest {
@@ -656,6 +888,22 @@ export interface ResetSuggestion {
   windows: number;
 }
 
+export interface RestockOrder {
+  first: string;
+  firsts: Record<string, number>;
+  rounds: number;
+}
+
+export interface RestockRecord {
+  connector_id: string;
+  kept: number;
+  name: string;
+  open: OpenRestock | null;
+  provider: string;
+  resolved: number;
+  stock_outs: number;
+}
+
 export interface RestrictionIn {
   level: "not_for_new_designs" | "retired";
   reason?: string;
@@ -670,6 +918,28 @@ export interface RohsExemption {
   note: string;
 }
 
+/** A distributor that lists the part: stock above zero is filled. */
+export interface RowDistributor {
+  connector_id: string;
+  currency: string;
+  name: string;
+  price: string | null;
+  provider: string;
+  stock: number;
+}
+
+/** The kept forecast: when it likely runs out and the chance of being out within four and eight weeks. */
+export interface RowForecast {
+  available?: boolean | null;
+  can_buy_4w?: number | null;
+  can_buy_8w?: number | null;
+  made_on: string;
+  out_now?: boolean | null;
+  p_out_4w?: number | null;
+  p_out_8w?: number | null;
+  runout?: RunoutForecast | null;
+}
+
 export interface RulesRequest {
   likely_out_percent?: number | null;
   muted?: string[];
@@ -678,9 +948,22 @@ export interface RulesRequest {
   target_price?: string | null;
 }
 
+export interface RunoutForecast {
+  high_date: string;
+  low_date: string;
+  median_date: string;
+  p: number;
+}
+
 export interface SearchRequest {
   manufacturer?: string;
   mpn: string;
+}
+
+export interface Seasonality {
+  index: Record<string, number>;
+  peak: number;
+  trough: number;
 }
 
 export interface ServerCategory {
@@ -724,6 +1007,19 @@ export interface SimilarIn {
 export interface SkippedLine {
   mpn: string;
   reason: string;
+}
+
+export interface StockAnomaly {
+  day: string;
+  from: number;
+  to: number;
+}
+
+export interface StockDay {
+  day: string;
+  /** How many listings stood behind the day, so a jump from a new one is not read as a restock. */
+  listings: number;
+  stock: number;
 }
 
 export interface StoresState {
@@ -902,16 +1198,103 @@ export interface SupplyFxRatesSaved {
   stale: boolean;
 }
 
+export interface SupplyHeadlinePrice {
+  currency: string;
+  price_kind: "orderable" | "backorder" | "last_seen" | "listed" | null;
+  price_lead_days: number | null;
+  price_native: NativePrice | null;
+  price_quantity: number;
+  price_range: PriceRange | null;
+  price_seen_day: string | null;
+  /** The figure comes from a simulated connector. */
+  price_test_data: boolean;
+  price_unrated: string[];
+  unit_price: string | null;
+}
+
 /** Calls against budget, errors and late reads per connector, and the periodic tasks' runs. */
 export interface SupplyHealth {
   connectors: ConnectorHealth[];
   tasks: TaskRun[];
 }
 
+export interface SupplyInsight {
+  /** Days on which stock collapsed in one step, newest first. */
+  anomalies: StockAnomaly[];
+  /** The drain is too slow to run out within a year, for a part that is still made and restocked. */
+  beyond_year: boolean;
+  /** 1 when all the stock is at one distributor. */
+  concentration: number | null;
+  confidence: "none" | "low" | "medium" | "high";
+  days_to_threshold: number | null;
+  days_to_zero: number | null;
+  days_to_zero_recent: number | null;
+  /** Observed net decrease, pieces a day. Not consumption: transfers and caps look the same. */
+  decrease_per_day: number | null;
+  inputs: InsightInputs;
+  /** Days by which stock is expected to run out before a new order could arrive. */
+  lead_gap_days: number | null;
+  /** The quoted lead time, early in the last 90 days against late. */
+  lead_time_trend: LeadTimeTrend | null;
+  /** Falling faster in the later half of the readings: the later rate and the days to zero at it. */
+  pace: "accelerating" | "steady" | "slowing" | null;
+  recent_decrease_per_day: number | null;
+  /** Negative when a regular restock is overdue. */
+  restock_expected_in_days: number | null;
+  restock_interval_days: number | null;
+  /** Median days at zero before stock came back. */
+  restock_latency_days: number | null;
+  restocks: number;
+  /** How stock runs by month of the year, once there is more than a year of history. */
+  seasonality: Seasonality | null;
+  /** Distributors holding stock, last day against the first. */
+  sources_change: number | null;
+  trend: "falling" | "rising" | "steady" | null;
+  /** Spread of daily stock against its average. */
+  volatility: number | null;
+  /** Share of the history's days at zero stock. */
+  zero_share: number | null;
+}
+
+export interface SupplyListing {
+  connector_id: string;
+  connector_name: string;
+  /** Only counted listings feed stock and price. */
+  counted: boolean;
+  id: string;
+  /** Why it matched, or did not. */
+  match_reason: string;
+  match_state: string;
+  offer: SupplyOffer | null;
+  packaging: string;
+  /** The packaging was guessed, not stated. */
+  packaging_inferred: boolean;
+  /** The distributor's page for it, even before it has been read. */
+  page_url: string;
+  poll: ListingPoll | null;
+  /** The connector's provider key, for its colour. */
+  provider: string;
+  /** What the distributor calls its maker. */
+  raw_manufacturer: string;
+  /** What the distributor calls the part. */
+  raw_mpn: string;
+  /** Pieces on a full reel, when the distributor says. */
+  reel_size: number | null;
+  sku: string;
+  /** From a simulated connector: test data, marked wherever it shows. */
+  test_data: boolean;
+}
+
 export interface SupplyMakerGroup {
   group_key: string;
   name: string;
   spellings: MakerSpelling[];
+}
+
+export interface SupplyManufacturer {
+  id: string;
+  name: string;
+  part_count: number;
 }
 
 export interface SupplyNotice {
@@ -948,6 +1331,140 @@ export interface SupplyNumberEnding {
   suffix_text: string;
 }
 
+export interface SupplyOffer {
+  currency: string;
+  discontinued: boolean;
+  fetched_at: string;
+  incoming: Array<[number, string | null]>;
+  lead_time_days: number | null;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  marketplace: boolean;
+  moq: number;
+  order_multiple: number;
+  price_breaks: Array<[number, string]>;
+  product_url: string;
+  reach_affected: boolean | null;
+  rohs: boolean | null;
+  stock: number;
+}
+
+/** A rule-based band with every signal behind it. */
+export interface SupplyOutlook {
+  band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
+  label: string;
+  method: "rule-based";
+  signals: OutlookSignal[];
+}
+
+export interface SupplyParameter {
+  key: string | null;
+  name: string;
+  raw: string;
+  sources: string[];
+  unit: string;
+  value: string | null;
+}
+
+/** The part sheet in one read. */
+export interface SupplyPartDetail {
+  /** Stock and price a line per distributor over the last 90 days: what the sheet's charts draw. */
+  distributor_history: PartHistory;
+  history: StockDay[];
+  insight: SupplyInsight;
+  jlc: JlcClass | null;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  listings: SupplyListing[];
+  market_behaviour: MarketBehaviour;
+  outlook: SupplyOutlook;
+  packaging: PartPackaging;
+  parameters: SupplyParameter[];
+  part: PartName;
+  /** The distributor a person prefers for this part: shown first. */
+  preferred_connector_id: string | null;
+  price: PartPrice;
+  problem: "not_found" | "gone" | null;
+  problem_text: string;
+  restock_record: RestockRecord[];
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  stock: PartStock;
+  /** Why and how often Prism follows the part; null when nobody does. */
+  tracking: PartTracking | null;
+  trade: PartTrade;
+  used_in: PartUse[];
+  watch: SupplyWatchSummary | null;
+}
+
+export interface SupplyPartRow {
+  changes_at: string | null;
+  currency: string;
+  dated_by: string;
+  distributors: RowDistributor[];
+  /** Every distributor that lists it has stopped selling it. */
+  dropped: boolean;
+  fetched_at: string | null;
+  /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked. */
+  flags: string[];
+  forecast: RowForecast | null;
+  health: number;
+  id: string;
+  jlc: JlcClass | null;
+  /** The shortest lead time quoted, in days. */
+  lead_days: number | null;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  listings: number;
+  manufacturer: string;
+  /** The maker is as written and no distributor has confirmed it yet. */
+  manufacturer_provisional: boolean;
+  mpn: string;
+  offers: SupplyRowOffer[];
+  preferred_connector_id: string | null;
+  /** Cheapest price over 30 days, in percent. */
+  price_change_percent: number | null;
+  /** orderable: bought now; backorder: nothing in stock, with a lead time; last_seen: the price when it was last in stock; listed: list price only. */
+  price_kind: "orderable" | "backorder" | "last_seen" | "listed" | null;
+  price_lead_days: number | null;
+  /** What the price was before it was converted, when it was. */
+  price_native: NativePrice | null;
+  /** The quantity the price is quoted at. */
+  price_quantity: number;
+  /** Lowest, highest and median over the distributors that price it; null with fewer than two. */
+  price_range: PriceRange | null;
+  price_seen_day: string | null;
+  /** The price comes from a simulated connector. */
+  price_test_data: boolean;
+  /** Currencies priced by a distributor that have no exchange rate, so were left out. */
+  price_unrated: string[];
+  priced_with: string;
+  problem: "not_found" | "gone" | null;
+  /** The first two projects using it, by name. */
+  project_names: string[];
+  /** The days until it is projected to run out. */
+  runs_out_days?: number | null;
+  /** The last 30 days of counted stock. */
+  spark?: number[] | null;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  /** Null until something that counts has been read. */
+  stock: number | null;
+  tier: "daily" | "weekly" | "monthly" | null;
+  /** Why and how often Prism follows it. */
+  tracking: PartTracking | null;
+  /** In the base currency, at the part's price quantity. */
+  unit_price: string | null;
+  /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
+  used_in: number;
+  watch: SupplyWatchSummary | null;
+}
+
+export interface SupplyPartsPage {
+  /** The state of the forecast models the rows' forecasts come from. */
+  forecast_state: Record<string, "learning" | "shown" | "paused">;
+  items: SupplyPartRow[];
+  limit: number;
+  next_offset: number | null;
+  offset: number;
+  total: number;
+}
+
 export interface SupplyProvider {
   capabilities: string[];
   credential_fields: SupplyCredentialField[];
@@ -961,6 +1478,41 @@ export interface SupplyProvider {
   metered: boolean;
   stock_pooling: "pooled" | "separate";
   storefronts: string[];
+}
+
+export interface SupplyReadNow {
+  connectors: number;
+  problems: ConnectorProblem[];
+  read: number;
+}
+
+/** One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price]. */
+export interface SupplyRowOffer {
+  /** Other packagings the same line is sold in, with the same terms. */
+  also_packaging: string[];
+  /** The workspace currency. */
+  base_currency: string;
+  /** The prices in the workspace currency; null when this line's currency has no rate. */
+  base_price_breaks: Array<[number, string]> | null;
+  connector_id: string;
+  currency: string;
+  /** The listing Prism follows at this distributor: the preferred one, else the smallest order in stock. */
+  followed: boolean;
+  moq: number;
+  name: string;
+  packaging: string;
+  /** The packaging was guessed, not stated. */
+  packaging_inferred: boolean;
+  price_breaks: Array<[number, string]>;
+  /** The distributor's page for this number. */
+  product_url: string;
+  provider: string;
+  /** Pieces on a full reel, when known. */
+  reel_size: number | null;
+  sku: string;
+  /** Every number this line stands for: cut tape and its custom reel are one line. */
+  skus: string[];
+  stock: number;
 }
 
 export interface SupplySignin {
@@ -980,6 +1532,13 @@ export interface SupplySvhcList {
   loaded_by: string;
   source_name: string;
   substances: number;
+}
+
+export interface SupplyWatchSummary {
+  owner: string;
+  packaging: "any" | "cut_tape" | "custom_reel" | "tape_reel" | "tray" | "tube" | "bulk";
+  pinned: boolean;
+  threshold: number | null;
 }
 
 /**
@@ -1019,6 +1578,20 @@ export interface TaskRun {
   name: string;
   next_at: string | null;
   started_at: string | null;
+}
+
+/** Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``). */
+export interface TrackingReason {
+  kind: "project" | "person" | "component" | "legacy";
+  ref: string;
+  variant?: string | null;
+}
+
+export interface TradeMark {
+  control: "controlled" | "none";
+  eccn: string;
+  set_at: string;
+  set_by: string;
 }
 
 export interface UnmatchedPart {

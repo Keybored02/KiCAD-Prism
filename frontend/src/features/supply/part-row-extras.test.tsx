@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DistributorSquares, PriceMove, ProjectNames, RowFlags } from "./part-row-extras";
-import { partRowFixture } from "./supply-test-fixtures";
+import { distributorFixture, partRowFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
 
@@ -16,7 +16,7 @@ describe("what a part row shows at a glance", () => {
     render(<DistributorSquares part={partRowFixture({
       preferred_connector_id: "c2",
       distributors: [
-        { connector_id: "c1", provider: "digikey", name: "DigiKey", stock: 120 },
+        distributorFixture({ connector_id: "c1", provider: "digikey", name: "DigiKey", stock: 120 }),
         { connector_id: "c2", provider: "mouser", name: "Mouser", stock: 0, price: "0.31", currency: "EUR" },
       ],
     })} />);

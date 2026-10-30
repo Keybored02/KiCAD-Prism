@@ -3,11 +3,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { SupplyRowOffer } from "@/types/supply";
 import { PartOfferRows } from "./part-offer-rows";
-import { partRowFixture } from "./supply-test-fixtures";
+import { partRowFixture, rowOfferFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
 
-const offer = (overrides: Partial<SupplyRowOffer> = {}): SupplyRowOffer => ({
+const offer = (overrides: Partial<SupplyRowOffer> = {}): SupplyRowOffer => rowOfferFixture({
   connector_id: "c1", provider: "fake", name: "Simulated market", sku: "FAKE-1", stock: 10, moq: 1, packaging: "cut_tape",
   currency: "EUR", price_breaks: [[1, "2.00"]], ...overrides,
 });

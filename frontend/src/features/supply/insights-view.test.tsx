@@ -85,7 +85,7 @@ beforeEach(() => {
   window.localStorage.clear();
   mocked.getSupplyInsights.mockResolvedValue(page());
   mocked.getSupplyMarketHistory.mockResolvedValue({ metric: "out_of_stock", series: [{ kind: "all", scope: "All followed parts", sample: 6, points: [["2026-03-01", 0.3]] }] });
-  mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM358", runs_out_days: 10 })], total: 1, limit: 50 });
+  mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM358", runs_out_days: 10 })], total: 1, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
 });
 afterEach(cleanup);
 

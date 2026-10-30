@@ -136,6 +136,16 @@ class ApprovalState(TypedDict, total=True):
     unpinned_models: list[UnpinnedModel]
 
 
+class Arrivals(TypedDict, total=True):
+    announced: int
+    arrived: int
+    median_delay_days: int | float | None
+    on_time: int | None
+    on_time_share: int | float | None
+    open: int
+    slipped: int
+
+
 class AssessmentCheck(TypedDict, total=True):
     area: str
     id: str
@@ -1414,6 +1424,13 @@ class ConnectorProblem(TypedDict, total=True):
     reason: str
 
 
+class ConnectorStock(TypedDict, total=True):
+    connector_id: str
+    connector_name: str
+    provider: str
+    stock: int
+
+
 class CreateCommentRequest(TypedDict, total=False):
     commentClass: str | None
     content: str
@@ -2329,6 +2346,22 @@ class HTTPValidationError(TypedDict, total=False):
     detail: list[ValidationError]
 
 
+class HistoryConnector(TypedDict, total=True):
+    connector_id: str
+    last_read: str | None
+    name: str
+    price: list[list[Any]]
+    provider: str
+    stale: bool
+    stock: list[list[Any]]
+
+
+class HistoryEvent(TypedDict, total=True):
+    day: str
+    kind: str
+    text: str
+
+
 class HostKeyForgetResponse(TypedDict, total=True):
     host: str
     removed: bool
@@ -2487,6 +2520,13 @@ class InlineBundle(TypedDict, total=True):
     symbol_name: str
 
 
+class InsightInputs(TypedDict, total=True):
+    current: int | None
+    points: int
+    points_in_run: int
+    span_days: int
+
+
 class InventoryImportResult(TypedDict, total=True):
     errors: list[str]
     not_found: int
@@ -2549,6 +2589,10 @@ class Items_SupplyMakerGroup_(TypedDict, total=True):
     items: list[SupplyMakerGroup]
 
 
+class Items_SupplyManufacturer_(TypedDict, total=True):
+    items: list[SupplyManufacturer]
+
+
 class Items_SupplyNotice_(TypedDict, total=True):
     items: list[SupplyNotice]
 
@@ -2567,6 +2611,11 @@ class Items_SupplyWorkItem_(TypedDict, total=True):
 
 class Items_WorkItemEvent_(TypedDict, total=True):
     items: list[WorkItemEvent]
+
+
+class JlcClass(TypedDict, total=True):
+    library: str | None
+    preferred: bool
 
 
 class JobCancelOut(TypedDict, total=True):
@@ -2797,6 +2846,24 @@ class LatencyTotals(TypedDict, total=True):
     status5xx: int
 
 
+class LeadTimeTrend(TypedDict, total=True):
+    after: int
+    before: int
+    since: str
+
+
+class Leadership(TypedDict, total=True):
+    changes: int
+    followed: int
+    followed_share: int | float
+    leader: str | None
+    led: dict[str, int]
+
+
+class LibraryComponentOf(TypedDict, total=True):
+    component_id: str | None
+
+
 class LineChoiceIn(TypedDict, total=True):
     manufacturer: str
     part_id: str
@@ -2846,6 +2913,14 @@ class ListedBuild(TypedDict, total=True):
     timings: Any
     toolchain: dict[str, Any]
     warnings: list[Any]
+
+
+class ListingPoll(TypedDict, total=True):
+    error_streak: int
+    last_error_code: str
+    last_polled_at: str | None
+    next_poll_at: str | None
+    tier: str
 
 
 class LoadList(TypedDict, total=False):
@@ -2939,6 +3014,14 @@ class ManifestAsset(TypedDict, total=True):
 class ManualRates(TypedDict, total=True):
     day: str
     rates: dict[str, float]
+
+
+class MarketBehaviour(TypedDict, total=True):
+    arrivals: Arrivals | None
+    exchange: dict[str, dict[str, Any]]
+    leadership: Leadership | None
+    repricing: dict[str, int | float]
+    restock_order: RestockOrder | None
 
 
 class MateOut(TypedDict, total=True):
@@ -3247,6 +3330,11 @@ class MoveProjectsRequest(TypedDict, total=False):
     project_ids: list[str]
 
 
+class NativePrice(TypedDict, total=True):
+    currency: str
+    price: str
+
+
 class NewCheck(TypedDict, total=False):
     kind: str
     lines: list[CheckLine]
@@ -3296,6 +3384,14 @@ class OldestQueued(TypedDict, total=False):
     worker_pool: str
 
 
+class OpenRestock(TypedDict, total=False):
+    expected: str
+    kind: str
+    late: bool
+    quantity: int | None
+    quoted_lead_days: int | None
+
+
 class OpsProfile(TypedDict, total=False):
     createdAt: str
     error: str | None
@@ -3321,6 +3417,12 @@ class OpsStatus(TypedDict, total=True):
     tools: list[str]
 
 
+class OutlookSignal(TypedDict, total=True):
+    source: str
+    text: str
+    weight: str
+
+
 class PackagingListing(TypedDict, total=True):
     currency: str
     fetched_at: str | None
@@ -3340,6 +3442,12 @@ class PackagingListing(TypedDict, total=True):
     stock: int | None
 
 
+class PackagingNeedsPick(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listings: int
+
+
 class PackagingOptions(TypedDict, total=True):
     can_unpin: bool
     connector_id: str
@@ -3356,6 +3464,11 @@ class PackagingPicked(TypedDict, total=True):
     packaging: str
     picked: str
     similar: list[PackagingSimilar]
+
+
+class PackagingPickedBy(TypedDict, total=True):
+    by: str
+    note: str
 
 
 class PackagingProposal(TypedDict, total=True):
@@ -3412,6 +3525,21 @@ class PartAlertRules(TypedDict, total=True):
     target_price: str | None
 
 
+class PartHistory(TypedDict, total=True):
+    """Stock and price a line per distributor over the last ``days`` days."""
+    connectors: list[HistoryConnector]
+    currency: str
+    days: int
+    events: list[HistoryEvent]
+    total: list[list[Any]]
+
+
+class PartLookup(TypedDict, total=True):
+    """The part Prism knows for a manufacturer and number, and whether it follows it."""
+    followed: bool
+    part_id: str | None
+
+
 class PartManifest(TypedDict, total=True):
     assets: list[ManifestAsset]
     display_name: str
@@ -3421,6 +3549,65 @@ class PartManifest(TypedDict, total=True):
     representation_id: str
     summary: str
     symbol_name: str
+
+
+class PartName(TypedDict, total=True):
+    first_seen: str | None
+    id: str
+    manufacturer: str
+    mpn: str
+
+
+class PartPackaging(TypedDict, total=True):
+    """Picks made on this part, and the distributors where it still waits for one."""
+    needs_pick: list[PackagingNeedsPick]
+    picked_by: dict[str, PackagingPickedBy]
+    picks: dict[str, str]
+
+
+class PartPrice(TypedDict, total=True):
+    """The cheapest counted unit price per day. ``trend`` is the move over the last 30 days, or null when there is too little to read one."""
+    currency: str
+    default: int
+    estimated_until: str | None
+    headline: SupplyHeadlinePrice
+    history: list[PriceDay]
+    own: bool
+    quantity: int
+    trend: PriceTrend | None
+
+
+class PartReadOnView(TypedDict, total=True):
+    read: int
+
+
+class PartStock(TypedDict, total=True):
+    by_connector: list[ConnectorStock]
+    total: int | None
+
+
+class PartTracking(TypedDict, total=True):
+    """How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null."""
+    rate: str
+    reasons: list[TrackingReason]
+    tier: int
+
+
+class PartTrade(TypedDict, total=True):
+    """Export control: what distributors state, and a person's mark that wins over it."""
+    control: str
+    eccn: list[str]
+    mark: TradeMark | None
+    stated: str
+    stated_eccn: list[str]
+
+
+class PartUse(TypedDict, total=True):
+    only_in_variants: list[str]
+    project_id: str
+    project_name: str
+    quantity: int
+    references: str
 
 
 class PasswordLoginRequest(TypedDict, total=False):
@@ -3554,13 +3741,40 @@ class PreferredIn(TypedDict, total=True):
     connector_id: str
 
 
+class PriceDay(TypedDict, total=True):
+    day: str
+    price: int | float
+
+
+class PriceQuantity(TypedDict, total=True):
+    default: int
+    own: bool
+    quantity: int
+
+
 class PriceQuantityIn(TypedDict, total=False):
     quantity: int | None
+
+
+class PriceRange(TypedDict, total=True):
+    """Lowest, highest and median over the distributors that price it."""
+    high: str
+    low: str
+    median: str
+    sellers: int
 
 
 class PriceTier(TypedDict, total=True):
     quantity: int
     unit_price: float | str
+
+
+class PriceTrend(TypedDict, total=True):
+    change_percent: int | float
+    currency: str
+    days: int
+    now: str
+    was: str
 
 
 class ProcessInfo(TypedDict, total=True):
@@ -4170,6 +4384,22 @@ class ResourceUsage(TypedDict, total=True):
     resource: str
 
 
+class RestockOrder(TypedDict, total=True):
+    first: str
+    firsts: dict[str, int]
+    rounds: int
+
+
+class RestockRecord(TypedDict, total=True):
+    connector_id: str
+    kept: int
+    name: str
+    open: OpenRestock | None
+    provider: str
+    resolved: int
+    stock_outs: int
+
+
 class RestrictionIn(TypedDict, total=False):
     level: str
     reason: str
@@ -4268,12 +4498,41 @@ class RouteLatencyRow(TypedDict, total=True):
     status5xx: int
 
 
+class RowDistributor(TypedDict, total=True):
+    """A distributor that lists the part: stock above zero is filled."""
+    connector_id: str
+    currency: str
+    name: str
+    price: str | None
+    provider: str
+    stock: int
+
+
+class RowForecast(TypedDict, total=False):
+    """The kept forecast: when it likely runs out and the chance of being out within four and eight weeks."""
+    available: bool | None
+    can_buy_4w: int | float | None
+    can_buy_8w: int | float | None
+    made_on: str
+    out_now: bool | None
+    p_out_4w: int | float | None
+    p_out_8w: int | float | None
+    runout: RunoutForecast | None
+
+
 class RulesRequest(TypedDict, total=False):
     likely_out_percent: int | None
     muted: list[str]
     price_rise_percent: int | None
     target_currency: str
     target_price: str | None
+
+
+class RunoutForecast(TypedDict, total=True):
+    high_date: str
+    low_date: str
+    median_date: str
+    p: int | float
 
 
 class SSHKeyResponse(TypedDict, total=False):
@@ -4305,6 +4564,12 @@ class ScheduleIn(TypedDict, total=True):
 class SearchRequest(TypedDict, total=False):
     manufacturer: str
     mpn: str
+
+
+class Seasonality(TypedDict, total=True):
+    index: dict[str, int | float]
+    peak: int
+    trough: int
 
 
 class SemanticIndexGenerateQueued(TypedDict, total=True):
@@ -4527,6 +4792,12 @@ class StatusRequest(TypedDict, total=True):
     components: list[LineIn]
 
 
+class StockDay(TypedDict, total=True):
+    day: str
+    listings: int
+    stock: int
+
+
 class StoresState(TypedDict, total=True):
     available: float | None
     since: str | None
@@ -4701,16 +4972,80 @@ class SupplyFxRatesSaved(TypedDict, total=True):
     stale: bool
 
 
+class SupplyHeadlinePrice(TypedDict, total=True):
+    currency: str
+    price_kind: str | None
+    price_lead_days: int | None
+    price_native: NativePrice | None
+    price_quantity: int
+    price_range: PriceRange | None
+    price_seen_day: str | None
+    price_test_data: bool
+    price_unrated: list[str]
+    unit_price: str | None
+
+
 class SupplyHealth(TypedDict, total=True):
     """Calls against budget, errors and late reads per connector, and the periodic tasks' runs."""
     connectors: list[ConnectorHealth]
     tasks: list[TaskRun]
 
 
+class SupplyInsight(TypedDict, total=True):
+    anomalies: list[dict[str, Any]]
+    beyond_year: bool
+    concentration: int | float | None
+    confidence: str
+    days_to_threshold: int | None
+    days_to_zero: int | None
+    days_to_zero_recent: int | None
+    decrease_per_day: int | float | None
+    inputs: InsightInputs
+    lead_gap_days: int | None
+    lead_time_trend: LeadTimeTrend | None
+    pace: str | None
+    recent_decrease_per_day: int | float | None
+    restock_expected_in_days: int | None
+    restock_interval_days: int | None
+    restock_latency_days: int | None
+    restocks: int
+    seasonality: Seasonality | None
+    sources_change: int | None
+    trend: str | None
+    volatility: int | float | None
+    zero_share: int | float | None
+
+
+class SupplyListing(TypedDict, total=True):
+    connector_id: str
+    connector_name: str
+    counted: bool
+    id: str
+    match_reason: str
+    match_state: str
+    offer: SupplyOffer | None
+    packaging: str
+    packaging_inferred: bool
+    page_url: str
+    poll: ListingPoll | None
+    provider: str
+    raw_manufacturer: str
+    raw_mpn: str
+    reel_size: int | None
+    sku: str
+    test_data: bool
+
+
 class SupplyMakerGroup(TypedDict, total=True):
     group_key: str
     name: str
     spellings: list[MakerSpelling]
+
+
+class SupplyManufacturer(TypedDict, total=True):
+    id: str
+    name: str
+    part_count: int
 
 
 class SupplyNotice(TypedDict, total=True):
@@ -4745,6 +5080,118 @@ class SupplyNumberEnding(TypedDict, total=True):
     suffix_text: str
 
 
+class SupplyOffer(TypedDict, total=True):
+    currency: str
+    discontinued: bool
+    fetched_at: str
+    incoming: list[list[Any]]
+    lead_time_days: int | None
+    lifecycle: str
+    marketplace: bool
+    moq: int
+    order_multiple: int
+    price_breaks: list[list[Any]]
+    product_url: str
+    reach_affected: bool | None
+    rohs: bool | None
+    stock: int
+
+
+class SupplyOutlook(TypedDict, total=True):
+    """A rule-based band with every signal behind it."""
+    band: str
+    label: str
+    method: str
+    signals: list[OutlookSignal]
+
+
+class SupplyParameter(TypedDict, total=True):
+    key: str | None
+    name: str
+    raw: str
+    sources: list[str]
+    unit: str
+    value: str | None
+
+
+class SupplyPartDetail(TypedDict, total=True):
+    """The part sheet in one read."""
+    distributor_history: PartHistory
+    history: list[StockDay]
+    insight: SupplyInsight
+    jlc: JlcClass | None
+    lifecycle: str
+    listings: list[SupplyListing]
+    market_behaviour: MarketBehaviour
+    outlook: SupplyOutlook
+    packaging: PartPackaging
+    parameters: list[SupplyParameter]
+    part: PartName
+    preferred_connector_id: str | None
+    price: PartPrice
+    problem: str | None
+    problem_text: str
+    restock_record: list[RestockRecord]
+    status: str
+    stock: PartStock
+    tracking: PartTracking | None
+    trade: PartTrade
+    used_in: list[PartUse]
+    watch: SupplyWatchSummary | None
+
+
+class SupplyPartRow(TypedDict, total=False):
+    changes_at: str | None
+    currency: str
+    dated_by: str
+    distributors: list[RowDistributor]
+    dropped: bool
+    fetched_at: str | None
+    flags: list[str]
+    forecast: RowForecast | None
+    health: int | float
+    id: str
+    jlc: JlcClass | None
+    lead_days: int | None
+    lifecycle: str
+    listings: int
+    manufacturer: str
+    manufacturer_provisional: bool
+    mpn: str
+    offers: list[SupplyRowOffer]
+    preferred_connector_id: str | None
+    price_change_percent: int | float | None
+    price_kind: str | None
+    price_lead_days: int | None
+    price_native: NativePrice | None
+    price_quantity: int
+    price_range: PriceRange | None
+    price_seen_day: str | None
+    price_test_data: bool
+    price_unrated: list[str]
+    priced_with: str
+    problem: str | None
+    project_names: list[str]
+    runs_out_days: int | None
+    spark: list[int] | None
+    status: str
+    stock: int | None
+    tier: str | None
+    tracking: PartTracking | None
+    unit_price: str | None
+    used_in: int
+    watch: SupplyWatchSummary | None
+
+
+class SupplyPartsPage(TypedDict, total=True):
+    forecast_state: dict[str, str]
+    items: list[SupplyPartRow]
+    limit: int
+    next_offset: int | None
+    offset: int
+    total: int
+
+
 class SupplyProvider(TypedDict, total=True):
     capabilities: list[str]
     credential_fields: list[SupplyCredentialField]
@@ -4756,6 +5203,33 @@ class SupplyProvider(TypedDict, total=True):
     metered: bool
     stock_pooling: str
     storefronts: list[str]
+
+
+class SupplyReadNow(TypedDict, total=True):
+    connectors: int
+    problems: list[ConnectorProblem]
+    read: int
+
+
+class SupplyRowOffer(TypedDict, total=True):
+    """One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price]."""
+    also_packaging: list[str]
+    base_currency: str
+    base_price_breaks: list[list[Any]] | None
+    connector_id: str
+    currency: str
+    followed: bool
+    moq: int
+    name: str
+    packaging: str
+    packaging_inferred: bool
+    price_breaks: list[list[Any]]
+    product_url: str
+    provider: str
+    reel_size: int | None
+    sku: str
+    skus: list[str]
+    stock: int
 
 
 class SupplySignin(TypedDict, total=True):
@@ -4789,6 +5263,13 @@ class SupplySvhcList(TypedDict, total=True):
     loaded_by: str
     source_name: str
     substances: int
+
+
+class SupplyWatchSummary(TypedDict, total=True):
+    owner: str
+    packaging: str
+    pinned: bool
+    threshold: int | None
 
 
 class SupplyWorkItem(TypedDict, total=True):
@@ -4942,6 +5423,20 @@ class TrackerProjectionView(TypedDict, total=False):
     remoteState: Any
     remoteUpdatedAt: str | None
     syncState: str | None
+
+
+class TrackingReason(TypedDict, total=False):
+    """Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``)."""
+    kind: str
+    ref: str
+    variant: str | None
+
+
+class TradeMark(TypedDict, total=True):
+    control: str
+    eccn: str
+    set_at: str
+    set_by: str
 
 
 class TradeMarkIn(TypedDict, total=False):
@@ -6477,7 +6972,7 @@ class GeneratedClient:
             query={"field": field},
         )
 
-    def find_part(self, *, mpn: str, manufacturer: str = '') -> dict[str, Any]:
+    def find_part(self, *, mpn: str, manufacturer: str = '') -> PartLookup:
         """Find Part"""
         return self._request(
             "GET",
@@ -7059,7 +7554,7 @@ class GeneratedClient:
             query={"type": type, "folder": folder, "commit": commit},
         )
 
-    def get_part(self, part_id: str) -> dict[str, Any]:
+    def get_part(self, part_id: str) -> SupplyPartDetail:
         """Get Part"""
         return self._request(
             "GET",
@@ -7067,7 +7562,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def get_part_history(self, part_id: str, *, days: int = 90) -> dict[str, Any]:
+    def get_part_history(self, part_id: str, *, days: int = 90) -> PartHistory:
         """Get Part History"""
         return self._request(
             "GET",
@@ -7600,7 +8095,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def library_component_of(self, part_id: str) -> dict[str, Any]:
+    def library_component_of(self, part_id: str) -> LibraryComponentOf:
         """Library Component Of"""
         return self._request(
             "GET",
@@ -7816,7 +8311,7 @@ class GeneratedClient:
             "/api/v1/trackers/linkable-connectors",
         )
 
-    def list_manufacturers(self) -> dict[str, Any]:
+    def list_manufacturers(self) -> Items_SupplyManufacturer_:
         """List Manufacturers"""
         return self._request(
             "GET",
@@ -7885,7 +8380,7 @@ class GeneratedClient:
             "/api/v1/auth/sessions",
         )
 
-    def list_parts(self, *, scope: str = 'watched', only: str = '', q: str = '', limit: int = 100, offset: int = 0, project_id: str = '', vendor: str = '', sort: str = '') -> dict[str, Any]:
+    def list_parts(self, *, scope: str = 'watched', only: str = '', q: str = '', limit: int = 100, offset: int = 0, project_id: str = '', vendor: str = '', sort: str = '') -> SupplyPartsPage:
         """List Parts"""
         return self._request(
             "GET",
@@ -8538,7 +9033,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "setup_id": setup_id},
         )
 
-    def read_part_now(self, part_id: str) -> dict[str, Any]:
+    def read_part_now(self, part_id: str) -> SupplyReadNow:
         """Read Part Now"""
         return self._request(
             "POST",
@@ -8546,7 +9041,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def read_part_on_view(self, part_id: str) -> dict[str, Any]:
+    def read_part_on_view(self, part_id: str) -> PartReadOnView:
         """Read Part On View"""
         return self._request(
             "POST",
@@ -9122,7 +9617,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_price_quantity(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def set_price_quantity(self, part_id: str, *, body: dict[str, Any] | None = None) -> PriceQuantity:
         """Set Price Quantity"""
         return self._request(
             "PUT",
