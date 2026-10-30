@@ -18,6 +18,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 from app.core.errors import install_error_handlers  # noqa: E402
@@ -372,7 +373,7 @@ class SupplyPartsApiTests(unittest.TestCase):
             with self.store.connection() as conn:
                 for listing, packaging, amount, price in ((cut, "cut_tape", 11140, "0.50"), (custom, "custom_reel", 11140, "0.45"), (reel, "tape_reel", 5000, "0.30")):
                     conn.execute("UPDATE supply_offers SET packaging = %s, moq = 1 WHERE listing_id = %s", (packaging, listing))
-                    conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')", (listing, now, amount, price))
+                    _reading(conn, listing, now, amount, price=price)
                 conn.execute("UPDATE supply_connectors SET provider = 'demo_chart' WHERE id = %s", (cid,))
                 conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, cut))
                 data = part_history.build(conn, part, now, 7)
@@ -404,7 +405,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("UPDATE supply_connectors SET account_id = %s WHERE id = %s", (first, second))
             for listing in listings:
-                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 1000, 0.5, 'EUR')", (listing, now))
+                _reading(conn, listing, now, 1000, price="0.5")
             data = part_history.build(conn, part, now, 7)
         self.assertEqual(data["total"][-1][1], 1000, "one shelf listed by two storefronts")
         self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"])
@@ -422,7 +423,7 @@ class SupplyPartsApiTests(unittest.TestCase):
             conn.execute("UPDATE supply_connectors SET provider = 'pick_demo' WHERE id = %s", (cid,))
             conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part, cid, picked))
             for listing, amount, when in ((picked, 100, now), (other, 900, now - timedelta(days=10))):
-                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, when, amount))
+                _reading(conn, listing, when, amount, price="0.5")
             series = parts_view.history(conn, part, now)
         self.assertEqual({point["stock"] for point in series[-3:]}, {100}, "the listing no longer read is not carried forward")
 
@@ -648,10 +649,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         part_id = self.watch_via_api("GONE")["part_id"]
         listing = self.insert_listing(part_id, cid, "A", stock=0, price="0.50")
         with self.store.connection() as conn:
-            conn.execute(
-                "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 40, 0.42, 'EUR')",
-                (listing, self.now - timedelta(days=9)),
-            )
+            _reading(conn, listing, self.now - timedelta(days=9), 40, price="0.42")
         item = self.part_row("GONE")
         self.assertEqual((item["unit_price"], item["price_kind"], item["price_seen_day"]),
                          ("0.42", "last_seen", (self.now - timedelta(days=9)).date().isoformat()))
@@ -705,10 +703,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         today = self.now
         with self.store.connection() as conn:
             for days, price in ((6, "0.30"), (3, "0.30"), (0, "0.28")):
-                conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 50, %s, 'EUR', 1)",
-                    (listing, today - timedelta(days=days), price),
-                )
+                _reading(conn, listing, today - timedelta(days=days), 50)
             conn.execute("DELETE FROM supply_price_breaks_history WHERE listing_id = %s", (listing,))
             conn.execute(
                 "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) "
@@ -717,20 +712,19 @@ class SupplyPartsApiTests(unittest.TestCase):
                  listing, today - timedelta(days=1), json.dumps([[1, "0.50"], [100, "0.28"], [1000, "0.18"]])),
             )
             at_100, meta_100 = prices.daily(conn, part_id, today)
-        self.assertEqual([float(p) for _, p, _ in at_100], [0.3, 0.3, 0.28])
-        self.assertIsNone(meta_100["estimated_until"])
+        self.assertEqual([float(p) for _, p, _ in at_100], [0.3, 0.28], "a reading before the first kept breaks has no price")
+        self.assertEqual(meta_100["quantity"], 100)
         self.call("PUT", f"/api/supply/parts/{part_id}/price-quantity", role="designer", body={"quantity": 1000})
         with self.store.connection() as conn:
             at_1000, meta = prices.daily(conn, part_id, today)
-        self.assertEqual(sorted(float(p) for _, p, _ in at_1000), [0.18, 0.2, 0.3], "before the breaks were kept the price at 100 is all there is")
+        self.assertEqual(sorted(float(p) for _, p, _ in at_1000), [0.18, 0.2])
         self.assertEqual(meta["quantity"], 1000)
-        self.assertEqual(meta["estimated_until"], (today - timedelta(days=6)).date().isoformat(), "the chart says which days are drawn at 100")
         from app.services.supply import part_history
 
         with self.store.connection() as conn:
             line = part_history.build(conn, part_id, today, 7)["connectors"][0]["price"]
         self.assertEqual(line[-1][1], 0.18, "the distributor's line is priced at the part's quantity too, from the breaks in force")
-        self.assertEqual(line[0][1], 0.3, "and at the reading at 100 before the breaks were kept")
+        self.assertEqual(line[0][1], 0.2, "and has no price before the first kept breaks")
 
     def test_supply_search_finds_a_part_by_number_other_number_sku_or_maker(self) -> None:
         from app.services.supply import part_search
@@ -951,7 +945,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             conn.execute("DELETE FROM supply_price_breaks_history WHERE listing_id = %s", (listing,))
             for days, price, price_1000 in ((20, "0.30", "0.20"), (0, "0.30", "0.10")):
-                conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', 1)", (listing, today - timedelta(days=days), price))
+                _reading(conn, listing, today - timedelta(days=days), 10)
                 conn.execute(
                     "INSERT INTO supply_price_breaks_history (listing_id, since, breaks, currency, moq, order_multiple) VALUES (%s, %s, %s::jsonb, 'EUR', 1, 1)",
                     (listing, today - timedelta(days=days), json.dumps([[1, "0.50"], [100, price], [1000, price_1000]])))

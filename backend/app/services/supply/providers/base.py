@@ -223,6 +223,12 @@ class ProviderSpec:
     limits_storage: bool = False
     # Where a published catalogue can stand in for the offers file (``jlc_catalogue``), for an administrator who turns it on.
     catalogue_url: str = ""
+    # Packaging the provider does not state is guessed from the number and the order terms (``packaging_hints.infer``). False for
+    # one whose own words are trusted: what it does not say stays unknown (Farnell).
+    guesses_packaging: bool = True
+    # The packaging the provider states is the product's standard one (a reel), and what is sold is read from the price breaks
+    # (``packaging_hints.sold_as``: LCSC, TME).
+    standard_packaging: bool = False
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):

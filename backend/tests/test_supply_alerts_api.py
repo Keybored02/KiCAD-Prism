@@ -18,6 +18,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -274,10 +275,7 @@ class SupplyAlertsTests(unittest.TestCase):
         with self.store.connection() as conn:
             for index in range(days):
                 price = Decimal(first) + (Decimal(last) - Decimal(first)) * index / (days - 1)
-                conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 500, %s, 'EUR')",
-                    (listing, START - timedelta(days=days - index), price),
-                )
+                _reading(conn, listing, START - timedelta(days=days - index), 500, price=price)
         return watch
 
     def test_a_rising_price_raises_a_warning_and_a_steady_one_does_not(self) -> None:

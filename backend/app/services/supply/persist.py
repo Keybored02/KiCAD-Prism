@@ -52,7 +52,7 @@ def _price_of(kept) -> Decimal | None:
 def normalise(offer: Offer) -> tuple[Offer, Decimal | None]:
     """The offer with a packaging guessed from its numbers when it gives none, and its price at the reference quantity."""
 
-    if offer.packaging is Packaging.UNKNOWN and offer.provider not in packaging_hints.NO_GUESS:
+    if offer.packaging is Packaging.UNKNOWN and packaging_hints.guesses(offer.provider):
         guess = packaging_hints.infer(offer.sku, offer.moq, offer.order_multiple, offer.price_breaks[0].quantity if offer.price_breaks else None)
         if guess is not Packaging.UNKNOWN:
             offer = replace(offer, packaging=guess, packaging_inferred=True)
@@ -184,8 +184,8 @@ class Writer:
         # listing the same day adds nothing.
         if changed or previous["sampled_at"] is None or previous["sampled_at"] <= offer.fetched_at - SAMPLE_EVERY:
             loaded.samples.append((
-                row.id, offer.fetched_at, offer.stock, sum(item.quantity for item in offer.incoming), price,
-                offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace,
+                row.id, offer.fetched_at, offer.stock, sum(item.quantity for item in offer.incoming),
+                offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace,
                 offer.moq, offer.order_multiple,
             ))
         before = previous["stock"] if previous is not None else None
@@ -260,9 +260,9 @@ class Writer:
             if loaded.samples:
                 cursor.executemany(
                     """
-                    INSERT INTO supply_samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
+                    INSERT INTO supply_samples (listing_id, sampled_at, stock, incoming_qty, lead_time_days,
                                          lifecycle, discontinued, marketplace, moq, order_multiple)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
                     """,
                     loaded.samples,
                 )

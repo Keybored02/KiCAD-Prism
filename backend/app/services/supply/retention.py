@@ -155,10 +155,10 @@ def _compact(conn, now: datetime, days: int) -> int:
     stop = min(cutoff, oldest + timedelta(days=BATCH_DAYS))
     conn.execute(
         f"""
-        INSERT INTO supply_samples_daily (listing_id, day, stock, incoming_qty, unit_price, currency, lead_time_days, lifecycle,
+        INSERT INTO supply_samples_daily (listing_id, day, stock, incoming_qty, lead_time_days, lifecycle,
                                           discontinued, marketplace, moq, order_multiple)
         SELECT DISTINCT ON (listing_id, (sampled_at AT TIME ZONE 'UTC')::date)
-               listing_id, (sampled_at AT TIME ZONE 'UTC')::date, stock, incoming_qty, unit_price, currency, lead_time_days, lifecycle,
+               listing_id, (sampled_at AT TIME ZONE 'UTC')::date, stock, incoming_qty, lead_time_days, lifecycle,
                discontinued, marketplace, moq, order_multiple
         FROM supply_samples
         WHERE sampled_at < %s AND {mine}

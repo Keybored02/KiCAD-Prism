@@ -88,11 +88,4 @@ describe("the price section", () => {
     expect(screen.queryByText(/Across 2 distributors/)).toBeNull();
     expect(screen.getByText(/No exchange rate for CHF/)).toBeTruthy();
   });
-
-  it("says which days are drawn at 100 pieces", () => {
-    render(<PriceTrend price={priceFixture({ currency: "EUR", history, trend: null, quantity: 1000, default: 100, own: true, estimated_until: "2026-10-12" })} />);
-    expect(screen.queryByText(/Until 2026-10-12/)).toBeNull();
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Show what the price is" }));
-    expect(screen.getByText(/Until 2026-10-12 the history is the price at 100 pieces/)).toBeTruthy();
-  });
 });

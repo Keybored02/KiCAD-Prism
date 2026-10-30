@@ -217,8 +217,6 @@ TABLES: tuple[str, ...] = (
         sampled_at TIMESTAMPTZ NOT NULL,
         stock INTEGER NOT NULL CHECK (stock >= 0),
         incoming_qty INTEGER NOT NULL DEFAULT 0,
-        unit_price NUMERIC(14,6),
-        currency TEXT NOT NULL DEFAULT '',
         lead_time_days INTEGER,
         lifecycle TEXT NOT NULL DEFAULT 'unknown',
         discontinued BOOLEAN NOT NULL DEFAULT FALSE,
@@ -231,13 +229,12 @@ TABLES: tuple[str, ...] = (
     """,
     """
     CREATE TABLE IF NOT EXISTS supply_samples_daily (
-        -- A listing's last reading of a UTC day, once its raw samples are compacted: every column a sample has.
+        -- A listing's last reading of a UTC day, once its raw samples are compacted: every column a sample has. Prices are in
+        -- supply_price_breaks_history, not here.
         listing_id TEXT NOT NULL REFERENCES supply_listings(id) ON DELETE CASCADE,
         day DATE NOT NULL,
         stock INTEGER NOT NULL CHECK (stock >= 0),
         incoming_qty INTEGER NOT NULL DEFAULT 0,
-        unit_price NUMERIC(14,6),
-        currency TEXT NOT NULL DEFAULT '',
         lead_time_days INTEGER,
         lifecycle TEXT NOT NULL DEFAULT 'unknown',
         discontinued BOOLEAN NOT NULL DEFAULT FALSE,

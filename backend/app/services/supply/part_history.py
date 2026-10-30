@@ -6,7 +6,7 @@ The part sheet draws these as lines in each distributor's colour and opens them 
   last stored sample), so a part read once draws a flat line from that day to the last read.
 * A distributor's stock is what the part's stock counts there (``counted.listing_sql``: every listing, except those a pick
   stops being read where a pick limits reading), pooled or added up by pile as that provider shares it (``stock.aggregate``).
-* A distributor's price is its followed (picked) listing at the part's price quantity (``prices.on_day``: the price breaks in force
+* A distributor's price is its followed (picked) listing at the part's price quantity (``price_breaks.price_on``: the price breaks in force
   that day), or its cheapest listing where none is picked, in the base currency at the latest rates.
   Listings whose smallest order is above that quantity are left out, unless there is nothing else.
 * ``total`` is what counts for the part.
@@ -21,7 +21,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.supply import clock, counted, fx, insights, price_breaks, price_quantity, prices, stock
+from app.services.supply import clock, counted, fx, insights, price_breaks, price_quantity, stock
 from app.services.supply.history import days_sql
 from app.services.supply import settings as supply_settings
 
@@ -51,7 +51,7 @@ def _day_figures(conn, listing_ids: list[str], since: datetime) -> dict[str, dic
 
     figures: dict[str, dict[date, dict[str, Any]]] = defaultdict(dict)
     for row in conn.execute(
-        "SELECT listing_id, day, stock, unit_price AS price, currency, marketplace, moq FROM "
+        "SELECT listing_id, day, stock, marketplace, moq FROM "
         + days_sql("SELECT unnest(%(ids)s::text[])", "%(since)s") + " d",
         {"ids": listing_ids, "since": since.date()},
     ).fetchall():
@@ -144,8 +144,8 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
             followed = [item for item in mine if item["followed"]]
             for item in (followed or mine):
                 row = live[item["id"]]
-                if item["id"] in priced and row.get("currency") and not row.get("marketplace"):
-                    price, currency, _moq, _guessed = prices.on_day(kept.get(item["id"], []), day, quantity, row)
+                if item["id"] in priced and not row.get("marketplace"):
+                    price, currency, _moq = price_breaks.price_on(kept.get(item["id"], []), day, quantity)
                     converted = rates.convert(price, currency, base) if price is not None else None
                     if converted is not None:
                         candidates.append(converted)

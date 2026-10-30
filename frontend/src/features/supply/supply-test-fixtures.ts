@@ -172,7 +172,7 @@ export function headlineFixture(overrides: Partial<SupplyHeadlinePrice> = {}): S
 
 export function priceFixture(overrides: Partial<PartPrice> = {}): PartPrice {
   return {
-    currency: "", history: [], trend: null, quantity: 100, default: 100, own: false, estimated_until: null, headline: headlineFixture(), ...overrides,
+    currency: "", history: [], trend: null, quantity: 100, default: 100, own: false, headline: headlineFixture(), ...overrides,
   };
 }
 

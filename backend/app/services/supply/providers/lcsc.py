@@ -25,4 +25,5 @@ SPEC = ProviderSpec(
     default_daily_budget=0,
     metered=False,
     csv_fed=True,
+    standard_packaging=True,
 )

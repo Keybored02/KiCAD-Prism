@@ -44,7 +44,6 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
   const hints = [
     "Cheapest unit price any distributor showed.",
     ...(change === null ? ["A move needs a week of readings."] : []),
-    ...(price.estimated_until ? [`Until ${price.estimated_until} the history is the price at 100 pieces, because the price breaks were not kept yet.`] : []),
   ];
   return (
     <section aria-label="Price" className="space-y-2">

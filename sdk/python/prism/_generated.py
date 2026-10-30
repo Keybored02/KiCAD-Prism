@@ -4209,7 +4209,6 @@ class PartPrice(TypedDict, total=True):
     """The cheapest counted unit price per day. ``trend`` is the move over the last 30 days, or null when there is too little to read one."""
     currency: str
     default: int
-    estimated_until: str | None
     headline: SupplyHeadlinePrice
     history: list[PriceDay]
     own: bool

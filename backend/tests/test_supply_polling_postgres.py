@@ -238,9 +238,9 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(len(offer["price_breaks"]), 4)
         (sample,) = self.rows("SELECT * FROM supply_samples")
         self.assertEqual((sample["stock"], sample["sampled_at"]), (expected.stock, self.clock.now))
-        self.assertEqual(sample["unit_price"], self.pricing.unit_price_at(
-            [(b.quantity, b.unit_price) for b in expected.price_breaks], moq=expected.moq, order_multiple=expected.order_multiple
-        ))
+        self.assertNotIn("unit_price", sample, "the price is kept as the offer's breaks, not on the sample")
+        (kept,) = self.rows("SELECT * FROM supply_price_breaks_history")
+        self.assertEqual((len(kept["breaks"]), kept["since"]), (4, self.clock.now))
         state = self.state_of("FAKE-ABC123-CT")
         self.assertGreater(state["next_poll_at"], self.clock.now)
         self.assertEqual((state["error_streak"], state["last_change_at"]), (0, self.clock.now))

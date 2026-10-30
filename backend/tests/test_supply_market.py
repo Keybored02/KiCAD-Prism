@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import market  # noqa: E402
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -152,9 +153,7 @@ class MarketDatabaseTests(unittest.TestCase):
 
         def price(mpn: str, day: date, unit: str) -> None:
             with self.store.connection() as conn:
-                conn.execute(
-                    "INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 100, %s, 'EUR')",
-                    (f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), unit))
+                _reading(conn, f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), 100, price=unit)
 
         for mpn in ("A-0", "A-1", "A-2"):
             price(mpn, date(2026, 3, 1), "1.00")

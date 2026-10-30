@@ -21,7 +21,6 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import clock, offer_rules, parts_view, price_breaks, price_quantity, pricing
-from app.services.supply.history import days_sql
 from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 MIN_SAMPLE = 3
@@ -101,47 +100,35 @@ def compute(conn) -> dict[str, dict[str, Any]]:
 
 
 def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, list[Decimal]]:
-    """Per part, how each of its listings' unit price changed since ``since`` (latest price now over latest price then).
+    """Per part, how each of its counted listings' unit price at the part's quantity changed since ``since``: the price breaks in force
+    now over those in force then (``price_breaks``).
 
-    A listing with no price at either end, or a price of nothing, is left out. A part with no listing left has no entry.
+    A listing with no price at either end, a price of nothing, or a change of currency is left out. A part with no listing left has
+    no entry.
     """
 
     if not part_ids:
         return {}
     rows = conn.execute(
-        """
-        WITH listed AS (SELECT id, part_id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND supply_counted(match_state))
-        SELECT listed.part_id, listed.id AS listing_id, h.before, h.now
-        FROM listed LEFT JOIN (
-            SELECT d.listing_id,
-                   (array_agg(d.unit_price ORDER BY d.day DESC) FILTER (WHERE d.day < %(since)s))[1] AS before,
-                   (array_agg(d.unit_price ORDER BY d.day DESC))[1] AS now
-            FROM """ + days_sql("SELECT id FROM listed", "%(from)s") + """ d
-            WHERE d.unit_price IS NOT NULL
-            GROUP BY d.listing_id
-        ) h ON h.listing_id = listed.id
-        """,
-        {"since": since.date(), "parts": list(part_ids), "from": (since - timedelta(days=HISTORY_DAYS)).date()},
+        "SELECT id AS listing_id, part_id FROM supply_listings WHERE part_id = ANY(%s) AND supply_counted(match_state)", (list(part_ids),),
     ).fetchall()
     quantities = price_quantity.of_parts(conn, part_ids)
-    kept = price_breaks.load(conn, [row["listing_id"] for row in rows if quantities[row["part_id"]] != pricing.REFERENCE_QUANTITY])
+    kept = price_breaks.load(conn, [row["listing_id"] for row in rows])
     found: dict[str, list[Decimal]] = {}
     for row in rows:
         ratio = _ratio_at_quantity(kept.get(row["listing_id"], []), quantities[row["part_id"]], since.date())
-        if ratio is None and row["before"] and row["now"] and row["before"] > 0:
-            ratio = Decimal(row["now"]) / Decimal(row["before"])
         if ratio is not None:
             found.setdefault(row["part_id"], []).append(ratio)
     return found
 
 
 def _ratio_at_quantity(history: Sequence[dict], quantity: int, since_day: date) -> Decimal | None:
-    """The price change of one listing at the part's own quantity, from the price breaks kept; None when they do not reach back to ``since_day``
-    (the reading at 100 pieces is used then)."""
+    """The price change of one listing at ``quantity`` from its kept breaks: the latest over those in force before ``since_day``
+    (on the day before it). None when they do not reach back that far."""
 
-    if quantity == pricing.REFERENCE_QUANTITY or not history:
+    if not history:
         return None
-    then, now = price_breaks.in_force(history, since_day), history[-1]
+    then, now = price_breaks.in_force(history, since_day - timedelta(days=1)), history[-1]
     if then is None:
         return None
     before = pricing.unit_price_at(then["breaks"], moq=then["moq"], order_multiple=then["order_multiple"], wanted=quantity, up_to=then.get("up_to"))

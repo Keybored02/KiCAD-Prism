@@ -1,8 +1,8 @@
-"""How a part's price has moved, from the prices the poller recorded.
+"""How a part's price has moved, from the price breaks the poller kept.
 
 The price of a part on a day is the cheapest unit price of its counted, non-marketplace listings at the part's price
-quantity, in the base currency (see ``price_quantity`` and ``price_breaks``), each listing at its latest reading up to that
-day (``cheapest_held``): a listing not read that day still sells at its last price. A rise is a price move only
+quantity, in the base currency (see ``price_quantity`` and ``price_breaks.price_on``), each listing at its latest reading up to
+that day (``cheapest_held``): a listing not read that day still sells at its last price. A rise is a price move only
 when the readings span a week or more and the latest one is recent, so a part nobody has read lately says nothing.
 """
 
@@ -26,20 +26,6 @@ DayPrice = tuple[date, Decimal, str]  # day, cheapest unit price, currency
 REFERENCE_QUANTITY = pricing.REFERENCE_QUANTITY
 
 
-def on_day(kept: Sequence[dict[str, Any]], day: date, quantity: int, read: dict[str, Any]) -> tuple[Decimal | None, str, int, bool]:
-    """A listing's unit price on a day at ``quantity``, in the currency it was quoted in: from the price breaks in force that day
-    (``kept``, from ``price_breaks.load``), else the day's reading at 100 pieces (``read``: ``price``, ``currency``, ``moq``). Also its
-    smallest order and whether the price is that estimate (a reading at 100 used for another quantity). The one rule for pricing a
-    listing on a day, so the price series, the part's chart and the last price seen agree."""
-
-    from app.services.supply import price_breaks
-
-    held = price_breaks.in_force(kept, day)
-    if held is not None:
-        price = pricing.unit_price_at(held["breaks"], moq=held["moq"], order_multiple=held["order_multiple"], wanted=quantity, up_to=held.get("up_to"))
-        return price, held["currency"], held["moq"], False
-    price = Decimal(read["price"]) if read["price"] is not None else None
-    return price, read["currency"], read["moq"] or 1, quantity != REFERENCE_QUANTITY
 
 
 def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> list[DayPrice]:
@@ -49,13 +35,11 @@ def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -
 
 
 def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[list[DayPrice], dict[str, Any]]:
-    """The daily series and what it was priced at: ``{"quantity", "estimated_until"}``.
+    """The daily series and the quantity it was priced at: ``{"quantity"}``.
 
     Each listing's price is worked out from the price breaks in force that day at the part's quantity, converted to the
-    base currency. Days before the breaks were kept only have the price at 100 pieces; when the part's quantity is not
-    100 those days are estimated, and ``estimated_until`` is the last of them. A listing a packaging pick leaves out
-    does not count, and neither does one whose smallest order is above the quantity (a reel of 1,500), unless nothing
-    else prices the part.
+    base currency. A listing a packaging pick leaves out does not count, and neither does one whose smallest order is above
+    the quantity (a reel of 1,500), unless nothing else prices the part.
     """
 
     points, meta = _points(conn, part_id, now, days)
@@ -69,7 +53,7 @@ def daily(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> tuple[l
             latest[listing] = (day, currency)
     cheapest = cheapest_held([(listing, day, price) for listing, day, price, _orderable, currency in chosen if currency == latest[listing][1]])
     result = [(day, price, base) for day, price in cheapest]
-    return result, {"quantity": meta["quantity"], "estimated_until": meta["estimated_until"] if cheapest else None}
+    return result, {"quantity": meta["quantity"]}
 
 
 # After its last reading a listing still counts while it has been read within this many days of the day priced; past that it has gone.
@@ -155,27 +139,24 @@ def _points_of(conn, part_ids: Sequence[str], now: datetime, days: int) -> dict[
     for part_id in ids:
         quantity = quantities[part_id]
         points: list[tuple[str, date, Decimal, bool, str]] = []
-        estimated: list[date] = []
         for row in rows_of[part_id]:
-            price, currency, moq, guessed = on_day(kept.get(row["listing_id"], []), row["day"], quantity, row)
-            if guessed:
-                estimated.append(row["day"])
+            price, currency, moq = price_breaks.price_on(kept.get(row["listing_id"], []), row["day"], quantity)
             converted = rates.convert(price, currency, base) if price is not None else None
             if converted is not None and converted > 0:
                 points.append((row["listing_id"], row["day"], converted, moq <= quantity, currency))
-        found[part_id] = (points, {"quantity": quantity, "base": base, "estimated_until": max(estimated).isoformat() if estimated else None})
+        found[part_id] = (points, {"quantity": quantity, "base": base})
     return found
 
 
 def _daily_rows(conn, part_ids: Sequence[str], now: datetime, days: int) -> list[dict[str, Any]]:
-    """One reading per listing and day of the parts (``days_sql``): its price at 100, currency and smallest order."""
+    """The days each counted, non-marketplace listing of the parts was read (``days_sql``): the days it is priced on."""
 
     return conn.execute(
         f"""
-        SELECT l.part_id, d.listing_id, d.day, d.currency, d.unit_price AS price, d.moq
+        SELECT l.part_id, d.listing_id, d.day
         FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = ANY(%(parts)s) AND match_state = ANY(%(states)s)", "%(since)s")} d
         JOIN supply_listings l ON l.id = d.listing_id
-        WHERE NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
+        WHERE NOT d.marketplace
           AND {counted.priced_sql()}
         """,
         {"parts": list(part_ids), "states": list(counted.STATES), "since": (now - timedelta(days=days)).date()},
@@ -183,16 +164,17 @@ def _daily_rows(conn, part_ids: Sequence[str], now: datetime, days: int) -> list
 
 
 def last_in_stock(conn, part_id: str, base: str, rates, quantity: int = REFERENCE_QUANTITY) -> tuple[Decimal, date] | None:
-    """The cheapest price at ``quantity`` (``on_day``) on the most recent day any counted listing had stock, in the base currency,
-    and that day."""
+    """The cheapest price at ``quantity`` (``price_breaks.price_on``) on the most recent day any counted listing had stock and a
+    price, in the base currency, and that day."""
 
     from app.services.supply import price_breaks
 
     rows = conn.execute(
         f"""
-        SELECT d.listing_id, d.day, d.currency, d.unit_price AS price, d.moq
+        SELECT d.listing_id, d.day
         FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND match_state = ANY(%(states)s)")} d
-        WHERE d.stock > 0 AND NOT d.marketplace AND d.unit_price IS NOT NULL AND d.currency <> ''
+        WHERE d.stock > 0 AND NOT d.marketplace
+          AND EXISTS (SELECT 1 FROM supply_price_breaks_history b WHERE b.listing_id = d.listing_id AND (b.since AT TIME ZONE 'UTC')::date <= d.day)
         ORDER BY d.day DESC LIMIT 20
         """,
         {"part": part_id, "states": list(counted.STATES)},
@@ -202,8 +184,8 @@ def last_in_stock(conn, part_id: str, base: str, rates, quantity: int = REFERENC
     day = rows[0]["day"]
     rows = [row for row in rows if row["day"] == day]
     kept = price_breaks.load(conn, [row["listing_id"] for row in rows])
-    quoted = [on_day(kept.get(row["listing_id"], []), day, quantity, row) for row in rows]
-    converted = [rates.convert(price, currency, base) for price, currency, _moq, _guessed in quoted if price is not None]
+    quoted = [price_breaks.price_on(kept.get(row["listing_id"], []), day, quantity) for row in rows]
+    converted = [rates.convert(price, currency, base) for price, currency, _moq in quoted if price is not None]
     known = [price for price in converted if price is not None and price > 0]
     return (min(known), day) if known else None
 
