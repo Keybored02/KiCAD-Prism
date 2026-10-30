@@ -113,7 +113,7 @@ class PushToken(BaseModel):
     prefix: str
     created_by: str
     created_at: datetime
-    last_used_at: Optional[datetime] = None
+    last_used_at: Optional[datetime]
 
 
 class IssuedPushToken(BaseModel):

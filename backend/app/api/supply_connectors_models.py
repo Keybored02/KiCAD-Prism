@@ -39,6 +39,10 @@ class SupplySignin(SupplyModel):
     redirect_uri: str = Field(description="The address the DigiKey app must list as its callback.")
 
 
+class SigninStarted(SupplyModel):
+    url: str = Field(description="Where the administrator signs in at the provider.")
+
+
 class SupplyCsvImport(SupplyModel):
     filename: str
     imported_by: str

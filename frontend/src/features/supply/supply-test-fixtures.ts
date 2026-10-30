@@ -226,6 +226,8 @@ export function alertFixture(overrides: Partial<SupplyAlert> = {}): SupplyAlert 
 export function dashboardFixture(overrides: Partial<SupplyDashboard> = {}): SupplyDashboard {
   return {
     figures: { watched: 4, at_risk: 2, out_of_stock: 1, lifecycle: 1, open_alerts: 2, waiting: 3 },
+    ending_components: 0,
+    forecast: { likely_out_4w: 0, state: { state: "learning", checks: 0, needs: 30, reason: "" }, coming_up: [], part_ids_likely_out_4w: [] },
     connectors: 1,
     no_data: 0,
     recent_changes: [],

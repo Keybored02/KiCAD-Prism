@@ -81,6 +81,10 @@ class SupplyTypesTests(unittest.TestCase):
             "}",
         ]))
 
+    def test_a_key_that_is_not_an_identifier_is_quoted(self) -> None:
+        schema = {"type": "object", "properties": {"4w": {"type": "integer"}, "plain": {"type": "integer"}}, "required": ["4w", "plain"]}
+        self.assertEqual(exporter._declaration("Weeks", schema), 'export interface Weeks {\n  "4w": number;\n  plain: number;\n}')
+
     def test_a_generic_list_is_one_typescript_generic(self) -> None:
         document = _document(
             {"/api/v1/supply/a": {"get": _answering("Items_A_")}, "/api/v1/supply/b": {"get": _answering("Items_B_")}},

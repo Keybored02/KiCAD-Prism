@@ -19,12 +19,12 @@ import { forgetServerState } from "@/lib/server-state";
 const mocked = vi.mocked(api);
 
 function finding(overrides: Partial<SupplyFinding> = {}): SupplyFinding {
-  return { check: "nrnd", severity: "warning", text: "The manufacturer does not recommend this part for new designs.", scope: "nrnd", waiver: null, ...overrides };
+  return { check: "nrnd", severity: "warning", text: "The manufacturer does not recommend this part for new designs.", scope: "nrnd", waiver: null, detail: {}, ...overrides };
 }
 
 function assessment(overrides: Partial<SupplyAssessment> = {}): SupplyAssessment {
   return {
-    part_id: "p1", health: 6.4, status: "warning", need: null, findings: [finding()],
+    part_id: "p1", health: 6.4, status: "warning", need: null, changes_at: null, findings: [finding()],
     sub_scores: [
       { name: "lifecycle", score: 3, reasons: ["Manufacturer lifecycle: nrnd."] },
       { name: "sourcing", score: 3, reasons: ["Only one distributor holds it."] },

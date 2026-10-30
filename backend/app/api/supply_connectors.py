@@ -236,6 +236,7 @@ def _rejection(exc: CsvRejected) -> BadRequest:
 
 @router.get(
     "/csv-template",
+    response_class=Response,
     responses={200: {"description": "The CSV template for an offers upload.", "content": {"text/csv": {}}}},
 )
 async def csv_template(_user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:

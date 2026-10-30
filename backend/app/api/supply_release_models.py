@@ -9,6 +9,7 @@ from pydantic import Field
 from app.api.supply_bom_models import SupplyBomAlternate, SupplyBomComment, SupplyBomRollup
 from app.api.supply_models import StoresState, SupplyModel, SupplyStatus
 from app.api.supply_parts_models import SupplyLifecycle, SupplyPartRow, SupplyPartsPage
+from app.api.supply_settings_models import AssessmentSeverity
 
 Number = Union[int, float]
 LineState = Literal["no_mpn", "unknown", "ambiguous", "tracked"]
@@ -148,7 +149,7 @@ class ProjectPartsPage(SupplyPartsPage):
 
 class ReleaseFinding(SupplyModel):
     check: str
-    severity: SupplyStatus
+    severity: AssessmentSeverity
     text: str
 
 

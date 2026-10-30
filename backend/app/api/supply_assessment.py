@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_assessment_models import SupplyAssessment, WaiverProposed
 from app.api.supply_access import is_approver, require_supply_editor
 from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
@@ -38,7 +39,7 @@ def _store():
     return supply_connectors.service.store
 
 
-@router.get("/parts/{part_id}/assessment")
+@router.get("/parts/{part_id}/assessment", response_model=SupplyAssessment)
 async def get_assessment(
     part_id: str,
     quantity: Optional[int] = Query(default=None, ge=1, le=10_000_000),
@@ -54,7 +55,7 @@ async def get_assessment(
     return await _run(read)
 
 
-@router.post("/parts/{part_id}/waivers", status_code=201)
+@router.post("/parts/{part_id}/waivers", status_code=201, response_model=WaiverProposed)
 async def propose_waiver(
     part_id: str, body: ProposeWaiverRequest, editor: AuthenticatedUser = Depends(require_supply_editor)
 ) -> dict[str, str]:
