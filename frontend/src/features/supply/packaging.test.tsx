@@ -14,10 +14,10 @@ import { PackagingPickDialog } from "./packaging-pick-dialog";
 const mocked = vi.mocked(api);
 
 const options: PackagingOptions = {
-  part_id: "p1", connector_id: "c1", picked: null, saves_calls_a_day: 1,
+  part_id: "p1", connector_id: "c1", package: "", picked: null, picked_by: "", note: "", saves_calls_a_day: 1,
   listings: [
-    { id: "l1", sku: "C1", packaging: "cut_tape", moq: 1, order_multiple: 1, stock: 500, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": "0.5", "100": "0.4", "1000": "0.4" }, fetched_at: null, raw_mpn: "LM358D", other_number: false },
-    { id: "l2", sku: "C2", packaging: "tape_reel", moq: 3000, order_multiple: 3000, stock: 9000, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": null, "100": null, "1000": null }, fetched_at: null, raw_mpn: "LM358D-T", other_number: true },
+    { id: "l1", sku: "C1", packaging: "cut_tape", moq: 1, order_multiple: 1, stock: 500, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": "0.5", "100": "0.4", "1000": "0.4" }, fetched_at: null, raw_mpn: "LM358D", other_number: false, reel_size: null, packaging_inferred: false, product_url: "" },
+    { id: "l2", sku: "C2", packaging: "tape_reel", moq: 3000, order_multiple: 3000, stock: 9000, lead_time_days: null, marketplace: false, currency: "USD", prices: { "1": null, "100": null, "1000": null }, fetched_at: null, raw_mpn: "LM358D-T", other_number: true, reel_size: 3000, packaging_inferred: false, product_url: "" },
   ],
   can_unpin: true,
 };

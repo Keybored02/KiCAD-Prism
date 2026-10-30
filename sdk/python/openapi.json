@@ -7288,6 +7288,51 @@
         "title": "ComponentReleaseRecordPage",
         "type": "object"
       },
+      "ComponentRestriction": {
+        "additionalProperties": true,
+        "properties": {
+          "level": {
+            "enum": [
+              "not_for_new_designs",
+              "retired"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "replacement_component_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Component Id"
+          },
+          "set_at": {
+            "title": "Set At",
+            "type": "string"
+          },
+          "set_by": {
+            "title": "Set By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "reason",
+          "replacement_component_id",
+          "set_by",
+          "set_at"
+        ],
+        "title": "ComponentRestriction",
+        "type": "object"
+      },
       "ComponentReviewDecision": {
         "additionalProperties": true,
         "properties": {
@@ -7652,6 +7697,25 @@
           }
         },
         "title": "ConnectorCredentials",
+        "type": "object"
+      },
+      "ConnectorProblem": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector",
+          "reason"
+        ],
+        "title": "ConnectorProblem",
         "type": "object"
       },
       "CreateCommentRequest": {
@@ -8621,6 +8685,30 @@
           "approve"
         ],
         "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DecisionState": {
+        "additionalProperties": true,
+        "description": "A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "approved",
+              "proposed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "title": "DecisionState",
         "type": "object"
       },
       "Declaration": {
@@ -9698,6 +9786,7 @@
         "additionalProperties": false,
         "properties": {
           "reasons": {
+            "description": "The reason kinds shown when it was dismissed; a new one brings it back.",
             "items": {
               "type": "string"
             },
@@ -10186,6 +10275,222 @@
         "title": "DrillTool",
         "type": "object"
       },
+      "EndingComponent": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mpn",
+          "manufacturer",
+          "stage"
+        ],
+        "title": "EndingComponent",
+        "type": "object"
+      },
+      "EndingPart": {
+        "additionalProperties": true,
+        "properties": {
+          "component": {
+            "$ref": "#/components/schemas/EndingComponent"
+          },
+          "dismissal_waiting": {
+            "description": "Someone asked QA to dismiss it for the reasons it has now.",
+            "title": "Dismissal Waiting",
+            "type": "boolean"
+          },
+          "dismissed": {
+            "description": "Someone dismissed it for the reasons it has now.",
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "healthy": {
+            "description": "The component's other approved parts that are not ending; retiring is offered only when none is left.",
+            "title": "Healthy",
+            "type": "integer"
+          },
+          "last_buy": {
+            "items": {
+              "$ref": "#/components/schemas/LastBuy"
+            },
+            "title": "Last Buy",
+            "type": "array"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/EndingProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/EndingReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "restriction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComponentRestriction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "description": "Whether the ending part is the component's main part or an approved alternate.",
+            "enum": [
+              "main",
+              "alternate"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          }
+        },
+        "required": [
+          "component",
+          "part_id",
+          "reasons",
+          "last_buy",
+          "stock",
+          "status",
+          "projects",
+          "restriction",
+          "dismissed",
+          "dismissal_waiting",
+          "role",
+          "healthy"
+        ],
+        "title": "EndingPart",
+        "type": "object"
+      },
+      "EndingParts": {
+        "additionalProperties": true,
+        "description": "Components whose part is ending, worst first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EndingPart"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "description": "Ending parts beyond the ones listed.",
+            "title": "More",
+            "type": "integer"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "tracked",
+          "more"
+        ],
+        "title": "EndingParts",
+        "type": "object"
+      },
+      "EndingProject": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "quantity"
+        ],
+        "title": "EndingProject",
+        "type": "object"
+      },
+      "EndingReason": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "source"
+        ],
+        "title": "EndingReason",
+        "type": "object"
+      },
       "EventAndWebhookHealth": {
         "properties": {
           "events_last_hour": {
@@ -10616,6 +10921,134 @@
           "is_dir"
         ],
         "title": "FileItem",
+        "type": "object"
+      },
+      "FillCandidate": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "manufacturer_matches": {
+            "title": "Manufacturer Matches",
+            "type": "boolean"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          },
+          "provider": {
+            "description": "The connector's provider key, for its colour.",
+            "title": "Provider",
+            "type": "string"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "connector",
+          "provider",
+          "sku",
+          "mpn",
+          "manufacturer",
+          "description",
+          "product_url",
+          "manufacturer_matches"
+        ],
+        "title": "FillCandidate",
+        "type": "object"
+      },
+      "FillDetails": {
+        "additionalProperties": true,
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "datasheet_url": {
+            "title": "Datasheet Url",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "package_name": {
+            "title": "Package Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "datasheet_url",
+          "package_name",
+          "category"
+        ],
+        "title": "FillDetails",
+        "type": "object"
+      },
+      "FillSearchResult": {
+        "additionalProperties": true,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/FillCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/FillSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidates",
+          "skipped"
+        ],
+        "title": "FillSearchResult",
+        "type": "object"
+      },
+      "FillSkipped": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector",
+          "reason"
+        ],
+        "title": "FillSkipped",
         "type": "object"
       },
       "FingerprintRecord": {
@@ -13049,6 +13482,23 @@
         "title": "IssuedPushToken",
         "type": "object"
       },
+      "Items_PackagingSeveral_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PackagingSeveral"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[PackagingSeveral]",
+        "type": "object"
+      },
       "Items_SupplyAlert_": {
         "additionalProperties": true,
         "properties": {
@@ -13064,6 +13514,23 @@
           "items"
         ],
         "title": "Items[SupplyAlert]",
+        "type": "object"
+      },
+      "Items_SupplyNotice_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyNotice"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyNotice]",
         "type": "object"
       },
       "Items_SupplyWorkItem_": {
@@ -14386,6 +14853,25 @@
           }
         },
         "title": "LabelsBody",
+        "type": "object"
+      },
+      "LastBuy": {
+        "additionalProperties": true,
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "value"
+        ],
+        "title": "LastBuy",
         "type": "object"
       },
       "LatencyTotals": {
@@ -16811,6 +17297,20 @@
         "title": "NewWorkItem",
         "type": "object"
       },
+      "NoticeAdded": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "NoticeAdded",
+        "type": "object"
+      },
       "NoticeIn": {
         "additionalProperties": false,
         "properties": {
@@ -17132,6 +17632,484 @@
           "tools"
         ],
         "title": "OpsStatus",
+        "type": "object"
+      },
+      "PackagingListing": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "lead_time_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Days"
+          },
+          "marketplace": {
+            "title": "Marketplace",
+            "type": "boolean"
+          },
+          "moq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moq"
+          },
+          "order_multiple": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Multiple"
+          },
+          "other_number": {
+            "description": "It is listed under another number than the part's.",
+            "title": "Other Number",
+            "type": "boolean"
+          },
+          "packaging": {
+            "title": "Packaging",
+            "type": "string"
+          },
+          "packaging_inferred": {
+            "title": "Packaging Inferred",
+            "type": "boolean"
+          },
+          "prices": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Unit price at 1, 100 and 1,000 pieces.",
+            "title": "Prices",
+            "type": "object"
+          },
+          "product_url": {
+            "description": "The distributor's page for the listing.",
+            "title": "Product Url",
+            "type": "string"
+          },
+          "raw_mpn": {
+            "description": "The number the distributor lists it under.",
+            "title": "Raw Mpn",
+            "type": "string"
+          },
+          "reel_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reel Size"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          }
+        },
+        "required": [
+          "id",
+          "sku",
+          "raw_mpn",
+          "other_number",
+          "packaging",
+          "reel_size",
+          "packaging_inferred",
+          "moq",
+          "order_multiple",
+          "stock",
+          "lead_time_days",
+          "marketplace",
+          "currency",
+          "prices",
+          "fetched_at",
+          "product_url"
+        ],
+        "title": "PackagingListing",
+        "type": "object"
+      },
+      "PackagingOptions": {
+        "additionalProperties": true,
+        "properties": {
+          "can_unpin": {
+            "description": "The viewer may take a listing off the part.",
+            "title": "Can Unpin",
+            "type": "boolean"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "listings": {
+            "items": {
+              "$ref": "#/components/schemas/PackagingListing"
+            },
+            "title": "Listings",
+            "type": "array"
+          },
+          "note": {
+            "description": "Said by Prism's pick when it fell back to a packaging next to the one asked for.",
+            "title": "Note",
+            "type": "string"
+          },
+          "package": {
+            "description": "The case the part comes in (QFN, SOT-23, 0402); empty when no distributor lists it.",
+            "title": "Package",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "picked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picked"
+          },
+          "picked_by": {
+            "description": "Who picked: a person, or \"auto\" when Prism did.",
+            "title": "Picked By",
+            "type": "string"
+          },
+          "saves_calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Saves Calls A Day"
+          }
+        },
+        "required": [
+          "part_id",
+          "connector_id",
+          "package",
+          "picked",
+          "picked_by",
+          "note",
+          "saves_calls_a_day",
+          "can_unpin",
+          "listings"
+        ],
+        "title": "PackagingOptions",
+        "type": "object"
+      },
+      "PackagingPicked": {
+        "additionalProperties": true,
+        "properties": {
+          "packaging": {
+            "title": "Packaging",
+            "type": "string"
+          },
+          "picked": {
+            "title": "Picked",
+            "type": "string"
+          },
+          "similar": {
+            "description": "Parts still waiting that the same packaging would suit; nothing applies until confirmed.",
+            "items": {
+              "$ref": "#/components/schemas/PackagingSimilar"
+            },
+            "title": "Similar",
+            "type": "array"
+          }
+        },
+        "required": [
+          "picked",
+          "packaging",
+          "similar"
+        ],
+        "title": "PackagingPicked",
+        "type": "object"
+      },
+      "PackagingProposal": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "listing_id": {
+            "title": "Listing Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "packaging": {
+            "title": "Packaging",
+            "type": "string"
+          },
+          "saves_calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Saves Calls A Day"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "connector",
+          "listing_id",
+          "sku",
+          "packaging",
+          "note",
+          "saves_calls_a_day"
+        ],
+        "title": "PackagingProposal",
+        "type": "object"
+      },
+      "PackagingProposals": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PackagingProposal"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "saves_calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Saves Calls A Day"
+          }
+        },
+        "required": [
+          "items",
+          "saves_calls_a_day"
+        ],
+        "title": "PackagingProposals",
+        "type": "object"
+      },
+      "PackagingSeveral": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "new_since_pick": {
+            "description": "Listings found after the pick was made.",
+            "title": "New Since Pick",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "picked_by": {
+            "title": "Picked By",
+            "type": "string"
+          },
+          "picked_listing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picked Listing"
+          },
+          "picked_sku": {
+            "title": "Picked Sku",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "saves_calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Saves Calls A Day"
+          }
+        },
+        "required": [
+          "part_id",
+          "connector_id",
+          "connector",
+          "provider",
+          "mpn",
+          "manufacturer",
+          "listings",
+          "picked_listing",
+          "picked_sku",
+          "picked_by",
+          "note",
+          "new_since_pick",
+          "saves_calls_a_day"
+        ],
+        "title": "PackagingSeveral",
+        "type": "object"
+      },
+      "PackagingSimilar": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "listing_id": {
+            "title": "Listing Id",
+            "type": "string"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "saves_calls_a_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Saves Calls A Day"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "connector_id",
+          "connector",
+          "mpn",
+          "manufacturer",
+          "listings",
+          "saves_calls_a_day",
+          "listing_id",
+          "sku"
+        ],
+        "title": "PackagingSimilar",
         "type": "object"
       },
       "PartAlertRules": {
@@ -17624,6 +18602,20 @@
           "listing_id"
         ],
         "title": "PickIn",
+        "type": "object"
+      },
+      "PicksMade": {
+        "additionalProperties": true,
+        "properties": {
+          "picked": {
+            "title": "Picked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "picked"
+        ],
+        "title": "PicksMade",
         "type": "object"
       },
       "PinCommentRequest": {
@@ -21165,6 +22157,7 @@
           },
           "replacement_component_id": {
             "default": "",
+            "description": "The component that takes its place, when there is one.",
             "maxLength": 100,
             "title": "Replacement Component Id",
             "type": "string"
@@ -22870,6 +23863,38 @@
         "title": "Subsheets",
         "type": "object"
       },
+      "SubstitutesAsked": {
+        "additionalProperties": true,
+        "properties": {
+          "asked": {
+            "title": "Asked",
+            "type": "integer"
+          },
+          "found": {
+            "title": "Found",
+            "type": "integer"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorProblem"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "asked",
+          "found",
+          "resolved",
+          "problems"
+        ],
+        "title": "SubstitutesAsked",
+        "type": "object"
+      },
       "SuffixBody": {
         "additionalProperties": false,
         "properties": {
@@ -23202,6 +24227,155 @@
           "saved"
         ],
         "title": "SupplyFxRatesSaved",
+        "type": "object"
+      },
+      "SupplyNotice": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "end_of_life",
+              "nrnd",
+              "last_time_buy",
+              "change"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "kind_label": {
+            "title": "Kind Label",
+            "type": "string"
+          },
+          "last_time_buy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Time Buy"
+          },
+          "last_time_ship": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Time Ship"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "notice_url": {
+            "title": "Notice Url",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          },
+          "published_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The date the distributor gives for the notice.",
+            "title": "Published On"
+          },
+          "source": {
+            "description": "\"manual\" when a person entered it, else the distributor it was read from.",
+            "title": "Source",
+            "type": "string"
+          },
+          "source_label": {
+            "title": "Source Label",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "kind_label",
+          "notice_url",
+          "last_time_buy",
+          "last_time_ship",
+          "notes",
+          "state",
+          "created_by",
+          "created_at",
+          "parts",
+          "source",
+          "source_label",
+          "published_on"
+        ],
+        "title": "SupplyNotice",
+        "type": "object"
+      },
+      "SupplyNoticeCheck": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "title": "Connectors",
+            "type": "integer"
+          },
+          "new": {
+            "title": "New",
+            "type": "integer"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorProblem"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "read": {
+            "title": "Read",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "read",
+          "new",
+          "connectors",
+          "problems"
+        ],
+        "title": "SupplyNoticeCheck",
         "type": "object"
       },
       "SupplySource": {
@@ -46269,9 +47443,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Ending",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EndingParts"
                 }
               }
             },
@@ -46362,11 +47534,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Dismiss Ending",
-                  "type": "object"
+                  "$ref": "#/components/schemas/DecisionState"
                 }
               }
             },
@@ -46451,9 +47619,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Set Restriction",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ComponentRestriction"
                 }
               }
             },
@@ -46494,9 +47660,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Details",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FillDetails"
                 }
               }
             },
@@ -46537,9 +47701,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Search",
-                  "type": "object"
+                  "$ref": "#/components/schemas/FillSearchResult"
                 }
               }
             },
@@ -47546,9 +48708,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Notice",
-                  "type": "object"
+                  "$ref": "#/components/schemas/NoticeAdded"
                 }
               }
             },
@@ -47591,9 +48751,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Proposed",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PackagingProposals"
                 }
               }
             },
@@ -47633,11 +48791,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Apply Proposed",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PicksMade"
                 }
               }
             },
@@ -47669,9 +48823,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Several",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_PackagingSeveral_"
                 }
               }
             },
@@ -47702,11 +48854,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Apply Similar",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PicksMade"
                 }
               }
             },
@@ -47799,9 +48947,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Options",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PackagingOptions"
                 }
               }
             },
@@ -47861,9 +49007,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Pick",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PackagingPicked"
                 }
               }
             },
@@ -48326,9 +49470,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Ask Substitutes",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SubstitutesAsked"
                 }
               }
             },
@@ -48434,9 +49576,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Check Notices",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyNoticeCheck"
                 }
               }
             },
@@ -48862,9 +50002,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Part Notices",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyNotice_"
                 }
               }
             },

@@ -1,10 +1,12 @@
-import type { SupplyAlert } from "./supply.generated";
+import type { ComponentRestriction, SupplyAlert, SupplyNotice } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, CheckProgress, CheckStarted, PartAlertRules, RulesRequest, SupplyAlert, SupplyCompliance, SupplyComplianceState, SupplyFact, SupplySvhcList,
+  AlertDetail, AlertRules, CheckProgress, CheckStarted, ComponentRestriction, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PicksMade, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCompliance, SupplyComplianceState, SupplyFact, SupplyNotice, SupplyNoticeCheck, SupplySvhcList,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
+export type RestrictionLevel = ComponentRestriction["level"];
+export type SupplyNoticeKind = SupplyNotice["kind"];
 
 /** How far a supply job has got (backend `progress.job_progress`); jobs add their own details beside it. */
 export interface JobProgress {
@@ -166,28 +168,6 @@ export interface SupplyCapacity {
   quotes?: { parts: number; of: number };
 }
 
-export type SupplyNoticeKind = "end_of_life" | "nrnd" | "last_time_buy" | "change";
-
-/** A manufacturer's product change notice, as a person entered it. */
-export interface SupplyNotice {
-  id: string;
-  title: string;
-  kind: SupplyNoticeKind;
-  kind_label: string;
-  notice_url: string;
-  last_time_buy: string | null;
-  last_time_ship: string | null;
-  notes: string;
-  state: "open" | "closed";
-  created_by: string;
-  parts: number;
-  /** "manual" when a person entered it, else the distributor it was read from. */
-  source: string;
-  source_label: string;
-  /** The date the distributor gives for the notice. */
-  published_on: string | null;
-}
-
 export interface SupplyMarketMetric {
   value: number;
   /** The same figure at the earlier snapshot, or null when none was stored. */
@@ -251,35 +231,6 @@ export interface SupplyComponentStanding {
   stores?: StoresState;
   /** What the library decided about the component: marked for no new designs, or retired. */
   restriction?: RestrictionLevel | null;
-}
-
-export type RestrictionLevel = "not_for_new_designs" | "retired";
-
-/** A library component whose part is ending, with the reason and what a person needs to decide. */
-export interface EndingPart {
-  component: { id: string; name: string; mpn: string; manufacturer: string; stage: string };
-  part_id: string;
-  reasons: Array<{ kind: string; text: string; source: string }>;
-  last_buy: Array<{ source: string; value: string }>;
-  stock: number | null;
-  status: SupplyStatus;
-  projects: Array<{ project_id: string; name: string; quantity: number }>;
-  restriction: { level: RestrictionLevel; reason: string; set_by: string; set_at: string } | null;
-  /** Someone dismissed it for the reasons it has now. */
-  dismissed: boolean;
-  /** Someone asked QA to dismiss it for the reasons it has now. */
-  dismissal_waiting?: boolean;
-  /** Whether the ending part is the component's main part or an approved alternate. */
-  role?: "main" | "alternate";
-  /** The component's other approved parts that are not ending; retiring is offered only when none is left. */
-  healthy?: number;
-}
-
-export interface EndingParts {
-  items: EndingPart[];
-  tracked: number;
-  /** Ending parts beyond the ones listed. */
-  more: number;
 }
 
 export interface SupplyOutlook {
@@ -1043,31 +994,6 @@ export interface SupplyRecentChange {
   sku: string;
 }
 
-export interface FillCandidate {
-  connector_id: string;
-  connector: string;
-  /** The connector's provider key, for its colour. */
-  provider?: string;
-  sku: string;
-  mpn: string;
-  manufacturer: string;
-  description: string;
-  product_url: string;
-  manufacturer_matches: boolean;
-}
-
-export interface FillSearchResult {
-  candidates: FillCandidate[];
-  skipped: Array<{ connector: string; reason: string }>;
-}
-
-export interface FillDetails {
-  description: string;
-  datasheet_url: string;
-  package_name: string;
-  category: string;
-}
-
 export type FindingSeverity = "warning" | "error" | "fatal" | "ok";
 
 export interface SupplyWaiver {
@@ -1310,90 +1236,6 @@ export interface BudgetConnector {
     projects: Array<{ project_id: string; project_name: string; calls_a_day: number }>;
     parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;
   };
-}
-
-/** A tracked part with several listings at a distributor and no pick, and what picking would save. */
-export interface PackagingWaiting {
-  part_id: string;
-  connector_id: string;
-  connector: string;
-  mpn: string;
-  manufacturer: string;
-  listings: number;
-  saves_calls_a_day: number;
-}
-
-export interface PackagingListing {
-  id: string;
-  sku: string;
-  /** The number the distributor lists it under. */
-  raw_mpn?: string;
-  /** It is listed under another number than the part's. */
-  other_number?: boolean;
-  packaging: string;
-  reel_size?: number | null;
-  packaging_inferred?: boolean;
-  moq: number | null;
-  order_multiple: number | null;
-  stock: number | null;
-  lead_time_days: number | null;
-  marketplace: boolean;
-  currency: string;
-  /** Unit price at 1, 100 and 1,000 pieces. */
-  prices: Record<string, string | null>;
-  fetched_at: string | null;
-  /** The distributor's page for the listing. */
-  product_url?: string;
-}
-
-export interface PackagingOptions {
-  part_id: string;
-  connector_id: string;
-  /** The case the part comes in (QFN, SOT-23, 0402); empty when no distributor lists it. */
-  package?: string;
-  picked: string | null;
-  /** Who picked: a person, or "auto" when Prism did. */
-  picked_by?: string;
-  /** Said by Prism's pick when it fell back to a packaging next to the one asked for. */
-  note?: string;
-  saves_calls_a_day: number;
-  /** The viewer may take a listing off the part. */
-  can_unpin?: boolean;
-  listings: PackagingListing[];
-}
-
-/** A tracked part with several listings at a distributor, and the pick there (GET /api/supply/packaging/several). */
-export interface PackagingSeveral {
-  part_id: string;
-  connector_id: string;
-  connector: string;
-  provider: string;
-  mpn: string;
-  manufacturer: string;
-  listings: number;
-  picked_listing: string | null;
-  picked_sku: string;
-  picked_by: string;
-  note: string;
-  /** Listings found after the pick was made. */
-  new_since_pick?: number;
-  saves_calls_a_day: number;
-}
-
-/** What Prism would pick for a part's distributors that wait for a pick. */
-export interface PackagingProposal {
-  connector_id: string;
-  connector: string;
-  listing_id: string;
-  sku: string;
-  packaging: string;
-  note: string;
-  saves_calls_a_day: number;
-}
-
-export interface PackagingSimilar extends PackagingWaiting {
-  listing_id: string;
-  sku: string;
 }
 
 /** Which spare work is on. */

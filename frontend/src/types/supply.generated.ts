@@ -94,6 +94,19 @@ export interface ComponentParts {
   parts: ComponentPart[];
 }
 
+export interface ComponentRestriction {
+  level: "not_for_new_designs" | "retired";
+  reason: string;
+  replacement_component_id: string | null;
+  set_at: string;
+  set_by: string;
+}
+
+export interface ConnectorProblem {
+  connector: string;
+  reason: string;
+}
+
 export interface CreateSourceRequest {
   base_url?: string;
   category_id?: number | null;
@@ -107,6 +120,12 @@ export interface DecisionRequest {
   approve: boolean;
 }
 
+/** A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``). */
+export interface DecisionState {
+  id: string;
+  state: "approved" | "proposed";
+}
+
 export interface DeclaredSubstance {
   cas: string;
   declared_at: string;
@@ -117,11 +136,100 @@ export interface DeclaredSubstance {
   note: string;
 }
 
+export interface DetailsRequest {
+  connector_id: string;
+  manufacturer?: string;
+  mpn: string;
+  sku: string;
+}
+
+export interface DismissIn {
+  /** The reason kinds shown when it was dismissed; a new one brings it back. */
+  reasons: string[];
+}
+
+export interface EndingComponent {
+  id: string;
+  manufacturer: string;
+  mpn: string;
+  name: string;
+  stage: string;
+}
+
+export interface EndingPart {
+  component: EndingComponent;
+  /** Someone asked QA to dismiss it for the reasons it has now. */
+  dismissal_waiting: boolean;
+  /** Someone dismissed it for the reasons it has now. */
+  dismissed: boolean;
+  /** The component's other approved parts that are not ending; retiring is offered only when none is left. */
+  healthy: number;
+  last_buy: LastBuy[];
+  part_id: string;
+  projects: EndingProject[];
+  reasons: EndingReason[];
+  restriction: ComponentRestriction | null;
+  /** Whether the ending part is the component's main part or an approved alternate. */
+  role: "main" | "alternate";
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  stock: number | null;
+}
+
+/** Components whose part is ending, worst first. */
+export interface EndingParts {
+  items: EndingPart[];
+  /** Ending parts beyond the ones listed. */
+  more: number;
+  tracked: number;
+}
+
+export interface EndingProject {
+  name: string;
+  project_id: string;
+  quantity: number;
+}
+
+export interface EndingReason {
+  kind: string;
+  source: string;
+  text: string;
+}
+
 export interface FactSource {
   observed_at: string;
   provider: string;
   source: string;
   value: string;
+}
+
+export interface FillCandidate {
+  connector: string;
+  connector_id: string;
+  description: string;
+  manufacturer: string;
+  manufacturer_matches: boolean;
+  mpn: string;
+  product_url: string;
+  /** The connector's provider key, for its colour. */
+  provider: string;
+  sku: string;
+}
+
+export interface FillDetails {
+  category: string;
+  datasheet_url: string;
+  description: string;
+  package_name: string;
+}
+
+export interface FillSearchResult {
+  candidates: FillCandidate[];
+  skipped: FillSkipped[];
+}
+
+export interface FillSkipped {
+  connector: string;
+  reason: string;
 }
 
 export interface InventorySource {
@@ -149,6 +257,11 @@ export interface IssuedPushToken {
 
 export interface Items<T> {
   items: T[];
+}
+
+export interface LastBuy {
+  source: string;
+  value: string;
 }
 
 export interface LinkRequest {
@@ -212,6 +325,115 @@ export interface NewWorkItem {
   title: string;
 }
 
+export interface NoticeAdded {
+  id: string;
+}
+
+export interface NoticeIn {
+  kind: string;
+  last_time_buy?: string | null;
+  last_time_ship?: string | null;
+  notes?: string;
+  notice_url?: string;
+  parts: NoticePart[];
+  title: string;
+}
+
+export interface NoticePart {
+  manufacturer: string;
+  mpn: string;
+}
+
+export interface PackagingListing {
+  currency: string;
+  fetched_at: string | null;
+  id: string;
+  lead_time_days: number | null;
+  marketplace: boolean;
+  moq: number | null;
+  order_multiple: number | null;
+  /** It is listed under another number than the part's. */
+  other_number: boolean;
+  packaging: string;
+  packaging_inferred: boolean;
+  /** Unit price at 1, 100 and 1,000 pieces. */
+  prices: Record<string, string | null>;
+  /** The distributor's page for the listing. */
+  product_url: string;
+  /** The number the distributor lists it under. */
+  raw_mpn: string;
+  reel_size: number | null;
+  sku: string;
+  stock: number | null;
+}
+
+export interface PackagingOptions {
+  /** The viewer may take a listing off the part. */
+  can_unpin: boolean;
+  connector_id: string;
+  listings: PackagingListing[];
+  /** Said by Prism's pick when it fell back to a packaging next to the one asked for. */
+  note: string;
+  /** The case the part comes in (QFN, SOT-23, 0402); empty when no distributor lists it. */
+  package: string;
+  part_id: string;
+  picked: string | null;
+  /** Who picked: a person, or "auto" when Prism did. */
+  picked_by: string;
+  saves_calls_a_day: number;
+}
+
+export interface PackagingPicked {
+  packaging: string;
+  picked: string;
+  /** Parts still waiting that the same packaging would suit; nothing applies until confirmed. */
+  similar: PackagingSimilar[];
+}
+
+export interface PackagingProposal {
+  connector: string;
+  connector_id: string;
+  listing_id: string;
+  note: string;
+  packaging: string;
+  saves_calls_a_day: number;
+  sku: string;
+}
+
+export interface PackagingProposals {
+  items: PackagingProposal[];
+  saves_calls_a_day: number;
+}
+
+export interface PackagingSeveral {
+  connector: string;
+  connector_id: string;
+  listings: number;
+  manufacturer: string;
+  mpn: string;
+  /** Listings found after the pick was made. */
+  new_since_pick: number;
+  note: string;
+  part_id: string;
+  picked_by: string;
+  picked_listing: string | null;
+  picked_sku: string;
+  provider: string;
+  saves_calls_a_day: number;
+}
+
+export interface PackagingSimilar {
+  connector: string;
+  connector_id: string;
+  listing_id: string;
+  listings: number;
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  saves_calls_a_day: number;
+  sku: string;
+}
+
 /** A part's rules, and the kinds that can be switched off. */
 export interface PartAlertRules {
   /** The chance of being out within four weeks that raises the likely-to-run-out alert; null is the default, 70. */
@@ -223,6 +445,14 @@ export interface PartAlertRules {
   price_rise_percent: number | null;
   target_currency: string;
   target_price: string | null;
+}
+
+export interface PickIn {
+  listing_id: string;
+}
+
+export interface PicksMade {
+  picked: number;
 }
 
 export interface PriceTier {
@@ -300,6 +530,13 @@ export interface PushedOffer {
   stock: number;
 }
 
+export interface RestrictionIn {
+  level: "not_for_new_designs" | "retired";
+  reason?: string;
+  /** The component that takes its place, when there is one. */
+  replacement_component_id?: string;
+}
+
 /** A RoHS exemption a person named from the manufacturer's declaration. */
 export interface RohsExemption {
   code: string;
@@ -313,6 +550,11 @@ export interface RulesRequest {
   price_rise_percent?: number | null;
   target_currency?: string;
   target_price?: string | null;
+}
+
+export interface SearchRequest {
+  manufacturer?: string;
+  mpn: string;
 }
 
 export interface ServerCategory {
@@ -337,6 +579,12 @@ export interface SheetRows {
   rows: string[][];
 }
 
+export interface SimilarIn {
+  connector_id: string;
+  packaging: string;
+  part_ids: string[];
+}
+
 export interface SkippedLine {
   mpn: string;
   reason: string;
@@ -346,6 +594,13 @@ export interface StoresState {
   available: number | null;
   since: string | null;
   state: string;
+}
+
+export interface SubstitutesAsked {
+  asked: number;
+  found: number;
+  problems: ConnectorProblem[];
+  resolved: number;
 }
 
 export interface SupplyAlert {
@@ -401,6 +656,33 @@ export interface SupplyFxRatesSaved {
   /** How many rates were saved. */
   saved: number;
   stale: boolean;
+}
+
+export interface SupplyNotice {
+  created_at: string;
+  created_by: string;
+  id: string;
+  kind: "end_of_life" | "nrnd" | "last_time_buy" | "change";
+  kind_label: string;
+  last_time_buy: string | null;
+  last_time_ship: string | null;
+  notes: string;
+  notice_url: string;
+  parts: number;
+  /** The date the distributor gives for the notice. */
+  published_on: string | null;
+  /** "manual" when a person entered it, else the distributor it was read from. */
+  source: string;
+  source_label: string;
+  state: "open" | "closed";
+  title: string;
+}
+
+export interface SupplyNoticeCheck {
+  connectors: number;
+  new: number;
+  problems: ConnectorProblem[];
+  read: number;
 }
 
 /** The ECHA Candidate List Prism holds. */

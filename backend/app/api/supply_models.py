@@ -14,6 +14,10 @@ from pydantic import BaseModel, ConfigDict
 T = TypeVar("T")
 
 
+#: A part's status, best to worst; ``unknown`` until something that counts has been read.
+SupplyStatus = Literal["ok", "warning", "error", "fatal", "unknown"]
+
+
 class SupplyModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -32,3 +36,10 @@ class JobProgress(SupplyModel):
     total: int
     failed: int
     reason: str
+
+
+class DecisionState(SupplyModel):
+    """A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``)."""
+
+    id: str
+    state: Literal["approved", "proposed"]

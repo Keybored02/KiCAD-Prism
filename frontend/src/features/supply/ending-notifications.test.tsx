@@ -19,6 +19,9 @@ const item = (over: Partial<EndingPart> = {}): EndingPart => ({
   projects: [{ project_id: "pr1", name: "Power board", quantity: 2 }],
   restriction: null,
   dismissed: false,
+  dismissal_waiting: false,
+  role: "main",
+  healthy: 0,
   ...over,
 });
 
@@ -93,7 +96,7 @@ describe("ending parts on the Dashboard", () => {
 
   it("lists only components nobody has decided about, and nothing when there are none", async () => {
     vi.mocked(api.getEndingParts).mockResolvedValue({
-      items: [item({ restriction: { level: "not_for_new_designs", reason: "", set_by: "qa", set_at: "2026-10-17" } }), item({ component: { ...item().component, id: "c2" }, dismissed: true })],
+      items: [item({ restriction: { level: "not_for_new_designs", reason: "", replacement_component_id: null, set_by: "qa", set_at: "2026-10-17" } }), item({ component: { ...item().component, id: "c2" }, dismissed: true })],
       tracked: 2, more: 0,
     });
     const { container } = render(<EndingNotifications role="qa" onOpenComponent={vi.fn()} />);

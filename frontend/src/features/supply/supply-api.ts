@@ -41,7 +41,7 @@ import type {
   SupplySvhcList,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
-import type { SupplyFxRates, SupplyFxRatesSaved } from "@/types/supply.generated";
+import type { SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck } from "@/types/supply.generated";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply";
@@ -244,7 +244,7 @@ function otherSupplyMakerRequest(partId: string, key: string): Promise<{ rejecte
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
-export type { SupplyFxRates, SupplyFxRatesSaved };
+export type { SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck };
 
 export function getFxRates(signal?: AbortSignal): Promise<SupplyFxRates> {
   return fetchJson(`${BASE}/fx`, { signal }, "Could not load the exchange rates");
@@ -422,7 +422,7 @@ export async function findSupplyPart(manufacturer: string, mpn: string, signal?:
 }
 
 /** Ask DigiKey for parts it offers in place of this one. One call, from the interactive reserve; once an hour for a part. */
-export async function askSubstitutes(partId: string): Promise<{ asked: number; found: number; resolved?: number; problems: Array<{ connector: string; reason: string }> }> {
+export async function askSubstitutes(partId: string): Promise<SubstitutesAsked> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/ask-substitutes`, {}, "Could not ask for substitutes");
 }
 
@@ -582,13 +582,6 @@ export interface SupplyReadNow {
 
 /** Read one part from its distributors now. Spends the interactive reserve; once per 15 minutes per person and part. */
 /** What reading a part's notices now found. */
-export interface SupplyNoticeCheck {
-  read: number;
-  new: number;
-  connectors: number;
-  problems: Array<{ connector: string; reason: string }>;
-}
-
 /** Read this part's change notices from the distributors that list them, now. Once an hour per person and part. */
 function checkPartNoticesRequest(partId: string): Promise<SupplyNoticeCheck> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/check-notices`, undefined, "Could not check the notices");
