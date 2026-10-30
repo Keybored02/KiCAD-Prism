@@ -69,7 +69,7 @@ const search = () => screen.getByLabelText("location").textContent ?? "";
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.listPartNotices.mockResolvedValue([]);
-  mocked.getPartCompliance.mockResolvedValue({ rohs: { state: "unknown", reason: "" }, reach: { state: "unknown", reason: "" }, substances: [], list: { loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" } });
+  mocked.getPartCompliance.mockResolvedValue({ rohs: { state: "unknown", reason: "" }, reach: { state: "unknown", reason: "" }, substances: [], exemptions: [], facts: [], list: { loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" } });
   mocked.getPartDatasheet.mockResolvedValue({ url: "" });
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());

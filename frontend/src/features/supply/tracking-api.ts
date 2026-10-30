@@ -1,7 +1,7 @@
 import { fetchJson } from "@/lib/api";
 import type { TrackLine } from "./track-lines-step";
 import type {
-  AlertRules, BudgetConnector, CheckProgress, JobProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, SupplyComponentWatch, SupplyWatch,
+  AlertRules, BudgetConnector, PartAlertRules, RulesRequest, CheckProgress, CheckStarted, JobProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, SupplyComponentWatch, SupplyWatch,
   TrackProgress, TrackingPreview, TrackingRoom, WatchPackaging,
 } from "@/types/supply";
 import { changesSupply } from "./supply-writes";
@@ -127,7 +127,7 @@ export function getTrackingRoom(signal?: AbortSignal): Promise<TrackingRoom> {
 
 export function startCheck(
   kind: "bom" | "component", projectId: string, lines: ReadonlyArray<{ manufacturer: string; mpn: string }>,
-): Promise<{ id: string; parts: number; already_tracked: number; skipped: Array<{ mpn: string; reason: string }>; progress: CheckProgress }> {
+): Promise<CheckStarted> {
   return fetchJson("/api/supply/checks", { method: "POST", body: JSON.stringify({ kind, project_id: projectId, lines }) }, "Could not start the check");
 }
 
@@ -143,7 +143,7 @@ function saveScheduleRequest(settings: ScheduleSettings): Promise<ScheduleSettin
   return fetchJson("/api/supply/schedule", put(settings), "Could not save the schedule");
 }
 
-export function getAlertRules(partId: string, signal?: AbortSignal): Promise<AlertRules & { mutable: string[] }> {
+export function getAlertRules(partId: string, signal?: AbortSignal): Promise<PartAlertRules> {
   return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, { signal }, "Could not load the alert rules");
 }
 
@@ -152,7 +152,7 @@ async function decideMuteRequest(id: string, approve: boolean): Promise<void> {
   await fetchJson(`/api/supply/mutes/${encodeURIComponent(id)}/${approve ? "approve" : "reject"}`, { method: "POST" }, "Could not save the decision");
 }
 
-function saveAlertRulesRequest(partId: string, rules: AlertRules): Promise<AlertRules> {
+function saveAlertRulesRequest(partId: string, rules: Required<RulesRequest>): Promise<AlertRules> {
   const { muted, price_rise_percent, likely_out_percent, target_price, target_currency } = rules;
   return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, put({ muted, price_rise_percent, likely_out_percent: likely_out_percent ?? null, target_price, target_currency }), "Could not save the alert rules");
 }

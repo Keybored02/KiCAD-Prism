@@ -10,11 +10,12 @@ from functools import partial
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
-from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_access import is_approver, require_supply_editor
+from app.api.supply_alerts_models import AlertRules, PartAlertRules, RulesRequest, SnoozeRequest, SupplyAlert
 from app.api.supply_call import run_supply
+from app.api.supply_models import Items
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import alert_rules, alerts, clock
 
@@ -22,18 +23,12 @@ router = APIRouter(prefix="/api/supply", tags=["supply"])
 _run = partial(run_supply, invalid="decided", invalid_status=409, missing=True)
 
 
-class SnoozeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    hours: int = Field(ge=1, le=alerts.MAX_SNOOZE_HOURS)
-
-
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
 
 
-@router.get("/alerts")
+@router.get("/alerts", response_model=Items[SupplyAlert], response_model_exclude_unset=True)
 async def list_alerts(
     include_resolved: bool = Query(default=False),
     _user: AuthenticatedUser = Depends(require_supply_reader),
@@ -68,17 +63,7 @@ async def snooze_alert(
     return Response(status_code=204)
 
 
-class RulesRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    muted: list[str] = Field(default_factory=list, max_length=20)
-    price_rise_percent: int | None = None
-    likely_out_percent: int | None = None
-    target_price: str | None = Field(default=None, max_length=24)
-    target_currency: str = Field(default="", max_length=3)
-
-
-@router.get("/parts/{part_id}/alert-rules")
+@router.get("/parts/{part_id}/alert-rules", response_model=PartAlertRules)
 async def get_alert_rules(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Which alerts are muted for the part, the price rise that matters and its target price."""
 
@@ -89,7 +74,7 @@ async def get_alert_rules(part_id: str, _user: AuthenticatedUser = Depends(requi
     return await _run(read)
 
 
-@router.put("/parts/{part_id}/alert-rules")
+@router.put("/parts/{part_id}/alert-rules", response_model=AlertRules)
 async def put_alert_rules(part_id: str, body: RulesRequest, editor: AuthenticatedUser = Depends(require_supply_editor)) -> dict[str, Any]:
     """Switching an alert off is an approver's; anyone else's waits in To approve (``muting``)."""
 

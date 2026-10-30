@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { AlertRules, SupplyWatchSummary } from "@/types/supply";
+import type { PartAlertRules, RulesRequest, SupplyWatchSummary } from "@/types/supply";
 import { followPart } from "./tracking-api";
 import { parseThreshold } from "./supply-format";
 import { getAlertRules, saveAlertRules } from "./tracking-api";
@@ -23,7 +23,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 function Form({ partId, initial, asking, mutable, watch, onChanged }: {
-  partId: string; initial: AlertRules; asking: string[]; mutable: string[]; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
+  partId: string; initial: Required<RulesRequest>; asking: string[]; mutable: string[]; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(initial);
   // Kinds asked off and waiting for QA: off in the form, so saving again keeps the request.
@@ -103,7 +103,7 @@ export function AlertRulesSection({ partId, canEdit, watch, onChanged }: {
   partId: string; canEdit: boolean; watch?: SupplyWatchSummary | null; onChanged?: () => Promise<void>;
 }) {
   const fetcher = useCallback((signal: AbortSignal) => getAlertRules(partId, signal), [partId]);
-  const { data, status } = useLoaded<AlertRules & { mutable: string[] }>(`parts/${partId}/rules`, fetcher, "Could not load the alert rules");
+  const { data, status } = useLoaded<PartAlertRules>(`parts/${partId}/rules`, fetcher, "Could not load the alert rules");
   if (!canEdit || status !== "ready" || !data) return null;
   return (
     <section aria-label="Alert rules" className="space-y-2">

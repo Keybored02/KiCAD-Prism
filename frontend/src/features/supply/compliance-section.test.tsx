@@ -23,7 +23,9 @@ const mocked = vi.mocked(api);
 const data: SupplyCompliance = {
   rohs: { state: "compliant", reason: "Distributors list the part as RoHS compliant." },
   reach: { state: "affected", reason: "A declared substance is on the Candidate List: Lead." },
-  substances: [{ cas: "7439-92-1", note: "solder", declared_by: "a@example.com", declared_at: "2026-03-01T00:00:00+00:00", listed_as: "Lead" }],
+  substances: [{ cas: "7439-92-1", note: "solder", declared_by: "a@example.com", declared_at: "2026-03-01T00:00:00+00:00", listed_as: "Lead", from_distributor: false }],
+  exemptions: [],
+  facts: [],
   list: { loaded: true, substances: 233, loaded_at: "2026-03-01T00:00:00+00:00", loaded_by: "admin@example.com", source_name: "list.csv" },
 };
 
