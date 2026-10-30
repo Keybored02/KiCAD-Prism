@@ -83,7 +83,7 @@ describe("alternatives to a part", () => {
 
   it("asks DigiKey for substitutes and shows what it names, or why it could not", async () => {
     vi.mocked(api.getCrossReference).mockResolvedValue({ ...result, suggestions });
-    vi.mocked(api.askSubstitutes).mockResolvedValue({ asked: 1, found: 3, problems: [] });
+    vi.mocked(api.askSubstitutes).mockResolvedValue({ asked: 1, found: 3, resolved: 0, problems: [] });
     render(<CrossReferenceSection partId="p1" canEdit />);
     fireEvent.click(await screen.findByRole("button", { name: "Ask DigiKey for substitutes" }));
     await waitFor(() => expect(api.askSubstitutes).toHaveBeenCalledWith("p1"));

@@ -21,7 +21,7 @@ const part = { id: "p1", manufacturer: "Acme", mpn: "ABC-1" };
 
 const notice: SupplyNotice = {
   id: "n1", title: "PCN-1234", kind: "end_of_life", kind_label: "End of life", notice_url: "https://acme.example/pcn.pdf",
-  last_time_buy: "2026-04-15", last_time_ship: null, notes: "", state: "open", created_by: "a@example.com", parts: 3,
+  last_time_buy: "2026-04-15", last_time_ship: null, notes: "", state: "open", created_by: "a@example.com", created_at: "2026-03-01T00:00:00+00:00", parts: 3,
   source: "manual", source_label: "Entered by hand", published_on: null,
 };
 

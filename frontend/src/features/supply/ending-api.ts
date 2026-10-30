@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { EndingParts, RestrictionLevel } from "@/types/supply";
+import type { DecisionState, EndingParts, RestrictionLevel } from "@/types/supply";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply/ending";
@@ -29,7 +29,7 @@ async function retireComponentRequest(componentId: string, reason: string): Prom
 }
 
 /** Nothing to do about this component for these reasons; a new reason brings it back. */
-async function dismissEndingRequest(componentId: string, reasons: string[]): Promise<{ id: string; state: "approved" | "proposed" }> {
+async function dismissEndingRequest(componentId: string, reasons: string[]): Promise<DecisionState> {
   return fetchJson(`${BASE}/${encodeURIComponent(componentId)}/dismissal`, { method: "PUT", body: JSON.stringify({ reasons }) }, "Could not dismiss it");
 }
 

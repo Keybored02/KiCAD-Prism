@@ -12,6 +12,7 @@ vi.mock("./fill-api", () => mocked);
 const candidate: FillCandidate = {
   connector_id: "c1",
   connector: "Mouser",
+  provider: "mouser",
   sku: "595-LM358DR",
   mpn: "LM358DR",
   manufacturer: "Texas Instruments",

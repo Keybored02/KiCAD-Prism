@@ -1267,6 +1267,14 @@ class ComponentReleaseRecordPage(TypedDict, total=True):
     items: list[ComponentReleaseRecord]
 
 
+class ComponentRestriction(TypedDict, total=True):
+    level: str
+    reason: str
+    replacement_component_id: str | None
+    set_at: str
+    set_by: str
+
+
 class ComponentReviewDecision(TypedDict, total=True):
     component_id: str
     created_at: str
@@ -1343,6 +1351,11 @@ class ConnectorCredentials(TypedDict, total=False):
     oauthClientSecret: str
     privateKey: str
     webhookSecret: str
+
+
+class ConnectorProblem(TypedDict, total=True):
+    connector: str
+    reason: str
 
 
 class CreateCommentRequest(TypedDict, total=False):
@@ -1514,6 +1527,12 @@ class DebugLoggingWindow(TypedDict, total=True):
 
 class DecisionRequest(TypedDict, total=True):
     approve: bool
+
+
+class DecisionState(TypedDict, total=True):
+    """A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``)."""
+    id: str
+    state: str
 
 
 class Declaration(TypedDict, total=False):
@@ -1799,6 +1818,48 @@ class DrillTool(TypedDict, total=True):
     slots: int
 
 
+class EndingComponent(TypedDict, total=True):
+    id: str
+    manufacturer: str
+    mpn: str
+    name: str
+    stage: str
+
+
+class EndingPart(TypedDict, total=True):
+    component: EndingComponent
+    dismissal_waiting: bool
+    dismissed: bool
+    healthy: int
+    last_buy: list[LastBuy]
+    part_id: str
+    projects: list[EndingProject]
+    reasons: list[EndingReason]
+    restriction: ComponentRestriction | None
+    role: str
+    status: str
+    stock: int | None
+
+
+class EndingParts(TypedDict, total=True):
+    """Components whose part is ending, worst first."""
+    items: list[EndingPart]
+    more: int
+    tracked: int
+
+
+class EndingProject(TypedDict, total=True):
+    name: str
+    project_id: str
+    quantity: int
+
+
+class EndingReason(TypedDict, total=True):
+    kind: str
+    source: str
+    text: str
+
+
 class EventAndWebhookHealth(TypedDict, total=False):
     events_last_hour: list[EventKindCount]
     head_cursor: int
@@ -1884,6 +1945,35 @@ class FileItem(TypedDict, total=True):
     path: str
     size: int
     type: str
+
+
+class FillCandidate(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    description: str
+    manufacturer: str
+    manufacturer_matches: bool
+    mpn: str
+    product_url: str
+    provider: str
+    sku: str
+
+
+class FillDetails(TypedDict, total=True):
+    category: str
+    datasheet_url: str
+    description: str
+    package_name: str
+
+
+class FillSearchResult(TypedDict, total=True):
+    candidates: list[FillCandidate]
+    skipped: list[FillSkipped]
+
+
+class FillSkipped(TypedDict, total=True):
+    connector: str
+    reason: str
 
 
 class FingerprintRecord(TypedDict, total=True):
@@ -2364,8 +2454,16 @@ class IssuedPushToken(TypedDict, total=True):
     token: str
 
 
+class Items_PackagingSeveral_(TypedDict, total=True):
+    items: list[PackagingSeveral]
+
+
 class Items_SupplyAlert_(TypedDict, total=True):
     items: list[SupplyAlert]
+
+
+class Items_SupplyNotice_(TypedDict, total=True):
+    items: list[SupplyNotice]
 
 
 class Items_SupplyWorkItem_(TypedDict, total=True):
@@ -2583,6 +2681,11 @@ class LabelsBody(TypedDict, total=False):
     boardPrefix: str
     classPrefix: str
     severityPrefix: str
+
+
+class LastBuy(TypedDict, total=True):
+    source: str
+    value: str
 
 
 class LatencyTotals(TypedDict, total=True):
@@ -3059,6 +3162,10 @@ class NewWorkItem(TypedDict, total=False):
     title: str
 
 
+class NoticeAdded(TypedDict, total=True):
+    id: str
+
+
 class NoticeIn(TypedDict, total=False):
     kind: str
     last_time_buy: str | None
@@ -3111,6 +3218,86 @@ class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
     tools: list[str]
+
+
+class PackagingListing(TypedDict, total=True):
+    currency: str
+    fetched_at: str | None
+    id: str
+    lead_time_days: int | None
+    marketplace: bool
+    moq: int | None
+    order_multiple: int | None
+    other_number: bool
+    packaging: str
+    packaging_inferred: bool
+    prices: dict[str, str | None]
+    product_url: str
+    raw_mpn: str
+    reel_size: int | None
+    sku: str
+    stock: int | None
+
+
+class PackagingOptions(TypedDict, total=True):
+    can_unpin: bool
+    connector_id: str
+    listings: list[PackagingListing]
+    note: str
+    package: str
+    part_id: str
+    picked: str | None
+    picked_by: str
+    saves_calls_a_day: int | float
+
+
+class PackagingPicked(TypedDict, total=True):
+    packaging: str
+    picked: str
+    similar: list[PackagingSimilar]
+
+
+class PackagingProposal(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listing_id: str
+    note: str
+    packaging: str
+    saves_calls_a_day: int | float
+    sku: str
+
+
+class PackagingProposals(TypedDict, total=True):
+    items: list[PackagingProposal]
+    saves_calls_a_day: int | float
+
+
+class PackagingSeveral(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listings: int
+    manufacturer: str
+    mpn: str
+    new_since_pick: int
+    note: str
+    part_id: str
+    picked_by: str
+    picked_listing: str | None
+    picked_sku: str
+    provider: str
+    saves_calls_a_day: int | float
+
+
+class PackagingSimilar(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listing_id: str
+    listings: int
+    manufacturer: str
+    mpn: str
+    part_id: str
+    saves_calls_a_day: int | float
+    sku: str
 
 
 class PartAlertRules(TypedDict, total=True):
@@ -3193,6 +3380,10 @@ class PersonalTokenView(TypedDict, total=False):
 
 class PickIn(TypedDict, total=True):
     listing_id: str
+
+
+class PicksMade(TypedDict, total=True):
+    picked: int
 
 
 class PinCommentRequest(TypedDict, total=True):
@@ -4241,6 +4432,13 @@ class Subsheets(TypedDict, total=True):
     files: list[SubsheetFile]
 
 
+class SubstitutesAsked(TypedDict, total=True):
+    asked: int
+    found: int
+    problems: list[ConnectorProblem]
+    resolved: int
+
+
 class SuffixBody(TypedDict, total=True):
     ending: str
     kind: str
@@ -4301,6 +4499,31 @@ class SupplyFxRatesSaved(TypedDict, total=True):
     day: str | None
     saved: int
     stale: bool
+
+
+class SupplyNotice(TypedDict, total=True):
+    created_at: str
+    created_by: str
+    id: str
+    kind: str
+    kind_label: str
+    last_time_buy: str | None
+    last_time_ship: str | None
+    notes: str
+    notice_url: str
+    parts: int
+    published_on: str | None
+    source: str
+    source_label: str
+    state: str
+    title: str
+
+
+class SupplyNoticeCheck(TypedDict, total=True):
+    connectors: int
+    new: int
+    problems: list[ConnectorProblem]
+    read: int
 
 
 class SupplySource(TypedDict, total=True):
@@ -5059,7 +5282,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_notice(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_notice(self, *, body: dict[str, Any] | None = None) -> NoticeAdded:
         """Add Notice"""
         return self._request(
             "POST",
@@ -5125,7 +5348,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def apply_proposed(self, part_id: str) -> dict[str, int]:
+    def apply_proposed(self, part_id: str) -> PicksMade:
         """Apply Proposed"""
         return self._request(
             "POST",
@@ -5133,7 +5356,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def apply_similar(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def apply_similar(self, *, body: dict[str, Any] | None = None) -> PicksMade:
         """Apply Similar"""
         return self._request(
             "POST",
@@ -5174,7 +5397,7 @@ class GeneratedClient:
             path_params={"field_id": field_id},
         )
 
-    def ask_substitutes(self, part_id: str) -> dict[str, Any]:
+    def ask_substitutes(self, part_id: str) -> SubstitutesAsked:
         """Ask Substitutes"""
         return self._request(
             "POST",
@@ -5303,7 +5526,7 @@ class GeneratedClient:
             path_params={"source_id": source_id},
         )
 
-    def check_notices(self, part_id: str) -> dict[str, Any]:
+    def check_notices(self, part_id: str) -> SupplyNoticeCheck:
         """Check Notices"""
         return self._request(
             "POST",
@@ -5866,7 +6089,7 @@ class GeneratedClient:
             path_params={"component_id": component_id, "asset_id": asset_id},
         )
 
-    def details(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def details(self, *, body: dict[str, Any] | None = None) -> FillDetails:
         """Details"""
         return self._request(
             "POST",
@@ -5891,7 +6114,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def dismiss_ending(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+    def dismiss_ending(self, component_id: str, *, body: dict[str, Any] | None = None) -> DecisionState:
         """Dismiss Ending"""
         return self._request(
             "PUT",
@@ -7310,7 +7533,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def list_ending(self) -> dict[str, Any]:
+    def list_ending(self) -> EndingParts:
         """List Ending"""
         return self._request(
             "GET",
@@ -7733,7 +7956,7 @@ class GeneratedClient:
             "/api/v1/ops/status",
         )
 
-    def options(self, part_id: str, connector_id: str) -> dict[str, Any]:
+    def options(self, part_id: str, connector_id: str) -> PackagingOptions:
         """Options"""
         return self._request(
             "GET",
@@ -7775,7 +7998,7 @@ class GeneratedClient:
             query={"scope": scope, "only": only, "q": q, "vendor": vendor},
         )
 
-    def part_notices(self, part_id: str) -> dict[str, Any]:
+    def part_notices(self, part_id: str) -> Items_SupplyNotice_:
         """Part Notices"""
         return self._request(
             "GET",
@@ -7817,7 +8040,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def pick(self, part_id: str, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def pick(self, part_id: str, connector_id: str, *, body: dict[str, Any] | None = None) -> PackagingPicked:
         """Pick"""
         return self._request(
             "PUT",
@@ -7991,7 +8214,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def proposed(self, part_id: str) -> dict[str, Any]:
+    def proposed(self, part_id: str) -> PackagingProposals:
         """Proposed"""
         return self._request(
             "GET",
@@ -8590,7 +8813,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def search(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def search(self, *, body: dict[str, Any] | None = None) -> FillSearchResult:
         """Search"""
         return self._request(
             "POST",
@@ -8675,7 +8898,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_restriction(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def set_restriction(self, component_id: str, *, body: dict[str, Any] | None = None) -> ComponentRestriction:
         """Set Restriction"""
         return self._request(
             "PUT",
@@ -8711,7 +8934,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def several(self) -> dict[str, Any]:
+    def several(self) -> Items_PackagingSeveral_:
         """Several"""
         return self._request(
             "GET",
