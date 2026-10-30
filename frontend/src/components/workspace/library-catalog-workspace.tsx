@@ -121,6 +121,9 @@ const formatDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? value : DATE_FORMAT.format(date);
 };
 
+// Every column heading, sortable or not, is the same box so the header row lines up.
+const HEADING = "flex min-w-0 items-center text-xs font-medium text-muted-foreground";
+
 function SortControl({
   label,
   sortKey,
@@ -139,7 +142,7 @@ function SortControl({
   return (
     <button
       type="button"
-      className={cn("inline-flex items-center gap-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "text-foreground")}
+      className={cn(HEADING, "gap-1 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "text-foreground")}
       onClick={() => onSort(sortKey)}
       aria-label={`Sort by ${label}${active ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}
       aria-pressed={active}
@@ -410,15 +413,15 @@ export function LibraryCatalogWorkspace({
               onScroll={catalogViewport.onScroll}
             >
             <div className={supplyColumn ? "min-w-[1140px]" : "min-w-[980px]"}>
-            <div className="sticky top-0 z-10 grid gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: gridTemplate }}>
-              <span className="min-w-0"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="min-w-0"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="min-w-0"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="min-w-0"><SortControl label="CAD" sortKey="availability_state" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="min-w-0"><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="min-w-0 text-xs font-medium text-muted-foreground">Validation</span>
-              <span className="min-w-0"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              {supplyColumn ? <span className="min-w-0 text-xs font-medium text-muted-foreground">Supply</span> : null}
+            <div className="sticky top-0 z-10 grid items-center gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: gridTemplate }}>
+              <span className="flex min-w-0"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="flex min-w-0"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="flex min-w-0"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="flex min-w-0"><SortControl label="CAD" sortKey="availability_state" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="flex min-w-0"><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className={HEADING}>Validation</span>
+              <span className="flex min-w-0"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              {supplyColumn ? <span className={HEADING}>Supply</span> : null}
             </div>
               <div className="relative" style={{ height: items.length * CATALOG_ROW_HEIGHT }}>
               {visibleItems.map((component, visibleIndex) => (
