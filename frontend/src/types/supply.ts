@@ -1,13 +1,14 @@
-import type { AssessmentSettings, ComponentRestriction, SupplyAlert, SupplyNotice } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, SupplyAlert, SupplyConnector, SupplyNotice } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, CheckProgress, CheckStarted, ComponentRestriction, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PicksMade, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCompliance, SupplyComplianceState, SupplyFact, SupplyMakerGroup, SupplyNotice, SupplyNoticeCheck, SupplySvhcList,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PicksMade, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCapacity, SupplyCompliance, SupplyComplianceState, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyHealth, SupplyMakerGroup, SupplyNotice, SupplyNoticeCheck, SupplyProvider, SupplySignin, SupplySvhcList, UpdateSupplyConnectorInput,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
 export type RestrictionLevel = ComponentRestriction["level"];
 export type SupplyNoticeKind = SupplyNotice["kind"];
 export type AssessmentSeverity = AssessmentSettings["severity"][string];
+export type SupplyCredentialStatus = SupplyConnector["credentials_status"];
 
 /** How far a supply job has got (backend `progress.job_progress`); jobs add their own details beside it. */
 export interface JobProgress {
@@ -18,155 +19,10 @@ export interface JobProgress {
   reason: string;
 }
 
-export type SupplyCredentialStatus = "none" | "ready" | "locked" | "unknown_key";
-
-export interface SupplyCredentialField {
-  name: string;
-  label: string;
-  secret: boolean;
-}
-
-export interface SupplyProvider {
-  key: string;
-  label: string;
-  capabilities: string[];
-  max_batch: number;
-  stock_pooling: "pooled" | "separate";
-  credential_fields: SupplyCredentialField[];
-  storefronts: string[];
-  default_daily_budget: number;
-  /** False when calls cost nothing (local data), so no call budget applies. */
-  metered: boolean;
-  /** The provider's offers come from an uploaded file, not from calls to the distributor. */
-  csv_fed: boolean;
-}
-
-export interface SupplyCsvImport {
-  filename: string;
-  imported_by: string;
-  imported_at: string;
-  row_count: number;
-}
-
 export interface SupplyCsvRowError {
   line: number;
   column: string;
   message: string;
-}
-
-export interface SupplyCsvResult extends SupplyCsvImport {
-  ignored_columns: string[];
-}
-
-export interface SupplyConnector {
-  /** For an administrator, on a connector whose change notices need a person's sign-in: that sign-in. */
-  signin?: SupplySignin;
-  id: string;
-  provider: string;
-  provider_label: string;
-  provider_available: boolean;
-  storefront: string;
-  display_name: string;
-  currency: string;
-  enabled: boolean;
-  paused_reason: string;
-  daily_budget: number;
-  interactive_reserve_pct: number;
-  /** Days raw samples are kept before they are rolled into daily rows; null is the default (60). */
-  retention_days: number | null;
-  /** Days any history is kept, daily rows included; null keeps it for good. */
-  keep_days: number | null;
-  /** The distributor's terms limit storage: prices of parts not in use are kept only for a day after a read. */
-  limits_storage: boolean;
-  /** The administrator holds the distributor's written leave to keep them. */
-  keep_unused: boolean;
-  /** Offers come from the provider's published catalogue (jlcparts) instead of an uploaded file. */
-  catalogue: boolean;
-  catalogue_available: boolean;
-  metered: boolean;
-  /** The connector's offers come from an uploaded file. */
-  csv_fed: boolean;
-  /** Read only for a project that names it (JLCPCB: stock that feeds its own assembly). */
-  assembly_only?: boolean;
-  /** When the provider's day begins, and in which time zone. */
-  reset_time?: string;
-  reset_tz?: string;
-  /** Rate-limit headers the provider sent with its last answer, per API (DigiKey: products, changenotifications), by lower-case name. */
-  rate_limits?: Record<string, Record<string, string>>;
-  rate_limits_at?: string | null;
-  /** The reset time was taken from what the provider reported, so its own count of calls is trusted. */
-  reset_from_provider?: boolean;
-  /** When the provider's day seems to reset (UTC), once readings from different days agree. */
-  reset_suggestion?: { from: string; to: string; suggested: string; tz: string; windows: number } | null;
-  csv_import: SupplyCsvImport | null;
-  usage_today: { spent: number; interactive_spent: number };
-  /** Which credentials are set. Values are never returned. */
-  credentials: Record<string, boolean>;
-  credentials_status: SupplyCredentialStatus;
-  last_ok_at: string | null;
-  last_error_code: string;
-  last_error_at: string | null;
-  /** The connector rests, making no calls, until this time (after a refusal, a rate limit or errors in a row). */
-  cooldown_until?: string | null;
-  /** Refusals in a row at a provider with no credentials; each rests longer. */
-  block_streak?: number;
-  /** Calls are spaced twice as far apart until this time, after a refusal. */
-  slow_until?: string | null;
-  created_by: string;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-export interface CreateSupplyConnectorInput {
-  provider: string;
-  storefront: string;
-  display_name: string;
-  currency: string;
-  credentials: Record<string, string>;
-  daily_budget: number;
-  interactive_reserve_pct: number;
-}
-
-export interface UpdateSupplyConnectorInput {
-  display_name?: string;
-  currency?: string;
-  enabled?: boolean;
-  daily_budget?: number;
-  interactive_reserve_pct?: number;
-  retention_days?: number | null;
-  keep_days?: number | null;
-  keep_unused?: boolean;
-  catalogue?: boolean;
-  storefront?: string;
-  reset_time?: string;
-  reset_tz?: string;
-  reset_from_provider?: boolean;
-}
-
-/** The outcome of one real call to a provider. A failure is a result, not an error. */
-export interface SupplyConnectorCheck {
-  ok: boolean;
-  /** "ok", a provider error code, or "inactive" / "budget" / "unknown_provider". */
-  code: string;
-  message: string;
-  took_ms: number;
-  checked_at: string;
-}
-
-/** Whether a connector's budget keeps up with what is watched. Metered connectors only. */
-export interface SupplyCapacity {
-  connector_id: string;
-  name: string;
-  listings: number;
-  calls_per_day: number;
-  usable_per_day: number;
-  /** Share of reads that will run later than their tier asks. */
-  shortfall_pct: number;
-  fits: boolean;
-  /** Watched parts not yet searched for at this connector. */
-  searches_pending: number;
-  /** Of the tracked parts, how many this connector gives a price for. */
-  quotes?: { parts: number; of: number };
 }
 
 export interface SupplyMarketMetric {
@@ -242,17 +98,6 @@ export interface SupplyOutlook {
 }
 
 /** RoHS and REACH of a part, and the substances a supplier declared for it. */
-/** Whether someone is signed in at DigiKey for change notices. Never the tokens. */
-export interface SupplySignin {
-  signed_in: boolean;
-  state: "none" | "ok" | "expired" | "refused";
-  granted_by: string;
-  granted_at: string | null;
-  expires_at: string | null;
-  /** The address the DigiKey app must list as its callback. */
-  redirect_uri: string;
-}
-
 /** A note on a line of a project's BOM. */
 export interface SupplyBomComment {
   id: string;

@@ -110,6 +110,11 @@ export interface AssessmentSettingsView {
   settings: AssessmentSettings;
 }
 
+export interface CallsToday {
+  interactive_spent: number;
+  spent: number;
+}
+
 export interface CheckLine {
   manufacturer?: string;
   mpn?: string;
@@ -160,6 +165,25 @@ export interface ComponentRestriction {
   set_by: string;
 }
 
+export interface ConnectorHealth {
+  budget: number | null;
+  calls_today: number;
+  connector_id: string;
+  enabled: boolean;
+  failing: number;
+  interactive_calls_today: number;
+  last_error_at: string | null;
+  last_error_code: string;
+  last_ok_at: string | null;
+  late: number;
+  late_by_hours: number;
+  listings: number;
+  name: string;
+  oldest_read: string | null;
+  paused_reason: string;
+  provider: string;
+}
+
 export interface ConnectorProblem {
   connector: string;
   reason: string;
@@ -172,6 +196,20 @@ export interface CreateSourceRequest {
   interval_hours?: number;
   kind?: "inventree" | "push";
   token?: string;
+}
+
+export interface CreateSupplyConnectorInput {
+  credentials?: Record<string, string>;
+  currency?: string;
+  daily_budget?: number | null;
+  display_name?: string;
+  interactive_reserve_pct?: number;
+  provider: string;
+  storefront?: string;
+}
+
+export interface CredentialsRequest {
+  credentials: Record<string, string>;
 }
 
 export interface DecisionRequest {
@@ -517,6 +555,10 @@ export interface PartAlertRules {
   target_price: string | null;
 }
 
+export interface PauseRequest {
+  reason: string;
+}
+
 export interface PickIn {
   listing_id: string;
 }
@@ -598,6 +640,20 @@ export interface PushedOffer {
   rohs?: boolean | null;
   sku: string;
   stock: number;
+}
+
+export interface QuoteCoverage {
+  of: number;
+  parts: number;
+}
+
+/** When the provider's day seems to reset (UTC), once readings from different days agree. */
+export interface ResetSuggestion {
+  from: string;
+  suggested: string;
+  to: string;
+  tz: string;
+  windows: number;
 }
 
 export interface RestrictionIn {
@@ -704,6 +760,21 @@ export interface SupplyAlert {
   state: "open" | "acknowledged" | "snoozed" | "resolved";
 }
 
+export interface SupplyCapacity {
+  calls_per_day: number;
+  connector_id: string;
+  fits: boolean;
+  listings: number;
+  name: string;
+  /** Of the tracked parts, how many this connector gives a price for. */
+  quotes: QuoteCoverage;
+  /** Watched parts not yet searched for at this connector. */
+  searches_pending: number;
+  /** Share of reads that will run later than their tier asks. */
+  shortfall_pct: number;
+  usable_per_day: number;
+}
+
 /** RoHS and REACH of a part, and the substances a supplier declared for it. */
 export interface SupplyCompliance {
   exemptions: RohsExemption[];
@@ -717,6 +788,94 @@ export interface SupplyCompliance {
 export interface SupplyComplianceState {
   reason: string;
   state: string;
+}
+
+export interface SupplyConnector {
+  /** Read only for a project that names it (JLCPCB: stock that feeds its own assembly). */
+  assembly_only: boolean;
+  /** Refusals in a row at a provider with no credentials; each rests longer. */
+  block_streak: number;
+  /** Offers come from the provider's published catalogue (jlcparts) instead of an uploaded file. */
+  catalogue: boolean;
+  catalogue_available: boolean;
+  /** The connector rests, making no calls, until this time (after a refusal, a rate limit or errors in a row). */
+  cooldown_until: string | null;
+  created_at: string | null;
+  created_by: string;
+  /** Which credentials are set. Values are never returned. */
+  credentials: Record<string, boolean>;
+  credentials_status: "none" | "ready" | "locked" | "unknown_key";
+  /** The connector's offers come from an uploaded file. */
+  csv_fed: boolean;
+  csv_import: SupplyCsvImport | null;
+  currency: string;
+  daily_budget: number;
+  display_name: string;
+  enabled: boolean;
+  id: string;
+  interactive_reserve_pct: number;
+  /** Days any history is kept, daily rows included; null keeps it for good. */
+  keep_days: number | null;
+  /** The administrator holds the distributor's written leave to keep them. */
+  keep_unused: boolean;
+  last_error_at: string | null;
+  last_error_code: string;
+  last_ok_at: string | null;
+  /** The distributor's terms limit storage: prices of parts not in use are kept only for a day after a read. */
+  limits_storage: boolean;
+  metered: boolean;
+  paused_reason: string;
+  provider: string;
+  provider_available: boolean;
+  provider_label: string;
+  /** Rate-limit headers the provider sent with its last answer, per API, by lower-case name. */
+  rate_limits: Record<string, Record<string, string>>;
+  rate_limits_at: string | null;
+  /** The reset time was taken from what the provider reported, so its own count of calls is trusted. */
+  reset_from_provider: boolean;
+  reset_suggestion: ResetSuggestion | null;
+  /** When the provider's day begins, and in which time zone. */
+  reset_time: string;
+  reset_tz: string;
+  /** Days raw samples are kept before they are rolled into daily rows; null is the default (60). */
+  retention_days: number | null;
+  /** For an administrator, on a connector whose change notices need a person's sign-in: that sign-in. */
+  signin?: SupplySignin;
+  /** Calls are spaced twice as far apart until this time, after a refusal. */
+  slow_until: string | null;
+  storefront: string;
+  updated_at: string | null;
+  usage_today: CallsToday;
+}
+
+export interface SupplyConnectorCheck {
+  checked_at: string;
+  /** "ok", a provider error code, or "inactive" / "budget" / "unknown_provider". */
+  code: string;
+  message: string;
+  ok: boolean;
+  took_ms: number;
+}
+
+export interface SupplyCredentialField {
+  label: string;
+  name: string;
+  secret: boolean;
+}
+
+export interface SupplyCsvImport {
+  filename: string;
+  imported_at: string;
+  imported_by: string;
+  row_count: number;
+}
+
+export interface SupplyCsvResult {
+  filename: string;
+  ignored_columns: string[];
+  imported_at: string;
+  imported_by: string;
+  row_count: number;
 }
 
 /** One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source. */
@@ -741,6 +900,12 @@ export interface SupplyFxRatesSaved {
   /** How many rates were saved. */
   saved: number;
   stale: boolean;
+}
+
+/** Calls against budget, errors and late reads per connector, and the periodic tasks' runs. */
+export interface SupplyHealth {
+  connectors: ConnectorHealth[];
+  tasks: TaskRun[];
 }
 
 export interface SupplyMakerGroup {
@@ -783,6 +948,31 @@ export interface SupplyNumberEnding {
   suffix_text: string;
 }
 
+export interface SupplyProvider {
+  capabilities: string[];
+  credential_fields: SupplyCredentialField[];
+  /** The provider's offers come from an uploaded file, not from calls to the distributor. */
+  csv_fed: boolean;
+  default_daily_budget: number;
+  key: string;
+  label: string;
+  max_batch: number;
+  /** False when calls cost nothing (local data), so no call budget applies. */
+  metered: boolean;
+  stock_pooling: "pooled" | "separate";
+  storefronts: string[];
+}
+
+export interface SupplySignin {
+  expires_at: string | null;
+  granted_at: string | null;
+  granted_by: string;
+  /** The address the DigiKey app must list as its callback. */
+  redirect_uri: string;
+  signed_in: boolean;
+  state: "none" | "ok" | "expired" | "refused";
+}
+
 /** The ECHA Candidate List Prism holds. */
 export interface SupplySvhcList {
   loaded: boolean;
@@ -821,6 +1011,16 @@ export interface SyncResult {
   unmatched?: number;
 }
 
+export interface TaskRun {
+  every_seconds: number;
+  last_error: string;
+  last_error_at: string | null;
+  last_ok_at: string | null;
+  name: string;
+  next_at: string | null;
+  started_at: string | null;
+}
+
 export interface UnmatchedPart {
   ipn: string;
   linked_at?: string | null;
@@ -844,6 +1044,22 @@ export interface UpdateSourceRequest {
   enabled?: boolean | null;
   interval_hours?: number | null;
   token?: string | null;
+}
+
+export interface UpdateSupplyConnectorInput {
+  catalogue?: boolean | null;
+  currency?: string | null;
+  daily_budget?: number | null;
+  display_name?: string | null;
+  enabled?: boolean | null;
+  interactive_reserve_pct?: number | null;
+  keep_days?: number | null;
+  keep_unused?: boolean | null;
+  reset_from_provider?: boolean | null;
+  reset_time?: string | null;
+  reset_tz?: string | null;
+  retention_days?: number | null;
+  storefront?: string | null;
 }
 
 export interface WorkItemChange {

@@ -21,6 +21,16 @@ export function connectorFixture(overrides: Partial<SupplyConnector> = {}): Supp
     interactive_reserve_pct: 10,
     metered: true,
     csv_fed: false,
+    assembly_only: false,
+    reset_time: "00:00",
+    reset_tz: "UTC",
+    rate_limits: {},
+    rate_limits_at: null,
+    reset_from_provider: false,
+    reset_suggestion: null,
+    cooldown_until: null,
+    block_streak: 0,
+    slow_until: null,
     csv_import: null,
     usage_today: { spent: 120, interactive_spent: 0 },
     credentials: { api_key: true },
@@ -122,7 +132,7 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
 export function capacityFixture(overrides: Partial<SupplyCapacity> = {}): SupplyCapacity {
   return {
     connector_id: "c1", name: "Demo EU", listings: 12, calls_per_day: 66, usable_per_day: 900,
-    shortfall_pct: 0, fits: true, searches_pending: 0, ...overrides,
+    shortfall_pct: 0, fits: true, searches_pending: 0, quotes: { parts: 0, of: 0 }, ...overrides,
   };
 }
 

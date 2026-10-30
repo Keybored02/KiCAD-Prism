@@ -611,8 +611,8 @@ class DetailsTests(unittest.TestCase):
             self.assertEqual(back.headers["location"], "/?section=supply&supplyView=sources&signin=ok")
             again = _request(self.app, "GET", "/api/supply/oauth/digikey/callback", user=self.users["admin"], query=f"code=abc&state={state}")
             self.assertTrue(again.headers["location"].endswith("&signin=failed&reason=expired"), again.headers["location"])
-            listed = _request(self.app, "GET", "/api/supply/connectors", user=self.users["admin"]).json
-            as_designer = _request(self.app, "GET", "/api/supply/connectors", user=self.users["designer"]).json
+            listed = _request(self.app, "GET", "/api/supply/connectors", user=self.users["admin"]).json["items"]
+            as_designer = _request(self.app, "GET", "/api/supply/connectors", user=self.users["designer"]).json["items"]
         status = next(item for item in listed if item["id"] == self.digikey)["signin"]
         self.assertEqual((status["signed_in"], status["redirect_uri"]), (True, "https://prism.example/api/supply/oauth/digikey/callback"))
         self.assertNotIn("signin", next(item for item in as_designer if item["id"] == self.digikey), "only administrators see who signed in")
