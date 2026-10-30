@@ -11,10 +11,10 @@ import * as trackingApi from "./tracking-api";
 
 const result = {
   candidates: [
-    { part_id: "p2", manufacturer: "Globex", mpn: "G-10K", grade: "ratings_met" as const, grade_label: "Ratings met", same: ["resistance", "package"], differs: [], stock: 500, status: "ok" as const, lifecycle: "active" as const },
-    { part_id: "p3", manufacturer: "Globex", mpn: "G-10K-0805", grade: "other_package" as const, grade_label: "Same value, other package", same: ["resistance"], differs: ["package"], stock: null, status: "unknown" as const, lifecycle: "unknown" as const },
+    { part_id: "p2", manufacturer: "Globex", mpn: "G-10K", grade: "ratings_met" as const, grade_label: "Ratings met", same: ["resistance", "package"], differs: [], unknown: [], stock: 500, status: "ok" as const, lifecycle: "active" as const },
+    { part_id: "p3", manufacturer: "Globex", mpn: "G-10K-0805", grade: "other_package" as const, grade_label: "Same value, other package", same: ["resistance"], differs: ["package"], unknown: [], stock: null, status: "unknown" as const, lifecycle: "unknown" as const },
   ],
-  suggested_by_distributors: ["R-10K-NEW"], judged_on: ["resistance", "package"],
+  suggested_by_distributors: ["R-10K-NEW"], judged_on: ["resistance", "package"], suggestions: [],
 };
 
 beforeEach(() => {

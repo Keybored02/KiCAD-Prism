@@ -308,7 +308,7 @@ class UsageDatabaseTests(unittest.TestCase):
         self.store_project("p1", "Board A", [component("R1", "Acme", "BOTH-1"), component("R2", "Acme", "A-ONLY")])
         self.store_project("p2", "Board B", [component("R1", "Acme", "BOTH-1")])
         groups = self.call("GET", "/api/supply/part-groups", query="scope=all").json
-        self.assertEqual([(g["project_id"], g["project_name"], g["count"]) for g in groups["groups"]],
+        self.assertEqual([(g["project_id"], g["project_name"], g["count"]) for g in groups["items"]],
                          [("p1", "Board A", 2), ("p2", "Board B", 1), ("none", "Not in a project", 1)], "the loose parts come last")
         self.assertEqual(groups["total"], 3)
         in_a = self.call("GET", "/api/supply/parts", query="scope=all&project_id=p1").json
@@ -316,7 +316,7 @@ class UsageDatabaseTests(unittest.TestCase):
         loose = self.call("GET", "/api/supply/parts", query="scope=all&project_id=none").json
         self.assertEqual([item["mpn"] for item in loose["items"]], ["LOOSE"])
         searched = self.call("GET", "/api/supply/part-groups", query="scope=all&q=A-ONLY").json
-        self.assertEqual([g["project_id"] for g in searched["groups"]], ["p1"], "a group with no match is left out")
+        self.assertEqual([g["project_id"] for g in searched["items"]], ["p1"], "a group with no match is left out")
 
     def test_a_row_names_its_first_projects_and_a_group_counts_what_needs_a_look(self) -> None:
         self.part("Acme", "BOTH-1")
@@ -327,7 +327,7 @@ class UsageDatabaseTests(unittest.TestCase):
         self.assertEqual(rows["BOTH-1"]["project_names"], ["Board A", "Board B"])
         self.assertEqual(rows["A-ONLY"]["project_names"], ["Board A"])
         self.assertEqual((rows["A-ONLY"]["distributors"], rows["A-ONLY"]["flags"]), ([], []))
-        groups = {g["project_id"]: g for g in self.call("GET", "/api/supply/part-groups", query="scope=all").json["groups"]}
+        groups = {g["project_id"]: g for g in self.call("GET", "/api/supply/part-groups", query="scope=all").json["items"]}
         stats = groups["p1"]["stats"]
         self.assertEqual((stats["at_risk"], stats["out"], stats["one_distributor"]), (0, 0, 0))
         self.assertTrue(stats["bom_read_at"])

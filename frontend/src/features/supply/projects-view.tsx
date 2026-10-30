@@ -28,7 +28,7 @@ export function ProjectsView({ user }: { user: User | null }) {
   const vendor = searchParams.get("projVendor") ?? "";
   const sort = sortFromParam(searchParams.get("projSort"));
   const loaded = useSupplyPartGroups("in_use", query, only, vendor);
-  const groups = (loaded.data?.groups ?? []).filter((group) => group.project_id !== "none");
+  const groups = (loaded.data?.items ?? []).filter((group) => group.project_id !== "none");
   const setParams = (changes: Record<string, string | null>) => {
     setSearchParams((current) => {
       const updated = new URLSearchParams(current);

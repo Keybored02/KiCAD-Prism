@@ -15,7 +15,8 @@ from app.api import supply_connectors
 from app.api.supply_call import run_supply
 from app.api.supply_models import Items
 from app.api.supply_parts_models import (
-    LibraryComponentOf, PartHistory, PartLookup, PartReadOnView, PriceQuantity, SupplyManufacturer, SupplyPartDetail, SupplyPartsPage, SupplyReadNow,
+    CrossReference, LibraryComponentOf, PartHistory, PartLookup, PartReadOnView, PriceQuantity, SupplyManufacturer, SupplyPartDetail,
+    SupplyPartGroups, SupplyPartsPage, SupplyReadNow,
 )
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review
@@ -50,7 +51,7 @@ async def list_parts(
     return await _run(read)
 
 
-@router.get("/part-groups")
+@router.get("/part-groups", response_model=SupplyPartGroups, response_model_exclude_unset=True)
 async def part_groups(
     scope: Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"] = "watched",
     only: str = Query(default="", max_length=120, pattern=r"^[A-Za-z0-9_]*(:[^\x00-\x1f]{1,100})?$"),
@@ -62,7 +63,8 @@ async def part_groups(
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return parts_view.part_groups(conn, scope=scope, query=q, role=user.role, only=only, vendor=vendor)
+            grouped = parts_view.part_groups(conn, scope=scope, query=q, role=user.role, only=only, vendor=vendor)
+            return {"items": grouped["groups"], "total": grouped["total"]}
 
     return await _run(read)
 
@@ -180,7 +182,7 @@ async def clear_trade_mark(part_id: str, user: AuthenticatedUser = Depends(requi
     await _run(run)
 
 
-@router.get("/parts/{part_id}/cross-reference")
+@router.get("/parts/{part_id}/cross-reference", response_model=CrossReference)
 async def cross_reference_of(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Alternatives to the part, graded by how close they are."""
 

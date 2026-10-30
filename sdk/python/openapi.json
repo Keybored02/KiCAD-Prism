@@ -645,6 +645,108 @@
         "title": "AlternateRequest",
         "type": "object"
       },
+      "AlternativeCandidate": {
+        "additionalProperties": true,
+        "properties": {
+          "differs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Differs",
+            "type": "array"
+          },
+          "grade": {
+            "description": "None claims the parts are interchangeable: \"ratings_met\" is every listed rating known and met, in the same package.",
+            "enum": [
+              "ratings_met",
+              "similar",
+              "other_package",
+              "fails"
+            ],
+            "title": "Grade",
+            "type": "string"
+          },
+          "grade_label": {
+            "title": "Grade Label",
+            "type": "string"
+          },
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "same": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Same",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          },
+          "unknown": {
+            "description": "Ratings the part lists and the candidate doesn't, so they can't be judged.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown",
+            "type": "array"
+          }
+        },
+        "required": [
+          "part_id",
+          "manufacturer",
+          "mpn",
+          "grade",
+          "grade_label",
+          "same",
+          "differs",
+          "unknown",
+          "stock",
+          "status",
+          "lifecycle"
+        ],
+        "title": "AlternativeCandidate",
+        "type": "object"
+      },
       "AnalyzeRequest": {
         "properties": {
           "ref": {
@@ -9089,6 +9191,49 @@
         "title": "CredentialsRequest",
         "type": "object"
       },
+      "CrossReference": {
+        "additionalProperties": true,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AlternativeCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "judged_on": {
+            "description": "The parameters the comparison rested on.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Judged On",
+            "type": "array"
+          },
+          "suggested_by_distributors": {
+            "description": "Replacements distributors name for the part, as written.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested By Distributors",
+            "type": "array"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/DistributorSuggestion"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidates",
+          "suggested_by_distributors",
+          "suggestions",
+          "judged_on"
+        ],
+        "title": "CrossReference",
+        "type": "object"
+      },
       "DatabasePoolMetrics": {
         "additionalProperties": true,
         "properties": {
@@ -10314,6 +10459,103 @@
           "reasons"
         ],
         "title": "DismissIn",
+        "type": "object"
+      },
+      "DistributorSuggestion": {
+        "additionalProperties": true,
+        "description": "A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part.",
+        "properties": {
+          "asked": {
+            "description": "Asked for from DigiKey, not seen in an offer read.",
+            "title": "Asked",
+            "type": "boolean"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Their words: the package, or how close DigiKey says it is.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part in Prism, when it is one.",
+            "title": "Part Id"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "warning",
+                  "error",
+                  "fatal",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "manufacturer",
+          "mpn",
+          "sku",
+          "notes",
+          "sources",
+          "asked",
+          "part_id",
+          "stock",
+          "status",
+          "tracked"
+        ],
+        "title": "DistributorSuggestion",
         "type": "object"
       },
       "DocFileContent": {
@@ -26178,6 +26420,25 @@
         "title": "SuffixBody",
         "type": "object"
       },
+      "SuggestionSource": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "name"
+        ],
+        "title": "SuggestionSource",
+        "type": "object"
+      },
       "Supply": {
         "additionalProperties": true,
         "properties": {
@@ -26983,6 +27244,182 @@
           "saved"
         ],
         "title": "SupplyFxRatesSaved",
+        "type": "object"
+      },
+      "SupplyGroupStats": {
+        "additionalProperties": true,
+        "description": "What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts.",
+        "properties": {
+          "alerts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alerts"
+          },
+          "all_variants": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Variants"
+          },
+          "at_risk": {
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "boards": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boards"
+          },
+          "bom_read_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bom Read At"
+          },
+          "build_quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The usual build the cost and boards are worked out for.",
+            "title": "Build Quantity"
+          },
+          "cost_change_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Change Percent"
+          },
+          "cost_per_board": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Board"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "end_of_life": {
+            "title": "End Of Life",
+            "type": "integer"
+          },
+          "one_distributor": {
+            "title": "One Distributor",
+            "type": "integer"
+          },
+          "out": {
+            "title": "Out",
+            "type": "integer"
+          },
+          "packaging": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packaging"
+          },
+          "runs_out_soon": {
+            "title": "Runs Out Soon",
+            "type": "integer"
+          },
+          "test_data": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Some of the cost comes from a simulated connector.",
+            "title": "Test Data"
+          },
+          "unchecked": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "BOM lines no stock figure checks: the boards count is unconfirmed while any is.",
+            "title": "Unchecked"
+          },
+          "variants": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variants"
+          }
+        },
+        "required": [
+          "at_risk",
+          "out",
+          "end_of_life",
+          "one_distributor",
+          "runs_out_soon"
+        ],
+        "title": "SupplyGroupStats",
         "type": "object"
       },
       "SupplyHeadlinePrice": {
@@ -28171,6 +28608,71 @@
           "insight"
         ],
         "title": "SupplyPartDetail",
+        "type": "object"
+      },
+      "SupplyPartGroup": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/SupplyGroupStats"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "How many parts have each status.",
+            "title": "Statuses",
+            "type": "object"
+          },
+          "tracked": {
+            "title": "Tracked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "tracked",
+          "count",
+          "statuses",
+          "stats"
+        ],
+        "title": "SupplyPartGroup",
+        "type": "object"
+      },
+      "SupplyPartGroups": {
+        "additionalProperties": true,
+        "description": "The matching parts grouped by the projects that use them, tracked projects first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyPartGroup"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "SupplyPartGroups",
         "type": "object"
       },
       "SupplyPartRow": {
@@ -53739,9 +54241,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Part Groups",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyPartGroups"
                 }
               }
             },
@@ -54299,9 +54799,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Cross Reference Of",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CrossReference"
                 }
               }
             },

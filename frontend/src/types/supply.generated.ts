@@ -52,6 +52,22 @@ export interface AlternateRequest {
   mpn: string;
 }
 
+export interface AlternativeCandidate {
+  differs: string[];
+  /** None claims the parts are interchangeable: "ratings_met" is every listed rating known and met, in the same package. */
+  grade: "ratings_met" | "similar" | "other_package" | "fails";
+  grade_label: string;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  same: string[];
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  stock: number | null;
+  /** Ratings the part lists and the candidate doesn't, so they can't be judged. */
+  unknown: string[];
+}
+
 export interface Arrivals {
   announced: number;
   arrived: number;
@@ -229,6 +245,15 @@ export interface CredentialsRequest {
   credentials: Record<string, string>;
 }
 
+export interface CrossReference {
+  candidates: AlternativeCandidate[];
+  /** The parameters the comparison rested on. */
+  judged_on: string[];
+  /** Replacements distributors name for the part, as written. */
+  suggested_by_distributors: string[];
+  suggestions: DistributorSuggestion[];
+}
+
 export interface DecisionRequest {
   approve: boolean;
 }
@@ -259,6 +284,23 @@ export interface DetailsRequest {
 export interface DismissIn {
   /** The reason kinds shown when it was dismissed; a new one brings it back. */
   reasons: string[];
+}
+
+/** A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part. */
+export interface DistributorSuggestion {
+  /** Asked for from DigiKey, not seen in an offer read. */
+  asked: boolean;
+  manufacturer: string;
+  mpn: string;
+  /** Their words: the package, or how close DigiKey says it is. */
+  notes: string[];
+  /** The part in Prism, when it is one. */
+  part_id: string | null;
+  sku: string;
+  sources: SuggestionSource[];
+  status: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
+  stock: number | null;
+  tracked: boolean;
 }
 
 export interface EndingComponent {
@@ -1040,6 +1082,11 @@ export interface SuffixBody {
   kind: string;
 }
 
+export interface SuggestionSource {
+  name: string;
+  provider: string;
+}
+
 export interface SupplyAlert {
   acknowledged_by: string;
   detail: AlertDetail;
@@ -1196,6 +1243,30 @@ export interface SupplyFxRatesSaved {
   /** How many rates were saved. */
   saved: number;
   stale: boolean;
+}
+
+/** What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts. */
+export interface SupplyGroupStats {
+  alerts?: number | null;
+  all_variants?: boolean | null;
+  at_risk: number;
+  boards?: number | null;
+  bom_read_at?: string | null;
+  /** The usual build the cost and boards are worked out for. */
+  build_quantity?: number | null;
+  cost_change_percent?: number | null;
+  cost_per_board?: string | null;
+  currency?: string | null;
+  end_of_life: number;
+  one_distributor: number;
+  out: number;
+  packaging?: string | null;
+  runs_out_soon: number;
+  /** Some of the cost comes from a simulated connector. */
+  test_data?: boolean | null;
+  /** BOM lines no stock figure checks: the boards count is unconfirmed while any is. */
+  unchecked?: number | null;
+  variants?: string[] | null;
 }
 
 export interface SupplyHeadlinePrice {
@@ -1392,6 +1463,22 @@ export interface SupplyPartDetail {
   trade: PartTrade;
   used_in: PartUse[];
   watch: SupplyWatchSummary | null;
+}
+
+export interface SupplyPartGroup {
+  count: number;
+  project_id: string;
+  project_name: string;
+  stats: SupplyGroupStats;
+  /** How many parts have each status. */
+  statuses: Record<string, number>;
+  tracked: boolean;
+}
+
+/** The matching parts grouped by the projects that use them, tracked projects first. */
+export interface SupplyPartGroups {
+  items: SupplyPartGroup[];
+  total: number;
 }
 
 export interface SupplyPartRow {

@@ -1,7 +1,7 @@
-import type { AssessmentSettings, ComponentRestriction, JlcClass, SupplyAlert, SupplyConnector, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, JlcClass, SupplyAlert, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, RestockRecord, RowForecast, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCapacity, SupplyCompliance, SupplyComplianceState, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatchSummary, TrackingReason, UpdateSupplyConnectorInput,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, RestockRecord, RowForecast, RulesRequest, SubstitutesAsked, SupplyAlert, SupplyCapacity, SupplyCompliance, SupplyComplianceState, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatchSummary, TrackingReason, UpdateSupplyConnectorInput,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
@@ -355,46 +355,6 @@ export interface SupplyWatch {
   pinned: boolean;
   owner: string;
   packaging: WatchPackaging;
-}
-
-/** The parts that match a view, in one project's group (`none`: used by no project). */
-export interface SupplyPartGroup {
-  project_id: string;
-  project_name: string;
-  tracked: boolean;
-  count: number;
-  /** How many parts have each status. */
-  statuses: Partial<Record<SupplyStatus, number>>;
-  stats?: SupplyGroupStats;
-}
-
-/** What a project row shows when closed. The cost, boards and alerts are for a tracked project. */
-export interface SupplyGroupStats {
-  at_risk: number;
-  out: number;
-  end_of_life: number;
-  one_distributor: number;
-  runs_out_soon: number;
-  bom_read_at?: string | null;
-  variants?: string[];
-  all_variants?: boolean;
-  packaging?: string | null;
-  cost_per_board?: string;
-  currency?: string;
-  cost_change_percent?: number | null;
-  boards?: number | null;
-  /** The usual build the cost and boards are worked out for. */
-  build_quantity?: number;
-  /** BOM lines no stock figure checks: the boards count is unconfirmed while any is. */
-  unchecked?: number;
-  /** Some of the cost comes from a simulated connector. */
-  test_data?: boolean;
-  alerts?: number;
-}
-
-export interface SupplyPartGroups {
-  groups: SupplyPartGroup[];
-  total: number;
 }
 
 /** A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project. */
@@ -777,37 +737,6 @@ export interface ProjectSupply {
   money?: ProjectMoney | null;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];
-}
-
-/** Alternatives to a part, graded by how close they are, from what Prism holds. */
-export interface CrossReference {
-  candidates: Array<{
-    part_id: string; manufacturer: string; mpn: string;
-    /** None claims the parts are interchangeable: "ratings_met" is every listed rating known and met, in the same package. */
-    grade: "ratings_met" | "similar" | "other_package" | "fails"; grade_label: string;
-    same: string[]; differs: string[];
-    /** Ratings the part lists and the candidate doesn't, so they can't be judged. */
-    unknown?: string[];
-    stock: number | null; status: SupplyStatus; lifecycle: SupplyLifecycle;
-  }>;
-  /** Replacements distributors name for the part, as written. */
-  suggested_by_distributors: string[];
-  /** What distributors suggest in place of it, one row for each number with every distributor that said it. Not compared with the part. */
-  suggestions?: Array<{
-    manufacturer: string; mpn: string; sku: string;
-    /** Their words: the package, or how close DigiKey says it is. */
-    notes: string[];
-    sources: Array<{ provider: string; name: string }>;
-    /** Asked for from DigiKey, not seen in an offer read. */
-    asked: boolean;
-    /** The part in Prism, when it is one, with its stock and whether Prism follows it. */
-    part_id: string | null;
-    stock: number | null;
-    status: SupplyStatus | null;
-    tracked: boolean;
-  }>;
-  /** The parameters the comparison rested on. */
-  judged_on: string[];
 }
 
 /** One account's room for more tracked parts, counted in parts like the ones already searched. Null where too few were searched. */

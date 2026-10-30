@@ -29,7 +29,7 @@ afterEach(cleanup);
 describe("the projects tab", () => {
   it("lists the projects closed, tracked first, and loads a project's parts when it is opened", async () => {
     mocked.listSupplyPartGroups.mockResolvedValue({
-      groups: [
+      items: [
         {
           project_id: "prj_1", project_name: "Power board", tracked: true, count: 3, statuses: { error: 1, ok: 2 },
           stats: {
@@ -37,7 +37,7 @@ describe("the projects tab", () => {
             variants: ["", "Lite", "Pro"], packaging: "cut_tape", cost_per_board: "18.40", currency: "EUR", cost_change_percent: 3, boards: 120, alerts: 2,
           },
         },
-        { project_id: "none", project_name: "Not in a project", tracked: false, count: 1, statuses: { ok: 1 } },
+        { project_id: "none", project_name: "Not in a project", tracked: false, count: 1, statuses: { ok: 1 }, stats: { at_risk: 0, out: 0, end_of_life: 0, one_distributor: 0, runs_out_soon: 0 } },
       ],
       total: 4,
     });
@@ -57,7 +57,7 @@ describe("the projects tab", () => {
   });
 
   it("says so when no project uses a part", async () => {
-    mocked.listSupplyPartGroups.mockResolvedValue({ groups: [], total: 0 });
+    mocked.listSupplyPartGroups.mockResolvedValue({ items: [], total: 0 });
     render(<MemoryRouter><ProjectsView user={designer} /></MemoryRouter>);
     expect(await screen.findByText("No project uses a part Prism knows yet")).toBeTruthy();
   });
