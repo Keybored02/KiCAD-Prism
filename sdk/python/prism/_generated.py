@@ -951,6 +951,14 @@ class ChangePasswordRequest(TypedDict, total=True):
     new_password: str
 
 
+class ChangedPart(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+    now: str
+    part_id: str
+    was: str | None
+
+
 class CheckAccessRequest(TypedDict, total=True):
     url: str
 
@@ -1278,6 +1286,12 @@ class ComparisonReviewOut(TypedDict, total=True):
     jobId: str
 
 
+class ComplianceDraft(TypedDict, total=True):
+    """The draft RoHS and REACH declaration of a BOM: a working document, not a declaration."""
+    parts: list[DraftPart]
+    summary: DraftSummary
+
+
 class ComponentAsset(TypedDict, total=True):
     asset_type: str
     content_type: str
@@ -1566,6 +1580,13 @@ class ConnectorStock(TypedDict, total=True):
     connector_name: str
     provider: str
     stock: int
+
+
+class CostDay(TypedDict, total=True):
+    boards: int
+    cost_per_board: str
+    currency: str
+    day: str
 
 
 class CreateCommentRequest(TypedDict, total=False):
@@ -2041,6 +2062,21 @@ class DraftKlcResult(TypedDict, total=False):
     warning_count: int
 
 
+class DraftPart(TypedDict, total=True):
+    exemptions: list[str]
+    gaps: list[str]
+    manufacturer: str
+    mpn: str
+    on_candidate_list: list[str]
+    quantity: int
+    reach: str
+    reach_stated: str
+    references: str
+    rohs: str
+    rohs_stated: str
+    svhc_stated: str
+
+
 class DraftPreview(TypedDict, total=True):
     png_base64: str
     unit: int
@@ -2050,6 +2086,15 @@ class DraftSetupRequest(TypedDict, total=False):
     commit: str | None
     kind: str
     name: str
+
+
+class DraftSummary(TypedDict, total=True):
+    candidate_list_loaded: bool
+    note: str
+    parts: int
+    reach_unknown: int
+    rohs_unknown: int
+    with_gaps: int
 
 
 class DrillSummary(TypedDict, total=True):
@@ -2845,6 +2890,15 @@ class JobPhasesOut(TypedDict, total=False):
     stages: list[StageRunOut]
 
 
+class JobProgress(TypedDict, total=True):
+    """How far a supply job has got. Every supply job answers this shape (``progress.job_progress``)."""
+    done: int
+    failed: int
+    reason: str
+    state: str
+    total: int
+
+
 class JobRecord(TypedDict, total=True):
     """One ``ws_jobs`` row as ``JobService.enqueue`` answers it."""
     artifact_key: str | None
@@ -3485,6 +3539,21 @@ class ModelPage(TypedDict, total=True):
     items: list[ModelOut]
 
 
+class MoneyLine(TypedDict, total=True):
+    cost: str
+    key: str
+    manufacturer: str
+    mpn: str
+    part_id: str | None
+    share: float
+
+
+class MoneyOther(TypedDict, total=True):
+    cost: str
+    count: int
+    share: float
+
+
 class Monorepo(TypedDict, total=False):
     last_synced: str | None
     name: str
@@ -4072,6 +4141,11 @@ class ProjectCalls(TypedDict, total=True):
     project_name: str
 
 
+class ProjectChip(TypedDict, total=True):
+    count: int
+    key: str
+
+
 class ProjectCommentsSourceUrls(TypedDict, total=True):
     """The helper URLs a KiCad comments source needs for one project."""
     base_url: str | None
@@ -4125,6 +4199,16 @@ class ProjectConfigSaved(TypedDict, total=True):
     validation: PathConfigValidation
 
 
+class ProjectCostPoint(TypedDict, total=True):
+    boards: int
+    cost_build: str | None
+    cost_per_board: str | None
+    currency: str | None
+    lines: int
+    lines_priced: int
+    short: int
+
+
 class ProjectDeleted(TypedDict, total=False):
     """A removed project and what happened to its files and repository."""
     message: str
@@ -4162,6 +4246,13 @@ class ProjectIn(TypedDict, total=False):
     variants: list[str]
 
 
+class ProjectMoney(TypedDict, total=True):
+    """The lines that cost the most for the build, with their share, and what all the others cost."""
+    lines: list[MoneyLine]
+    other: MoneyOther
+    total: str
+
+
 class ProjectName(TypedDict, total=True):
     display_name: str | None
     fallback_name: str
@@ -4185,6 +4276,62 @@ class ProjectOpen(TypedDict, total=True):
 class ProjectOverview(TypedDict, total=True):
     project: Project
     readme: str | None
+
+
+class ProjectPartRow(TypedDict, total=False):
+    changes_at: str | None
+    currency: str
+    dated_by: str
+    distributors: list[RowDistributor]
+    dropped: bool
+    fetched_at: str | None
+    flags: list[str]
+    forecast: RowForecast | None
+    health: int | float
+    id: str
+    jlc: JlcClass | None
+    lead_days: int | None
+    lifecycle: str
+    line: ProjectSupplyPart | None
+    listings: int
+    manufacturer: str
+    manufacturer_provisional: bool
+    mpn: str
+    offers: list[SupplyRowOffer]
+    preferred_connector_id: str | None
+    price_change_percent: int | float | None
+    price_kind: str | None
+    price_lead_days: int | None
+    price_native: NativePrice | None
+    price_quantity: int
+    price_range: PriceRange | None
+    price_seen_day: str | None
+    price_test_data: bool
+    price_unrated: list[str]
+    priced_with: str
+    problem: str | None
+    project_names: list[str]
+    runs_out_days: int | None
+    spark: list[int] | None
+    status: str
+    stock: int | None
+    tier: str | None
+    tracking: PartTracking | None
+    unit_price: str | None
+    used_in: int
+    watch: SupplyWatchSummary | None
+
+
+class ProjectPartsPage(TypedDict, total=True):
+    """A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project."""
+    chips: list[ProjectChip]
+    forecast_state: dict[str, str]
+    items: list[ProjectPartRow]
+    limit: int
+    next_offset: int | None
+    offset: int
+    total: int
+    unmatched: list[ProjectSupplyPart]
 
 
 class ProjectPathConfig(TypedDict, total=True):
@@ -4285,6 +4432,65 @@ class ProjectSearchHit(TypedDict, total=True):
 
 class ProjectSearchResults(TypedDict, total=True):
     results: list[ProjectSearchHit]
+
+
+class ProjectSupply(TypedDict, total=False):
+    """How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes."""
+    attrition_percent: float | None
+    available: bool
+    build_quantity: int | None
+    cost_curve: list[ProjectCostPoint] | None
+    cost_history: list[CostDay] | None
+    cost_history_left_out: list[CostDay] | None
+    money: ProjectMoney | None
+    notes: list[SupplyBomComment]
+    parts: list[ProjectSupplyPart] | None
+    releases: list[ProjectSupplyRelease]
+    rollup: SupplyBomRollup | None
+    usual_build: int | None
+    usual_spares: str | None
+    variant: str
+    variants: list[str]
+
+
+class ProjectSupplyPart(TypedDict, total=True):
+    """One line of a project's stored BOM, as the project's Supply tab lists it."""
+    alerts: int
+    alternates: list[SupplyBomAlternate]
+    buy_quantity: int | None
+    in_library: bool | None
+    key: str
+    lifecycle: str | None
+    line_cost: str | None
+    manufacturer: str
+    mpn: str
+    need: int | None
+    notes: int
+    part_id: str | None
+    prism_id: str
+    quantity: int
+    references: str
+    short: bool
+    state: str
+    status: str | None
+    status_from: str | None
+    stock: int | None
+    stores: StoresState | None
+    test_data: bool
+    unit_currency: str | None
+    unit_price: str | None
+    unit_price_in_total: str | None
+
+
+class ProjectSupplyRelease(TypedDict, total=True):
+    build_id: str
+    changed_since: list[ChangedPart]
+    created_at: str
+    health: float | None
+    needing_a_look: int
+    parts: int
+    status: str
+    tag: str
 
 
 class ProjectTracked(TypedDict, total=True):
@@ -4492,6 +4698,68 @@ class RejectManyRequest(TypedDict, total=True):
     listing_ids: list[str]
 
 
+class ReleaseAssessment(TypedDict, total=True):
+    attention: list[ReleaseCheckLine]
+    health: int | float | None
+    lines: list[ReleaseCheckLine]
+    needing_a_look: int
+    not_tracked: int
+    parts: int
+    status: str
+    tracked: int
+    without_number: int
+
+
+class ReleaseBomKept(TypedDict, total=True):
+    parts: int
+    stored: bool
+    without_number: int
+
+
+class ReleaseCheckLine(TypedDict, total=True):
+    alternates: list[str]
+    findings: list[ReleaseFinding]
+    health: int | float | None
+    manufacturer: str
+    mpn: str
+    part_id: str | None
+    quantity: int
+    state: str
+    status: str | None
+    status_from: str | None
+    waived: int
+
+
+class ReleaseCheckResult(TypedDict, total=True):
+    attention: list[ReleaseCheckLine]
+    available: bool
+    health: int | float | None
+    lines: list[ReleaseCheckLine]
+    needing_a_look: int
+    not_tracked: int
+    parts: int
+    status: str
+    tracked: int
+    without_number: int
+
+
+class ReleaseCheckUnavailable(TypedDict, total=True):
+    available: bool
+    reason: str
+
+
+class ReleaseCompliance(TypedDict, total=True):
+    created_at: str
+    draft: ComplianceDraft
+    tag: str
+
+
+class ReleaseFinding(TypedDict, total=True):
+    check: str
+    severity: str
+    text: str
+
+
 class ReleaseQueuePage(TypedDict, total=True):
     items: list[CatalogComponent]
     page: int
@@ -4505,6 +4773,21 @@ class ReleaseQueueSummary(TypedDict, total=True):
     blocked: int
     done: int
     qa_review: int
+
+
+class ReleaseSnapshot(TypedDict, total=True):
+    """The supply check frozen when a release was published."""
+    assessment: ReleaseAssessment
+    build_id: str
+    commit_sha: str
+    compliance: ComplianceDraft | None
+    created_at: str
+    created_by: str
+    health: float | None
+    id: str
+    project_id: str
+    status: str
+    tag: str
 
 
 class ReleaseStatusRequest(TypedDict, total=False):
@@ -9451,7 +9734,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def project_overview(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '') -> dict[str, Any]:
+    def project_overview(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '') -> ProjectSupply:
         """Project Overview"""
         return self._request(
             "GET",
@@ -9460,7 +9743,7 @@ class GeneratedClient:
             query={"build_quantity": build_quantity, "variant": variant, "spares": spares},
         )
 
-    def project_parts_page(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '', chip: str = '', q: str = '', only: str = '', vendor: str = '', sort: str = '', offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    def project_parts_page(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '', chip: str = '', q: str = '', only: str = '', vendor: str = '', sort: str = '', offset: int = 0, limit: int = 100) -> ProjectPartsPage:
         """Project Parts Page"""
         return self._request(
             "GET",
@@ -9634,7 +9917,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def read_release_bom(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def read_release_bom(self, project_id: str, build_id: str) -> ReleaseBomKept:
         """Read Release Bom"""
         return self._request(
             "POST",
@@ -9801,7 +10084,7 @@ class GeneratedClient:
             path_params={"waiver_id": waiver_id},
         )
 
-    def release_check_for(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def release_check_for(self, project_id: str, build_id: str) -> ReleaseCheckResult | ReleaseCheckUnavailable:
         """Release Check For"""
         return self._request(
             "GET",
@@ -9809,7 +10092,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def release_compliance(self, project_id: str, build_id: str, *, format: str = 'json') -> Any:
+    def release_compliance(self, project_id: str, build_id: str, *, format: str = 'json') -> ReleaseCompliance:
         """Release Compliance"""
         return self._request(
             "GET",
@@ -9826,7 +10109,7 @@ class GeneratedClient:
             query={"q": q, "workflow_stage": workflow_stage, "page": page, "page_size": page_size},
         )
 
-    def release_snapshot(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def release_snapshot(self, project_id: str, build_id: str) -> ReleaseSnapshot:
         """Release Snapshot"""
         return self._request(
             "GET",
@@ -9834,7 +10117,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def release_snapshot_status(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def release_snapshot_status(self, project_id: str, build_id: str) -> JobProgress:
         """Release Snapshot Status"""
         return self._request(
             "GET",

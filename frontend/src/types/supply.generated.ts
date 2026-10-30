@@ -262,6 +262,14 @@ export interface CallsToday {
   spent: number;
 }
 
+export interface ChangedPart {
+  manufacturer: string;
+  mpn: string;
+  now: "ok" | "warning" | "error" | "fatal" | "unknown";
+  part_id: string;
+  was: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
+}
+
 export interface CheckLine {
   manufacturer?: string;
   mpn?: string;
@@ -290,6 +298,12 @@ export interface CheckStarted {
 export interface CommentIn {
   body: string;
   line_key: string;
+}
+
+/** The draft RoHS and REACH declaration of a BOM: a working document, not a declaration. */
+export interface ComplianceDraft {
+  parts: DraftPart[];
+  summary: DraftSummary;
 }
 
 export interface ComponentFollow {
@@ -368,6 +382,13 @@ export interface ConnectorStock {
   connector_name: string;
   provider: string;
   stock: number;
+}
+
+export interface CostDay {
+  boards: number;
+  cost_per_board: string;
+  currency: string;
+  day: string;
 }
 
 export interface CreateSourceRequest {
@@ -449,6 +470,30 @@ export interface DistributorSuggestion {
   status: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
   stock: number | null;
   tracked: boolean;
+}
+
+export interface DraftPart {
+  exemptions: string[];
+  gaps: string[];
+  manufacturer: string;
+  mpn: string;
+  on_candidate_list: string[];
+  quantity: number;
+  reach: string;
+  reach_stated: string;
+  references: string;
+  rohs: string;
+  rohs_stated: string;
+  svhc_stated: string;
+}
+
+export interface DraftSummary {
+  candidate_list_loaded: boolean;
+  note: string;
+  parts: number;
+  reach_unknown: number;
+  rohs_unknown: number;
+  with_gaps: number;
 }
 
 export interface EndingComponent {
@@ -638,6 +683,15 @@ export interface JlcClass {
   preferred: boolean;
 }
 
+/** How far a supply job has got. Every supply job answers this shape (``progress.job_progress``). */
+export interface JobProgress {
+  done: number;
+  failed: number;
+  reason: string;
+  state: "running" | "done" | "failed" | "none";
+  total: number;
+}
+
 export interface LastBuy {
   source: string;
   value: string;
@@ -765,6 +819,21 @@ export interface MarketBehaviour {
   /** Median days between a distributor's price changes. */
   repricing: Record<string, number>;
   restock_order: RestockOrder | null;
+}
+
+export interface MoneyLine {
+  cost: string;
+  key: string;
+  manufacturer: string;
+  mpn: string;
+  part_id: string | null;
+  share: number;
+}
+
+export interface MoneyOther {
+  cost: string;
+  count: number;
+  share: number;
 }
 
 export interface NativePrice {
@@ -1108,6 +1177,22 @@ export interface ProjectCalls {
   project_name: string;
 }
 
+export interface ProjectChip {
+  count: number;
+  key: "unchecked" | "out" | "short" | "limiting" | "not_priced" | "end_of_life" | "alerts";
+}
+
+export interface ProjectCostPoint {
+  boards: number;
+  cost_build: string | null;
+  cost_per_board: string | null;
+  currency: string | null;
+  lines: number;
+  lines_priced: number;
+  /** Parts the stock cannot cover at this size. */
+  short: number;
+}
+
 export interface ProjectIn {
   /** Follow every design the project has, also those it gets later; variants is then ignored. */
   all_variants?: boolean;
@@ -1123,10 +1208,170 @@ export interface ProjectIn {
   variants?: string[];
 }
 
+/** The lines that cost the most for the build, with their share, and what all the others cost. */
+export interface ProjectMoney {
+  lines: MoneyLine[];
+  other: MoneyOther;
+  total: string;
+}
+
 /** What a tracked project waits on a person for. */
 export interface ProjectOpen {
   choices: SupplyChoice[];
   lines: TrackLine[];
+}
+
+export interface ProjectPartRow {
+  changes_at: string | null;
+  currency: string;
+  dated_by: string;
+  distributors: RowDistributor[];
+  /** Every distributor that lists it has stopped selling it. */
+  dropped: boolean;
+  /** As old as the oldest read the stock rests on. */
+  fetched_at: string | null;
+  /** Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked. */
+  flags: string[];
+  forecast: RowForecast | null;
+  health: number;
+  id: string;
+  jlc: JlcClass | null;
+  /** The shortest lead time quoted, in days. */
+  lead_days: number | null;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  /** The part's BOM lines, merged. */
+  line: ProjectSupplyPart | null;
+  listings: number;
+  manufacturer: string;
+  /** The maker is as written and no distributor has confirmed it yet. */
+  manufacturer_provisional: boolean;
+  mpn: string;
+  offers: SupplyRowOffer[];
+  preferred_connector_id: string | null;
+  /** Cheapest price over 30 days, in percent. */
+  price_change_percent: number | null;
+  /** orderable: bought now; backorder: nothing in stock, with a lead time; last_seen: the price when it was last in stock; listed: list price only. */
+  price_kind: "orderable" | "backorder" | "last_seen" | "listed" | null;
+  price_lead_days: number | null;
+  /** What the price was before it was converted, when it was. */
+  price_native: NativePrice | null;
+  /** The quantity the price is quoted at. */
+  price_quantity: number;
+  /** Lowest, highest and median over the distributors that price it; null with fewer than two. */
+  price_range: PriceRange | null;
+  price_seen_day: string | null;
+  /** The price comes from a simulated connector. */
+  price_test_data: boolean;
+  /** Currencies priced by a distributor that have no exchange rate, so were left out. */
+  price_unrated: string[];
+  priced_with: string;
+  /** Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared. */
+  problem: "not_found" | "gone" | null;
+  /** The first two projects using it, by name. */
+  project_names: string[];
+  /** The days until it is projected to run out. */
+  runs_out_days?: number | null;
+  /** The last 30 days of counted stock. */
+  spark?: number[] | null;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  /** The counted stock; null until something that counts has been read. */
+  stock: number | null;
+  tier: "daily" | "weekly" | "monthly" | null;
+  /** Why and how often Prism follows it. */
+  tracking: PartTracking | null;
+  /** In the base currency, at the part's price quantity. */
+  unit_price: string | null;
+  /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
+  used_in: number;
+  watch: SupplyWatchSummary | null;
+}
+
+/** A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project. */
+export interface ProjectPartsPage {
+  chips: ProjectChip[];
+  /** The state of the forecast models the rows' forecasts come from. */
+  forecast_state: Record<string, "learning" | "shown" | "paused">;
+  items: ProjectPartRow[];
+  limit: number;
+  next_offset: number | null;
+  offset: number;
+  total: number;
+  /** Lines no part matches; on the first page only. */
+  unmatched: ProjectSupplyPart[];
+}
+
+/** How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes. */
+export interface ProjectSupply {
+  /** The spares, in percent; null is by kind of part. */
+  attrition_percent?: number | null;
+  available: boolean;
+  /** The boards the page is worked out for. */
+  build_quantity?: number | null;
+  /** The cost at 1 to 10,000 boards and the chosen size. */
+  cost_curve?: ProjectCostPoint[] | null;
+  /** The cost of one board a day, oldest first. */
+  cost_history?: CostDay[] | null;
+  /** The days left out because one price was read wrong. */
+  cost_history_left_out?: CostDay[] | null;
+  money?: ProjectMoney | null;
+  notes: SupplyBomComment[];
+  parts?: ProjectSupplyPart[] | null;
+  releases: ProjectSupplyRelease[];
+  rollup?: SupplyBomRollup | null;
+  /** The tracked project's usual build; null when it is not tracked. */
+  usual_build?: number | null;
+  /** The tracked project's own spares: auto or a percent. */
+  usual_spares?: string | null;
+  variant: string;
+  variants: string[];
+}
+
+/** One line of a project's stored BOM, as the project's Supply tab lists it. */
+export interface ProjectSupplyPart {
+  /** Open alerts on the part. */
+  alerts: number;
+  alternates: SupplyBomAlternate[];
+  /** Pieces the line's purchase buys: the need rounded to the offer's minimum and multiple. */
+  buy_quantity: number | null;
+  in_library: boolean | null;
+  key: string;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown" | null;
+  /** What the line costs for the build, in the total's currency; null when bought with another line or not priced. */
+  line_cost: string | null;
+  manufacturer: string;
+  mpn: string;
+  /** Pieces the build needs, spares included. */
+  need: number | null;
+  notes: number;
+  part_id: string | null;
+  /** The catalog component the symbol places; empty when none. */
+  prism_id: string;
+  quantity: number;
+  references: string;
+  short: boolean;
+  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
+  status: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
+  status_from: string | null;
+  stock: number | null;
+  stores: StoresState | null;
+  test_data: boolean;
+  unit_currency: string | null;
+  /** In the offer's currency, unit_currency. */
+  unit_price: string | null;
+  /** The unit price in the total's currency; null when it cannot be converted. */
+  unit_price_in_total: string | null;
+}
+
+export interface ProjectSupplyRelease {
+  build_id: string;
+  /** Parts that were fine when it was published and are not today. */
+  changed_since: ChangedPart[];
+  created_at: string;
+  health: number | null;
+  needing_a_look: number;
+  parts: number;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  tag: string;
 }
 
 export interface ProjectTracked {
@@ -1222,6 +1467,87 @@ export interface PushedOffer {
 export interface QuoteCoverage {
   of: number;
   parts: number;
+}
+
+export interface ReleaseAssessment {
+  attention: ReleaseCheckLine[];
+  health: number | null;
+  lines: ReleaseCheckLine[];
+  needing_a_look: number;
+  not_tracked: number;
+  parts: number;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  tracked: number;
+  /** Rows of the BOM that name no part number, which the check cannot look at. */
+  without_number: number;
+}
+
+export interface ReleaseBomKept {
+  parts: number;
+  stored: boolean;
+  without_number: number;
+}
+
+export interface ReleaseCheckLine {
+  /** The approved alternates the line may be built with. */
+  alternates: string[];
+  findings: ReleaseFinding[];
+  health: number | null;
+  manufacturer: string;
+  mpn: string;
+  part_id: string | null;
+  quantity: number;
+  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
+  status: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
+  /** The alternate the status is told by, when it is better than the line's own part. */
+  status_from: string | null;
+  waived: number;
+}
+
+export interface ReleaseCheckResult {
+  attention: ReleaseCheckLine[];
+  available: true;
+  health: number | null;
+  lines: ReleaseCheckLine[];
+  needing_a_look: number;
+  not_tracked: number;
+  parts: number;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  tracked: number;
+  /** Rows of the BOM that name no part number, which the check cannot look at. */
+  without_number: number;
+}
+
+export interface ReleaseCheckUnavailable {
+  available: false;
+  reason: string;
+}
+
+export interface ReleaseCompliance {
+  created_at: string;
+  draft: ComplianceDraft;
+  tag: string;
+}
+
+export interface ReleaseFinding {
+  check: string;
+  severity: "ok" | "warning" | "error" | "fatal" | "unknown";
+  text: string;
+}
+
+/** The supply check frozen when a release was published. */
+export interface ReleaseSnapshot {
+  assessment: ReleaseAssessment;
+  build_id: string;
+  commit_sha: string;
+  compliance: ComplianceDraft | null;
+  created_at: string;
+  created_by: string;
+  health: number | null;
+  id: string;
+  project_id: string;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  tag: string;
 }
 
 /** When the provider's day seems to reset (UTC), once readings from different days agree. */

@@ -4,16 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectSupplyPart, SupplyBomAlternate } from "@/types/supply";
 import { AlternatesNote } from "./alternates-note";
 import { LineNotes, UnmatchedRow } from "./project-line-cells";
+import { projectLineFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
 
 const alternate: SupplyBomAlternate = { part_id: "a1", manufacturer: "Acme", mpn: "ALT-1", stock: 5000, status: "ok" };
 
 function line(overrides: Partial<ProjectSupplyPart> = {}): ProjectSupplyPart {
-  return {
-    key: "k1", manufacturer: "Acme", mpn: "MAIN-1", quantity: 2, references: "R1 R2", part_id: "p1", state: "tracked", status: "ok",
-    stock: 5000, lifecycle: "active", short: false, unit_price: null, notes: 0, ...overrides,
-  };
+  return projectLineFixture({ mpn: "MAIN-1", quantity: 2, references: "R1 R2", stock: 5000, ...overrides });
 }
 
 describe("the alternates note", () => {
