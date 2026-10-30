@@ -79,7 +79,7 @@ export function PackagingPickDialog({
           <div className="space-y-2">
             {options.picked && options.picked_by === "auto" ? <p className="text-xs text-muted-foreground">Picked by Prism{options.note ? `: ${options.note}` : ""}.</p> : null}
             {options.saves_calls_a_day > 0 ? <p className="text-xs text-muted-foreground">Picking saves {options.saves_calls_a_day.toFixed(2)} calls a day here.</p> : null}
-            <ul className="max-h-[60vh] divide-y overflow-y-auto border" aria-label="Listings">
+            <ul className="max-h-[60vh] divide-y themed-scrollbar overflow-y-auto border" aria-label="Listings">
               {options.listings.map((item) => (
                 <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 hover:bg-muted/30">
                   <Checkbox
@@ -108,7 +108,7 @@ export function PackagingPickDialog({
           </div>
         ) : null}
         {similar ? (
-          <ul className="max-h-64 space-y-1 overflow-y-auto text-sm" aria-label="Similar parts">
+          <ul className="max-h-64 space-y-1 themed-scrollbar overflow-y-auto text-sm" aria-label="Similar parts">
             {similar.items.map((item) => (
               <li key={item.part_id} className="flex items-center gap-2">
                 <Checkbox id={`sim-${item.part_id}`} checked={chosen.has(item.part_id)} onCheckedChange={(on) => toggle(item.part_id, on === true)} />

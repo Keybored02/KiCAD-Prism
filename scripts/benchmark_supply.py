@@ -45,7 +45,7 @@ TABLES = (
     "supply_bom_usage_projects",
     "supply_bom_usage",
     "supply_tracked_projects",
-    "supply_alerts",
+    "supply_attention",
     "inventory_sources",
     "inventory_unmatched",
 )
@@ -179,14 +179,20 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
         {"seed": seed, "parts": parts},
     )
 
+    # The two fake storefronts share one account and its budget, as connectors on one set of credentials do.
     conn.execute(
         """
-        INSERT INTO supply_connectors
-            (id, provider, storefront, display_name, currency, daily_budget, account_key, enabled)
+        INSERT INTO supply_accounts (id, provider, account_key, daily_budget)
+        VALUES ('acct-fake', 'fake', 'bench-account', 0), ('acct-csv', 'csv', '', 0)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO supply_connectors (id, provider, storefront, display_name, currency, account_id, enabled)
         VALUES
-            ('conn-fake-xa', 'fake', 'XA', 'Bench Fake XA', 'USD', 0, 'bench-account', TRUE),
-            ('conn-fake-xb', 'fake', 'XB', 'Bench Fake XB', 'USD', 0, 'bench-account', TRUE),
-            ('conn-csv', 'csv', '', 'Bench CSV', 'USD', 0, '', TRUE)
+            ('conn-fake-xa', 'fake', 'XA', 'Bench Fake XA', 'USD', 'acct-fake', TRUE),
+            ('conn-fake-xb', 'fake', 'XB', 'Bench Fake XB', 'USD', 'acct-fake', TRUE),
+            ('conn-csv', 'csv', '', 'Bench CSV', 'USD', 'acct-csv', TRUE)
         """
     )
 
@@ -399,7 +405,7 @@ def _insert_fixture(conn, args: argparse.Namespace) -> None:
 
     conn.execute(
         """
-        INSERT INTO supply_alerts
+        INSERT INTO supply_attention
             (part_id, kind, severity, state, first_seen_at, seen_count, opened_at,
              last_event_at, detail)
         SELECT p.id,
@@ -556,11 +562,12 @@ def _measure_scenario(store: Any, name: str, call: Callable[[Any], Any], repeats
 
 def _worker(url: str) -> None:
     _prepare_environment(url)
-    from app.services.supply.jobs import housekeeping
+    from app.services.supply import tasks
     from app.services.supply.store import supply_store
 
-    compacted = housekeeping(supply_store)
-    print(json.dumps({"compacted": compacted}))
+    # Every periodic task once, as the supply tasks job runs them when they are due.
+    ran = tasks.run_due(supply_store, force=True)
+    print(json.dumps({"compacted": sum(1 for worked in ran.values() if worked)}))
 
 
 def _run_worker(url: str) -> dict[str, Any]:
@@ -747,7 +754,7 @@ def _fixture_from_database(conn: Any, seed: int) -> dict[str, Any]:
             conn.execute("SELECT COUNT(DISTINCT day) AS n FROM supply_samples_daily").fetchone()["n"]
         ),
         "unmatched": int(conn.execute("SELECT COUNT(*) AS n FROM inventory_unmatched").fetchone()["n"]),
-        "alerts": int(conn.execute("SELECT COUNT(*) AS n FROM supply_alerts WHERE state = 'open'").fetchone()["n"]),
+        "alerts": int(conn.execute("SELECT COUNT(*) AS n FROM supply_attention WHERE state = 'open'").fetchone()["n"]),
     }
 
 

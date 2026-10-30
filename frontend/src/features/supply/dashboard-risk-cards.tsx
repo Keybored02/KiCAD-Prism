@@ -91,7 +91,7 @@ export function DeadlinesCard({ deadlines, onOpenPart }: { deadlines: SupplyDash
       answer={deadlines.length === 0 ? "No dated deadline in the next year" : soon === 0 ? `${deadlines.length} in the next year, none within 90 days` : `${soon} within 90 days`}
     >
       {deadlines.length === 0 ? null : (
-        <ul className="max-h-64 divide-y overflow-y-auto text-sm">
+        <ul className="max-h-64 divide-y themed-scrollbar overflow-y-auto text-sm">
           {deadlines.map((item) => {
             const days = inDays(item.date, now);
             return (
@@ -118,7 +118,7 @@ export function ProjectsTableCard({ projects }: { projects: SupplyDashboard["pro
       answer={projects.length === 0 ? "No project is tracked yet" : `${projects.length} ${projects.length === 1 ? "project" : "projects"} tracked`}
     >
       {projects.length === 0 ? null : (
-        <div className="overflow-x-auto">
+        <div className="themed-scrollbar overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr>

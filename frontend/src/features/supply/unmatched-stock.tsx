@@ -14,7 +14,7 @@ import { CollapsibleSection } from "./collapsible-section";
 import { invalidateSupply, useLoaded } from "./use-loaded";
 import { countUnmatchedParts, linkUnmatchedPart, listInventorySources, listUnmatchedParts, setUnmatchedIgnored, type UnmatchedGroup } from "./inventory-api";
 import { SearchBox } from "./search-box";
-import { formatDay } from "./supply-format";
+import { clockTime } from "./supply-format";
 
 const REASON: Record<InventoryUnmatchedPart["reason"], string> = {
   no_component: "No component",
@@ -34,13 +34,11 @@ export function sameIdentity(part: Pick<InventoryUnmatchedPart, "mpn" | "ipn">, 
   return (mpn !== "" && mpn === numberKey(component.mpn)) || (part.ipn.trim() !== "" && part.ipn.trim() === (component.sap_code ?? "").trim());
 }
 
-/** "18:10" today, "29 Oct 18:10" later. */
+/** When the source is read next (`clockTime`): "18:10" today, "tomorrow 06:10", "29 Oct 18:10" later. */
 function nextRead(source: InventorySource): string {
   if (!source.last_sync_at) return "";
   const when = new Date(new Date(source.last_sync_at).getTime() + source.interval_hours * 3_600_000);
-  if (Number.isNaN(when.getTime())) return "";
-  const time = when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return new Date().toDateString() === when.toDateString() ? time : `${formatDay(when.toISOString())} ${time}`;
+  return Number.isNaN(when.getTime()) ? "" : clockTime(when.toISOString());
 }
 
 /** The stores item next to the component it is about to be linked to, field by field. */

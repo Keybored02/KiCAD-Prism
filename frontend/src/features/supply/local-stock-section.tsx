@@ -44,7 +44,7 @@ export function LocalStockSection({ componentId }: { componentId: string }) {
           </div>
         ))}
       </dl>
-      <div className="overflow-x-auto border">
+      <div className="themed-scrollbar overflow-x-auto border">
         <table className="w-full text-sm">
           <thead className="bg-muted/30 text-left text-xs text-muted-foreground">
             <tr><th className="px-3 py-1.5 font-normal">Location</th><th className="px-3 py-1.5 font-normal">Status</th><th className="px-3 py-1.5 text-right font-normal">Quantity</th><th className="px-3 py-1.5 text-right font-normal">Allocated</th><th className="px-3 py-1.5 font-normal">Batch</th><th className="px-3 py-1.5 font-normal">Source</th></tr>

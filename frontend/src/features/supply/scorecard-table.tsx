@@ -41,7 +41,7 @@ export function ScorecardTable({ scorecard }: { scorecard: SupplyScorecard }) {
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No part is listed by two distributors yet.</p>
       ) : (
-        <div className="overflow-x-auto overflow-y-hidden">
+        <div className="themed-scrollbar overflow-x-auto overflow-y-hidden">
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr>

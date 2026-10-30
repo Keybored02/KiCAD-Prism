@@ -33,7 +33,7 @@ export function MakerCombobox({ id, value, options, onChange }: { id: string; va
         onOpenAutoFocus={(event) => event.preventDefault()}
         onInteractOutside={(event) => { if (event.target instanceof HTMLElement && event.target.id === id) event.preventDefault(); }}
       >
-        <ul role="listbox" aria-label="Known manufacturers" className="max-h-56 overflow-y-auto">
+        <ul role="listbox" aria-label="Known manufacturers" className="max-h-56 themed-scrollbar overflow-y-auto">
           {matches.map((name) => (
             <li
               key={name} role="option" aria-selected={false}

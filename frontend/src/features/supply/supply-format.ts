@@ -94,6 +94,22 @@ export function formatDay(iso: string, today?: string): string {
   });
 }
 
+/** A time of day today, "14:20", or with the day when it is not today ("tomorrow 09:10", "Oct 24 09:10"). */
+export function clockTime(iso: string, now: number = Date.now()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = formatTime(date);
+  const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return time;
+  if (days === 1) return `tomorrow ${time}`;
+  return `${formatDay(iso)} ${time}`;
+}
+
+/** A time of day, "14:20": the one clock every supply screen shows. */
+export function formatTime(date: Date): string {
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 /** An ISO timestamp as its local date and time, "1 Mar 2026, 10:00". Empty for no time. */
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "";

@@ -1,3 +1,6 @@
+import { useRef } from "react";
+
+import { useWindowedRows } from "@/lib/use-windowed-rows";
 import { cn } from "@/lib/utils";
 import type { ForecastState, ProjectSupplyPart, SupplyPartRow } from "@/types/supply";
 import { PartOfferRows } from "./part-offer-rows";
@@ -40,6 +43,10 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
   const detailed = layout === "detailed";
   const columnsBelow = detailed && !lines;
   const on = columnOf(sort);
+  // A long list (the Tracking list loads as it scrolls) renders the parts near the view, with a spacer for the rest.
+  const tableRef = useRef<HTMLTableElement>(null);
+  const shown = useWindowedRows(items.length, tableRef);
+  const span = lines ? 10 : 7;
   const header = (column: SortColumn | ProjectColumn, label: string, right = true) => {
     // Where stock, price and vendors move to the rows below each part, their column names have nothing under them.
     if (columnsBelow && (column === "stock" || column === "price")) return <th className="px-3 py-2"><span className="sr-only">{label}</span></th>;
@@ -52,8 +59,8 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
     );
   };
   return (
-    <div className={cn("border", !stickyHead && "overflow-x-auto overflow-y-hidden")}>
-      <table className="w-full text-sm">
+    <div className={cn("border", !stickyHead && "themed-scrollbar overflow-x-auto overflow-y-hidden")}>
+      <table ref={tableRef} className="w-full text-sm">
         {/* The cells stick, not the thead: WebKit lets rows show above a sticky thead in a table of many tbodies. */}
         <thead className={cn(
           "border-b bg-muted/30 text-left text-xs font-medium text-muted-foreground",
@@ -72,10 +79,11 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             <th className="w-10 px-3 py-2"><span className="sr-only">Tracked and flags</span></th>
           </tr>
         </thead>
-        {items.map((part) => {
+        {shown.before > 0 ? <tbody aria-hidden="true"><tr><td colSpan={span} style={{ height: shown.before }} /></tr></tbody> : null}
+        {items.slice(shown.start, shown.end).map((part) => {
           const line = lines?.byPart.get(part.id);
           return (
-            <tbody key={part.id} className="border-b last:border-0">
+            <tbody key={part.id} data-row className="border-b last:border-0">
               <tr
                 className={cn("cursor-pointer hover:bg-muted/30", selectedId === part.id && "bg-muted/60")}
                 onClick={() => onOpen(part.id)}
@@ -122,6 +130,7 @@ export function PartsTable({ items, selectedId, onOpen, forecastState, stickyHea
             </tbody>
           );
         })}
+        {shown.after > 0 ? <tbody aria-hidden="true"><tr><td colSpan={span} style={{ height: shown.after }} /></tr></tbody> : null}
         {lines && unmatched.length > 0 ? <tbody className="border-t">{unmatched.map((line) => <UnmatchedRow key={line.key} line={line} lines={lines} />)}</tbody> : null}
       </table>
     </div>

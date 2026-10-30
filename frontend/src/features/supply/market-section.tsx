@@ -74,7 +74,7 @@ export function MarketSection({ market, trends = {}, onOpenGroup }: { market: Su
           <Button size="sm" variant={kind === "category" ? "secondary" : "ghost"} aria-pressed={kind === "category"} onClick={() => setKind("category")}>Categories</Button>
         </div>
         {groups.length === 0 ? null : (
-          <div className="overflow-x-auto border">
+          <div className="themed-scrollbar overflow-x-auto border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>

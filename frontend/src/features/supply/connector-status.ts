@@ -1,5 +1,5 @@
 import { type SupplyConnector } from "@/types/supply";
-import { formatDay } from "./supply-format";
+import { clockTime } from "./supply-format";
 
 export type ConnectorTone = "success" | "warning" | "destructive" | "outline";
 
@@ -23,16 +23,6 @@ export function resting(connector: SupplyConnector, now: number = Date.now()): b
   return Boolean(connector.cooldown_until) && Date.parse(connector.cooldown_until as string) > now;
 }
 
-/** A time of day today, "14:20", or with the day when it is not today ("tomorrow 09:10", "Oct 24 09:10"). */
-export function clockTime(iso: string, now: number = Date.now()): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-  const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86_400_000);
-  if (days === 0) return time;
-  if (days === 1) return `tomorrow ${time}`;
-  return `${formatDay(iso)} ${time}`;
-}
 
 /** "Calls slowed until tomorrow 09:10", or empty when they are not. */
 export function slowedText(connector: SupplyConnector, now: number = Date.now()): string {

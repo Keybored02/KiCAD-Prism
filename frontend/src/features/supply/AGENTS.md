@@ -16,8 +16,15 @@ repository root first. Every figure here is worked out by the backend
   numbers and states only. If a screen needs a paragraph, the screen is wrong.
 - **One wording.** Status, lifecycle, problem and packaging labels come from
   `supply-format.ts` (`STATUS_LABEL`, `LIFECYCLE_LABEL`, `PROBLEM_LABEL`,
-  `packagingName`); prices from `formatPrice`, stock from `formatStock`. Never
-  spell a status or format a price in a component.
+  `packagingName`); prices from `formatPrice` (with its quantity through
+  `PriceAtQuantity`, "€0.31 × 1,000"), stock from `formatStock`, lead times from
+  `formatLeadTime`, days from `formatDay`, times from `formatTime` and
+  `clockTime`. Never spell a status or format a price, a date or a time in a
+  component. The KiCad panel (`src/panel`) uses the same functions.
+- **Long tables window their rows.** A table that can pass a few hundred rows
+  (the Tracking list as it loads, a large board's BOM) renders through
+  `useWindowedRows` (`@/lib/use-windowed-rows`): rows carry `data-row`, and a
+  spacer stands in for the rest. Every scrolling area carries `themed-scrollbar`.
 - **Roles gate on the client and the server.** `canOpenSupply` (`@/lib/roles`)
   decides whether supply shows at all; the server still checks every call, so
   a hidden button is a courtesy, not the control.

@@ -15,7 +15,8 @@ import { CallBudget, LibraryBar, OffersFile, providerNote, ReportedLimits } from
 import { ConnectorSignin } from "./connector-signin";
 import { formatDateTime } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
-import { clockTime, connectorState, errorCodeLabel, lastCallFailed, resting, slowedText } from "./connector-status";
+import { connectorState, errorCodeLabel, lastCallFailed, resting, slowedText } from "./connector-status";
+import { clockTime } from "./supply-format";
 
 export type ConnectorAction =
   | "edit"

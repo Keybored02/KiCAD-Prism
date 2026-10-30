@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { SupplyConnector } from "@/types/supply";
-import { budgetUsedPercent, clockTime, connectorState, errorCodeLabel, failureWords, slowedText } from "./connector-status";
+import { budgetUsedPercent, connectorState, errorCodeLabel, failureWords, slowedText } from "./connector-status";
+import { clockTime } from "./supply-format";
 import { connectorFixture } from "./supply-test-fixtures";
 
 describe("connectorState", () => {

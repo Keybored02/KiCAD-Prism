@@ -148,7 +148,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
             <DialogTitle>Upload BOM</DialogTitle>
             <DialogDescription>A CSV with a part number or LCSC number column. Nothing is saved.</DialogDescription>
           </DialogHeader>
-          <div className="max-h-[75vh] overflow-y-auto"><BomFileView /></div>
+          <div className="max-h-[75vh] themed-scrollbar overflow-y-auto"><BomFileView /></div>
         </DialogContent>
       </Dialog>
       <PartSheet partId={openPart} user={user} onClose={() => setParams({ part: null })} onWatchChanged={() => void refresh()} />
