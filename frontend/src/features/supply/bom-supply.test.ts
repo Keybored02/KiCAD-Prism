@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { SemanticComponent } from "@/types/prism-selection";
-import type { SupplyBomLineResult, SupplyBomRollup } from "@/types/supply";
+import type { SupplyBomLineResult } from "@/types/supply";
 import { buildLines, identityOf, isSupplyColumn, lcscOf, lineInput, lineKey, rowSupply, untrackedLabel } from "./bom-supply";
 import { rollupSentences } from "./bom-rollup-text";
+import { bomLineFixture, bomRollupFixture } from "./supply-test-fixtures";
 
 function part(reference: string, fields: Record<string, string | number | boolean | null> = {}): SemanticComponent {
   return { componentUid: `cmp:${reference}`, reference, fields };
 }
 
 function result(overrides: Partial<SupplyBomLineResult> = {}): SupplyBomLineResult {
-  return { state: "tracked", part_id: "p1", manufacturer_match: "exact", need: 10, watched: true, status: "ok", stock: 100, short: false, buy: null, ...overrides };
+  return bomLineFixture({ need: 10, watched: true, status: "ok", stock: 100, short: false, buy: null, ...overrides });
 }
 
 describe("the value and footprint a line carries", () => {
@@ -125,10 +126,10 @@ describe("a row's supply", () => {
 });
 
 describe("the rollup in words", () => {
-  const rollup: SupplyBomRollup = {
+  const rollup = bomRollupFixture({
     lines: 10, tracked: 8, not_tracked: 2, watched: 6, at_risk: 1, short: 2, priced: 7, lines_priced: 7, parts: 8, currency: "EUR",
     cost_build: "24.00", cost_per_board: "2.4000", can_build: 15, limited_by: "k", without_stock_data: 0, health: 7.5, health_status: "ok",
-  };
+  });
   const lines = [{ key: "k", manufacturer: "Acme", mpn: "B-1", quantity: 2, references: ["U1"] }];
   const text = (sentences: ReturnType<typeof rollupSentences>) => sentences.map((sentence) => sentence.text);
 

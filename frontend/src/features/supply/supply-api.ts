@@ -41,7 +41,7 @@ import type {
   SupplySvhcList,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
-import type { Items, SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding } from "@/types/supply.generated";
+import type { Items, SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding, UsageBuild, UsageRefreshed } from "@/types/supply.generated";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply";
@@ -90,23 +90,14 @@ function resumeSupplyConnectorRequest(id: string): Promise<SupplyConnector> {
   return post(connectorPath(id, "resume"), undefined, "Could not resume the connector");
 }
 
-export interface SupplyUsageRefresh {
-  updated: number;
-  unchanged: number;
-  without_index: number;
-  removed: number;
-}
+export type SupplyUsageRefresh = UsageRefreshed;
 
 /** Read where parts are used from the projects' existing indexes. Cheap: it builds none. */
 function refreshSupplyUsageRequest(): Promise<SupplyUsageRefresh> {
   return post(`${BASE}/bom/usage/refresh`, undefined, "Could not read where parts are used");
 }
 
-export interface SupplyIndexBuild {
-  projects: number;
-  missing: number;
-  queued: number;
-}
+export type SupplyIndexBuild = UsageBuild;
 
 /** Queue the BOM reading of projects that have none yet. The worker does them in the background. */
 function buildSupplyUsageIndexesRequest(): Promise<SupplyIndexBuild> {

@@ -28,6 +28,7 @@ import { lineKey } from "@/features/supply/bom-supply";
 import { partDetailFixture } from "@/features/supply/supply-test-fixtures";
 import { toast } from "sonner";
 import { EngineeringBomTable } from "./engineering-bom-table";
+import { bomBuyFixture, bomLineFixture, bomRollupFixture } from "@/features/supply/supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
@@ -61,25 +62,27 @@ const key = (maker: string, mpn: string) => lineKey({ manufacturer: maker, mpn }
 function lookupFor(build: number): SupplyBomLookup {
   return {
     build_quantity: build,
+    attrition_percent: 0,
+    attrition_by_part: null,
     lines: {
-      [key("Acme", "R-10K")]: {
+      [key("Acme", "R-10K")]: bomLineFixture({
         state: "tracked", part_id: "p1", manufacturer_match: "exact", need: 2 * build, watched: true, status: "ok", stock: 5000,
         lifecycle: "active", lead_time_days: 28, short: false,
-        buy: { quantity: 100, unit_price: "0.05", currency: "EUR", extended: "5", covers: true, connector_name: "TME", sku: "R-10K-TME", product_url: "https://shop.example/r" },
-      },
-      [key("Acme", "C-100N")]: {
+        buy: bomBuyFixture({ quantity: 100, unit_price: "0.05", currency: "EUR", extended: "5", covers: true, connector_name: "TME", sku: "R-10K-TME", product_url: "https://shop.example/r" }),
+      }),
+      [key("Acme", "C-100N")]: bomLineFixture({
         state: "tracked", part_id: "p2", manufacturer_match: "exact", need: build, watched: false, status: "error", stock: 3,
         lifecycle: "active", lead_time_days: null, short: true, buy: null,
-      },
-      [key("Other", "C-220N")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
-      [key("Acme", "R-47K-A")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
-      [key("Acme", "R-47K-B")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
-      [key("", "")]: { state: "no_mpn", part_id: null, manufacturer_match: null, need: build },
+      }),
+      [key("Other", "C-220N")]: bomLineFixture({ state: "unknown", part_id: null, manufacturer_match: null, need: build }),
+      [key("Acme", "R-47K-A")]: bomLineFixture({ state: "unknown", part_id: null, manufacturer_match: null, need: build }),
+      [key("Acme", "R-47K-B")]: bomLineFixture({ state: "unknown", part_id: null, manufacturer_match: null, need: build }),
+      [key("", "")]: bomLineFixture({ state: "no_mpn", part_id: null, manufacturer_match: null, need: build }),
     },
-    rollup: {
+    rollup: bomRollupFixture({
       lines: 4, tracked: 2, not_tracked: 2, watched: 1, at_risk: 1, short: 1, priced: 1, lines_priced: 1, parts: 2, currency: "EUR",
       cost_build: "5.00", cost_per_board: "0.5000", can_build: 3, limited_by: key("Acme", "C-100N"), without_stock_data: 0, health: 7.5, health_status: "ok",
-    },
+    }),
   };
 }
 
@@ -260,7 +263,7 @@ describe("the part drawer", () => {
   }
 
   it("lists every part on a row that holds several, with a way to watch the unknown ones", async () => {
-    mocked.watchSupplyBomLines.mockResolvedValue({ watched: 1, already_watched: 0, skipped: [] });
+    mocked.watchSupplyBomLines.mockResolvedValue({ watched: 1, already_watched: 0, lcsc_linked: 0, skipped: [] });
     renderTable("designer");
     const drawer = await openDetails("47k");
     expect(within(drawer).getByText("2 parts on this row")).toBeTruthy();

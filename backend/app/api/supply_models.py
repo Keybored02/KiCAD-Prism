@@ -59,6 +59,14 @@ class PartStanding(SupplyModel):
     fetched_at: Optional[str] = Field(description="As old as the oldest read the stock rests on.")
 
 
+class StoresState(SupplyModel):
+    """What the stores hold of a component: the same four states on every screen."""
+
+    state: Literal["stock", "none", "not_connected", "down"]
+    available: Optional[float] = Field(description="Usable now (OK, at our locations, less allocated); null when none is held or units are mixed.")
+    since: Optional[str] = Field(description="The last good read of a feed that is down.")
+
+
 class DecisionState(SupplyModel):
     """A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``)."""
 

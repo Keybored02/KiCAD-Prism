@@ -156,6 +156,28 @@ export interface BomRead {
   total: number;
 }
 
+export interface BomSkippedLine {
+  key: string;
+  reason: "no_mpn" | "not_in_library" | "needs_choice";
+}
+
+export interface BomWatchPreview {
+  connectors: BudgetShare[];
+  /** Nothing the change adds fits at any connector. */
+  fits_nowhere: boolean;
+  watched: SupplyBomWatchResult;
+}
+
+export interface BomWatched {
+  already_watched: number;
+  connectors: BudgetShare[];
+  fits_nowhere: boolean;
+  /** LCSC numbers on the lines newly linked to their parts. */
+  lcsc_linked: number;
+  skipped: BomSkippedLine[];
+  watched: number;
+}
+
 export interface BudgetCall {
   calls: number;
   day?: string | null;
@@ -265,6 +287,11 @@ export interface CheckStarted {
   skipped: SkippedLine[];
 }
 
+export interface CommentIn {
+  body: string;
+  line_key: string;
+}
+
 export interface ComponentFollow {
   watch: SupplyComponentWatch | null;
 }
@@ -298,6 +325,11 @@ export interface ComponentRestriction {
   replacement_component_id: string | null;
   set_at: string;
   set_by: string;
+}
+
+export interface ComponentStandings {
+  /** By component id. */
+  items: Record<string, SupplyComponentStanding>;
 }
 
 export interface ConnectorHealth {
@@ -630,9 +662,28 @@ export interface LibraryComponentOf {
   component_id: string | null;
 }
 
+export interface LineAssessment {
+  checks: string[];
+  health: number;
+  /** Findings that still count. */
+  open: number;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+}
+
 export interface LineCandidate {
   manufacturer: string;
   part_id: string;
+}
+
+export interface LineIn {
+  footprint?: string;
+  key: string;
+  lcsc?: string;
+  manufacturer?: string;
+  mpn?: string;
+  prism_id?: string;
+  quantity?: number;
+  value?: string;
 }
 
 export interface LinkRequest {
@@ -682,6 +733,13 @@ export interface LocalStockRow {
   updated_at: string;
 }
 
+export interface LookupRequest {
+  attrition_percent?: number | null;
+  build_quantity?: number | null;
+  lines: LineIn[];
+  project_id?: string;
+}
+
 export interface MakerSpelling {
   alias_key: string;
   alias_text: string;
@@ -728,6 +786,13 @@ export interface NewWorkItem {
   subject_id: string;
   subject_kind: "component" | "part";
   title: string;
+}
+
+export interface NextBreak {
+  /** What buying that many costs in total against the order; negative is cheaper. */
+  extra: string;
+  quantity: number;
+  unit_price: string;
 }
 
 export interface NoticeAdded {
@@ -991,6 +1056,14 @@ export interface PickIn {
 
 export interface PicksMade {
   picked: number;
+}
+
+/** The distributor a person prefers for a part, and what it holds. */
+export interface PreferredStanding {
+  connector_id: string;
+  connector_name: string;
+  provider: string;
+  stock: number;
 }
 
 export interface PriceDay {
@@ -1321,6 +1394,10 @@ export interface Spent {
   spent: number;
 }
 
+export interface StatusRequest {
+  components: LineIn[];
+}
+
 export interface StockAnomaly {
   day: string;
   from: number;
@@ -1334,10 +1411,13 @@ export interface StockDay {
   stock: number;
 }
 
+/** What the stores hold of a component: the same four states on every screen. */
 export interface StoresState {
+  /** Usable now (OK, at our locations, less allocated); null when none is held or units are mixed. */
   available: number | null;
+  /** The last good read of a feed that is down. */
   since: string | null;
-  state: string;
+  state: "stock" | "none" | "not_connected" | "down";
 }
 
 export interface SubstitutesAsked {
@@ -1371,6 +1451,129 @@ export interface SupplyAlert {
   severity: "warning" | "error" | "fatal";
   snoozed_until: string | null;
   state: "open" | "acknowledged" | "snoozed" | "resolved";
+}
+
+/** An approved alternate of a line's component. Its stock and offers count for the line. */
+export interface SupplyBomAlternate {
+  manufacturer: string;
+  mpn: string;
+  part_id: string;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  stock: number | null;
+}
+
+export interface SupplyBomBuy {
+  connector_name: string;
+  /** False when no offer holds enough stock; the cheapest is shown anyway. */
+  covers: boolean;
+  currency: string;
+  extended: string;
+  /** The extended price in the workspace's currency, when it can be told. */
+  in_base: string | null;
+  next_break: NextBreak | null;
+  /** The part bought: the line's own, or the approved alternate whose offer won. */
+  part_id: string | null;
+  product_url: string;
+  provider: string;
+  /** What must be ordered: the need rounded up to the minimum order and multiples. */
+  quantity: number;
+  sku: string;
+  test_data: boolean;
+  unit_price: string;
+  /** Pieces bought beyond the need, because of the smallest order and its multiples. */
+  waste: number;
+  waste_cost: string;
+}
+
+/** A note on a line of a project's BOM. */
+export interface SupplyBomComment {
+  author: string;
+  author_name: string;
+  body: string;
+  created_at: string;
+  id: string;
+  line_key: string;
+}
+
+/** One line of a lookup. A line without a part has only the first fields. */
+export interface SupplyBomLineResult {
+  alternates?: SupplyBomAlternate[] | null;
+  assessment?: LineAssessment | null;
+  /** On the later lines of a part: the key of the line that carries the purchase. */
+  bought_with?: string | null;
+  buy?: SupplyBomBuy | null;
+  fetched_at?: string | null;
+  /** Whether a catalog component has the line; null for a line without a part number. */
+  in_library: boolean | null;
+  jlc?: JlcClass | null;
+  lead_time_days?: number | null;
+  lifecycle?: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown" | null;
+  /** How the manufacturer matched: missing and unmatched mean the part number alone found it; lcsc the symbol's LCSC number. */
+  manufacturer_match: "exact" | "missing" | "unmatched" | "lcsc" | null;
+  need: number;
+  part_id: string | null;
+  /** What the whole part needs when it is on several lines. */
+  part_need?: number | null;
+  preferred?: PreferredStanding | null;
+  problem?: "not_found" | "gone" | null;
+  short?: boolean | null;
+  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
+  status?: "ok" | "warning" | "error" | "fatal" | "unknown" | null;
+  /** The alternate the status is told by, when it is better than the line's own part. */
+  status_from?: string | null;
+  stock?: number | null;
+  /** The stores state of the line's catalog component. */
+  stores: StoresState | null;
+  /** Distributor stock plus available stores stock. */
+  usable?: number | null;
+  watched?: boolean | null;
+}
+
+export interface SupplyBomLookup {
+  attrition_by_part: Record<string, number> | null;
+  /** The spares it priced with, a percent; null is by kind of part. */
+  attrition_percent: number | null;
+  build_quantity: number;
+  lines: Record<string, SupplyBomLineResult>;
+  rollup: SupplyBomRollup;
+}
+
+export interface SupplyBomRollup {
+  /** Parts whose status is error or fatal. */
+  at_risk: number;
+  can_build: number | null;
+  converted: boolean;
+  cost_build: string | null;
+  cost_per_board: string | null;
+  currency: string | null;
+  /** 0 to 10, weighted by units needed; null when nothing has data. */
+  health: number | null;
+  health_status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  limited_by: string | null;
+  lines: number;
+  /** How many lines the cost covers. */
+  lines_priced: number;
+  needs_a_look: number;
+  not_tracked: number;
+  /** Before conversion, per currency; empty when nothing was converted. */
+  original_costs: Record<string, string>;
+  parts: number;
+  priced: number;
+  rates_day: string | null;
+  short: number;
+  test_data: boolean;
+  tracked: number;
+  waste_cost: string | null;
+  watched: number;
+  without_stock_data: number;
+}
+
+export interface SupplyBomWatchResult {
+  already_watched: number;
+  /** LCSC numbers on the lines newly linked to their parts. */
+  lcsc_linked: number;
+  skipped: BomSkippedLine[];
+  watched: number;
 }
 
 export interface SupplyCapacity {
@@ -1417,6 +1620,23 @@ export interface SupplyCompliance {
 export interface SupplyComplianceState {
   reason: string;
   state: string;
+}
+
+/** Where a catalog component stands, for the catalog table. */
+export interface SupplyComponentStanding {
+  currency: string;
+  /** Usable stores stock; absent when the stores hold none, null when units are mixed. */
+  local_available?: number | null;
+  restriction: "not_for_new_designs" | "retired" | null;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  /** What the distributors hold, summed. */
+  stock: number | null;
+  stores?: StoresState | null;
+  /** From a simulated connector: test data, marked wherever it shows. */
+  test_data?: boolean | null;
+  /** The main part's headline unit price at the distributors. */
+  unit_price: string | null;
+  watched: boolean;
 }
 
 export interface SupplyComponentWatch {
@@ -2100,9 +2320,30 @@ export interface UpdateSupplyConnectorInput {
   storefront?: string | null;
 }
 
+export interface UsageBuild {
+  /** Projects without a semantic index. */
+  missing: number;
+  projects: number;
+  queued: number;
+}
+
+/** Projects whose BOM usage was read again, left as it was, without a semantic index, and removed. */
+export interface UsageRefreshed {
+  removed: number;
+  unchanged: number;
+  updated: number;
+  without_index: number;
+}
+
 export interface UsualBuild {
   build_quantity: number;
   project_id: string;
+}
+
+export interface WatchRequest {
+  lines: LineIn[];
+  rate?: string;
+  tier?: number;
 }
 
 export interface WorkItemChange {
