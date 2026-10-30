@@ -21,7 +21,6 @@ import { PushTokenDialog } from "./push-token-dialog";
 import { clearSupplyCsv, deleteSupplyConnector, testSupplyConnector } from "./supply-api";
 import { isQuickAction, useQuickConnectorActions } from "./use-connector-actions";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
 
 const SettingsDialog = lazy(() => import("./settings-view").then((module) => ({ default: module.SettingsDialog })));
@@ -33,7 +32,6 @@ type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "
 export function SupplyConnectorsView({ user, headerSlot, after }: { user: User | null; headerSlot?: HTMLElement | null; after?: ReactNode }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();
-  const capacity = useSupplyCapacity();
   const budgets = useBudget();
   const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -135,7 +133,6 @@ export function SupplyConnectorsView({ user, headerSlot, after }: { user: User |
               <ConnectorCard
                 key={connector.id}
                 connector={connector}
-                capacity={capacity.find((item) => item.connector_id === connector.id)}
                 budget={budgets.find((item) => item.connector_id === connector.id)}
                 isAdmin={isAdmin}
                 onAction={handleAction}

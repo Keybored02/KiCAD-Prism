@@ -350,7 +350,7 @@ class OutlookSignal(SupplyModel):
 class SupplyOutlook(SupplyModel):
     """A rule-based band with every signal behind it."""
 
-    band: Literal["ended", "under_2_years", "2_to_5_years", "no_signs", "unknown"]
+    band: Literal["ended", "ending", "warning_signs", "no_signs", "unknown"]
     label: str
     method: Literal["rule-based"]
     signals: list[OutlookSignal]

@@ -21,7 +21,6 @@ import type {
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
-  SupplyCapacity,
   SupplyConnectorCheck,
   SupplyManufacturer,
   SupplyDashboard,
@@ -131,10 +130,6 @@ function watchSupplyBomLinesRequest(lines: BomLineInput[]): Promise<SupplyBomWat
 
 function testSupplyConnectorRequest(id: string): Promise<SupplyConnectorCheck> {
   return post(connectorPath(id, "test"), undefined, "Could not test the connector");
-}
-
-export function listSupplyCapacity(signal?: AbortSignal): Promise<SupplyCapacity[]> {
-  return fetchJson<Items<SupplyCapacity>>(`${BASE}/capacity`, { signal }, "Could not load capacity").then((list) => list.items);
 }
 
 

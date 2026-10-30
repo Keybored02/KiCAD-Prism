@@ -52,9 +52,9 @@ class PureTests(unittest.TestCase):
 
     def test_an_open_notice_is_a_signal_in_the_outlook(self) -> None:
         eol = outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("end_of_life")])
-        self.assertEqual(eol["band"], "under_2_years")
+        self.assertEqual(eol["band"], "ending")
         self.assertEqual(eol["signals"][0]["source"], "product change notice")
-        self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("nrnd", buy=None)])["band"], "2_to_5_years")
+        self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("nrnd", buy=None)])["band"], "warning_signs")
         self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("change")])["band"], "no_signs")
         self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice(state="closed")])["band"], "no_signs")
 

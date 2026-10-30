@@ -162,15 +162,15 @@ class RiskTests(unittest.TestCase):
 
     def test_lifecycle_rises_with_the_outlook(self) -> None:
         self.assertEqual(self.scores(outlook="no_signs")["lifecycle"], 1)
-        self.assertEqual(self.scores(outlook="2_to_5_years")["lifecycle"], 2)
-        self.assertEqual(self.scores(outlook="under_2_years")["lifecycle"], 4)
+        self.assertEqual(self.scores(outlook="warning_signs")["lifecycle"], 2)
+        self.assertEqual(self.scores(outlook="ending")["lifecycle"], 4)
         self.assertEqual(self.scores(outlook="ended")["lifecycle"], 5)
-        self.assertEqual(self.scores(lifecycle=Lifecycle.LAST_TIME_BUY, outlook="2_to_5_years")["lifecycle"], 4, "the outlook never lowers the score")
+        self.assertEqual(self.scores(lifecycle=Lifecycle.LAST_TIME_BUY, outlook="warning_signs")["lifecycle"], 4, "the outlook never lowers the score")
 
     def test_dropped_everywhere_counts_once_when_the_outlook_came_from_it(self) -> None:
         gone = [offer(discontinued=True)]
-        self.assertEqual(self.scores(gone, outlook="under_2_years")["lifecycle"], 4)
-        self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY, outlook="under_2_years")["lifecycle"], 5)
+        self.assertEqual(self.scores(gone, outlook="ending")["lifecycle"], 4)
+        self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY, outlook="ending")["lifecycle"], 5)
         self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY)["lifecycle"], 5)
 
     def test_market_follows_lead_time(self) -> None:
@@ -180,21 +180,21 @@ class RiskTests(unittest.TestCase):
 
 class OutlookFindingTests(unittest.TestCase):
     def test_a_part_ending_within_two_years_is_a_warning(self) -> None:
-        soon = [f for f in checks.evaluate(facts(outlook="under_2_years"), DEFAULTS) if f.check == "ending_within_2_years"]
+        soon = [f for f in checks.evaluate(facts(outlook="ending"), DEFAULTS) if f.check == "ending_within_2_years"]
         self.assertEqual([f.severity for f in soon], [Status.WARNING])
-        for quiet in ("", "no_signs", "2_to_5_years", "unknown"):
+        for quiet in ("", "no_signs", "warning_signs", "unknown"):
             self.assertFalse({"ending_within_2_years"} & set(ids(checks.evaluate(facts(outlook=quiet), DEFAULTS))), quiet)
 
     def test_it_is_not_said_twice_when_the_lifecycle_or_the_distributors_already_say_it(self) -> None:
         found = ids(checks.evaluate(facts(lifecycle=Lifecycle.OBSOLETE, outlook="ended"), DEFAULTS))
         self.assertIn("obsolete", found)
         self.assertNotIn("ending_within_2_years", found)
-        dropped = ids(checks.evaluate(facts([offer(discontinued=True)], outlook="under_2_years"), DEFAULTS))
+        dropped = ids(checks.evaluate(facts([offer(discontinued=True)], outlook="ending"), DEFAULTS))
         self.assertNotIn("ending_within_2_years", dropped)
 
     def test_a_part_with_a_last_date_to_buy_no_longer_scores_near_ten(self) -> None:
-        found = checks.evaluate(facts(outlook="under_2_years"), DEFAULTS)
-        sub_scores = risk.sub_scores(facts(outlook="under_2_years"), found)
+        found = checks.evaluate(facts(outlook="ending"), DEFAULTS)
+        sub_scores = risk.sub_scores(facts(outlook="ending"), found)
         result = health.health(found, sub_scores, DEFAULTS, has_data=True)
         calm = checks.evaluate(facts(), DEFAULTS)
         quiet = health.health(calm, risk.sub_scores(facts(), calm), DEFAULTS, has_data=True)
@@ -217,7 +217,7 @@ class LastBuyDateTests(unittest.TestCase):
     def test_a_passed_date_is_only_an_error_while_a_distributor_still_has_stock_and_the_text_says_which(self) -> None:
         passed = NOW.date() - timedelta(days=30)
         self.assertEqual(self.severity(passed, stock=500)["last_time_buy"], Status.ERROR)
-        self.assertEqual(self.severity(passed, stock=500, lifecycle=Lifecycle.ACTIVE, outlook="under_2_years")["ending_within_2_years"], Status.ERROR)
+        self.assertEqual(self.severity(passed, stock=500, lifecycle=Lifecycle.ACTIVE, outlook="ending")["ending_within_2_years"], Status.ERROR)
         with_stock = {f.check: f.text for f in checks.evaluate(facts([offer(stock=500)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=passed), DEFAULTS)}
         self.assertTrue(with_stock["last_time_buy"].endswith("The last date to buy has passed; distributors still have 500."))
         none = {f.check: f.text for f in checks.evaluate(facts([offer(stock=0)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=passed), DEFAULTS)}
@@ -240,7 +240,7 @@ class LastBuyDateTests(unittest.TestCase):
         self.assertEqual(self.severity(NOW.date() - timedelta(days=30), settings=quiet)["last_time_buy"], Status.OK)
 
     def test_the_same_rule_applies_to_an_ending_part_whose_outlook_came_from_a_date(self) -> None:
-        found = self.severity(NOW.date() + timedelta(days=90), lifecycle=Lifecycle.ACTIVE, outlook="under_2_years")
+        found = self.severity(NOW.date() + timedelta(days=90), lifecycle=Lifecycle.ACTIVE, outlook="ending")
         self.assertEqual(found["ending_within_2_years"], Status.ERROR)
 
     def test_the_dates_a_distributor_or_an_open_notice_gives_are_read_for_all_parts_at_once(self) -> None:

@@ -114,7 +114,7 @@ describe("the outlook and health line", () => {
   });
 
   it("lists the outlook's signals in the same modal", async () => {
-    render(<OutlookSection outlook={{ ...OUTLOOK, band: "under_2_years", label: "Ending", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
+    render(<OutlookSection outlook={{ ...OUTLOOK, band: "ending", label: "Ending", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
     expect(screen.queryByText(/A notice announces end of life/)).toBeNull();
     await openDetails();
     expect(screen.getByRole("list", { name: "Outlook signals" })).toBeTruthy();

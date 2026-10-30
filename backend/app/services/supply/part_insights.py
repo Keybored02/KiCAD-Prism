@@ -19,8 +19,8 @@ OFTEN_OUT_SHARE = 0.2
 # The groups the Insights lists and the Dashboard bars count, each a test on one part's facts. ``runs_out_*`` are buckets of
 # the projected days until zero stock; the others are findings.
 # Parts nothing will refill: no limit on how far ahead their drain is shown.
-ENDING_BANDS = ("ended", "under_2_years")
-OUTLOOK_BANDS = ("ended", "under_2_years", "2_to_5_years", "no_signs", "unknown")
+ENDING_BANDS = ("ended", "ending")
+OUTLOOK_BANDS = ("ended", "ending", "warning_signs", "no_signs", "unknown")
 # The shortest quoted lead time in buckets of weeks.
 LEAD_BUCKETS = (("under_2w", 14), ("2_to_8w", 56), ("8_to_16w", 112), ("16_to_26w", 182))
 

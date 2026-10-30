@@ -54,7 +54,7 @@ function page(overrides: Partial<SupplyInsightsPage> = {}): SupplyInsightsPage {
     },
     lifecycle: {
       mix: { active: 4, nrnd: 1, last_time_buy: 0, obsolete: 0, unknown: 1 },
-      outlook: { ended: 0, under_2_years: 1, "2_to_5_years": 0, no_signs: 4, unknown: 1 },
+      outlook: { ended: 0, ending: 1, warning_signs: 0, no_signs: 4, unknown: 1 },
       compliance: { rohs: { compliant: 4, not_compliant: 1, disputed: 0, not_applicable: 0, unknown: 1 }, reach: { compliant: 3, affected: 0, not_applicable: 0, unknown: 3 } },
     },
     lead_times: [

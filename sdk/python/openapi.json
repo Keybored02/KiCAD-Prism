@@ -2510,12 +2510,21 @@
             "title": "Provider",
             "type": "string"
           },
+          "quotes": {
+            "$ref": "#/components/schemas/QuoteCoverage",
+            "description": "Of the tracked parts admitted here, how many this connector gives a price for."
+          },
           "refused_today": {
             "title": "Refused Today",
             "type": "integer"
           },
           "reset_in_seconds": {
             "title": "Reset In Seconds",
+            "type": "integer"
+          },
+          "searches_pending": {
+            "description": "Tracked parts admitted here and not searched for yet.",
+            "title": "Searches Pending",
             "type": "integer"
           },
           "shares_account": {
@@ -2561,7 +2570,9 @@
           "days",
           "notices",
           "library",
-          "owners"
+          "owners",
+          "searches_pending",
+          "quotes"
         ],
         "title": "BudgetConnector",
         "type": "object"
@@ -16532,23 +16543,6 @@
         "title": "Items[SupplyBomComment]",
         "type": "object"
       },
-      "Items_SupplyCapacity_": {
-        "additionalProperties": true,
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/SupplyCapacity"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "Items[SupplyCapacity]",
-        "type": "object"
-      },
       "Items_SupplyConnector_": {
         "additionalProperties": true,
         "properties": {
@@ -21839,31 +21833,31 @@
       "Outlook": {
         "additionalProperties": true,
         "properties": {
-          "2_to_5_years": {
-            "title": "2 To 5 Years",
-            "type": "integer"
-          },
           "ended": {
             "title": "Ended",
+            "type": "integer"
+          },
+          "ending": {
+            "title": "Ending",
             "type": "integer"
           },
           "no_signs": {
             "title": "No Signs",
             "type": "integer"
           },
-          "under_2_years": {
-            "title": "Under 2 Years",
-            "type": "integer"
-          },
           "unknown": {
             "title": "Unknown",
+            "type": "integer"
+          },
+          "warning_signs": {
+            "title": "Warning Signs",
             "type": "integer"
           }
         },
         "required": [
           "ended",
-          "under_2_years",
-          "2_to_5_years",
+          "ending",
+          "warning_signs",
           "no_signs",
           "unknown"
         ],
@@ -33544,62 +33538,6 @@
         "title": "SupplyBomWatchResult",
         "type": "object"
       },
-      "SupplyCapacity": {
-        "additionalProperties": true,
-        "properties": {
-          "calls_per_day": {
-            "title": "Calls Per Day",
-            "type": "integer"
-          },
-          "connector_id": {
-            "title": "Connector Id",
-            "type": "string"
-          },
-          "fits": {
-            "title": "Fits",
-            "type": "boolean"
-          },
-          "listings": {
-            "title": "Listings",
-            "type": "integer"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "quotes": {
-            "$ref": "#/components/schemas/QuoteCoverage",
-            "description": "Of the tracked parts, how many this connector gives a price for."
-          },
-          "searches_pending": {
-            "description": "Watched parts not yet searched for at this connector.",
-            "title": "Searches Pending",
-            "type": "integer"
-          },
-          "shortfall_pct": {
-            "description": "Share of reads that will run later than their tier asks.",
-            "title": "Shortfall Pct",
-            "type": "integer"
-          },
-          "usable_per_day": {
-            "title": "Usable Per Day",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "connector_id",
-          "name",
-          "listings",
-          "calls_per_day",
-          "usable_per_day",
-          "shortfall_pct",
-          "fits",
-          "searches_pending",
-          "quotes"
-        ],
-        "title": "SupplyCapacity",
-        "type": "object"
-      },
       "SupplyChoice": {
         "additionalProperties": true,
         "properties": {
@@ -36074,8 +36012,8 @@
           "band": {
             "enum": [
               "ended",
-              "under_2_years",
-              "2_to_5_years",
+              "ending",
+              "warning_signs",
               "no_signs",
               "unknown"
             ],
@@ -60393,27 +60331,6 @@
           }
         },
         "summary": "Budget",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/capacity": {
-      "get": {
-        "operationId": "get_capacity",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Items_SupplyCapacity_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Capacity",
         "tags": [
           "supply"
         ]

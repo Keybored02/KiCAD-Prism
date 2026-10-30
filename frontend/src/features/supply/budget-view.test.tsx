@@ -20,10 +20,21 @@ const item: BudgetConnector = {
   library: null,
   hourly: [{ hour: 1, kind: "offers", purpose: "tier1", calls: 40 }, { hour: 2, kind: "search", purpose: "interactive", calls: 20 }],
   days: [{ day: "2026-03-01", purpose: "tier1", calls: 500 }, { day: "2026-03-02", purpose: "tier1", calls: 300 }],
+  searches_pending: 0,
+  quotes: { parts: 0, of: 0 },
   owners: { projects: [{ project_id: "prj_1", project_name: "Power board", calls_a_day: 180 }], parts: [{ part_id: "p1", mpn: "LM358DR", manufacturer: "TI", tier: 1, calls_a_day: 1.18, pick_saves: 0.5 }] },
 };
 
 describe("the call budget", () => {
+  it("says how many tracked parts the connector prices and how many it has still to search, and nothing when there are none", () => {
+    const { container, rerender } = render(<MemoryRouter><BudgetDetail item={{ ...item, quotes: { parts: 12, of: 40 }, searches_pending: 1 }} /></MemoryRouter>);
+    expect(container.textContent).toContain("Gives a price for 12 of 40 tracked parts.");
+    expect(container.textContent).toContain("1 watched part has not been searched here yet.");
+    rerender(<MemoryRouter><BudgetDetail item={item} /></MemoryRouter>);
+    expect(container.textContent).not.toContain("Gives a price for");
+    expect(container.textContent).not.toContain("not been searched");
+  });
+
   it("shows each share, what tracking costs, what waits and what costs most, by project name", () => {
     render(<MemoryRouter><BudgetDetail item={{ ...item, owners: { ...item.owners, projects: [{ ...item.owners.projects[0], project_name: "Power board" }] } }} /></MemoryRouter>);
     const card = screen.getByLabelText("DigiKey call budget");

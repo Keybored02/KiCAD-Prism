@@ -8,6 +8,7 @@ Everything here is read, nothing is changed. Per metered connector:
 * what was spent, by kind and by purpose, hour by hour today and by day for 14 days (``call_counts``)
 * what tracking has admitted and what waits for room (``admission.status``)
 * the projects and parts that cost most, from the cost model (``budget.py``), a part two projects share split between them
+* how many tracked parts it gives a price for, and how many it has not searched for yet
 """
 
 from __future__ import annotations
@@ -99,8 +100,36 @@ def _library(conn, connector_id: str, spec, account, committed: int, standing: d
     return found.dto() if found else None
 
 
+def _coverage(conn) -> dict[str, dict[str, Any]]:
+    """Per connector, of the tracked parts admitted to it: how many it has not searched for yet, and how many it gives a price
+    for. A part waiting for room is not one it reads, so it counts in neither."""
+
+    def counted(sql: str) -> dict[str, int]:
+        return {row["connector_id"]: int(row["n"]) for row in conn.execute(sql).fetchall()}
+
+    admitted = "supply_admissions a JOIN supply_part_tiers w ON w.part_id = a.part_id"
+    unsearched = counted(
+        f"SELECT a.connector_id, COUNT(*) AS n FROM {admitted} LEFT JOIN supply_discovery_runs d ON d.part_id = a.part_id AND "
+        "d.connector_id = a.connector_id WHERE a.state = 'admitted' AND d.part_id IS NULL GROUP BY a.connector_id"
+    )
+    read = counted(f"SELECT a.connector_id, COUNT(*) AS n FROM {admitted} WHERE a.state = 'admitted' GROUP BY a.connector_id")
+    quoted = counted(
+        f"""
+        SELECT a.connector_id, COUNT(DISTINCT a.part_id) AS n FROM {admitted}
+        JOIN supply_listings l ON l.part_id = a.part_id AND l.connector_id = a.connector_id JOIN supply_offers o ON o.listing_id = l.id
+        WHERE a.state = 'admitted' AND supply_counted(l.match_state) AND NOT o.marketplace AND o.currency <> '' AND o.price_breaks <> '[]'::jsonb
+        GROUP BY a.connector_id
+        """
+    )
+    return {
+        connector_id: {"searches_pending": unsearched.get(connector_id, 0), "quotes": {"parts": quoted.get(connector_id, 0), "of": of}}
+        for connector_id, of in read.items()
+    }
+
+
 def view(conn, now: datetime, visible: set[str] | None = None) -> list[dict[str, Any]]:
     data = admission._inputs(conn)  # noqa: SLF001 - the cost inputs are read once for every connector
+    coverage = _coverage(conn)
     standing = {item["connector_id"]: item for item in admission.status(conn)}
     result = []
     for row in conn.execute("SELECT id, provider, display_name, enabled FROM supply_connectors ORDER BY lower(display_name), id").fetchall():
@@ -146,5 +175,6 @@ def view(conn, now: datetime, visible: set[str] | None = None) -> list[dict[str,
             # The provider's change-notice quota, apart from the products budget; absent for providers without one.
             "notices": notice_budget.plan(conn, row["id"], spec.notice_daily_limit, now).dto() if spec.notice_daily_limit else None,
             "library": _library(conn, row["id"], spec, account, committed, standing.get(row["id"]), now),
+            **coverage.get(row["id"], {"searches_pending": 0, "quotes": {"parts": 0, "of": 0}}),
         })
     return result

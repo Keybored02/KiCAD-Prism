@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import { ApiHttpError } from "@/lib/api";
 import type { User } from "@/types/auth";
-import { capacityFixture, connectorFixture, providerFixture } from "./supply-test-fixtures";
+import { connectorFixture, providerFixture } from "./supply-test-fixtures";
 import { forgetServerState } from "@/lib/server-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "toast-id") } }));
@@ -25,7 +25,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   uploadSupplyCsv: vi.fn(),
   clearSupplyCsv: vi.fn(),
   testSupplyConnector: vi.fn(),
-  listSupplyCapacity: vi.fn(),
 }));
 
 
@@ -49,7 +48,6 @@ async function openMenu(name: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.listSupplyCapacity.mockResolvedValue([]);
 });
 afterEach(cleanup);
 
@@ -284,31 +282,7 @@ describe("testing a connection", () => {
   });
 });
 
-describe("capacity notes", () => {
-  it("no longer says what the watchlist needs against what the budget allows: the day's bar and the room table do", async () => {
-    load();
-    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 300, calls_per_day: 1840, usable_per_day: 900, fits: false, shortfall_pct: 51 })]);
-    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
-    const card = await screen.findByRole("article", { name: "Demo EU" });
-    expect(within(card).queryByText(/needs about/)).toBeNull();
-    expect(within(card).queryByRole("alert")).toBeNull();
-  });
-
-  it("stays quiet with nothing watched and when capacity cannot be loaded", async () => {
-    load();
-    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 0, calls_per_day: 0 })]);
-    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
-    const card = await screen.findByRole("article", { name: "Demo EU" });
-    expect(within(card).queryByText(/needs about/)).toBeNull();
-    cleanup();
-    forgetServerState([]);
-    load();
-    mocked.listSupplyCapacity.mockRejectedValue(new Error("down"));
-    render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
-    expect(await screen.findByRole("article", { name: "Demo EU" })).toBeTruthy();
-    expect(screen.queryByText(/needs about/)).toBeNull();
-  });
-
+describe("the connectors page", () => {
   it("opens the settings window from a gear for everyone who reads supply, beside Add connector", async () => {
     load();
     render(<MemoryRouter><SupplyConnectorsView user={designer} /></MemoryRouter>);

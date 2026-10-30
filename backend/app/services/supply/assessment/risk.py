@@ -31,7 +31,7 @@ _LIFECYCLE_SCORE = {
 
 
 # What the outlook band adds to the lifecycle score: a notice or last date to buy is as serious as a last time buy.
-_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "under_2_years": (4, "Signals say its end is announced."), "2_to_5_years": (2, "There are warning signs of an end.")}
+_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "ending": (4, "Signals say its end is announced."), "warning_signs": (2, "There are warning signs of an end.")}
 
 
 def lifecycle(facts: Facts) -> SubScore:

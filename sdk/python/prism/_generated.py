@@ -462,8 +462,10 @@ class BudgetConnector(TypedDict, total=True):
     owners: BudgetOwners
     pool: Spent
     provider: str
+    quotes: QuoteCoverage
     refused_today: int
     reset_in_seconds: int
+    searches_pending: int
     shares_account: bool
     spare_spent: int
     spent: int
@@ -3019,10 +3021,6 @@ class Items_SupplyBomComment_(TypedDict, total=True):
     items: list[SupplyBomComment]
 
 
-class Items_SupplyCapacity_(TypedDict, total=True):
-    items: list[SupplyCapacity]
-
-
 class Items_SupplyConnector_(TypedDict, total=True):
     items: list[SupplyConnector]
 
@@ -3340,7 +3338,7 @@ class LibraryComponentOf(TypedDict, total=True):
 class LifecycleInsights(TypedDict, total=True):
     compliance: ComplianceMix
     mix: LifecycleMix
-    outlook: dict[str, Any]
+    outlook: Outlook
 
 
 class LifecycleMix(TypedDict, total=True):
@@ -4013,6 +4011,14 @@ class OtherNumberListing(TypedDict, total=True):
     id: str
     raw_mpn: str
     sku: str
+
+
+class Outlook(TypedDict, total=True):
+    ended: int
+    ending: int
+    no_signs: int
+    unknown: int
+    warning_signs: int
 
 
 class OutlookSignal(TypedDict, total=True):
@@ -6135,18 +6141,6 @@ class SupplyBomWatchResult(TypedDict, total=True):
     lcsc_linked: int
     skipped: list[BomSkippedLine]
     watched: int
-
-
-class SupplyCapacity(TypedDict, total=True):
-    calls_per_day: int
-    connector_id: str
-    fits: bool
-    listings: int
-    name: str
-    quotes: QuoteCoverage
-    searches_pending: int
-    shortfall_pct: int
-    usable_per_day: int
 
 
 class SupplyChoice(TypedDict, total=True):
@@ -8809,13 +8803,6 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
             path_params={"project_id": project_id, "candidate_id": candidate_id},
-        )
-
-    def get_capacity(self) -> Items_SupplyCapacity_:
-        """Get Capacity"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/capacity",
         )
 
     def get_catalog_asset_content(self, asset_id: str) -> Any:

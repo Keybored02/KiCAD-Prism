@@ -11,8 +11,8 @@ import { useHealth } from "./use-health";
 
 const TONE: Record<SupplyOutlook["band"], "outline" | "warning" | "destructive" | "success"> = {
   ended: "destructive",
-  under_2_years: "destructive",
-  "2_to_5_years": "warning",
+  ending: "destructive",
+  warning_signs: "warning",
   no_signs: "success",
   unknown: "outline",
 };

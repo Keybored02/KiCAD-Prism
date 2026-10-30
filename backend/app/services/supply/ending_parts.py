@@ -35,7 +35,7 @@ _ENDING = {
     Lifecycle.LAST_TIME_BUY.value: "Last time buy",
     Lifecycle.OBSOLETE.value: "Obsolete",
 }
-_OUTLOOK = {outlook.ENDED: "Outlook: ended", outlook.UNDER_TWO: "Outlook: ending"}
+_OUTLOOK = {outlook.ENDED: "Outlook: ended", outlook.ENDING: "Outlook: ending"}
 
 
 def reasons_of(item: Mapping[str, Any], band: str | None) -> list[dict[str, str]]:

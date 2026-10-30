@@ -119,16 +119,6 @@ class QuoteCoverage(SupplyModel):
     of: int
 
 
-class SupplyCapacity(SupplyModel):
-    connector_id: str
-    name: str
-    listings: int
-    calls_per_day: int
-    usable_per_day: int
-    shortfall_pct: int = Field(description="Share of reads that will run later than their tier asks.")
-    fits: bool
-    searches_pending: int = Field(description="Watched parts not yet searched for at this connector.")
-    quotes: QuoteCoverage = Field(description="Of the tracked parts, how many this connector gives a price for.")
 
 
 class SupplyConnectorCheck(SupplyModel):
