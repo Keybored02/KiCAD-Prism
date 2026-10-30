@@ -87,6 +87,14 @@ class AlertRules(TypedDict, total=True):
     target_price: str | None
 
 
+class AliasConfirmed(TypedDict, total=True):
+    listings_updated: int
+
+
+class AliasUndone(TypedDict, total=True):
+    listings: int
+
+
 class AlignmentRequest(TypedDict, total=False):
     offsetMm: list[float]
     rotationDeg: list[float]
@@ -3096,6 +3104,14 @@ class Leadership(TypedDict, total=True):
     led: dict[str, int]
 
 
+class LearnedAlias(TypedDict, total=True):
+    alias_key: str
+    alias_text: str
+    first_seen_at: str
+    manufacturer: str
+    parts: int
+
+
 class LibraryComponentOf(TypedDict, total=True):
     component_id: str | None
 
@@ -3163,12 +3179,22 @@ class ListedBuild(TypedDict, total=True):
     warnings: list[Any]
 
 
+class ListingPart(TypedDict, total=True):
+    id: str
+    manufacturer: str
+    mpn: str
+
+
 class ListingPoll(TypedDict, total=True):
     error_streak: int
     last_error_code: str
     last_polled_at: str | None
     next_poll_at: str | None
     tier: str
+
+
+class ListingsRejected(TypedDict, total=True):
+    rejected: int
 
 
 class LoadList(TypedDict, total=False):
@@ -3234,6 +3260,10 @@ class LookupRequest(TypedDict, total=False):
     build_quantity: int | None
     lines: list[LineIn]
     project_id: str
+
+
+class MakerChosen(TypedDict, total=True):
+    result: str
 
 
 class MakerSpelling(TypedDict, total=True):
@@ -3644,6 +3674,10 @@ class NumberFollowed(TypedDict, total=True):
     watch: SupplyWatch
 
 
+class NumbersCounted(TypedDict, total=True):
+    counted: int
+
+
 class NumbersRequest(TypedDict, total=True):
     keys: list[str]
 
@@ -3689,6 +3723,13 @@ class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
     tools: list[str]
+
+
+class OtherNumberListing(TypedDict, total=True):
+    connector: str
+    id: str
+    raw_mpn: str
+    sku: str
 
 
 class OutlookSignal(TypedDict, total=True):
@@ -4528,6 +4569,49 @@ class ProposeWaiverRequest(TypedDict, total=False):
     reason: str
 
 
+class ProposedAlternate(TypedDict, total=True):
+    component_id: str
+    component_mpn: str
+    component_name: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    proposed_at: str
+    proposed_by: str
+
+
+class ProposedDismissal(TypedDict, total=True):
+    component_id: str
+    component_mpn: str
+    component_name: str
+    id: str
+    proposed_at: str
+    proposed_by: str
+    reasons: list[str]
+
+
+class ProposedMute(TypedDict, total=True):
+    id: str
+    kind: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    proposed_at: str
+    proposed_by: str
+
+
+class ProposedWaiver(TypedDict, total=True):
+    check_id: str
+    id: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    proposed_at: str
+    proposed_by: str
+    reason: str
+    scope: str
+
+
 class PublishRecord(TypedDict, total=True):
     acknowledged_models: list[str]
     asset_names: list[str]
@@ -4955,6 +5039,12 @@ class ReuseAssetRequest(TypedDict, total=False):
     counterpart_asset_id: str
 
 
+class ReviewCounts(TypedDict, total=True):
+    aliases: int
+    near: int
+    unresolved: int
+
+
 class ReviewDecision(TypedDict, total=True):
     acknowledged_models: list[str]
     actor: str
@@ -5244,6 +5334,17 @@ class SettingsRanges(TypedDict, total=True):
     lead_time_days: list[Any]
     price_quantity: list[Any]
     spares: list[Any]
+
+
+class SettleUndone(TypedDict, total=True):
+    undone: bool
+
+
+class SettledPart(TypedDict, total=True):
+    at: str
+    manufacturer: str
+    mpn: str
+    part_id: str
 
 
 class SheetPdf(TypedDict, total=True):
@@ -5797,6 +5898,12 @@ class SupplyManufacturer(TypedDict, total=True):
     part_count: int
 
 
+class SupplyMatched(TypedDict, total=True):
+    """What Prism decided by itself and a person may undo."""
+    aliases: list[LearnedAlias]
+    parts: list[SettledPart]
+
+
 class SupplyNotice(TypedDict, total=True):
     created_at: str
     created_by: str
@@ -5844,6 +5951,14 @@ class SupplyOffer(TypedDict, total=True):
     reach_affected: bool | None
     rohs: bool | None
     stock: int
+
+
+class SupplyOtherNumberGroup(TypedDict, total=True):
+    """Listings pinned as a part although numbered otherwise."""
+    listings: list[OtherNumberListing]
+    manufacturer: str
+    mpn: str
+    part_id: str
 
 
 class SupplyOutlook(TypedDict, total=True):
@@ -5977,6 +6092,43 @@ class SupplyReadNow(TypedDict, total=True):
     read: int
 
 
+class SupplyReviewAlias(TypedDict, total=True):
+    """A spelling a distributor used that maps to no manufacturer yet."""
+    alias_key: str
+    alias_text: str
+    first_seen_at: str
+    seen_at_provider: str
+    waiting_listings: int
+
+
+class SupplyReviewListing(TypedDict, total=True):
+    connector_id: str
+    connector_name: str
+    first_seen_at: str
+    id: str
+    match_reason: str
+    match_state: str
+    packaging: str
+    packaging_inferred: bool
+    part: ListingPart | None
+    provider: str
+    raw_manufacturer: str
+    raw_mpn: str
+    reel_size: int | None
+    sku: str
+
+
+class SupplyReviewQueue(TypedDict, total=True):
+    aliases: list[SupplyReviewAlias]
+    choices: list[SupplyChoice]
+    counts: ReviewCounts
+    listings: list[SupplyReviewListing]
+    manufacturers: list[SupplyManufacturer]
+    matched: SupplyMatched
+    other_numbers: list[SupplyOtherNumberGroup]
+    to_approve: SupplyToApprove
+
+
 class SupplyRowOffer(TypedDict, total=True):
     """One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price]."""
     also_packaging: list[str]
@@ -6029,6 +6181,14 @@ class SupplySvhcList(TypedDict, total=True):
     loaded_by: str
     source_name: str
     substances: int
+
+
+class SupplyToApprove(TypedDict, total=True):
+    """What QA and administrators have been asked to approve."""
+    alternates: list[ProposedAlternate]
+    dismissals: list[ProposedDismissal]
+    mutes: list[ProposedMute]
+    waivers: list[ProposedWaiver]
 
 
 class SupplyWatch(TypedDict, total=True):
@@ -7139,7 +7299,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def choose_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+    def choose_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> MakerChosen:
         """Choose Maker"""
         return self._request(
             "POST",
@@ -7245,7 +7405,7 @@ class GeneratedClient:
             "/api/v1/agent/config",
         )
 
-    def confirm_alias(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def confirm_alias(self, *, body: dict[str, Any] | None = None) -> AliasConfirmed:
         """Confirm Alias"""
         return self._request(
             "POST",
@@ -8705,7 +8865,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
-    def get_review_queue(self) -> dict[str, Any]:
+    def get_review_queue(self) -> SupplyReviewQueue:
         """Get Review Queue"""
         return self._request(
             "GET",
@@ -9552,7 +9712,7 @@ class GeneratedClient:
             path_params={"part_id": part_id, "connector_id": connector_id},
         )
 
-    def other_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def other_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> ListingsRejected:
         """Other Maker"""
         return self._request(
             "POST",
@@ -10060,7 +10220,7 @@ class GeneratedClient:
             path_params={"listing_id": listing_id},
         )
 
-    def reject_listings(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def reject_listings(self, *, body: dict[str, Any] | None = None) -> ListingsRejected:
         """Reject Listings"""
         return self._request(
             "POST",
@@ -10755,7 +10915,7 @@ class GeneratedClient:
             path_params={"part_id": part_id, "cas": cas},
         )
 
-    def undo_alias(self, alias_key: str) -> dict[str, int]:
+    def undo_alias(self, alias_key: str) -> AliasUndone:
         """Undo Alias"""
         return self._request(
             "POST",
@@ -10763,7 +10923,7 @@ class GeneratedClient:
             path_params={"alias_key": alias_key},
         )
 
-    def undo_settled(self, part_id: str) -> dict[str, bool]:
+    def undo_settled(self, part_id: str) -> SettleUndone:
         """Undo Settled"""
         return self._request(
             "POST",
@@ -10972,7 +11132,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def use_numbers(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def use_numbers(self, part_id: str, *, body: dict[str, Any] | None = None) -> NumbersCounted:
         """Use Numbers"""
         return self._request(
             "POST",

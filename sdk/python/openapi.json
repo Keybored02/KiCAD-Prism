@@ -621,6 +621,34 @@
         "title": "AlertRules",
         "type": "object"
       },
+      "AliasConfirmed": {
+        "additionalProperties": true,
+        "properties": {
+          "listings_updated": {
+            "title": "Listings Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "listings_updated"
+        ],
+        "title": "AliasConfirmed",
+        "type": "object"
+      },
+      "AliasUndone": {
+        "additionalProperties": true,
+        "properties": {
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "listings"
+        ],
+        "title": "AliasUndone",
+        "type": "object"
+      },
       "AlignmentRequest": {
         "properties": {
           "offsetMm": {
@@ -17220,6 +17248,40 @@
         "title": "Leadership",
         "type": "object"
       },
+      "LearnedAlias": {
+        "additionalProperties": true,
+        "properties": {
+          "alias_key": {
+            "title": "Alias Key",
+            "type": "string"
+          },
+          "alias_text": {
+            "title": "Alias Text",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "parts": {
+            "title": "Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "alias_key",
+          "alias_text",
+          "manufacturer",
+          "first_seen_at",
+          "parts"
+        ],
+        "title": "LearnedAlias",
+        "type": "object"
+      },
       "LibraryComponentOf": {
         "additionalProperties": true,
         "properties": {
@@ -17581,6 +17643,30 @@
         "title": "ListedBuild",
         "type": "object"
       },
+      "ListingPart": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mpn",
+          "manufacturer"
+        ],
+        "title": "ListingPart",
+        "type": "object"
+      },
       "ListingPoll": {
         "additionalProperties": true,
         "properties": {
@@ -17632,6 +17718,20 @@
           "last_error_code"
         ],
         "title": "ListingPoll",
+        "type": "object"
+      },
+      "ListingsRejected": {
+        "additionalProperties": true,
+        "properties": {
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rejected"
+        ],
+        "title": "ListingsRejected",
         "type": "object"
       },
       "LoadList": {
@@ -17960,6 +18060,24 @@
           "lines"
         ],
         "title": "LookupRequest",
+        "type": "object"
+      },
+      "MakerChosen": {
+        "additionalProperties": true,
+        "properties": {
+          "result": {
+            "enum": [
+              "settled",
+              "conflict"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "MakerChosen",
         "type": "object"
       },
       "MakerSpelling": {
@@ -20033,6 +20151,20 @@
         "title": "NumberFollowed",
         "type": "object"
       },
+      "NumbersCounted": {
+        "additionalProperties": true,
+        "properties": {
+          "counted": {
+            "title": "Counted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "counted"
+        ],
+        "title": "NumbersCounted",
+        "type": "object"
+      },
       "NumbersRequest": {
         "additionalProperties": false,
         "properties": {
@@ -20314,6 +20446,35 @@
           "tools"
         ],
         "title": "OpsStatus",
+        "type": "object"
+      },
+      "OtherNumberListing": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "raw_mpn": {
+            "title": "Raw Mpn",
+            "type": "string"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sku",
+          "raw_mpn",
+          "connector"
+        ],
+        "title": "OtherNumberListing",
         "type": "object"
       },
       "OutlookSignal": {
@@ -25148,6 +25309,200 @@
         "title": "ProposeWaiverRequest",
         "type": "object"
       },
+      "ProposedAlternate": {
+        "additionalProperties": true,
+        "properties": {
+          "component_id": {
+            "title": "Component Id",
+            "type": "string"
+          },
+          "component_mpn": {
+            "title": "Component Mpn",
+            "type": "string"
+          },
+          "component_name": {
+            "title": "Component Name",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposed_by": {
+            "title": "Proposed By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "component_id",
+          "component_name",
+          "component_mpn",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "proposed_by",
+          "proposed_at"
+        ],
+        "title": "ProposedAlternate",
+        "type": "object"
+      },
+      "ProposedDismissal": {
+        "additionalProperties": true,
+        "properties": {
+          "component_id": {
+            "title": "Component Id",
+            "type": "string"
+          },
+          "component_mpn": {
+            "title": "Component Mpn",
+            "type": "string"
+          },
+          "component_name": {
+            "title": "Component Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposed_by": {
+            "title": "Proposed By",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "component_id",
+          "component_name",
+          "component_mpn",
+          "reasons",
+          "proposed_by",
+          "proposed_at"
+        ],
+        "title": "ProposedDismissal",
+        "type": "object"
+      },
+      "ProposedMute": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposed_by": {
+            "title": "Proposed By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "kind",
+          "proposed_by",
+          "proposed_at"
+        ],
+        "title": "ProposedMute",
+        "type": "object"
+      },
+      "ProposedWaiver": {
+        "additionalProperties": true,
+        "properties": {
+          "check_id": {
+            "title": "Check Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposed_by": {
+            "title": "Proposed By",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "check_id",
+          "scope",
+          "reason",
+          "proposed_by",
+          "proposed_at"
+        ],
+        "title": "ProposedWaiver",
+        "type": "object"
+      },
       "PublishRecord": {
         "additionalProperties": true,
         "properties": {
@@ -27465,6 +27820,30 @@
         "title": "ReuseAssetRequest",
         "type": "object"
       },
+      "ReviewCounts": {
+        "additionalProperties": true,
+        "properties": {
+          "aliases": {
+            "title": "Aliases",
+            "type": "integer"
+          },
+          "near": {
+            "title": "Near",
+            "type": "integer"
+          },
+          "unresolved": {
+            "title": "Unresolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aliases",
+          "unresolved",
+          "near"
+        ],
+        "title": "ReviewCounts",
+        "type": "object"
+      },
       "ReviewDecision": {
         "additionalProperties": true,
         "properties": {
@@ -28950,6 +29329,49 @@
           "alert_likely_out_percent"
         ],
         "title": "SettingsRanges",
+        "type": "object"
+      },
+      "SettleUndone": {
+        "additionalProperties": true,
+        "properties": {
+          "undone": {
+            "title": "Undone",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "undone"
+        ],
+        "title": "SettleUndone",
+        "type": "object"
+      },
+      "SettledPart": {
+        "additionalProperties": true,
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "at"
+        ],
+        "title": "SettledPart",
         "type": "object"
       },
       "SheetPdf": {
@@ -32338,6 +32760,32 @@
         "title": "SupplyManufacturer",
         "type": "object"
       },
+      "SupplyMatched": {
+        "additionalProperties": true,
+        "description": "What Prism decided by itself and a person may undo.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/LearnedAlias"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/SettledPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "aliases",
+          "parts"
+        ],
+        "title": "SupplyMatched",
+        "type": "object"
+      },
       "SupplyNotice": {
         "additionalProperties": true,
         "properties": {
@@ -32658,6 +33106,39 @@
           "product_url"
         ],
         "title": "SupplyOffer",
+        "type": "object"
+      },
+      "SupplyOtherNumberGroup": {
+        "additionalProperties": true,
+        "description": "Listings pinned as a part although numbered otherwise.",
+        "properties": {
+          "listings": {
+            "items": {
+              "$ref": "#/components/schemas/OtherNumberListing"
+            },
+            "title": "Listings",
+            "type": "array"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "mpn",
+          "manufacturer",
+          "listings"
+        ],
+        "title": "SupplyOtherNumberGroup",
         "type": "object"
       },
       "SupplyOutlook": {
@@ -33609,6 +34090,200 @@
         "title": "SupplyReadNow",
         "type": "object"
       },
+      "SupplyReviewAlias": {
+        "additionalProperties": true,
+        "description": "A spelling a distributor used that maps to no manufacturer yet.",
+        "properties": {
+          "alias_key": {
+            "title": "Alias Key",
+            "type": "string"
+          },
+          "alias_text": {
+            "title": "Alias Text",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "seen_at_provider": {
+            "title": "Seen At Provider",
+            "type": "string"
+          },
+          "waiting_listings": {
+            "title": "Waiting Listings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "alias_key",
+          "alias_text",
+          "seen_at_provider",
+          "first_seen_at",
+          "waiting_listings"
+        ],
+        "title": "SupplyReviewAlias",
+        "type": "object"
+      },
+      "SupplyReviewListing": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "connector_name": {
+            "title": "Connector Name",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "match_reason": {
+            "title": "Match Reason",
+            "type": "string"
+          },
+          "match_state": {
+            "enum": [
+              "manufacturer_unresolved",
+              "near"
+            ],
+            "title": "Match State",
+            "type": "string"
+          },
+          "packaging": {
+            "title": "Packaging",
+            "type": "string"
+          },
+          "packaging_inferred": {
+            "title": "Packaging Inferred",
+            "type": "boolean"
+          },
+          "part": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ListingPart"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part this listing is a candidate for."
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "raw_manufacturer": {
+            "title": "Raw Manufacturer",
+            "type": "string"
+          },
+          "raw_mpn": {
+            "title": "Raw Mpn",
+            "type": "string"
+          },
+          "reel_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reel Size"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "connector_id",
+          "connector_name",
+          "provider",
+          "sku",
+          "raw_mpn",
+          "raw_manufacturer",
+          "match_state",
+          "match_reason",
+          "packaging",
+          "reel_size",
+          "packaging_inferred",
+          "first_seen_at",
+          "part"
+        ],
+        "title": "SupplyReviewListing",
+        "type": "object"
+      },
+      "SupplyReviewQueue": {
+        "additionalProperties": true,
+        "properties": {
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyReviewAlias"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "choices": {
+            "description": "Parts whose maker waits for a person.",
+            "items": {
+              "$ref": "#/components/schemas/SupplyChoice"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ReviewCounts"
+          },
+          "listings": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyReviewListing"
+            },
+            "title": "Listings",
+            "type": "array"
+          },
+          "manufacturers": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyManufacturer"
+            },
+            "title": "Manufacturers",
+            "type": "array"
+          },
+          "matched": {
+            "$ref": "#/components/schemas/SupplyMatched"
+          },
+          "other_numbers": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyOtherNumberGroup"
+            },
+            "title": "Other Numbers",
+            "type": "array"
+          },
+          "to_approve": {
+            "$ref": "#/components/schemas/SupplyToApprove"
+          }
+        },
+        "required": [
+          "aliases",
+          "listings",
+          "other_numbers",
+          "choices",
+          "matched",
+          "to_approve",
+          "counts",
+          "manufacturers"
+        ],
+        "title": "SupplyReviewQueue",
+        "type": "object"
+      },
       "SupplyRowOffer": {
         "additionalProperties": true,
         "description": "One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price].",
@@ -33927,6 +34602,48 @@
           "source_name"
         ],
         "title": "SupplySvhcList",
+        "type": "object"
+      },
+      "SupplyToApprove": {
+        "additionalProperties": true,
+        "description": "What QA and administrators have been asked to approve.",
+        "properties": {
+          "alternates": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedAlternate"
+            },
+            "title": "Alternates",
+            "type": "array"
+          },
+          "dismissals": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedDismissal"
+            },
+            "title": "Dismissals",
+            "type": "array"
+          },
+          "mutes": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedMute"
+            },
+            "title": "Mutes",
+            "type": "array"
+          },
+          "waivers": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedWaiver"
+            },
+            "title": "Waivers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "waivers",
+          "alternates",
+          "dismissals",
+          "mutes"
+        ],
+        "title": "SupplyToApprove",
         "type": "object"
       },
       "SupplyWatch": {
@@ -61184,9 +61901,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Review Queue",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyReviewQueue"
                 }
               }
             },
@@ -61217,11 +61932,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Confirm Alias",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AliasConfirmed"
                 }
               }
             },
@@ -61263,11 +61974,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Undo Alias",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AliasUndone"
                 }
               }
             },
@@ -61320,11 +62027,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Choose Maker",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MakerChosen"
                 }
               }
             },
@@ -61377,11 +62080,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Use Numbers",
-                  "type": "object"
+                  "$ref": "#/components/schemas/NumbersCounted"
                 }
               }
             },
@@ -61434,11 +62133,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Other Maker",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ListingsRejected"
                 }
               }
             },
@@ -61480,11 +62175,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
-                  "title": "Response Reject Listings",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ListingsRejected"
                 }
               }
             },
@@ -61615,11 +62306,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
-                  "title": "Response Undo Settled",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SettleUndone"
                 }
               }
             },

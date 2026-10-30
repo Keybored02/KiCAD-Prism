@@ -15,6 +15,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import { ReviewView } from "./review-view";
 import * as api from "./supply-api";
+import { reviewListingFixture, reviewQueueFixture, toApproveFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 const qa: User = { name: "Quinn", email: "quinn@example.com", role: "qa" };
@@ -23,24 +24,24 @@ const designer: User = { name: "Dee", email: "dee@example.com", role: "designer"
 const TI = { id: "m1", name: "Texas Instruments", part_count: 3 };
 
 function queue(overrides: Partial<SupplyReviewQueue> = {}): SupplyReviewQueue {
-  return {
+  return reviewQueueFixture({
     aliases: [{ alias_key: "ti", alias_text: "TI", seen_at_provider: "mouser", first_seen_at: "2026-03-01T10:00:00Z", waiting_listings: 2 }],
     listings: [
-      {
+      reviewListingFixture({
         id: "l1", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358", raw_mpn: "LM358D", raw_manufacturer: "TI",
         match_state: "manufacturer_unresolved", match_reason: "manufacturer spelling not confirmed",
         first_seen_at: "2026-03-01T10:00:00Z", part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
-      },
-      {
+      }),
+      reviewListingFixture({
         id: "l2", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358DR", raw_mpn: "LM358DR", raw_manufacturer: "Texas Instruments",
         match_state: "near", match_reason: "different part number",
         first_seen_at: "2026-03-01T09:00:00Z", part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
-      },
+      }),
     ],
     counts: { aliases: 1, unresolved: 1, near: 1 },
     manufacturers: [TI],
     ...overrides,
-  };
+  });
 }
 
 beforeEach(() => {
@@ -79,7 +80,7 @@ describe("the review queue", () => {
   });
 
   it("says there is nothing to review when the server sends an empty to-approve list", async () => {
-    mocked.getSupplyReviewQueue.mockResolvedValue(queue({ aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 }, to_approve: { waivers: [] } }));
+    mocked.getSupplyReviewQueue.mockResolvedValue(queue({ aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 }, to_approve: toApproveFixture() }));
     render(<ReviewView user={qa} />);
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
   });

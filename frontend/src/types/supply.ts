@@ -1,7 +1,7 @@
-import type { AssessmentSettings, ComponentRestriction, ReleaseCheckResult, ReleaseCheckUnavailable, StoresState, SupplyAlert, SupplyChoice, SupplyConnector, SupplyGroupStats, SupplyManufacturer, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, ReleaseCheckResult, ReleaseCheckUnavailable, StoresState, SupplyAlert, SupplyConnector, SupplyGroupStats, SupplyNotice, SupplyPartRow, SupplyPartsPage } from "./supply.generated";
 
 export type {
-  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectCostPoint, ProjectMoney, ProjectPartsPage, ProjectSupply, ProjectSupplyPart, ProjectSupplyRelease, ProjectTrackingPreview, ProjectTrackingState, ReleaseBomKept, ReleaseCheckLine, ReleaseCheckResult, ReleaseCheckUnavailable, ReleaseSnapshot, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, StoresState, SubstitutesAsked, SupplyAlert, SupplyBomAlternate, SupplyBomBuy, SupplyBomComment, SupplyBomLineResult, SupplyBomLookup, SupplyBomRollup, SupplyBomWatchResult, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentStanding, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
+  AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, JlcClass, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartHistory, PartTracking, PicksMade, ProjectCostPoint, ProjectMoney, ProjectPartsPage, ProjectSupply, ProjectSupplyPart, ProjectSupplyRelease, ProjectTrackingPreview, ProjectTrackingState, ReleaseBomKept, ReleaseCheckLine, ReleaseCheckResult, ReleaseCheckUnavailable, ReleaseSnapshot, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, StoresState, SubstitutesAsked, SupplyAlert, SupplyBomAlternate, SupplyBomBuy, SupplyBomComment, SupplyBomLineResult, SupplyBomLookup, SupplyBomRollup, SupplyBomWatchResult, SupplyCapacity, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentStanding, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyFact, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyMatched, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOtherNumberGroup, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyReviewAlias, SupplyReviewListing, SupplyReviewQueue, SupplyRowOffer, SupplySignin, SupplySvhcList, SupplyToApprove, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
 } from "./supply.generated";
 export type SupplyAlertKind = SupplyAlert["kind"];
 export type SupplyAlertState = SupplyAlert["state"];
@@ -71,72 +71,6 @@ export interface BomLineInput {
   /** The symbol's value (10k) and the footprint's name, checked against the distributor's value and package. */
   value?: string;
   footprint?: string;
-}
-
-/** A spelling a distributor used that maps to no manufacturer yet. */
-export interface SupplyReviewAlias {
-  alias_key: string;
-  alias_text: string;
-  seen_at_provider: string;
-  first_seen_at: string;
-  waiting_listings: number;
-}
-
-export interface SupplyReviewListing {
-  id: string;
-  connector_id: string;
-  connector_name: string;
-  /** The connector's provider key, for its colour. */
-  provider?: string;
-  sku: string;
-  raw_mpn: string;
-  raw_manufacturer: string;
-  match_state: "manufacturer_unresolved" | "near";
-  match_reason: string;
-  packaging?: string;
-  reel_size?: number | null;
-  packaging_inferred?: boolean;
-  first_seen_at: string;
-  /** The part this listing is a candidate for. */
-  part: { id: string; mpn: string; manufacturer: string } | null;
-}
-
-export interface SupplyMatched {
-  aliases: Array<{ alias_key: string; alias_text: string; manufacturer: string; first_seen_at: string; parts: number }>;
-  parts: Array<{ part_id: string; mpn: string; manufacturer: string; at: string }>;
-}
-
-export interface SupplyToApprove {
-  waivers: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; check_id: string; scope: string; reason: string; proposed_by: string; proposed_at: string }>;
-  /** Alternates proposed for a library component, waiting for QA. */
-  alternates?: Array<{
-    component_id: string; component_name: string; component_mpn: string; part_id: string; mpn: string; manufacturer: string; proposed_by: string; proposed_at: string;
-  }>;
-  /** Ending components someone asked QA to dismiss, with the reasons they were dismissed for. */
-  dismissals?: Array<{ id: string; component_id: string; component_name: string; component_mpn: string; reasons: string[]; proposed_by: string; proposed_at: string }>;
-  /** Alerts someone asked QA to switch off on a part. */
-  mutes?: Array<{ id: string; part_id: string; mpn: string; manufacturer: string; kind: string; proposed_by: string; proposed_at: string }>;
-}
-
-export interface SupplyOtherNumberGroup {
-  part_id: string;
-  mpn: string;
-  manufacturer: string;
-  listings: Array<{ id: string; sku: string; raw_mpn: string; connector: string }>;
-}
-
-export interface SupplyReviewQueue {
-  aliases: SupplyReviewAlias[];
-  listings: SupplyReviewListing[];
-  /** Listings pinned as a part although numbered otherwise, by part. */
-  other_numbers?: SupplyOtherNumberGroup[];
-  /** Parts whose maker waits for a person. */
-  choices?: SupplyChoice[];
-  matched?: SupplyMatched;
-  /** Waivers proposed and waiting for QA. */
-  to_approve?: SupplyToApprove;
-  counts: { aliases: number; unresolved: number; near: number };
-  manufacturers: SupplyManufacturer[];
 }
 
 /** Map a spelling to an existing manufacturer, or name a new one. Exactly one. */
