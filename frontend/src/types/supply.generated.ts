@@ -1036,7 +1036,7 @@ export interface ProjectCalls {
 }
 
 export interface ProjectIn {
-  /** Follow every design the project has, also those it gets later (variants is then ignored). */
+  /** Follow every design the project has, also those it gets later; variants is then ignored. */
   all_variants?: boolean;
   /** The usual build, in boards. Null keeps the one it has (100 for a new project). */
   build_quantity?: number | null;

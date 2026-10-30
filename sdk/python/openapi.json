@@ -22563,7 +22563,7 @@
         "properties": {
           "all_variants": {
             "default": false,
-            "description": "Follow every design the project has, also those it gets later (variants is then ignored).",
+            "description": "Follow every design the project has, also those it gets later; variants is then ignored.",
             "title": "All Variants",
             "type": "boolean"
           },
