@@ -49,7 +49,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex h-8 items-center gap-1.5 text-2xl font-semibold leading-none tabular-nums">
-            {formatStock(detail.stock.total)}
+            {formatStock(detail.stock)}
             {trend || restock ? (
               <HoverDetails label="Show the stock trend and restock promises">
                 <div className="space-y-3">

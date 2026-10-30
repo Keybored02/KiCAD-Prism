@@ -126,7 +126,9 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
     status: "ok",
     problem: null,
     problem_text: "",
-    stock: { total: 12500, by_connector: [{ connector_id: "c1", connector_name: "Mouser EU", provider: "mouser", stock: 12500 }] },
+    stock: 12500,
+    stock_by_connector: [{ connector_id: "c1", connector_name: "Mouser EU", provider: "mouser", stock: 12500 }],
+    fetched_at: null,
     lifecycle: "active",
     listings: [
       listingFixture({

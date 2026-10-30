@@ -321,7 +321,7 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual((reply.status, reply.json["watch"]["packaging"]), (200, "cut_tape"))
             self.assertEqual(self.part_row("PK-1")["stock"], 300)
             detail = self.call("GET", f"/api/supply/parts/{part}").json
-            self.assertEqual((detail["stock"]["total"], detail["watch"]["packaging"]), (300, "cut_tape"))
+            self.assertEqual((detail["stock"], detail["watch"]["packaging"]), (300, "cut_tape"))
             self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"packaging": "tape_reel"})
             self.assertEqual(self.part_row("PK-1")["stock"], 5000)
             self.assertEqual(self.call("PUT", f"/api/supply/tracking/parts/{watch['part_id']}", body={"packaging": "nonsense"}).status, 422)
@@ -349,7 +349,7 @@ class SupplyPartsApiTests(unittest.TestCase):
                 conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (part, cid, cut))
             row = self.part_row("PILE-1")
             self.assertEqual(row["stock"], 6000, "cut tape and custom reel are one pile of 1,000; the full reel adds its 5,000")
-            self.assertEqual(self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"], 6000)
+            self.assertEqual(self.call("GET", f"/api/supply/parts/{part}").json["stock"], 6000)
         finally:
             registry.unregister("demo_piles")
 
@@ -378,7 +378,7 @@ class SupplyPartsApiTests(unittest.TestCase):
                 data = part_history.build(conn, part, now, 7)
             line = data["connectors"][0]
             self.assertEqual(line["stock"][-1][1], 16140, "the cut tape and custom reel pile once, the full reel adds")
-            self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"])
+            self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"])
             self.assertEqual(line["price"][-1][1], 0.5, "the picked cut tape prices the line, not the cheaper reel")
             with self.store.connection() as conn:
                 conn.execute("DELETE FROM supply_packaging_picks WHERE part_id = %s", (part,))
@@ -407,7 +407,7 @@ class SupplyPartsApiTests(unittest.TestCase):
                 conn.execute("INSERT INTO supply_samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 1000, 0.5, 'EUR')", (listing, now))
             data = part_history.build(conn, part, now, 7)
         self.assertEqual(data["total"][-1][1], 1000, "one shelf listed by two storefronts")
-        self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"]["total"])
+        self.assertEqual(data["total"][-1][1], self.call("GET", f"/api/supply/parts/{part}").json["stock"])
 
     def test_stock_history_leaves_out_a_listing_a_pick_stopped_reading_at_a_pick_limited_provider(self) -> None:
         from app.services.supply import parts_view
@@ -1003,14 +1003,14 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(main["poll"]["error_streak"], 0)
         self.assertIsNotNone(main["poll"]["next_poll_at"])
         self.assertEqual((skus["NEARSKU"]["counted"], skus["NEARSKU"]["offer"], skus["NEARSKU"]["poll"]), (False, None, None))
-        self.assertEqual(detail["stock"]["total"], main["offer"]["stock"])
-        self.assertEqual(detail["stock"]["by_connector"], [{"connector_id": cid, "connector_name": "Sim", "provider": "fake", "stock": main["offer"]["stock"]}])
+        self.assertEqual(detail["stock"], main["offer"]["stock"])
+        self.assertEqual(detail["stock_by_connector"], [{"connector_id": cid, "connector_name": "Sim", "provider": "fake", "stock": main["offer"]["stock"]}])
         self.assertNotIn(rejected, [item["id"] for item in detail["listings"]])
         self.assertNotIn(near, [item["id"] for item in detail["listings"] if item["counted"]])
 
     def test_the_detail_of_a_part_nobody_read_yet(self) -> None:
         detail = self.call("GET", f"/api/supply/parts/{self.watch_via_api()['part_id']}").json
-        self.assertEqual((detail["status"], detail["stock"]["total"], detail["stock"]["by_connector"], detail["history"], detail["listings"]),
+        self.assertEqual((detail["status"], detail["stock"], detail["stock_by_connector"], detail["history"], detail["listings"]),
                          ("unknown", None, [], [], []))
 
     def test_a_part_that_is_not_watched_still_has_a_detail(self) -> None:

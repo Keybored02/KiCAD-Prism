@@ -6,7 +6,7 @@ from typing import Literal, Optional, Union
 
 from pydantic import Field
 
-from app.api.supply_models import Items, Page, SupplyModel, SupplyStatus
+from app.api.supply_models import Items, Page, PartStanding, SupplyModel, SupplyStatus
 from app.api.supply_pcn_models import ConnectorProblem
 
 Number = Union[int, float]
@@ -61,13 +61,10 @@ class NativePrice(SupplyModel):
     currency: str
 
 
-class PartSummary(SupplyModel):
+class PartSummary(PartStanding):
     """What a part's counted offers add up to, and its assessment: the kept summary every part list reads."""
 
-    problem: Optional[SupplyProblem]
-    stock: Optional[int] = Field(description="Null until something that counts has been read.")
     listings: int
-    lifecycle: SupplyLifecycle
     dropped: bool = Field(description="Every distributor that lists it has stopped selling it.")
     unit_price: Optional[str] = Field(description="In the base currency, at the part's price quantity.")
     currency: str
@@ -81,10 +78,8 @@ class PartSummary(SupplyModel):
     price_seen_day: Optional[str]
     price_unrated: list[str] = Field(description="Currencies priced by a distributor that have no exchange rate, so were left out.")
     price_test_data: bool = Field(description="The price comes from a simulated connector.")
-    fetched_at: Optional[str]
     dated_by: str
     tier: Optional[SupplyTier]
-    status: SupplyStatus
     health: Number
     changes_at: Optional[str]
     priced_with: str
@@ -219,11 +214,6 @@ class ConnectorStock(SupplyModel):
     connector_name: str
     provider: str
     stock: int
-
-
-class PartStock(SupplyModel):
-    total: Optional[int]
-    by_connector: list[ConnectorStock]
 
 
 class SupplyOffer(SupplyModel):
@@ -484,7 +474,7 @@ class SupplyInsight(SupplyModel):
     lead_time_trend: Optional[LeadTimeTrend] = Field(description="The quoted lead time, early in the last 90 days against late.")
 
 
-class SupplyPartDetail(SupplyModel):
+class SupplyPartDetail(PartStanding):
     """The part sheet in one read."""
 
     part: PartName
@@ -493,11 +483,8 @@ class SupplyPartDetail(SupplyModel):
     packaging: PartPackaging
     preferred_connector_id: Optional[str] = Field(description="The distributor a person prefers for this part: shown first.")
     trade: PartTrade
-    status: SupplyStatus
-    problem: Optional[SupplyProblem]
     problem_text: str
-    stock: PartStock
-    lifecycle: SupplyLifecycle
+    stock_by_connector: list[ConnectorStock]
     listings: list[SupplyListing]
     history: list[StockDay]
     distributor_history: PartHistory = Field(description="Stock and price a line per distributor over the last 90 days: what the sheet's charts draw.")
@@ -587,7 +574,7 @@ class SupplyPartGroups(Items[SupplyPartGroup]):
     total: int
 
 
-class AlternativeCandidate(SupplyModel):
+class AlternativeCandidate(PartStanding):
     part_id: str
     manufacturer: str
     mpn: str
@@ -597,9 +584,6 @@ class AlternativeCandidate(SupplyModel):
     same: list[str]
     differs: list[str]
     unknown: list[str] = Field(description="Ratings the part lists and the candidate doesn't, so they can't be judged.")
-    stock: Optional[int]
-    status: SupplyStatus
-    lifecycle: SupplyLifecycle
 
 
 class SuggestionSource(SupplyModel):

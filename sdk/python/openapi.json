@@ -655,6 +655,18 @@
             "title": "Differs",
             "type": "array"
           },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As old as the oldest read the stock rests on.",
+            "title": "Fetched At"
+          },
           "grade": {
             "description": "None claims the parts are interchangeable: \"ratings_met\" is every listed rating known and met, in the same package.",
             "enum": [
@@ -693,6 +705,22 @@
             "title": "Part Id",
             "type": "string"
           },
+          "problem": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_found",
+                  "gone"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared.",
+            "title": "Problem"
+          },
           "same": {
             "items": {
               "type": "string"
@@ -720,6 +748,7 @@
                 "type": "null"
               }
             ],
+            "description": "The counted stock; null until something that counts has been read.",
             "title": "Stock"
           },
           "unknown": {
@@ -732,6 +761,11 @@
           }
         },
         "required": [
+          "status",
+          "problem",
+          "stock",
+          "lifecycle",
+          "fetched_at",
           "part_id",
           "manufacturer",
           "mpn",
@@ -739,10 +773,7 @@
           "grade_label",
           "same",
           "differs",
-          "unknown",
-          "stock",
-          "status",
-          "lifecycle"
+          "unknown"
         ],
         "title": "AlternativeCandidate",
         "type": "object"
@@ -11081,6 +11112,18 @@
             "title": "Dismissed",
             "type": "boolean"
           },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As old as the oldest read the stock rests on.",
+            "title": "Fetched At"
+          },
           "healthy": {
             "description": "The component's other approved parts that are not ending; retiring is offered only when none is left.",
             "title": "Healthy",
@@ -11093,9 +11136,36 @@
             "title": "Last Buy",
             "type": "array"
           },
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
           "part_id": {
             "title": "Part Id",
             "type": "string"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_found",
+                  "gone"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared.",
+            "title": "Problem"
           },
           "projects": {
             "items": {
@@ -11150,16 +11220,20 @@
                 "type": "null"
               }
             ],
+            "description": "The counted stock; null until something that counts has been read.",
             "title": "Stock"
           }
         },
         "required": [
+          "status",
+          "problem",
+          "stock",
+          "lifecycle",
+          "fetched_at",
           "component",
           "part_id",
           "reasons",
           "last_buy",
-          "stock",
-          "status",
           "projects",
           "restriction",
           "dismissed",
@@ -19956,35 +20030,6 @@
         "title": "PartReadOnView",
         "type": "object"
       },
-      "PartStock": {
-        "additionalProperties": true,
-        "properties": {
-          "by_connector": {
-            "items": {
-              "$ref": "#/components/schemas/ConnectorStock"
-            },
-            "title": "By Connector",
-            "type": "array"
-          },
-          "total": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Total"
-          }
-        },
-        "required": [
-          "total",
-          "by_connector"
-        ],
-        "title": "PartStock",
-        "type": "object"
-      },
       "PartTracking": {
         "additionalProperties": true,
         "description": "How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null.",
@@ -28439,6 +28484,18 @@
             "$ref": "#/components/schemas/PartHistory",
             "description": "Stock and price a line per distributor over the last 90 days: what the sheet's charts draw."
           },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As old as the oldest read the stock rests on.",
+            "title": "Fetched At"
+          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/StockDay"
@@ -28524,6 +28581,7 @@
                 "type": "null"
               }
             ],
+            "description": "Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared.",
             "title": "Problem"
           },
           "problem_text": {
@@ -28549,7 +28607,23 @@
             "type": "string"
           },
           "stock": {
-            "$ref": "#/components/schemas/PartStock"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The counted stock; null until something that counts has been read.",
+            "title": "Stock"
+          },
+          "stock_by_connector": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorStock"
+            },
+            "title": "Stock By Connector",
+            "type": "array"
           },
           "tracking": {
             "anyOf": [
@@ -28584,17 +28658,19 @@
           }
         },
         "required": [
+          "status",
+          "problem",
+          "stock",
+          "lifecycle",
+          "fetched_at",
           "part",
           "watch",
           "tracking",
           "packaging",
           "preferred_connector_id",
           "trade",
-          "status",
-          "problem",
           "problem_text",
-          "stock",
-          "lifecycle",
+          "stock_by_connector",
           "listings",
           "history",
           "distributor_history",
@@ -28718,6 +28794,7 @@
                 "type": "null"
               }
             ],
+            "description": "As old as the oldest read the stock rests on.",
             "title": "Fetched At"
           },
           "flags": {
@@ -28933,6 +29010,7 @@
                 "type": "null"
               }
             ],
+            "description": "Why a part has no counted stock when it should: no distributor carries it, or every listing disappeared.",
             "title": "Problem"
           },
           "project_names": {
@@ -28990,7 +29068,7 @@
                 "type": "null"
               }
             ],
-            "description": "Null until something that counts has been read.",
+            "description": "The counted stock; null until something that counts has been read.",
             "title": "Stock"
           },
           "tier": {
@@ -29049,10 +29127,12 @@
           }
         },
         "required": [
+          "status",
           "problem",
           "stock",
-          "listings",
           "lifecycle",
+          "fetched_at",
+          "listings",
           "dropped",
           "unit_price",
           "currency",
@@ -29064,10 +29144,8 @@
           "price_seen_day",
           "price_unrated",
           "price_test_data",
-          "fetched_at",
           "dated_by",
           "tier",
-          "status",
           "health",
           "changes_at",
           "priced_with",

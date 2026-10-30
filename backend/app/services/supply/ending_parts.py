@@ -169,6 +169,7 @@ def queue(conn, role: str | None = None, limit: int = MAX_PARTS) -> dict[str, An
                 "component": {"id": str(component["id"]), "name": str(component.get("name") or ""), "mpn": str(component.get("mpn") or ""),
                               "manufacturer": str(component.get("manufacturer") or ""), "stage": stage},
                 "part_id": item["id"], "reasons": reasons, "last_buy": last_buy, "stock": item["stock"], "status": item["status"],
+                "problem": item["problem"], "lifecycle": item["lifecycle"], "fetched_at": item["fetched_at"],
                 "projects": used, "restriction": None,
                 # Whether the ending part is the component's main part or one of its approved alternates.
                 "role": str(component.get("role") or "main"),

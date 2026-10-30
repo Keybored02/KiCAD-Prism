@@ -300,7 +300,7 @@ class ComponentPartsTests(unittest.TestCase):
             main = self.cp.parts_of(conn, component_id)[0]["part_id"]
             alternate = self.cp.propose_alternate(conn, component_id, other["manufacturer"], other["mpn"], AUTHOR)["part_id"]
             self.cp.decide(conn, component_id, alternate, True, "qa@example.com")
-            ending = {"id": alternate, "lifecycle": "obsolete", "dropped": False, "status": "fatal", "stock": 0}
+            ending = {"id": alternate, "lifecycle": "obsolete", "dropped": False, "status": "fatal", "stock": 0, "problem": None, "fetched_at": None}
             with mock.patch.object(parts_view, "tracked_states", return_value=[ending, {**ending, "id": main, "lifecycle": "active"}]), \
                     mock.patch.object(parts_view, "summaries_for", return_value=[{**ending, "mpn": other["mpn"]}]), \
                     mock.patch.object(facts, "for_part", return_value=[]), mock.patch.object(usage, "used_in", return_value=[]):
