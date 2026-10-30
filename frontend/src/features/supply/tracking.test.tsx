@@ -7,7 +7,7 @@ import type { SupplyConnector, TrackingPreview } from "@/types/supply";
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("./tracking-api", () => ({
   getProjectTracking: vi.fn(), readProjectBom: vi.fn(), previewTrackProject: vi.fn(), trackProject: vi.fn(), untrackProject: vi.fn(),
-  getPartTracking: vi.fn(), previewPartTier: vi.fn(), setPartTier: vi.fn(), stopTrackingPart: vi.fn(),
+  getPartTracking: vi.fn(), previewFollow: vi.fn(), followPart: vi.fn(), stopTrackingPart: vi.fn(),
   chooseTrackLine: vi.fn(), getTrackProgress: vi.fn(),
 }));
 vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn(), updateSupplyConnector: vi.fn(), getAssessmentSettings: vi.fn() }));
@@ -182,21 +182,21 @@ describe("tracking a project", () => {
 
 describe("a part's tracking", () => {
   it("says how and why, previews a change and applies it", async () => {
-    tracking.getPartTracking.mockResolvedValue({ tier: { tier: 2, rate: "weekly", reasons: [{ kind: "legacy", ref: "w1" }] }, waiting_at: [] });
-    tracking.previewPartTier.mockResolvedValue(preview());
-    tracking.setPartTier.mockResolvedValue({ ...preview(), tier: null });
+    tracking.getPartTracking.mockResolvedValue({ tier: { tier: 2, rate: "weekly", reasons: [{ kind: "legacy", ref: "w1" }] }, waiting_at: [], watch: null });
+    tracking.previewFollow.mockResolvedValue(preview());
+    tracking.followPart.mockResolvedValue({ ...preview(), tier: null, watch: null });
     const changed = vi.fn().mockResolvedValue(undefined);
     render(<TrackingControl partId="p1" canEdit onChanged={changed} />);
     expect(await screen.findByText(/Read weekly \(tier 2\), because of a watch from before tiers/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Tier"), { target: { value: "1" } });
     expect(await screen.findByLabelText("Daily call limit")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-    await waitFor(() => expect(tracking.setPartTier).toHaveBeenCalledWith("p1", { tier: 1, rate: "weekly" }));
+    await waitFor(() => expect(tracking.followPart).toHaveBeenCalledWith("p1", { tier: 1, rate: "weekly" }));
     await waitFor(() => expect(changed).toHaveBeenCalled());
   });
 
   it("only reads for someone who may not change it", async () => {
-    tracking.getPartTracking.mockResolvedValue({ tier: null, waiting_at: ["c1"] });
+    tracking.getPartTracking.mockResolvedValue({ tier: null, waiting_at: ["c1"], watch: null });
     render(<TrackingControl partId="p1" canEdit={false} onChanged={vi.fn()} />);
     expect(await screen.findByText(/Not followed/)).toBeTruthy();
     expect(screen.getByText(/Queued for calls at 1 distributor/)).toBeTruthy();

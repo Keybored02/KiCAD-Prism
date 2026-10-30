@@ -30,14 +30,6 @@ class ActiveSession(TypedDict, total=False):
     user_agent: str
 
 
-class AddWatchRequest(TypedDict, total=False):
-    manufacturer: str
-    mpn: str
-    packaging: str
-    pinned: bool
-    threshold: int | None
-
-
 class AgentTokenView(TypedDict, total=False):
     created_at: str | None
     email: str
@@ -1107,6 +1099,12 @@ class ComponentDetail(TypedDict, total=True):
     workflow_stage: str
 
 
+class ComponentFollowIn(TypedDict, total=False):
+    packaging: str
+    rate: str
+    tier: int
+
+
 class ComponentMutation(TypedDict, total=True):
     """A write that answers with the component's fresh payload."""
     component: CatalogComponent | None
@@ -1269,10 +1267,6 @@ class ComponentUsagePage(TypedDict, total=True):
 class ComponentValidation(TypedDict, total=True):
     runs: list[ValidationRun]
     summary: ValidationSummary
-
-
-class ComponentWatchRequest(TypedDict, total=False):
-    packaging: str
 
 
 class ConfirmAliasRequest(TypedDict, total=False):
@@ -2004,6 +1998,25 @@ class FolderSnapshotFile(TypedDict, total=True):
 
 class FolderSnapshotRequest(TypedDict, total=False):
     display_name: str
+
+
+class FollowIn(TypedDict, total=False):
+    """How a part is followed. Only the fields sent change; a tier sent without a rate is weekly; a null threshold clears it."""
+    packaging: str | None
+    pinned: bool | None
+    rate: str | None
+    threshold: int | None
+    tier: int | None
+
+
+class FollowNumberIn(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+    packaging: str | None
+    pinned: bool | None
+    rate: str | None
+    threshold: int | None
+    tier: int | None
 
 
 class FootprintImportResult(TypedDict, total=False):
@@ -2997,11 +3010,6 @@ class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
     tools: list[str]
-
-
-class PartIn(TypedDict, total=False):
-    rate: str
-    tier: int
 
 
 class PartManifest(TypedDict, total=True):
@@ -4362,12 +4370,6 @@ class UpdateSourceRequest(TypedDict, total=False):
     token: str | None
 
 
-class UpdateWatchRequest(TypedDict, total=False):
-    packaging: str | None
-    pinned: bool | None
-    threshold: int | None
-
-
 class UploadReceipt(TypedDict, total=True):
     sha256: str
     size_bytes: int
@@ -4869,14 +4871,6 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Add Watch"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/watches",
-            body=body,
-        )
-
     def admin_revoke_identity(self, connector_id: str, user_id: str) -> dict[str, Any]:
         """Admin Revoke Identity"""
         return self._request(
@@ -5194,6 +5188,14 @@ class GeneratedClient:
             "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/complete",
             path_params={"snapshot_id": snapshot_id},
             body=body,
+        )
+
+    def component_state(self, component_id: str) -> dict[str, Any]:
+        """Component State"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking/components/{component_id}",
+            path_params={"component_id": component_id},
         )
 
     def components_by_category(self, *, category: str, page: int = 1, page_size: int = 50, include_total: bool = False) -> ComponentPage:
@@ -5814,6 +5816,32 @@ class GeneratedClient:
             query={"mpn": mpn, "manufacturer": manufacturer},
         )
 
+    def follow_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Follow Component"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/components/{component_id}",
+            path_params={"component_id": component_id},
+            body=body,
+        )
+
+    def follow_number(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Follow Number"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/tracking/parts",
+            body=body,
+        )
+
+    def follow_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Follow Part"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/parts/{part_id}",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
     def forecasts_insights(self) -> dict[str, Any]:
         """Forecasts Insights"""
         return self._request(
@@ -6091,14 +6119,6 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/catalog/components/{component_id}/validation",
-            path_params={"component_id": component_id},
-        )
-
-    def get_component_watch(self, component_id: str) -> dict[str, Any]:
-        """Get Component Watch"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/components/{component_id}/watch",
             path_params={"component_id": component_id},
         )
 
@@ -8106,14 +8126,6 @@ class GeneratedClient:
             query={"replyId": replyId},
         )
 
-    def remove_component_watch(self, component_id: str) -> None:
-        """Remove Component Watch"""
-        return self._request(
-            "DELETE",
-            "/api/v1/supply/components/{component_id}/watch",
-            path_params={"component_id": component_id},
-        )
-
     def remove_exemption(self, part_id: str, code: str) -> None:
         """Remove Exemption"""
         return self._request(
@@ -8144,14 +8156,6 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/supply/settings/number-endings/{key}",
             path_params={"key": key},
-        )
-
-    def remove_watch(self, watch_id: str) -> None:
-        """Remove Watch"""
-        return self._request(
-            "DELETE",
-            "/api/v1/supply/watches/{watch_id}",
-            path_params={"watch_id": watch_id},
         )
 
     def render_png(self, project_id: str, render_id: str) -> Any:
@@ -8422,15 +8426,6 @@ class GeneratedClient:
             query={"q": q, "limit": limit},
         )
 
-    def set_component_watch(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Set Component Watch"""
-        return self._request(
-            "PUT",
-            "/api/v1/supply/components/{component_id}/watch",
-            path_params={"component_id": component_id},
-            body=body,
-        )
-
     def set_connector_credentials(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Set Connector Credentials"""
         return self._request(
@@ -8446,15 +8441,6 @@ class GeneratedClient:
             "PUT",
             "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
             path_params={"component_id": component_id, "asset_id": asset_id},
-            body=body,
-        )
-
-    def set_part_tier(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Set Part Tier"""
-        return self._request(
-            "PUT",
-            "/api/v1/supply/tracking/parts/{part_id}",
-            path_params={"part_id": part_id},
             body=body,
         )
 
@@ -8575,6 +8561,14 @@ class GeneratedClient:
             "POST",
             "/api/v1/supply/connectors/{connector_id}/signin",
             path_params={"connector_id": connector_id},
+        )
+
+    def stop_following_component(self, component_id: str) -> None:
+        """Stop Following Component"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/tracking/components/{component_id}",
+            path_params={"component_id": component_id},
         )
 
     def stop_tracking_part(self, part_id: str) -> None:
@@ -8891,15 +8885,6 @@ class GeneratedClient:
             "PATCH",
             "/api/v1/supply/connectors/{connector_id}",
             path_params={"connector_id": connector_id},
-            body=body,
-        )
-
-    def update_watch(self, watch_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Update Watch"""
-        return self._request(
-            "PATCH",
-            "/api/v1/supply/watches/{watch_id}",
-            path_params={"watch_id": watch_id},
             body=body,
         )
 

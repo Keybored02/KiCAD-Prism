@@ -105,59 +105,6 @@
         "title": "ActiveSession",
         "type": "object"
       },
-      "AddWatchRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "manufacturer": {
-            "default": "",
-            "maxLength": 120,
-            "title": "Manufacturer",
-            "type": "string"
-          },
-          "mpn": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Mpn",
-            "type": "string"
-          },
-          "packaging": {
-            "default": "any",
-            "enum": [
-              "any",
-              "cut_tape",
-              "custom_reel",
-              "tape_reel",
-              "tray",
-              "tube",
-              "bulk"
-            ],
-            "title": "Packaging",
-            "type": "string"
-          },
-          "pinned": {
-            "default": false,
-            "title": "Pinned",
-            "type": "boolean"
-          },
-          "threshold": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Threshold"
-          }
-        },
-        "required": [
-          "mpn"
-        ],
-        "title": "AddWatchRequest",
-        "type": "object"
-      },
       "AgentTokenView": {
         "properties": {
           "created_at": {
@@ -6290,6 +6237,37 @@
         "title": "ComponentDetail",
         "type": "object"
       },
+      "ComponentFollowIn": {
+        "additionalProperties": false,
+        "properties": {
+          "packaging": {
+            "default": "any",
+            "enum": [
+              "any",
+              "cut_tape",
+              "custom_reel",
+              "tape_reel",
+              "tray",
+              "tube",
+              "bulk"
+            ],
+            "title": "Packaging",
+            "type": "string"
+          },
+          "rate": {
+            "default": "weekly",
+            "title": "Rate",
+            "type": "string"
+          },
+          "tier": {
+            "default": 2,
+            "title": "Tier",
+            "type": "integer"
+          }
+        },
+        "title": "ComponentFollowIn",
+        "type": "object"
+      },
       "ComponentMutation": {
         "additionalProperties": true,
         "description": "A write that answers with the component's fresh payload.",
@@ -7085,27 +7063,6 @@
           "runs"
         ],
         "title": "ComponentValidation",
-        "type": "object"
-      },
-      "ComponentWatchRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "packaging": {
-            "default": "any",
-            "enum": [
-              "any",
-              "cut_tape",
-              "custom_reel",
-              "tape_reel",
-              "tray",
-              "tube",
-              "bulk"
-            ],
-            "title": "Packaging",
-            "type": "string"
-          }
-        },
-        "title": "ComponentWatchRequest",
         "type": "object"
       },
       "ConfirmAliasRequest": {
@@ -10942,6 +10899,166 @@
           }
         },
         "title": "FolderSnapshotRequest",
+        "type": "object"
+      },
+      "FollowIn": {
+        "additionalProperties": false,
+        "description": "How a part is followed. Only the fields sent change; a tier sent without a rate is weekly; a null threshold clears it.",
+        "properties": {
+          "packaging": {
+            "anyOf": [
+              {
+                "enum": [
+                  "any",
+                  "cut_tape",
+                  "custom_reel",
+                  "tape_reel",
+                  "tray",
+                  "tube",
+                  "bulk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packaging"
+          },
+          "pinned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          }
+        },
+        "title": "FollowIn",
+        "type": "object"
+      },
+      "FollowNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "manufacturer": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Mpn",
+            "type": "string"
+          },
+          "packaging": {
+            "anyOf": [
+              {
+                "enum": [
+                  "any",
+                  "cut_tape",
+                  "custom_reel",
+                  "tape_reel",
+                  "tray",
+                  "tube",
+                  "bulk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packaging"
+          },
+          "pinned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          }
+        },
+        "required": [
+          "mpn"
+        ],
+        "title": "FollowNumberIn",
         "type": "object"
       },
       "FootprintImportResult": {
@@ -16307,25 +16424,6 @@
           "tools"
         ],
         "title": "OpsStatus",
-        "type": "object"
-      },
-      "PartIn": {
-        "additionalProperties": false,
-        "properties": {
-          "rate": {
-            "default": "weekly",
-            "title": "Rate",
-            "type": "string"
-          },
-          "tier": {
-            "title": "Tier",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "tier"
-        ],
-        "title": "PartIn",
         "type": "object"
       },
       "PartManifest": {
@@ -23568,56 +23666,6 @@
           }
         },
         "title": "UpdateSourceRequest",
-        "type": "object"
-      },
-      "UpdateWatchRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "packaging": {
-            "anyOf": [
-              {
-                "enum": [
-                  "any",
-                  "cut_tape",
-                  "custom_reel",
-                  "tape_reel",
-                  "tray",
-                  "tube",
-                  "bulk"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Packaging"
-          },
-          "pinned": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pinned"
-          },
-          "threshold": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Threshold"
-          }
-        },
-        "title": "UpdateWatchRequest",
         "type": "object"
       },
       "UploadReceipt": {
@@ -44183,136 +44231,6 @@
         ]
       }
     },
-    "/api/v1/supply/components/{component_id}/watch": {
-      "delete": {
-        "operationId": "remove_component_watch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "component_id",
-            "required": true,
-            "schema": {
-              "title": "Component Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Remove Component Watch",
-        "tags": [
-          "supply"
-        ]
-      },
-      "get": {
-        "operationId": "get_component_watch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "component_id",
-            "required": true,
-            "schema": {
-              "title": "Component Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Component Watch",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Component Watch",
-        "tags": [
-          "supply"
-        ]
-      },
-      "put": {
-        "description": "Watch a component's part. Setting it again changes the options.",
-        "operationId": "set_component_watch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "component_id",
-            "required": true,
-            "schema": {
-              "title": "Component Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ComponentWatchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Set Component Watch",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Component Watch",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
     "/api/v1/supply/connectors": {
       "get": {
         "description": "Every connector. An administrator also sees, on a connector whose change notices need a person's sign-in, that sign-in\n(who, until when, and the callback address the distributor's app must list).",
@@ -49710,6 +49628,181 @@
         ]
       }
     },
+    "/api/v1/supply/tracking/components/{component_id}": {
+      "delete": {
+        "operationId": "stop_following_component",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Following Component",
+        "tags": [
+          "supply"
+        ]
+      },
+      "get": {
+        "description": "Whether a library component is followed: Prism then follows whichever part is its main part.",
+        "operationId": "component_state",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Component State",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Component State",
+        "tags": [
+          "supply"
+        ]
+      },
+      "put": {
+        "description": "Follow a library component's main part, now and after its revision names another. Sending it again changes the options.",
+        "operationId": "follow_component",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComponentFollowIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Follow Component",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Follow Component",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
+    "/api/v1/supply/tracking/parts": {
+      "post": {
+        "description": "Follow a library part by its manufacturer and number, for a number Prism has no part for yet. Following one already followed\nkeeps that and applies what was sent on top; a tier sent here only raises. 201 when the part was not followed.",
+        "operationId": "follow_number",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Follow Number",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Follow Number",
+        "tags": [
+          "supply"
+        ]
+      }
+    },
     "/api/v1/supply/tracking/parts/{part_id}": {
       "delete": {
         "operationId": "stop_tracking_part",
@@ -49787,7 +49880,8 @@
         ]
       },
       "put": {
-        "operationId": "set_part_tier",
+        "description": "Follow a part, or change how: its tier and rate, stock threshold, pin and packaging. Only the fields sent change.",
+        "operationId": "follow_part",
         "parameters": [
           {
             "in": "path",
@@ -49803,7 +49897,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PartIn"
+                "$ref": "#/components/schemas/FollowIn"
               }
             }
           },
@@ -49815,7 +49909,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Set Part Tier",
+                  "title": "Response Follow Part",
                   "type": "object"
                 }
               }
@@ -49833,7 +49927,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Set Part Tier",
+        "summary": "Follow Part",
         "tags": [
           "supply"
         ]
@@ -49857,7 +49951,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PartIn"
+                "$ref": "#/components/schemas/FollowIn"
               }
             }
           },
@@ -50412,136 +50506,6 @@
           }
         },
         "summary": "Reject Waiver",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/watches": {
-      "post": {
-        "operationId": "add_watch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddWatchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Watch",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Add Watch",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/watches/{watch_id}": {
-      "delete": {
-        "operationId": "remove_watch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "watch_id",
-            "required": true,
-            "schema": {
-              "title": "Watch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Remove Watch",
-        "tags": [
-          "supply"
-        ]
-      },
-      "patch": {
-        "operationId": "update_watch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "watch_id",
-            "required": true,
-            "schema": {
-              "title": "Watch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateWatchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Watch",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Watch",
         "tags": [
           "supply"
         ]

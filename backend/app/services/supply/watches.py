@@ -187,15 +187,29 @@ def update_watch(
     return get_watch(conn, watch_id)
 
 
-def set_tier(conn, part_id: str, tier: int, rate: str, actor: str) -> WatchRecord:
-    """Put a part in tier 1 or 2 by a person's choice, watching it if it is not watched. Lowers as well as raises."""
+def watch_of(conn, part_id: str) -> WatchRecord | None:
+    """A person's watch on this part, or None."""
 
-    tier, rate = tracking.check_tier(tier, rate)
+    row = conn.execute(_SELECT + " WHERE w.part_id = %s", (part_id,)).fetchone()
+    return _record(row) if row else None
+
+
+def follow(conn, part_id: str, actor: str, **changes: Any) -> WatchRecord:
+    """Follow a part by a person's choice, or change how: ``tier`` and ``rate`` (lowers as well as raises), ``threshold`` (None
+    clears it), ``pinned``, ``packaging``. Only the fields given change; a part not followed yet is watched with the rest at their
+    defaults. The one way a part is followed (``/api/supply/tracking/parts``)."""
+
+    unknown = set(changes) - {"tier", "rate", "threshold", "pinned", "packaging"}
+    if unknown:
+        raise WatchError(f"Unknown field: {sorted(unknown)[0]}.")
     part = parts.get_part(conn, part_id)
-    existing = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
+    existing = watch_of(conn, part_id)
     if existing:
-        return update_watch(conn, existing["id"], actor, tier=tier, rate=rate)
-    record, _created = add_watch(conn, part.manufacturer_name, part.mpn, actor, tier=tier, rate=rate)
+        return update_watch(conn, existing.id, actor, **changes)
+    record, _created = add_watch(
+        conn, part.manufacturer_name, part.mpn, actor, threshold=changes.get("threshold"), pinned=bool(changes.get("pinned", False)),
+        packaging=changes.get("packaging", "any"), tier=changes.get("tier"), rate=changes.get("rate"),
+    )
     return record
 
 

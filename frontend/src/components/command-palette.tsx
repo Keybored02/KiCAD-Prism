@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 
 import { toast } from "sonner";
-import { addSupplyWatch } from "@/features/supply/supply-api";
+import { followNumber } from "@/features/supply/tracking-api";
 import { partCommand, projectSupplyCommand, supplyCommands, supplyPartPath, trackCommand } from "@/components/command-palette-supply";
 import { usePartSearch } from "@/components/use-part-search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -261,7 +261,7 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
         ? []
         : trackCommand(query, user?.role, partRows, (mpn) => {
             close();
-            void addSupplyWatch({ manufacturer: "", mpn })
+            void followNumber({ manufacturer: "", mpn })
               .then(async (watch) => {
                 toast.success(`${mpn} is tracked.`);
                 navigate(supplyPartPath(watch.part_id));

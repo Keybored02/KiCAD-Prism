@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply } from "@/lib/roles";
+import { canEditSupply, canFollowSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
@@ -52,6 +52,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
   const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
+  const canFollow = canFollowSupply(user?.role);
   const [watching, setWatching] = useState(false);
   const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
 
@@ -79,8 +80,8 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
       <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
         <Upload className="h-4 w-4" />Upload BOM
       </Button>
-      <PermissionHint blocked={!canEdit} action="track parts" allowedRoles={["designer", "admin"]}>
-        <Button disabled={!canEdit} onClick={() => setWatching(true)}>
+      <PermissionHint blocked={!canFollow} action="track parts" allowedRoles={["designer", "qa", "admin"]}>
+        <Button disabled={!canFollow} onClick={() => setWatching(true)}>
           <Eye className="h-4 w-4" />Track a part
         </Button>
       </PermissionHint>
@@ -128,7 +129,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             {items.length === 0 ? (
-              <EmptyState scope={scope} searching={query !== "" || only !== "" || vendor !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
+              <EmptyState scope={scope} searching={query !== "" || only !== "" || vendor !== ""} canEdit={canEdit} canFollow={canFollow} onWatch={() => setWatching(true)} />
             ) : (
               <>
                 <PartsTable stickyHead layout={layout} items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} sort={sort} onSort={(next) => setParams({ partsSort: next })} />
@@ -164,7 +165,7 @@ export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?
   );
 }
 
-function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope; searching: boolean; canEdit: boolean; onWatch: () => void }) {
+function EmptyState({ scope, searching, canEdit, canFollow, onWatch }: { scope: PartsScope; searching: boolean; canEdit: boolean; canFollow: boolean; onWatch: () => void }) {
   return (
     <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
       <PackageSearch className="h-8 w-8 text-muted-foreground" />
@@ -178,7 +179,7 @@ function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope;
               ? "No project BOM that Prism has read uses a part it knows. Open a project BOM, then watch its parts."
               : "Parts appear here once they are watched or matched."}
       </p>
-      {!searching && (scope === "watched" || scope === "followed") && canEdit ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
+      {!searching && (scope === "watched" || scope === "followed") && canFollow ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
       {!searching && scope === "in_use" && canEdit ? <ReadProjectBomsButton /> : null}
     </div>
   );

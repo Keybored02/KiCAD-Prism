@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AlertRules, SupplyWatchSummary } from "@/types/supply";
-import { updateSupplyWatch } from "./supply-api";
+import { followPart } from "./tracking-api";
 import { parseThreshold } from "./supply-format";
 import { getAlertRules, saveAlertRules } from "./tracking-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -46,7 +46,7 @@ function Form({ partId, initial, asking, mutable, watch, onChanged }: {
       });
       setAsked(new Set(waiting));
       if (watch && threshold !== watch.threshold) {
-        await updateSupplyWatch(watch.id, { threshold });
+        await followPart(partId, { threshold });
         await onChanged?.();
       }
       toast.success("Alert rules saved");

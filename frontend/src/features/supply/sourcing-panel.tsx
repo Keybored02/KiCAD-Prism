@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply, canReviewSupply } from "@/lib/roles";
+import { canEditSupply, canFollowSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { ComponentPartsSection } from "./component-parts-section";
 import { ComponentWatch } from "./component-watch";
@@ -15,7 +15,7 @@ import { PartActions } from "./part-actions";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
-import { addSupplyWatch } from "./supply-api";
+import { followNumber } from "./tracking-api";
 import { useSupplyPart, useSupplyPartFor } from "./use-supply-parts";
 
 interface SourcingPanelProps {
@@ -55,7 +55,7 @@ function Lookup({ componentId, manufacturer, mpn, user }: SourcingPanelProps) {
   if (lookup.status === "loading") return <Skeleton className="h-40 w-full" aria-label="Looking the part up" />;
   if (lookup.status === "error") return <Failure message={lookup.error} onRetry={lookup.retry} />;
   if (lookup.data === null) {
-    return <Untracked manufacturer={manufacturer} mpn={mpn} canEdit={canEditSupply(user?.role)} onTracked={lookup.retry} />;
+    return <Untracked manufacturer={manufacturer} mpn={mpn} canEdit={canFollowSupply(user?.role)} onTracked={lookup.retry} />;
   }
   return <Tracked key={lookup.data} partId={lookup.data} componentId={componentId} user={user} />;
 }
@@ -78,7 +78,7 @@ function Untracked({ manufacturer, mpn, canEdit, onTracked }: { manufacturer: st
     setBusy(true);
     setError("");
     try {
-      await addSupplyWatch({ manufacturer, mpn });
+      await followNumber({ manufacturer, mpn });
       onTracked();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not watch the part");
@@ -92,11 +92,7 @@ function Untracked({ manufacturer, mpn, canEdit, onTracked }: { manufacturer: st
       <p className="text-sm text-muted-foreground">
         Watch it to read its stock, price and lifecycle from the connected distributors and keep the history.
       </p>
-      {canEdit ? (
-        <Button size="sm" disabled={busy} onClick={() => void track()}>Watch this part</Button>
-      ) : (
-        <p className="text-xs text-muted-foreground">Watching a part needs the Designer or Admin role.</p>
-      )}
+      {canEdit ? <Button size="sm" disabled={busy} onClick={() => void track()}>Watch this part</Button> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
@@ -111,14 +107,14 @@ function Tracked({ partId, componentId, user }: { partId: string; componentId: s
   return (
     <div className="space-y-6">
       {/* The component's own watch follows the component (a new part number included), whatever else follows the part today. */}
-      <ComponentWatch componentId={componentId} canEdit={canEdit} onChanged={part.refresh} />
+      <ComponentWatch componentId={componentId} canEdit={canFollowSupply(user?.role)} onChanged={part.refresh} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
           <StatusDot status={detail.status} />
           <span className="font-medium">{STATUS_LABEL[detail.status]}</span>
         </div>
         <span className="flex items-center gap-1">
-          <PartActions detail={detail} canEdit={canEdit} onChanged={part.refresh} />
+          <PartActions detail={detail} canEdit={canEdit} canFollow={canFollowSupply(user?.role)} onChanged={part.refresh} />
           <Button asChild size="icon" variant="outline" className="h-8 w-8 shrink-0">
             <Link to={`/?section=supply&supplyView=tracking&part=${encodeURIComponent(partId)}`} aria-label="Open in Supply Tracking" title="Open in Supply Tracking">
               <ExternalLink className="h-4 w-4" />

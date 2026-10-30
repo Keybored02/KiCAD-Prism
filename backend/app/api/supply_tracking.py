@@ -1,4 +1,5 @@
-"""Tracking: which projects and parts Prism follows, at what tier, and what that costs the call budget.
+"""Tracking: which projects, parts and library components Prism follows, at what tier, and what that costs the call budget. The one
+way to follow something: a project, a part (by id, or by manufacturer and number when Prism has no part for it yet), or a component.
 
 Anyone who reads supply data sees it, and the same people (administrators, designers and QA) change it. Every change can be previewed first:
 a preview does exactly what the change would and rolls it back, so the figures shown are the figures that follow.
@@ -9,13 +10,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Literal, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
-from app.services.supply import admission, budget_view, clock, parts, project_bom, room, tracking, usage, watches
+from app.api.supply_access import is_approver
+from app.services.supply import admission, budget_view, clock, component_parts, component_watches, parts, project_bom, room, tracking, usage, watches
 from app.services.supply import settings as supply_settings
 from app.services.supply.progress import job_progress
 
@@ -48,10 +50,40 @@ class BuildIn(BaseModel):
     build_quantity: int = Field(ge=1, le=1_000_000)
 
 
-class PartIn(BaseModel):
+Packaging = Literal["any", "cut_tape", "custom_reel", "tape_reel", "tray", "tube", "bulk"]
+
+
+class FollowIn(BaseModel):
+    """How a part is followed. Only the fields sent change; a tier sent without a rate is weekly; a null threshold clears it."""
+
     model_config = ConfigDict(extra="forbid")
 
-    tier: int
+    tier: int | None = None
+    rate: str | None = None
+    threshold: int | None = Field(default=None, ge=0)
+    pinned: bool | None = None
+    packaging: Packaging | None = None
+
+    def changes(self) -> dict[str, Any]:
+        sent = self.model_fields_set
+        found: dict[str, Any] = {name: getattr(self, name) for name in ("tier", "rate", "pinned", "packaging") if name in sent and getattr(self, name) is not None}
+        if "tier" in found and "rate" not in found:
+            found["rate"] = "weekly"
+        if "threshold" in sent:
+            found["threshold"] = self.threshold
+        return found
+
+
+class FollowNumberIn(FollowIn):
+    manufacturer: str = Field(default="", max_length=120)
+    mpn: str = Field(min_length=1, max_length=100)
+
+
+class ComponentFollowIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    packaging: Packaging = "any"
+    tier: int = 2
     rate: str = "weekly"
 
 
@@ -64,8 +96,14 @@ async def _run(call: Callable[[], T]) -> T:
         return await asyncio.to_thread(call)
     except admission.NoRoom as exc:
         raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
-    except parts.PartNotFound as exc:
+    except (parts.PartNotFound, watches.WatchNotFound) as exc:
         raise HTTPException(status_code=404, detail="Not found") from exc
+    except component_parts.NotInLibrary as exc:
+        raise HTTPException(status_code=400, detail={"code": "not_in_library", "message": str(exc)}) from exc
+    except parts.UnknownManufacturer as exc:
+        raise HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)}) from exc
+    except watches.WatchError as exc:
+        raise HTTPException(status_code=400, detail={"code": "watch_error", "message": str(exc)}) from exc
     except (tracking.TrackingError, supply_settings.SettingsError, ValueError) as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
@@ -227,6 +265,15 @@ async def untrack_project(project_id: str, user: AuthenticatedUser = Depends(req
     await _run(run)
 
 
+def _watch_dto(record: watches.WatchRecord | None) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {
+        "part_id": record.part_id, "manufacturer": record.manufacturer_name, "mpn": record.mpn, "tier": record.tier, "rate": record.rate,
+        "threshold": record.threshold, "pinned": record.pinned, "packaging": record.packaging, "owner": record.owner,
+    }
+
+
 @router.get("/parts/{part_id}")
 async def part_state(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
@@ -237,27 +284,53 @@ async def part_state(part_id: str, _user: AuthenticatedUser = Depends(require_su
                     "SELECT connector_id FROM supply_admissions WHERE part_id = %s AND state = 'waiting' ORDER BY connector_id", (part_id,)
                 ).fetchall()
             ]
-            return {"tier": tracking.tier_of(conn, part_id), "waiting_at": waiting}
+            return {"tier": tracking.tier_of(conn, part_id), "waiting_at": waiting, "watch": _watch_dto(watches.watch_of(conn, part_id))}
 
     return await _run(read)
 
 
+@router.post("/parts")
+async def follow_number(body: FollowNumberIn, response: Response, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Follow a library part by its manufacturer and number, for a number Prism has no part for yet. Following one already followed
+    keeps that and applies what was sent on top; a tier sent here only raises. 201 when the part was not followed."""
+
+    changes = body.changes()
+
+    def run() -> tuple[dict[str, Any], bool]:
+        with _store().connection() as conn:
+            record, created = watches.add_watch(
+                conn, body.manufacturer, body.mpn, user.email, threshold=changes.get("threshold"), pinned=bool(changes.get("pinned", False)),
+                packaging=changes.get("packaging", "any"), tier=changes.get("tier"), rate=changes.get("rate"),
+                may_create_manufacturer=is_approver(user),
+            )
+            return {"watch": _watch_dto(record), "tier": tracking.tier_of(conn, record.part_id)}, created
+
+    result, created = await _run(run)
+    response.status_code = 201 if created else 200
+    return result
+
+
 @router.post("/parts/{part_id}/preview")
-async def preview_part(part_id: str, body: PartIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+async def preview_part(part_id: str, body: FollowIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.preview(conn, lambda c: watches.set_tier(c, part_id, body.tier, body.rate, user.email))
+            report = admission.preview(conn, lambda c: watches.follow(c, part_id, user.email, **body.changes()))
         return {key: value for key, value in report.items() if key != "result"}
 
     return await _run(run)
 
 
 @router.put("/parts/{part_id}")
-async def set_part_tier(part_id: str, body: PartIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+async def follow_part(part_id: str, body: FollowIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Follow a part, or change how: its tier and rate, stock threshold, pin and packaging. Only the fields sent change."""
+
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.apply(conn, lambda c: watches.set_tier(c, part_id, body.tier, body.rate, user.email))
-            return {**{key: value for key, value in report.items() if key != "result"}, "tier": tracking.tier_of(conn, part_id)}
+            report = admission.apply(conn, lambda c: watches.follow(c, part_id, user.email, **body.changes()))
+            return {
+                **{key: value for key, value in report.items() if key != "result"},
+                "tier": tracking.tier_of(conn, part_id), "watch": _watch_dto(watches.watch_of(conn, part_id)),
+            }
 
     return await _run(run)
 
@@ -270,6 +343,38 @@ async def stop_tracking_part(part_id: str, user: AuthenticatedUser = Depends(req
             watches.stop_tracking(conn, part_id, user.email)
 
     await _run(run)
+
+
+@router.get("/components/{component_id}")
+async def component_state(component_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Whether a library component is followed: Prism then follows whichever part is its main part."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"watch": component_watches.get(conn, component_id)}
+
+    return await _run(read)
+
+
+@router.put("/components/{component_id}")
+async def follow_component(component_id: str, body: ComponentFollowIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Follow a library component's main part, now and after its revision names another. Sending it again changes the options."""
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"watch": component_watches.set_watch(conn, component_id, user.email, packaging=body.packaging, tier=body.tier, rate=body.rate)}
+
+    return await _run(run)
+
+
+@router.delete("/components/{component_id}", status_code=204)
+async def stop_following_component(component_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            component_watches.remove_watch(conn, component_id, user.email)
+
+    await _run(run)
+    return Response(status_code=204)
 
 
 @budget_router.get("/budget")

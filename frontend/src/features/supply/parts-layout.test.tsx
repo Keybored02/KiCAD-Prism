@@ -103,7 +103,7 @@ describe("the layouts", () => {
   });
 
   it("shows no eye for a tracked part", () => {
-    render(<PartsTable items={[{ ...part, tier: "daily", watch: { id: "w", threshold: null, pinned: false, owner: "x", packaging: "any" } }]} selectedId={null} onOpen={vi.fn()} />);
+    render(<PartsTable items={[{ ...part, tier: "daily", watch: { threshold: null, pinned: false, owner: "x", packaging: "any" } }]} selectedId={null} onOpen={vi.fn()} />);
     expect(screen.queryByRole("img", { name: /^Tracked/ })).toBeNull();
   });
 

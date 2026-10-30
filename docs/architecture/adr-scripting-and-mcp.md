@@ -405,7 +405,7 @@ Supply joins the registry instead of keeping its own MCP endpoint: `POST /api/su
 | `get_project_supply` | read | `GET /supply/projects/{id}/supply`, shaped to the rollup and the lines that need a look |
 | `get_component_supply` | read | `GET /supply/components/{id}/parts`, then `GET /supply/parts/{part}` for each approved part, `.../local-stock` and `.../watch` |
 | `find_part_alternatives` | read | `GET /supply/components/{id}/parts`, then `GET /supply/parts/{main}/cross-reference` |
-| `watch_component` | write, `supply_write` | `PUT /supply/components/{id}/watch` |
+| `watch_component` | write, `supply_follow` | `PUT /supply/tracking/components/{id}` |
 | `refresh_component_supply` | write, `supply_write` | `GET /supply/components/{id}/parts`, then `POST /supply/parts/{main}/refresh` (D35) |
 
 The tools live in `backend/app/services/mcp/tools_supply.py`.

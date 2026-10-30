@@ -85,7 +85,7 @@ async def _component_supply(app: Any, arguments: dict[str, Any], authorization: 
     local, error = await _get(app, request, authorization, f"{_SUPPLY}/components/{component_id}/local-stock")
     if error:
         return error
-    watch, error = await _get(app, request, authorization, f"{_SUPPLY}/components/{component_id}/watch")
+    watch, error = await _get(app, request, authorization, f"{_SUPPLY}/tracking/components/{component_id}")
     if error:
         return error
     stocks = [part["stock"] for part in parts if part["stock"] is not None]
@@ -207,10 +207,10 @@ register(
                 "description": "The packaging to count stock in (default any).",
             },
         }, ("component_id",)),
-        route=("put", f"{_SUPPLY}/components/{{component_id}}/watch"),
+        route=("put", f"{_SUPPLY}/tracking/components/{{component_id}}"),
         args=lambda arguments: ({"component_id": arguments["component_id"]}, {}, {"packaging": arguments.get("packaging") or "any"}),
         annotations=write_annotations(idempotent=True),
-        action="supply_write",
+        action="supply_follow",
     )
 )
 

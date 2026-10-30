@@ -1,7 +1,8 @@
 import { fetchJson } from "@/lib/api";
 import type { TrackLine } from "./track-lines-step";
 import type {
-  AlertRules, BudgetConnector, CheckProgress, JobProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, TrackProgress, TrackingPreview, TrackingRoom,
+  AlertRules, BudgetConnector, CheckProgress, JobProgress, SupplyChoice, PartTracking, ProjectTrackingState, ScheduleSettings, SupplyComponentWatch, SupplyWatch,
+  TrackProgress, TrackingPreview, TrackingRoom, WatchPackaging,
 } from "@/types/supply";
 import { changesSupply } from "./supply-writes";
 
@@ -67,7 +68,7 @@ async function untrackProjectRequest(projectId: string): Promise<void> {
   await fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }, "Could not stop tracking the project");
 }
 
-export function getPartTracking(partId: string, signal?: AbortSignal): Promise<{ tier: PartTracking | null; waiting_at: string[] }> {
+export function getPartTracking(partId: string, signal?: AbortSignal): Promise<{ tier: PartTracking | null; waiting_at: string[]; watch: SupplyWatch | null }> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}`, { signal }, "Could not read the part's tracking");
 }
 
@@ -76,16 +77,44 @@ export interface TierChoice {
   rate: "weekly" | "monthly";
 }
 
-export function previewPartTier(partId: string, choice: TierChoice, signal?: AbortSignal): Promise<TrackingPreview> {
-  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preview`, { ...json(choice), signal }, "Could not work out the cost");
+/** How a part is followed. Leave a field out to keep it; a null threshold clears it. */
+export interface FollowChanges {
+  tier?: 1 | 2;
+  rate?: "weekly" | "monthly";
+  threshold?: number | null;
+  pinned?: boolean;
+  packaging?: WatchPackaging;
 }
 
-function setPartTierRequest(partId: string, choice: TierChoice): Promise<TrackingPreview & { tier: PartTracking | null }> {
-  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}`, put(choice), "Could not set the tier");
+export function previewFollow(partId: string, changes: FollowChanges, signal?: AbortSignal): Promise<TrackingPreview> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preview`, { ...json(changes), signal }, "Could not work out the cost");
+}
+
+/** Follow a part, or change how. The one way a part is followed. */
+function followPartRequest(partId: string, changes: FollowChanges): Promise<TrackingPreview & { tier: PartTracking | null; watch: SupplyWatch | null }> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}`, put(changes), "Could not follow the part");
+}
+
+/** Follow a library part by its manufacturer (may be blank) and number, when Prism has no part for it yet. */
+async function followNumberRequest(input: { manufacturer: string; mpn: string } & FollowChanges): Promise<SupplyWatch> {
+  return (await fetchJson<{ watch: SupplyWatch }>(`${BASE}/parts`, json(input), "Could not track the part")).watch;
 }
 
 async function stopTrackingPartRequest(partId: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}`, { method: "DELETE" }, "Could not stop tracking the part");
+}
+
+/** A library component's follow: Prism follows whichever part is its main part. Null when it is not followed. */
+export async function getComponentFollow(componentId: string, signal?: AbortSignal): Promise<SupplyComponentWatch | null> {
+  return (await fetchJson<{ watch: SupplyComponentWatch | null }>(`${BASE}/components/${encodeURIComponent(componentId)}`, { signal }, "Could not load the component watch")).watch;
+}
+
+async function followComponentRequest(componentId: string, packaging: WatchPackaging): Promise<SupplyComponentWatch> {
+  return (await fetchJson<{ watch: SupplyComponentWatch }>(`${BASE}/components/${encodeURIComponent(componentId)}`, put({ packaging }), "Could not watch the component")).watch;
+}
+
+async function stopFollowingComponentRequest(componentId: string): Promise<void> {
+  await fetchJson(`${BASE}/components/${encodeURIComponent(componentId)}`, { method: "DELETE" }, "Could not stop watching the component");
 }
 
 export function getBudget(signal?: AbortSignal): Promise<BudgetConnector[]> {
@@ -133,7 +162,10 @@ export const untrackProject = changesSupply(untrackProjectRequest);
 export const stopTrackingPart = changesSupply(stopTrackingPartRequest);
 export const trackProject = changesSupply(trackProjectRequest);
 export const keepUsualBuild = changesSupply(keepUsualBuildRequest);
-export const setPartTier = changesSupply(setPartTierRequest);
+export const followPart = changesSupply(followPartRequest);
+export const followNumber = changesSupply(followNumberRequest);
+export const followComponent = changesSupply(followComponentRequest);
+export const stopFollowingComponent = changesSupply(stopFollowingComponentRequest);
 export const saveSchedule = changesSupply(saveScheduleRequest);
 export const saveAlertRules = changesSupply(saveAlertRulesRequest);
 export const decideMute = changesSupply(decideMuteRequest);

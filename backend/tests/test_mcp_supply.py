@@ -21,7 +21,8 @@ from app.services.mcp import tools as _tools  # noqa: E402,F401
 from test_mcp_catalog import SequenceApp  # noqa: E402
 
 READ_TOOLS = ["get_project_supply", "get_component_supply", "find_part_alternatives"]
-WRITE_TOOLS = ["watch_component", "refresh_component_supply"]
+# Following a component is anyone who reads supply (supply_follow); reading now spends the reserve (supply_write).
+WRITE_TOOLS = {"watch_component": "supply_follow", "refresh_component_supply": "supply_write"}
 PARTS = {
     "parts": [
         {"part_id": "p_main", "role": "main", "approval": "approved", "manufacturer": "Acme", "mpn": "LM-1"},
@@ -46,12 +47,12 @@ class SupplyToolTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_reads_are_reads_and_writes_need_supply_write(self) -> None:
-        for name in READ_TOOLS + WRITE_TOOLS:
+    def test_reads_are_reads_and_writes_need_their_route_role(self) -> None:
+        for name in READ_TOOLS + list(WRITE_TOOLS):
             with self.subTest(tool=name):
                 tool = registry.tool_named(name)
                 self.assertEqual(tool.group, "write" if name in WRITE_TOOLS else "read")
-                self.assertEqual(tool.action, "supply_write" if name in WRITE_TOOLS else None)
+                self.assertEqual(tool.action, WRITE_TOOLS.get(name))
 
     def test_a_component_reads_its_approved_parts_local_stock_and_watch(self) -> None:
         app = SequenceApp(
@@ -63,7 +64,7 @@ class SupplyToolTests(unittest.TestCase):
         self.assertFalse(result["isError"])
         self.assertEqual([seen["path"] for seen in app.seen], [
             "/api/v1/supply/components/c1/parts", "/api/v1/supply/parts/p_main", "/api/v1/supply/parts/p_alt",
-            "/api/v1/supply/components/c1/local-stock", "/api/v1/supply/components/c1/watch",
+            "/api/v1/supply/components/c1/local-stock", "/api/v1/supply/tracking/components/c1",
         ])
         structured = result["structuredContent"]
         self.assertEqual([part["mpn"] for part in structured["parts"]], ["LM-1", "LM-2"], "a pending alternate is not read")
@@ -98,7 +99,7 @@ class SupplyToolTests(unittest.TestCase):
     def test_watch_puts_the_packaging(self) -> None:
         app = SequenceApp((200, {"watch": {"packaging": "any"}}))
         run(app, "watch_component", {"component_id": "c1"})
-        self.assertEqual((app.seen[0]["method"], app.seen[0]["path"], app.seen[0]["body"]), ("PUT", "/api/v1/supply/components/c1/watch", {"packaging": "any"}))
+        self.assertEqual((app.seen[0]["method"], app.seen[0]["path"], app.seen[0]["body"]), ("PUT", "/api/v1/supply/tracking/components/c1", {"packaging": "any"}))
 
     def test_a_project_lists_only_the_lines_that_need_a_look(self) -> None:
         line = {"key": "k", "manufacturer": "Acme", "mpn": "OK-1", "references": "R1", "quantity": 1, "need": 100, "status": "ok", "stock": 900,
