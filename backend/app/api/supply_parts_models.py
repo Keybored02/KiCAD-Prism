@@ -6,7 +6,7 @@ from typing import Literal, Optional, Union
 
 from pydantic import Field
 
-from app.api.supply_models import Page, SupplyModel, SupplyStatus
+from app.api.supply_models import Items, Page, SupplyModel, SupplyStatus
 from app.api.supply_pcn_models import ConnectorProblem
 
 Number = Union[int, float]
@@ -545,3 +545,85 @@ class SupplyReadNow(SupplyModel):
     read: int
     connectors: int
     problems: list[ConnectorProblem]
+
+
+# --- part groups and alternatives -------------------------------------------------
+
+
+class SupplyGroupStats(SupplyModel):
+    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
+
+    at_risk: int
+    out: int
+    end_of_life: int
+    one_distributor: int
+    runs_out_soon: int
+    bom_read_at: Optional[str] = None
+    variants: Optional[list[str]] = None
+    all_variants: Optional[bool] = None
+    packaging: Optional[str] = None
+    cost_per_board: Optional[str] = None
+    currency: Optional[str] = None
+    boards: Optional[int] = None
+    build_quantity: Optional[int] = Field(default=None, description="The usual build the cost and boards are worked out for.")
+    unchecked: Optional[int] = Field(default=None, description="BOM lines no stock figure checks: the boards count is unconfirmed while any is.")
+    test_data: Optional[bool] = Field(default=None, description="Some of the cost comes from a simulated connector.")
+    cost_change_percent: Optional[Number] = None
+    alerts: Optional[int] = None
+
+
+class SupplyPartGroup(SupplyModel):
+    project_id: str
+    project_name: str
+    tracked: bool
+    count: int
+    statuses: dict[str, int] = Field(description="How many parts have each status.")
+    stats: SupplyGroupStats
+
+
+class SupplyPartGroups(Items[SupplyPartGroup]):
+    """The matching parts grouped by the projects that use them, tracked projects first."""
+
+    total: int
+
+
+class AlternativeCandidate(SupplyModel):
+    part_id: str
+    manufacturer: str
+    mpn: str
+    grade: Literal["ratings_met", "similar", "other_package", "fails"] = Field(
+        description='None claims the parts are interchangeable: "ratings_met" is every listed rating known and met, in the same package.')
+    grade_label: str
+    same: list[str]
+    differs: list[str]
+    unknown: list[str] = Field(description="Ratings the part lists and the candidate doesn't, so they can't be judged.")
+    stock: Optional[int]
+    status: SupplyStatus
+    lifecycle: SupplyLifecycle
+
+
+class SuggestionSource(SupplyModel):
+    provider: str
+    name: str
+
+
+class DistributorSuggestion(SupplyModel):
+    """A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part."""
+
+    manufacturer: str
+    mpn: str
+    sku: str
+    notes: list[str] = Field(description="Their words: the package, or how close DigiKey says it is.")
+    sources: list[SuggestionSource]
+    asked: bool = Field(description="Asked for from DigiKey, not seen in an offer read.")
+    part_id: Optional[str] = Field(description="The part in Prism, when it is one.")
+    stock: Optional[int]
+    status: Optional[SupplyStatus]
+    tracked: bool
+
+
+class CrossReference(SupplyModel):
+    candidates: list[AlternativeCandidate]
+    suggested_by_distributors: list[str] = Field(description="Replacements distributors name for the part, as written.")
+    suggestions: list[DistributorSuggestion]
+    judged_on: list[str] = Field(description="The parameters the comparison rested on.")

@@ -93,6 +93,20 @@ class AlternateRequest(TypedDict, total=False):
     mpn: str
 
 
+class AlternativeCandidate(TypedDict, total=True):
+    differs: list[str]
+    grade: str
+    grade_label: str
+    lifecycle: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    same: list[str]
+    status: str
+    stock: int | None
+    unknown: list[str]
+
+
 class AnalyzeRequest(TypedDict, total=False):
     ref: str | None
     url: str
@@ -1593,6 +1607,13 @@ class CredentialsRequest(TypedDict, total=True):
     credentials: dict[str, str]
 
 
+class CrossReference(TypedDict, total=True):
+    candidates: list[AlternativeCandidate]
+    judged_on: list[str]
+    suggested_by_distributors: list[str]
+    suggestions: list[DistributorSuggestion]
+
+
 class DatabasePoolMetrics(TypedDict, total=True):
     connectionWaitCount: int
     connectionWaitMaxMs: float
@@ -1816,6 +1837,20 @@ class DetectedPaths(TypedDict, total=True):
 
 class DismissIn(TypedDict, total=True):
     reasons: list[str]
+
+
+class DistributorSuggestion(TypedDict, total=True):
+    """A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part."""
+    asked: bool
+    manufacturer: str
+    mpn: str
+    notes: list[str]
+    part_id: str | None
+    sku: str
+    sources: list[SuggestionSource]
+    status: str | None
+    stock: int | None
+    tracked: bool
 
 
 class DocFileContent(TypedDict, total=True):
@@ -4831,6 +4866,11 @@ class SuffixBody(TypedDict, total=True):
     kind: str
 
 
+class SuggestionSource(TypedDict, total=True):
+    name: str
+    provider: str
+
+
 class Supply(TypedDict, total=True):
     sources: list[SupplySource]
 
@@ -4970,6 +5010,27 @@ class SupplyFxRatesSaved(TypedDict, total=True):
     day: str | None
     saved: int
     stale: bool
+
+
+class SupplyGroupStats(TypedDict, total=False):
+    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
+    alerts: int | None
+    all_variants: bool | None
+    at_risk: int
+    boards: int | None
+    bom_read_at: str | None
+    build_quantity: int | None
+    cost_change_percent: int | float | None
+    cost_per_board: str | None
+    currency: str | None
+    end_of_life: int
+    one_distributor: int
+    out: int
+    packaging: str | None
+    runs_out_soon: int
+    test_data: bool | None
+    unchecked: int | None
+    variants: list[str] | None
 
 
 class SupplyHeadlinePrice(TypedDict, total=True):
@@ -5138,6 +5199,21 @@ class SupplyPartDetail(TypedDict, total=True):
     trade: PartTrade
     used_in: list[PartUse]
     watch: SupplyWatchSummary | None
+
+
+class SupplyPartGroup(TypedDict, total=True):
+    count: int
+    project_id: str
+    project_name: str
+    stats: SupplyGroupStats
+    statuses: dict[str, int]
+    tracked: bool
+
+
+class SupplyPartGroups(TypedDict, total=True):
+    """The matching parts grouped by the projects that use them, tracked projects first."""
+    items: list[SupplyPartGroup]
+    total: int
 
 
 class SupplyPartRow(TypedDict, total=False):
@@ -6584,7 +6660,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def cross_reference_of(self, part_id: str) -> dict[str, Any]:
+    def cross_reference_of(self, part_id: str) -> CrossReference:
         """Cross Reference Of"""
         return self._request(
             "GET",
@@ -8718,7 +8794,7 @@ class GeneratedClient:
             query={"quantity": quantity},
         )
 
-    def part_groups(self, *, scope: str = 'watched', only: str = '', q: str = '', vendor: str = '') -> dict[str, Any]:
+    def part_groups(self, *, scope: str = 'watched', only: str = '', q: str = '', vendor: str = '') -> SupplyPartGroups:
         """Part Groups"""
         return self._request(
             "GET",
