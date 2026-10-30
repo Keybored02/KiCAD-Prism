@@ -20,13 +20,12 @@ vi.mock("./packaging-api", async (importOriginal) => ({
 import { ListingGroups } from "./listing-groups";
 import * as packaging from "./packaging-api";
 import * as api from "./supply-api";
-import { partDetailFixture } from "./supply-test-fixtures";
+import { listingFixture, partDetailFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
 
-const listing = (id: string, connector: string, name: string, provider: string, sku: string, packagingName: string): SupplyListing => ({
-  id, connector_id: connector, connector_name: name, provider, sku, packaging: packagingName, match_state: "exact", counted: true, offer: null, poll: null,
-});
+const listing = (id: string, connector: string, name: string, provider: string, sku: string, packagingName: string): SupplyListing =>
+  listingFixture({ id, connector_id: connector, connector_name: name, provider, sku, packaging: packagingName, match_state: "exact", counted: true });
 
 const detail = (extra = {}) => partDetailFixture({
   listings: [

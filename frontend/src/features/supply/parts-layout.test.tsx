@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LayoutToggle } from "./layout-toggle";
 import { layoutFromParam, priceAt } from "./parts-layout";
 import { PartsTable } from "./parts-table";
-import { partRowFixture } from "./supply-test-fixtures";
+import { distributorFixture, partRowFixture, rowOfferFixture } from "./supply-test-fixtures";
 
 afterEach(cleanup);
 
@@ -27,8 +27,8 @@ describe("the layouts", () => {
   const part = partRowFixture({
     mpn: "LM358",
     offers: [
-      { connector_id: "c1", provider: "mouser", name: "Mouser", sku: "M-1", stock: 1200, moq: 10, packaging: "cut_tape", currency: "EUR", price_breaks: BREAKS, product_url: "https://www.mouser.com/ProductDetail/M-1" },
-      { connector_id: "c2", provider: "lcsc", name: "LCSC", sku: "C1", stock: 0, moq: 1, packaging: "tape_reel", currency: "USD", price_breaks: [[1, "0.60"]] },
+      rowOfferFixture({ connector_id: "c1", provider: "mouser", name: "Mouser", sku: "M-1", stock: 1200, moq: 10, packaging: "cut_tape", currency: "EUR", price_breaks: BREAKS, product_url: "https://www.mouser.com/ProductDetail/M-1" }),
+      rowOfferFixture({ connector_id: "c2", provider: "lcsc", name: "LCSC", sku: "C1", stock: 0, moq: 1, packaging: "tape_reel", currency: "USD", price_breaks: [[1, "0.60"]] }),
     ],
   });
 
@@ -38,7 +38,7 @@ describe("the layouts", () => {
   });
 
   it("leaves the part's own row without stock, price and vendor swatches when detailed", () => {
-    const withSwatch = partRowFixture({ mpn: "LM358", stock: 777, distributors: [{ connector_id: "c1", provider: "mouser", name: "Mouser", stock: 5 }] });
+    const withSwatch = partRowFixture({ mpn: "LM358", stock: 777, distributors: [distributorFixture({ connector_id: "c1", provider: "mouser", name: "Mouser", stock: 5 })] });
     render(<PartsTable layout="detailed" items={[withSwatch]} selectedId={null} onOpen={vi.fn()} />);
     expect(screen.queryByText("777")).toBeNull();
     expect(screen.queryByRole("button", { name: /Mouser: 5 in stock/ })).toBeNull();
@@ -97,7 +97,7 @@ describe("the layouts", () => {
   });
 
   it("shows no read rate or lead time icons", () => {
-    render(<PartsTable items={[{ ...part, tracking: { tier: 1, rate: "daily" }, lead_days: 14 }]} selectedId={null} onOpen={vi.fn()} />);
+    render(<PartsTable items={[{ ...part, tracking: { tier: 1, rate: "daily", reasons: [] }, lead_days: 14 }]} selectedId={null} onOpen={vi.fn()} />);
     expect(screen.queryByLabelText("Read daily")).toBeNull();
     expect(screen.queryByLabelText("Shortest quoted lead time")).toBeNull();
   });
@@ -108,7 +108,7 @@ describe("the layouts", () => {
   });
 
   it("gives the price and the vendor swatches a column each", () => {
-    const row = partRowFixture({ mpn: "LM358", unit_price: "0.42", currency: "EUR", distributors: [{ connector_id: "c1", provider: "mouser", name: "Mouser", stock: 5 }] });
+    const row = partRowFixture({ mpn: "LM358", unit_price: "0.42", currency: "EUR", distributors: [distributorFixture({ connector_id: "c1", provider: "mouser", name: "Mouser", stock: 5 })] });
     render(<PartsTable items={[row]} selectedId={null} onOpen={vi.fn()} />);
     expect(screen.getByRole("columnheader", { name: "Vendors" })).toBeTruthy();
     const swatch = screen.getByRole("button", { name: /Mouser: 5 in stock/ }).closest("td")!;
@@ -117,8 +117,8 @@ describe("the layouts", () => {
   });
 
   it("shows each vendor's first line and keeps its other lines a chevron away", () => {
-    const line = (sku: string, moq: number, packaging: string) => ({
-      connector_id: "dk", provider: "digikey", name: "DigiKey", sku, stock: 10, moq, packaging, currency: "EUR", price_breaks: [[moq, "0.5"]] as Array<[number, string]>,
+    const line = (sku: string, moq: number, packaging: string) => rowOfferFixture({
+      connector_id: "dk", provider: "digikey", name: "DigiKey", sku, skus: [sku], stock: 10, moq, packaging, currency: "EUR", price_breaks: [[moq, "0.5"]],
     });
     const row = { ...part, offers: [line("A-1-ND", 1, "cut_tape"), line("A-6-ND", 1, "custom_reel"), line("A-2-ND", 3000, "tape_reel"), { ...part.offers![1], connector_id: "lc", name: "LCSC" }] };
     render(<PartsTable layout="detailed" items={[row]} selectedId={null} onOpen={vi.fn()} />);

@@ -41,7 +41,7 @@ describe("the projects tab", () => {
       ],
       total: 4,
     });
-    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM324" })], total: 3, limit: 50 });
+    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ mpn: "LM324" })], total: 3, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
     render(<MemoryRouter><ProjectsView user={designer} /></MemoryRouter>);
     const power = await screen.findByRole("button", { name: /Power board/ });
     expect(within(power).queryByText(/Tracked ·/)).toBeNull();

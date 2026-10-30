@@ -877,6 +877,77 @@
         "title": "ApprovalState",
         "type": "object"
       },
+      "Arrivals": {
+        "additionalProperties": true,
+        "properties": {
+          "announced": {
+            "title": "Announced",
+            "type": "integer"
+          },
+          "arrived": {
+            "title": "Arrived",
+            "type": "integer"
+          },
+          "median_delay_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Delay Days"
+          },
+          "on_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Time"
+          },
+          "on_time_share": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Time Share"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "slipped": {
+            "title": "Slipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "announced",
+          "open",
+          "arrived",
+          "slipped",
+          "on_time",
+          "on_time_share",
+          "median_delay_days"
+        ],
+        "title": "Arrivals",
+        "type": "object"
+      },
       "AssessmentCheck": {
         "additionalProperties": true,
         "properties": {
@@ -8027,6 +8098,35 @@
         "title": "ConnectorProblem",
         "type": "object"
       },
+      "ConnectorStock": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "connector_name": {
+            "title": "Connector Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "connector_name",
+          "provider",
+          "stock"
+        ],
+        "title": "ConnectorStock",
+        "type": "object"
+      },
       "CreateCommentRequest": {
         "properties": {
           "commentClass": {
@@ -11075,6 +11175,66 @@
         "title": "EvidenceRecord",
         "type": "object"
       },
+      "ExchangeMove": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "exchange_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Exchange Percent"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "in_base_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "In Base Percent"
+          },
+          "local_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Local Percent"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "from",
+          "to",
+          "in_base_percent",
+          "local_percent",
+          "exchange_percent"
+        ],
+        "title": "ExchangeMove",
+        "type": "object"
+      },
       "Exemption": {
         "additionalProperties": false,
         "properties": {
@@ -12875,6 +13035,119 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HistoryConnector": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "last_read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Read"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Price",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "stale": {
+            "description": "Not read for longer than the part's rate allows.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "stock": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Stock",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "last_read",
+          "stale",
+          "stock",
+          "price"
+        ],
+        "title": "HistoryConnector",
+        "type": "object"
+      },
+      "HistoryEvent": {
+        "additionalProperties": true,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "restock",
+              "notice"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "kind",
+          "text"
+        ],
+        "title": "HistoryEvent",
+        "type": "object"
+      },
       "HostKeyForgetResponse": {
         "additionalProperties": true,
         "properties": {
@@ -13675,6 +13948,42 @@
         "title": "InlineBundle",
         "type": "object"
       },
+      "InsightInputs": {
+        "additionalProperties": true,
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "points": {
+            "title": "Points",
+            "type": "integer"
+          },
+          "points_in_run": {
+            "title": "Points In Run",
+            "type": "integer"
+          },
+          "span_days": {
+            "title": "Span Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "points",
+          "span_days",
+          "points_in_run",
+          "current"
+        ],
+        "title": "InsightInputs",
+        "type": "object"
+      },
       "InventoryImportResult": {
         "additionalProperties": true,
         "properties": {
@@ -13981,6 +14290,23 @@
         "title": "Items[SupplyMakerGroup]",
         "type": "object"
       },
+      "Items_SupplyManufacturer_": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyManufacturer"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Items[SupplyManufacturer]",
+        "type": "object"
+      },
       "Items_SupplyNotice_": {
         "additionalProperties": true,
         "properties": {
@@ -14064,6 +14390,36 @@
           "items"
         ],
         "title": "Items[WorkItemEvent]",
+        "type": "object"
+      },
+      "JlcClass": {
+        "additionalProperties": true,
+        "properties": {
+          "library": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Basic",
+                  "Extended"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library"
+          },
+          "preferred": {
+            "title": "Preferred",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "library",
+          "preferred"
+        ],
+        "title": "JlcClass",
         "type": "object"
       },
       "JobCancelOut": {
@@ -15457,6 +15813,103 @@
         "title": "LatencyTotals",
         "type": "object"
       },
+      "LeadTimeTrend": {
+        "additionalProperties": true,
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "integer"
+          },
+          "before": {
+            "title": "Before",
+            "type": "integer"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before",
+          "after",
+          "since"
+        ],
+        "title": "LeadTimeTrend",
+        "type": "object"
+      },
+      "Leadership": {
+        "additionalProperties": true,
+        "properties": {
+          "changes": {
+            "title": "Changes",
+            "type": "integer"
+          },
+          "followed": {
+            "title": "Followed",
+            "type": "integer"
+          },
+          "followed_share": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Followed Share"
+          },
+          "leader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leader"
+          },
+          "led": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Led",
+            "type": "object"
+          }
+        },
+        "required": [
+          "changes",
+          "followed",
+          "followed_share",
+          "leader",
+          "led"
+        ],
+        "title": "Leadership",
+        "type": "object"
+      },
+      "LibraryComponentOf": {
+        "additionalProperties": true,
+        "properties": {
+          "component_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The catalog component the part counts for; null when the library has none.",
+            "title": "Component Id"
+          }
+        },
+        "required": [
+          "component_id"
+        ],
+        "title": "LibraryComponentOf",
+        "type": "object"
+      },
       "LineChoiceIn": {
         "additionalProperties": false,
         "properties": {
@@ -15728,6 +16181,59 @@
           "published_tag"
         ],
         "title": "ListedBuild",
+        "type": "object"
+      },
+      "ListingPoll": {
+        "additionalProperties": true,
+        "properties": {
+          "error_streak": {
+            "title": "Error Streak",
+            "type": "integer"
+          },
+          "last_error_code": {
+            "title": "Last Error Code",
+            "type": "string"
+          },
+          "last_polled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Polled At"
+          },
+          "next_poll_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Poll At"
+          },
+          "tier": {
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "next_poll_at",
+          "last_polled_at",
+          "error_streak",
+          "last_error_code"
+        ],
+        "title": "ListingPoll",
         "type": "object"
       },
       "LoadList": {
@@ -16186,6 +16692,72 @@
           "rates"
         ],
         "title": "ManualRates",
+        "type": "object"
+      },
+      "MarketBehaviour": {
+        "additionalProperties": true,
+        "properties": {
+          "arrivals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Arrivals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exchange": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExchangeMove"
+            },
+            "title": "Exchange",
+            "type": "object"
+          },
+          "leadership": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Leadership"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repricing": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "description": "Median days between a distributor's price changes.",
+            "title": "Repricing",
+            "type": "object"
+          },
+          "restock_order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RestockOrder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "repricing",
+          "leadership",
+          "exchange",
+          "restock_order",
+          "arrivals"
+        ],
+        "title": "MarketBehaviour",
         "type": "object"
       },
       "MateOut": {
@@ -17718,6 +18290,25 @@
         "title": "MoveProjectsRequest",
         "type": "object"
       },
+      "NativePrice": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "string"
+          }
+        },
+        "required": [
+          "price",
+          "currency"
+        ],
+        "title": "NativePrice",
+        "type": "object"
+      },
       "NewCheck": {
         "additionalProperties": false,
         "properties": {
@@ -17987,6 +18578,56 @@
         "title": "OldestQueued",
         "type": "object"
       },
+      "OpenRestock": {
+        "additionalProperties": true,
+        "properties": {
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "lead_time",
+              "dated"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "late": {
+            "title": "Late",
+            "type": "boolean"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "quoted_lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quoted Lead Days"
+          }
+        },
+        "required": [
+          "kind",
+          "expected",
+          "late"
+        ],
+        "title": "OpenRestock",
+        "type": "object"
+      },
       "OpsProfile": {
         "properties": {
           "createdAt": {
@@ -18158,6 +18799,35 @@
         "title": "OpsStatus",
         "type": "object"
       },
+      "OutlookSignal": {
+        "additionalProperties": true,
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "weight": {
+            "enum": [
+              "hard",
+              "watch",
+              "soft"
+            ],
+            "title": "Weight",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "source",
+          "weight"
+        ],
+        "title": "OutlookSignal",
+        "type": "object"
+      },
       "PackagingListing": {
         "additionalProperties": true,
         "properties": {
@@ -18303,6 +18973,30 @@
         "title": "PackagingListing",
         "type": "object"
       },
+      "PackagingNeedsPick": {
+        "additionalProperties": true,
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "connector",
+          "listings"
+        ],
+        "title": "PackagingNeedsPick",
+        "type": "object"
+      },
       "PackagingOptions": {
         "additionalProperties": true,
         "properties": {
@@ -18404,6 +19098,25 @@
           "similar"
         ],
         "title": "PackagingPicked",
+        "type": "object"
+      },
+      "PackagingPickedBy": {
+        "additionalProperties": true,
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "note"
+        ],
+        "title": "PackagingPickedBy",
         "type": "object"
       },
       "PackagingProposal": {
@@ -18713,6 +19426,88 @@
         "title": "PartAlertRules",
         "type": "object"
       },
+      "PartHistory": {
+        "additionalProperties": true,
+        "description": "Stock and price a line per distributor over the last ``days`` days.",
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryConnector"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "events": {
+            "description": "Days worth marking on the axis: a restock, or a product change notice.",
+            "items": {
+              "$ref": "#/components/schemas/HistoryEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "total": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Total",
+            "type": "array"
+          }
+        },
+        "required": [
+          "days",
+          "currency",
+          "connectors",
+          "total",
+          "events"
+        ],
+        "title": "PartHistory",
+        "type": "object"
+      },
+      "PartLookup": {
+        "additionalProperties": true,
+        "description": "The part Prism knows for a manufacturer and number, and whether it follows it.",
+        "properties": {
+          "followed": {
+            "title": "Followed",
+            "type": "boolean"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          }
+        },
+        "required": [
+          "part_id",
+          "followed"
+        ],
+        "title": "PartLookup",
+        "type": "object"
+      },
       "PartManifest": {
         "additionalProperties": true,
         "properties": {
@@ -18763,6 +19558,316 @@
           "assets"
         ],
         "title": "PartManifest",
+        "type": "object"
+      },
+      "PartName": {
+        "additionalProperties": true,
+        "properties": {
+          "first_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mpn",
+          "manufacturer",
+          "first_seen"
+        ],
+        "title": "PartName",
+        "type": "object"
+      },
+      "PartPackaging": {
+        "additionalProperties": true,
+        "description": "Picks made on this part, and the distributors where it still waits for one.",
+        "properties": {
+          "needs_pick": {
+            "items": {
+              "$ref": "#/components/schemas/PackagingNeedsPick"
+            },
+            "title": "Needs Pick",
+            "type": "array"
+          },
+          "picked_by": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PackagingPickedBy"
+            },
+            "description": "Who picked at each distributor (a person, or \"auto\" for Prism) and its note.",
+            "title": "Picked By",
+            "type": "object"
+          },
+          "picks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Picks",
+            "type": "object"
+          }
+        },
+        "required": [
+          "picks",
+          "picked_by",
+          "needs_pick"
+        ],
+        "title": "PartPackaging",
+        "type": "object"
+      },
+      "PartPrice": {
+        "additionalProperties": true,
+        "description": "The cheapest counted unit price per day. ``trend`` is the move over the last 30 days, or null when there is too little to read one.",
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "default": {
+            "description": "The workspace default price quantity.",
+            "title": "Default",
+            "type": "integer"
+          },
+          "estimated_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days up to this one are drawn at 100 pieces, because the price breaks were not kept yet.",
+            "title": "Estimated Until"
+          },
+          "headline": {
+            "$ref": "#/components/schemas/SupplyHeadlinePrice"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/PriceDay"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "own": {
+            "description": "Whether the part has its own price quantity.",
+            "title": "Own",
+            "type": "boolean"
+          },
+          "quantity": {
+            "description": "The quantity the part is priced at.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "trend": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceTrend"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "currency",
+          "history",
+          "trend",
+          "quantity",
+          "default",
+          "own",
+          "estimated_until",
+          "headline"
+        ],
+        "title": "PartPrice",
+        "type": "object"
+      },
+      "PartReadOnView": {
+        "additionalProperties": true,
+        "properties": {
+          "read": {
+            "title": "Read",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "read"
+        ],
+        "title": "PartReadOnView",
+        "type": "object"
+      },
+      "PartStock": {
+        "additionalProperties": true,
+        "properties": {
+          "by_connector": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorStock"
+            },
+            "title": "By Connector",
+            "type": "array"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "total",
+          "by_connector"
+        ],
+        "title": "PartStock",
+        "type": "object"
+      },
+      "PartTracking": {
+        "additionalProperties": true,
+        "description": "How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null.",
+        "properties": {
+          "rate": {
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Rate",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/TrackingReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "tier": {
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Tier",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier",
+          "rate",
+          "reasons"
+        ],
+        "title": "PartTracking",
+        "type": "object"
+      },
+      "PartTrade": {
+        "additionalProperties": true,
+        "description": "Export control: what distributors state, and a person's mark that wins over it.",
+        "properties": {
+          "control": {
+            "enum": [
+              "controlled",
+              "none",
+              "disputed",
+              "unknown"
+            ],
+            "title": "Control",
+            "type": "string"
+          },
+          "eccn": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Eccn",
+            "type": "array"
+          },
+          "mark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TradeMark"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stated": {
+            "title": "Stated",
+            "type": "string"
+          },
+          "stated_eccn": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stated Eccn",
+            "type": "array"
+          }
+        },
+        "required": [
+          "control",
+          "eccn",
+          "stated",
+          "stated_eccn",
+          "mark"
+        ],
+        "title": "PartTrade",
+        "type": "object"
+      },
+      "PartUse": {
+        "additionalProperties": true,
+        "properties": {
+          "only_in_variants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Only In Variants",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "references": {
+            "title": "References",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "quantity",
+          "references",
+          "only_in_variants"
+        ],
+        "title": "PartUse",
         "type": "object"
       },
       "PasswordLoginRequest": {
@@ -19425,6 +20530,56 @@
         "title": "PreferredIn",
         "type": "object"
       },
+      "PriceDay": {
+        "additionalProperties": true,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Price"
+          }
+        },
+        "required": [
+          "day",
+          "price"
+        ],
+        "title": "PriceDay",
+        "type": "object"
+      },
+      "PriceQuantity": {
+        "additionalProperties": true,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "own": {
+            "title": "Own",
+            "type": "boolean"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quantity",
+          "default",
+          "own"
+        ],
+        "title": "PriceQuantity",
+        "type": "object"
+      },
       "PriceQuantityIn": {
         "additionalProperties": false,
         "properties": {
@@ -19443,6 +20598,36 @@
           }
         },
         "title": "PriceQuantityIn",
+        "type": "object"
+      },
+      "PriceRange": {
+        "additionalProperties": true,
+        "description": "Lowest, highest and median over the distributors that price it.",
+        "properties": {
+          "high": {
+            "title": "High",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          },
+          "median": {
+            "title": "Median",
+            "type": "string"
+          },
+          "sellers": {
+            "title": "Sellers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "low",
+          "high",
+          "median",
+          "sellers"
+        ],
+        "title": "PriceRange",
         "type": "object"
       },
       "PriceTier": {
@@ -19472,6 +20657,47 @@
           "unit_price"
         ],
         "title": "PriceTier",
+        "type": "object"
+      },
+      "PriceTrend": {
+        "additionalProperties": true,
+        "properties": {
+          "change_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Change Percent"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "now": {
+            "title": "Now",
+            "type": "string"
+          },
+          "was": {
+            "title": "Was",
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "was",
+          "now",
+          "change_percent",
+          "days"
+        ],
+        "title": "PriceTrend",
         "type": "object"
       },
       "ProcessInfo": {
@@ -22716,6 +23942,83 @@
         "title": "ResourceUsage",
         "type": "object"
       },
+      "RestockOrder": {
+        "additionalProperties": true,
+        "properties": {
+          "first": {
+            "title": "First",
+            "type": "string"
+          },
+          "firsts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Firsts",
+            "type": "object"
+          },
+          "rounds": {
+            "title": "Rounds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rounds",
+          "first",
+          "firsts"
+        ],
+        "title": "RestockOrder",
+        "type": "object"
+      },
+      "RestockRecord": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "kept": {
+            "title": "Kept",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "open": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpenRestock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "stock_outs": {
+            "title": "Stock Outs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "open",
+          "kept",
+          "resolved",
+          "stock_outs"
+        ],
+        "title": "RestockRecord",
+        "type": "object"
+      },
       "RestrictionIn": {
         "additionalProperties": false,
         "properties": {
@@ -23186,6 +24489,156 @@
         "title": "RouteLatencyRow",
         "type": "object"
       },
+      "RowDistributor": {
+        "additionalProperties": true,
+        "description": "A distributor that lists the part: stock above zero is filled.",
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "provider",
+          "name",
+          "stock",
+          "price",
+          "currency"
+        ],
+        "title": "RowDistributor",
+        "type": "object"
+      },
+      "RowForecast": {
+        "additionalProperties": true,
+        "description": "The kept forecast: when it likely runs out and the chance of being out within four and eight weeks.",
+        "properties": {
+          "available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "can_buy_4w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Buy 4W"
+          },
+          "can_buy_8w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Buy 8W"
+          },
+          "made_on": {
+            "title": "Made On",
+            "type": "string"
+          },
+          "out_now": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Out Now"
+          },
+          "p_out_4w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Out 4W"
+          },
+          "p_out_8w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Out 8W"
+          },
+          "runout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunoutForecast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "made_on"
+        ],
+        "title": "RowForecast",
+        "type": "object"
+      },
       "RulesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -23239,6 +24692,42 @@
           }
         },
         "title": "RulesRequest",
+        "type": "object"
+      },
+      "RunoutForecast": {
+        "additionalProperties": true,
+        "properties": {
+          "high_date": {
+            "title": "High Date",
+            "type": "string"
+          },
+          "low_date": {
+            "title": "Low Date",
+            "type": "string"
+          },
+          "median_date": {
+            "title": "Median Date",
+            "type": "string"
+          },
+          "p": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "P"
+          }
+        },
+        "required": [
+          "median_date",
+          "low_date",
+          "high_date",
+          "p"
+        ],
+        "title": "RunoutForecast",
         "type": "object"
       },
       "SSHKeyResponse": {
@@ -23396,6 +24885,40 @@
           "mpn"
         ],
         "title": "SearchRequest",
+        "type": "object"
+      },
+      "Seasonality": {
+        "additionalProperties": true,
+        "properties": {
+          "index": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "title": "Index",
+            "type": "object"
+          },
+          "peak": {
+            "title": "Peak",
+            "type": "integer"
+          },
+          "trough": {
+            "title": "Trough",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "peak",
+          "trough"
+        ],
+        "title": "Seasonality",
         "type": "object"
       },
       "SemanticIndexDocument": {
@@ -24455,6 +25978,55 @@
         "title": "StatusRequest",
         "type": "object"
       },
+      "StockAnomaly": {
+        "additionalProperties": true,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "from": {
+            "title": "From",
+            "type": "integer"
+          },
+          "to": {
+            "title": "To",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "from",
+          "to"
+        ],
+        "title": "StockAnomaly",
+        "type": "object"
+      },
+      "StockDay": {
+        "additionalProperties": true,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "listings": {
+            "description": "How many listings stood behind the day, so a jump from a new one is not read as a restock.",
+            "title": "Listings",
+            "type": "integer"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "stock",
+          "listings"
+        ],
+        "title": "StockDay",
+        "type": "object"
+      },
       "StoresState": {
         "properties": {
           "available": {
@@ -25413,6 +26985,115 @@
         "title": "SupplyFxRatesSaved",
         "type": "object"
       },
+      "SupplyHeadlinePrice": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "price_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "orderable",
+                  "backorder",
+                  "last_seen",
+                  "listed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Kind"
+          },
+          "price_lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Lead Days"
+          },
+          "price_native": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NativePrice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_quantity": {
+            "title": "Price Quantity",
+            "type": "integer"
+          },
+          "price_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_seen_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Seen Day"
+          },
+          "price_test_data": {
+            "description": "The figure comes from a simulated connector.",
+            "title": "Price Test Data",
+            "type": "boolean"
+          },
+          "price_unrated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Price Unrated",
+            "type": "array"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "unit_price",
+          "currency",
+          "price_quantity",
+          "price_kind",
+          "price_lead_days",
+          "price_range",
+          "price_native",
+          "price_seen_day",
+          "price_unrated",
+          "price_test_data"
+        ],
+        "title": "SupplyHeadlinePrice",
+        "type": "object"
+      },
       "SupplyHealth": {
         "additionalProperties": true,
         "description": "Calls against budget, errors and late reads per connector, and the periodic tasks' runs.",
@@ -25437,6 +27118,410 @@
           "tasks"
         ],
         "title": "SupplyHealth",
+        "type": "object"
+      },
+      "SupplyInsight": {
+        "additionalProperties": true,
+        "properties": {
+          "anomalies": {
+            "description": "Days on which stock collapsed in one step, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/StockAnomaly"
+            },
+            "title": "Anomalies",
+            "type": "array"
+          },
+          "beyond_year": {
+            "description": "The drain is too slow to run out within a year, for a part that is still made and restocked.",
+            "title": "Beyond Year",
+            "type": "boolean"
+          },
+          "concentration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 when all the stock is at one distributor.",
+            "title": "Concentration"
+          },
+          "confidence": {
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "days_to_threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Threshold"
+          },
+          "days_to_zero": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Zero"
+          },
+          "days_to_zero_recent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Zero Recent"
+          },
+          "decrease_per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Observed net decrease, pieces a day. Not consumption: transfers and caps look the same.",
+            "title": "Decrease Per Day"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/InsightInputs"
+          },
+          "lead_gap_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days by which stock is expected to run out before a new order could arrive.",
+            "title": "Lead Gap Days"
+          },
+          "lead_time_trend": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadTimeTrend"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The quoted lead time, early in the last 90 days against late."
+          },
+          "pace": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accelerating",
+                  "steady",
+                  "slowing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Falling faster in the later half of the readings: the later rate and the days to zero at it.",
+            "title": "Pace"
+          },
+          "recent_decrease_per_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Decrease Per Day"
+          },
+          "restock_expected_in_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Negative when a regular restock is overdue.",
+            "title": "Restock Expected In Days"
+          },
+          "restock_interval_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restock Interval Days"
+          },
+          "restock_latency_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Median days at zero before stock came back.",
+            "title": "Restock Latency Days"
+          },
+          "restocks": {
+            "title": "Restocks",
+            "type": "integer"
+          },
+          "seasonality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Seasonality"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How stock runs by month of the year, once there is more than a year of history."
+          },
+          "sources_change": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Distributors holding stock, last day against the first.",
+            "title": "Sources Change"
+          },
+          "trend": {
+            "anyOf": [
+              {
+                "enum": [
+                  "falling",
+                  "rising",
+                  "steady"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spread of daily stock against its average.",
+            "title": "Volatility"
+          },
+          "zero_share": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the history's days at zero stock.",
+            "title": "Zero Share"
+          }
+        },
+        "required": [
+          "confidence",
+          "trend",
+          "decrease_per_day",
+          "days_to_zero",
+          "days_to_threshold",
+          "pace",
+          "recent_decrease_per_day",
+          "days_to_zero_recent",
+          "beyond_year",
+          "restocks",
+          "restock_interval_days",
+          "restock_expected_in_days",
+          "zero_share",
+          "restock_latency_days",
+          "volatility",
+          "sources_change",
+          "concentration",
+          "anomalies",
+          "seasonality",
+          "inputs",
+          "lead_gap_days",
+          "lead_time_trend"
+        ],
+        "title": "SupplyInsight",
+        "type": "object"
+      },
+      "SupplyListing": {
+        "additionalProperties": true,
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "connector_name": {
+            "title": "Connector Name",
+            "type": "string"
+          },
+          "counted": {
+            "description": "Only counted listings feed stock and price.",
+            "title": "Counted",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "match_reason": {
+            "description": "Why it matched, or did not.",
+            "title": "Match Reason",
+            "type": "string"
+          },
+          "match_state": {
+            "title": "Match State",
+            "type": "string"
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyOffer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packaging": {
+            "title": "Packaging",
+            "type": "string"
+          },
+          "packaging_inferred": {
+            "description": "The packaging was guessed, not stated.",
+            "title": "Packaging Inferred",
+            "type": "boolean"
+          },
+          "page_url": {
+            "description": "The distributor's page for it, even before it has been read.",
+            "title": "Page Url",
+            "type": "string"
+          },
+          "poll": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ListingPoll"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "description": "The connector's provider key, for its colour.",
+            "title": "Provider",
+            "type": "string"
+          },
+          "raw_manufacturer": {
+            "description": "What the distributor calls its maker.",
+            "title": "Raw Manufacturer",
+            "type": "string"
+          },
+          "raw_mpn": {
+            "description": "What the distributor calls the part.",
+            "title": "Raw Mpn",
+            "type": "string"
+          },
+          "reel_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pieces on a full reel, when the distributor says.",
+            "title": "Reel Size"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          },
+          "test_data": {
+            "description": "From a simulated connector: test data, marked wherever it shows.",
+            "title": "Test Data",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "connector_id",
+          "connector_name",
+          "provider",
+          "test_data",
+          "sku",
+          "packaging",
+          "reel_size",
+          "packaging_inferred",
+          "match_state",
+          "raw_mpn",
+          "raw_manufacturer",
+          "match_reason",
+          "page_url",
+          "counted",
+          "offer",
+          "poll"
+        ],
+        "title": "SupplyListing",
         "type": "object"
       },
       "SupplyMakerGroup": {
@@ -25464,6 +27549,30 @@
           "spellings"
         ],
         "title": "SupplyMakerGroup",
+        "type": "object"
+      },
+      "SupplyManufacturer": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "part_count": {
+            "title": "Part Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "part_count"
+        ],
+        "title": "SupplyManufacturer",
         "type": "object"
       },
       "SupplyNotice": {
@@ -25648,6 +27757,896 @@
         "title": "SupplyNumberEnding",
         "type": "object"
       },
+      "SupplyOffer": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "discontinued": {
+            "title": "Discontinued",
+            "type": "boolean"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "incoming": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Incoming",
+            "type": "array"
+          },
+          "lead_time_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Days"
+          },
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "marketplace": {
+            "title": "Marketplace",
+            "type": "boolean"
+          },
+          "moq": {
+            "title": "Moq",
+            "type": "integer"
+          },
+          "order_multiple": {
+            "title": "Order Multiple",
+            "type": "integer"
+          },
+          "price_breaks": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Price Breaks",
+            "type": "array"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          },
+          "reach_affected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reach Affected"
+          },
+          "rohs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rohs"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fetched_at",
+          "stock",
+          "incoming",
+          "moq",
+          "order_multiple",
+          "price_breaks",
+          "currency",
+          "lead_time_days",
+          "lifecycle",
+          "discontinued",
+          "rohs",
+          "reach_affected",
+          "marketplace",
+          "product_url"
+        ],
+        "title": "SupplyOffer",
+        "type": "object"
+      },
+      "SupplyOutlook": {
+        "additionalProperties": true,
+        "description": "A rule-based band with every signal behind it.",
+        "properties": {
+          "band": {
+            "enum": [
+              "ended",
+              "under_2_years",
+              "2_to_5_years",
+              "no_signs",
+              "unknown"
+            ],
+            "title": "Band",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "method": {
+            "const": "rule-based",
+            "title": "Method",
+            "type": "string"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/OutlookSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "band",
+          "label",
+          "method",
+          "signals"
+        ],
+        "title": "SupplyOutlook",
+        "type": "object"
+      },
+      "SupplyParameter": {
+        "additionalProperties": true,
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "raw": {
+            "title": "Raw",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "raw",
+          "key",
+          "unit",
+          "value",
+          "sources"
+        ],
+        "title": "SupplyParameter",
+        "type": "object"
+      },
+      "SupplyPartDetail": {
+        "additionalProperties": true,
+        "description": "The part sheet in one read.",
+        "properties": {
+          "distributor_history": {
+            "$ref": "#/components/schemas/PartHistory",
+            "description": "Stock and price a line per distributor over the last 90 days: what the sheet's charts draw."
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/StockDay"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "insight": {
+            "$ref": "#/components/schemas/SupplyInsight"
+          },
+          "jlc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JlcClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "listings": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyListing"
+            },
+            "title": "Listings",
+            "type": "array"
+          },
+          "market_behaviour": {
+            "$ref": "#/components/schemas/MarketBehaviour"
+          },
+          "outlook": {
+            "$ref": "#/components/schemas/SupplyOutlook"
+          },
+          "packaging": {
+            "$ref": "#/components/schemas/PartPackaging"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "part": {
+            "$ref": "#/components/schemas/PartName"
+          },
+          "preferred_connector_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The distributor a person prefers for this part: shown first.",
+            "title": "Preferred Connector Id"
+          },
+          "price": {
+            "$ref": "#/components/schemas/PartPrice"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_found",
+                  "gone"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "problem_text": {
+            "title": "Problem Text",
+            "type": "string"
+          },
+          "restock_record": {
+            "items": {
+              "$ref": "#/components/schemas/RestockRecord"
+            },
+            "title": "Restock Record",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "$ref": "#/components/schemas/PartStock"
+          },
+          "tracking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartTracking"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why and how often Prism follows the part; null when nobody does."
+          },
+          "trade": {
+            "$ref": "#/components/schemas/PartTrade"
+          },
+          "used_in": {
+            "items": {
+              "$ref": "#/components/schemas/PartUse"
+            },
+            "title": "Used In",
+            "type": "array"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyWatchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "part",
+          "watch",
+          "tracking",
+          "packaging",
+          "preferred_connector_id",
+          "trade",
+          "status",
+          "problem",
+          "problem_text",
+          "stock",
+          "lifecycle",
+          "listings",
+          "history",
+          "distributor_history",
+          "price",
+          "parameters",
+          "outlook",
+          "used_in",
+          "jlc",
+          "market_behaviour",
+          "restock_record",
+          "insight"
+        ],
+        "title": "SupplyPartDetail",
+        "type": "object"
+      },
+      "SupplyPartRow": {
+        "additionalProperties": true,
+        "properties": {
+          "changes_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changes At"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "dated_by": {
+            "title": "Dated By",
+            "type": "string"
+          },
+          "distributors": {
+            "items": {
+              "$ref": "#/components/schemas/RowDistributor"
+            },
+            "title": "Distributors",
+            "type": "array"
+          },
+          "dropped": {
+            "description": "Every distributor that lists it has stopped selling it.",
+            "title": "Dropped",
+            "type": "boolean"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "flags": {
+            "description": "Problems the row shows as icons: waiting, rohs, reach, ncnr, not_stocked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RowForecast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Health"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "jlc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JlcClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shortest lead time quoted, in days.",
+            "title": "Lead Days"
+          },
+          "lifecycle": {
+            "enum": [
+              "active",
+              "nrnd",
+              "last_time_buy",
+              "obsolete",
+              "unknown"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
+          },
+          "manufacturer": {
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "manufacturer_provisional": {
+            "description": "The maker is as written and no distributor has confirmed it yet.",
+            "title": "Manufacturer Provisional",
+            "type": "boolean"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "offers": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyRowOffer"
+            },
+            "title": "Offers",
+            "type": "array"
+          },
+          "preferred_connector_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Connector Id"
+          },
+          "price_change_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cheapest price over 30 days, in percent.",
+            "title": "Price Change Percent"
+          },
+          "price_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "orderable",
+                  "backorder",
+                  "last_seen",
+                  "listed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "orderable: bought now; backorder: nothing in stock, with a lead time; last_seen: the price when it was last in stock; listed: list price only.",
+            "title": "Price Kind"
+          },
+          "price_lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Lead Days"
+          },
+          "price_native": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NativePrice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the price was before it was converted, when it was."
+          },
+          "price_quantity": {
+            "description": "The quantity the price is quoted at.",
+            "title": "Price Quantity",
+            "type": "integer"
+          },
+          "price_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowest, highest and median over the distributors that price it; null with fewer than two."
+          },
+          "price_seen_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Seen Day"
+          },
+          "price_test_data": {
+            "description": "The price comes from a simulated connector.",
+            "title": "Price Test Data",
+            "type": "boolean"
+          },
+          "price_unrated": {
+            "description": "Currencies priced by a distributor that have no exchange rate, so were left out.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Price Unrated",
+            "type": "array"
+          },
+          "priced_with": {
+            "title": "Priced With",
+            "type": "string"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_found",
+                  "gone"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "project_names": {
+            "description": "The first two projects using it, by name.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Project Names",
+            "type": "array"
+          },
+          "runs_out_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The days until it is projected to run out.",
+            "title": "Runs Out Days"
+          },
+          "spark": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last 30 days of counted stock.",
+            "title": "Spark"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "fatal",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until something that counts has been read.",
+            "title": "Stock"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "tracking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartTracking"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why and how often Prism follows it."
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In the base currency, at the part's price quantity.",
+            "title": "Unit Price"
+          },
+          "used_in": {
+            "description": "How many projects' BOMs carry this part, among those whose BOM Prism has read.",
+            "title": "Used In",
+            "type": "integer"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplyWatchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "problem",
+          "stock",
+          "listings",
+          "lifecycle",
+          "dropped",
+          "unit_price",
+          "currency",
+          "price_quantity",
+          "price_kind",
+          "price_lead_days",
+          "price_range",
+          "price_native",
+          "price_seen_day",
+          "price_unrated",
+          "price_test_data",
+          "fetched_at",
+          "dated_by",
+          "tier",
+          "status",
+          "health",
+          "changes_at",
+          "priced_with",
+          "id",
+          "mpn",
+          "manufacturer",
+          "manufacturer_provisional",
+          "watch",
+          "tracking",
+          "used_in",
+          "jlc",
+          "project_names",
+          "distributors",
+          "offers",
+          "preferred_connector_id",
+          "price_change_percent",
+          "forecast",
+          "lead_days",
+          "flags"
+        ],
+        "title": "SupplyPartRow",
+        "type": "object"
+      },
+      "SupplyPartsPage": {
+        "additionalProperties": true,
+        "properties": {
+          "forecast_state": {
+            "additionalProperties": {
+              "enum": [
+                "learning",
+                "shown",
+                "paused"
+              ],
+              "type": "string"
+            },
+            "description": "The state of the forecast models the rows' forecasts come from.",
+            "title": "Forecast State",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplyPartRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "next_offset",
+          "forecast_state"
+        ],
+        "title": "SupplyPartsPage",
+        "type": "object"
+      },
       "SupplyProvider": {
         "additionalProperties": true,
         "properties": {
@@ -25720,6 +28719,182 @@
           "csv_fed"
         ],
         "title": "SupplyProvider",
+        "type": "object"
+      },
+      "SupplyReadNow": {
+        "additionalProperties": true,
+        "properties": {
+          "connectors": {
+            "title": "Connectors",
+            "type": "integer"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorProblem"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "read": {
+            "title": "Read",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "read",
+          "connectors",
+          "problems"
+        ],
+        "title": "SupplyReadNow",
+        "type": "object"
+      },
+      "SupplyRowOffer": {
+        "additionalProperties": true,
+        "description": "One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price].",
+        "properties": {
+          "also_packaging": {
+            "description": "Other packagings the same line is sold in, with the same terms.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Also Packaging",
+            "type": "array"
+          },
+          "base_currency": {
+            "description": "The workspace currency.",
+            "title": "Base Currency",
+            "type": "string"
+          },
+          "base_price_breaks": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The prices in the workspace currency; null when this line's currency has no rate.",
+            "title": "Base Price Breaks"
+          },
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "followed": {
+            "description": "The listing Prism follows at this distributor: the preferred one, else the smallest order in stock.",
+            "title": "Followed",
+            "type": "boolean"
+          },
+          "moq": {
+            "title": "Moq",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "packaging": {
+            "title": "Packaging",
+            "type": "string"
+          },
+          "packaging_inferred": {
+            "description": "The packaging was guessed, not stated.",
+            "title": "Packaging Inferred",
+            "type": "boolean"
+          },
+          "price_breaks": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Price Breaks",
+            "type": "array"
+          },
+          "product_url": {
+            "description": "The distributor's page for this number.",
+            "title": "Product Url",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reel_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pieces on a full reel, when known.",
+            "title": "Reel Size"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          },
+          "skus": {
+            "description": "Every number this line stands for: cut tape and its custom reel are one line.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Skus",
+            "type": "array"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "provider",
+          "name",
+          "sku",
+          "skus",
+          "also_packaging",
+          "followed",
+          "stock",
+          "moq",
+          "packaging",
+          "reel_size",
+          "packaging_inferred",
+          "product_url",
+          "currency",
+          "price_breaks",
+          "base_currency",
+          "base_price_breaks"
+        ],
+        "title": "SupplyRowOffer",
         "type": "object"
       },
       "SupplySignin": {
@@ -25891,6 +29066,51 @@
           "source_name"
         ],
         "title": "SupplySvhcList",
+        "type": "object"
+      },
+      "SupplyWatchSummary": {
+        "additionalProperties": true,
+        "properties": {
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "packaging": {
+            "enum": [
+              "any",
+              "cut_tape",
+              "custom_reel",
+              "tape_reel",
+              "tray",
+              "tube",
+              "bulk"
+            ],
+            "title": "Packaging",
+            "type": "string"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          }
+        },
+        "required": [
+          "threshold",
+          "pinned",
+          "owner",
+          "packaging"
+        ],
+        "title": "SupplyWatchSummary",
         "type": "object"
       },
       "SupplyWorkItem": {
@@ -26832,6 +30052,76 @@
           }
         },
         "title": "TrackerProviderErrorView",
+        "type": "object"
+      },
+      "TrackingReason": {
+        "additionalProperties": true,
+        "description": "Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``).",
+        "properties": {
+          "kind": {
+            "enum": [
+              "project",
+              "person",
+              "component",
+              "legacy"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "kind",
+          "ref"
+        ],
+        "title": "TrackingReason",
+        "type": "object"
+      },
+      "TradeMark": {
+        "additionalProperties": true,
+        "properties": {
+          "control": {
+            "enum": [
+              "controlled",
+              "none"
+            ],
+            "title": "Control",
+            "type": "string"
+          },
+          "eccn": {
+            "title": "Eccn",
+            "type": "string"
+          },
+          "set_at": {
+            "title": "Set At",
+            "type": "string"
+          },
+          "set_by": {
+            "title": "Set By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "control",
+          "eccn",
+          "set_by",
+          "set_at"
+        ],
+        "title": "TradeMark",
         "type": "object"
       },
       "TradeMarkIn": {
@@ -49932,9 +53222,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Manufacturers",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Items_SupplyManufacturer_"
                 }
               }
             },
@@ -50509,9 +53797,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Find Part",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartLookup"
                 }
               }
             },
@@ -50643,9 +53929,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Parts",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyPartsPage"
                 }
               }
             },
@@ -50687,9 +53971,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Part",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyPartDetail"
                 }
               }
             },
@@ -51269,9 +54551,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Part History",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartHistory"
                 }
               }
             },
@@ -51314,9 +54594,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Library Component Of",
-                  "type": "object"
+                  "$ref": "#/components/schemas/LibraryComponentOf"
                 }
               }
             },
@@ -51489,9 +54767,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Set Price Quantity",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PriceQuantity"
                 }
               }
             },
@@ -51534,9 +54810,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Read Part Now",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SupplyReadNow"
                 }
               }
             },
@@ -51747,9 +55021,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Read Part On View",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PartReadOnView"
                 }
               }
             },

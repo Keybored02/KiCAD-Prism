@@ -7,7 +7,7 @@ writes the models supply routes declare as the frontend's TypeScript types.
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeVar
+from typing import Generic, Literal, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -26,6 +26,15 @@ class Items(SupplyModel, Generic[T]):
     """A list answer. Every supply list is ``{"items": [...]}``, so a field can join it later."""
 
     items: list[T]
+
+
+class Page(Items[T], Generic[T]):
+    """One page of a long list: ``total`` matches in all, and where the next page starts (null at the end)."""
+
+    total: int
+    limit: int
+    offset: int
+    next_offset: Optional[int]
 
 
 class JobProgress(SupplyModel):

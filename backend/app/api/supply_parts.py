@@ -13,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api.supply_call import run_supply
+from app.api.supply_models import Items
+from app.api.supply_parts_models import (
+    LibraryComponentOf, PartHistory, PartLookup, PartReadOnView, PriceQuantity, SupplyManufacturer, SupplyPartDetail, SupplyPartsPage, SupplyReadNow,
+)
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
 from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review
 
@@ -25,7 +29,7 @@ def _store():
     return supply_connectors.service.store
 
 
-@router.get("/parts")
+@router.get("/parts", response_model=SupplyPartsPage, response_model_exclude_unset=True)
 async def list_parts(
     scope: Literal["watched", "followed", "in_use", "all", "tier1", "tier2", "waiting", "pick"] = "watched",
     only: str = Query(default="", max_length=120, pattern=r"^[A-Za-z0-9_]*(:[^\x00-\x1f]{1,100})?$"),
@@ -63,7 +67,7 @@ async def part_groups(
     return await _run(read)
 
 
-@router.get("/part-lookup")
+@router.get("/part-lookup", response_model=PartLookup)
 async def find_part(
     mpn: str = Query(min_length=1, max_length=100),
     manufacturer: str = Query(default="", max_length=120),
@@ -83,7 +87,7 @@ async def find_part(
     return await _run(read)
 
 
-@router.get("/parts/{part_id}")
+@router.get("/parts/{part_id}", response_model=SupplyPartDetail, response_model_exclude_unset=True)
 async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -92,7 +96,7 @@ async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_suppl
     return await _run(read)
 
 
-@router.get("/parts/{part_id}/history")
+@router.get("/parts/{part_id}/history", response_model=PartHistory)
 async def get_part_history(
     part_id: str, days: int = Query(part_history.DEFAULT_DAYS, ge=1, le=part_history.MAX_DAYS), user: AuthenticatedUser = Depends(require_supply_reader)
 ) -> dict[str, Any]:
@@ -137,7 +141,7 @@ class PriceQuantityIn(BaseModel):
     quantity: Optional[int] = Field(default=None, ge=1, le=1_000_000)
 
 
-@router.put("/parts/{part_id}/price-quantity")
+@router.put("/parts/{part_id}/price-quantity", response_model=PriceQuantity)
 async def set_price_quantity(part_id: str, body: PriceQuantityIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """The quantity this part is priced at in lists and its price history; null uses the workspace default."""
 
@@ -188,7 +192,7 @@ async def cross_reference_of(part_id: str, _user: AuthenticatedUser = Depends(re
     return await _run(read)
 
 
-@router.get("/parts/{part_id}/library-component")
+@router.get("/parts/{part_id}/library-component", response_model=LibraryComponentOf)
 async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """The catalog component the part counts for (its main part first, then one it is an approved alternate of), so a part link
     can open it. None when the library has none."""
@@ -202,21 +206,21 @@ async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(
     return await _run(read)
 
 
-@router.post("/parts/{part_id}/view-read")
+@router.post("/parts/{part_id}/view-read", response_model=PartReadOnView)
 async def read_part_on_view(part_id: str, reader: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part."""
 
-    return await run_supply(lambda: refresh.read_on_view(supply_connectors.service, [part_id], reader.email), invalid="invalid_request")
+    return await _run(lambda: refresh.read_on_view(supply_connectors.service, [part_id], reader.email))
 
 
-@router.post("/parts/{part_id}/refresh")
+@router.post("/parts/{part_id}/refresh", response_model=SupplyReadNow)
 async def read_part_now(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part."""
 
-    return await run_supply(lambda: refresh.read_now(supply_connectors.service, part_id, writer.email), invalid="invalid_request")
+    return await _run(lambda: refresh.read_now(supply_connectors.service, part_id, writer.email))
 
 
-@router.get("/manufacturers")
+@router.get("/manufacturers", response_model=Items[SupplyManufacturer])
 async def list_manufacturers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:

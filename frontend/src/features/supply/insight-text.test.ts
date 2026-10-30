@@ -2,14 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { SupplyInsight } from "@/types/supply";
 import { confidenceLabel, insightBasis, insightLines } from "./insight-text";
+import { insightFixture } from "./supply-test-fixtures";
 
 function insight(overrides: Partial<SupplyInsight> = {}): SupplyInsight {
-  return {
-    confidence: "medium", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,
-    restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
-    inputs: { points: 12, span_days: 11, points_in_run: 12, current: 300 },
-    ...overrides,
-  };
+  return insightFixture({ confidence: "medium", inputs: { points: 12, span_days: 11, points_in_run: 12, current: 300 }, ...overrides });
 }
 
 describe("insight text", () => {
