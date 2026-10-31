@@ -476,9 +476,10 @@ const PRESENCE_ASSETS = [
 /** Ask the catalog whether a component's symbol/footprint/model are in the library. */
 function useLibraryPresence(component: SemanticComponent | undefined) {
     const [presence, setPresence] = useState<LibraryPresence | null>(null);
-    const symbol = component?.symbolLibId ?? "";
+    const symbol = component?.libraryRef ?? "";
     const footprint = component?.footprint ?? "";
-    const model = component?.modelName ?? "";
+    // Dev's design index carries no 3D model name, so the model is not checked.
+    const model = "";
 
     useEffect(() => {
         setPresence(null);
