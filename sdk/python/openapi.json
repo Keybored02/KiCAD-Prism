@@ -8698,6 +8698,10 @@
             "title": "Has Schematic",
             "type": "boolean"
           },
+          "imported": {
+            "title": "Imported",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -8716,7 +8720,8 @@
           "relative_path",
           "project_key",
           "has_schematic",
-          "has_pcb"
+          "has_pcb",
+          "imported"
         ],
         "title": "DiscoveredProjectView",
         "type": "object"
@@ -8728,6 +8733,13 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "branches": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
           "cloneUrl": {
             "title": "Cloneurl",
             "type": "string"
@@ -8735,10 +8747,6 @@
           "defaultBranch": {
             "title": "Defaultbranch",
             "type": "string"
-          },
-          "dismissed": {
-            "title": "Dismissed",
-            "type": "boolean"
           },
           "error": {
             "title": "Error",
@@ -8778,6 +8786,17 @@
             ],
             "title": "Scannedat"
           },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sizebytes"
+          },
           "state": {
             "title": "State",
             "type": "string"
@@ -8794,11 +8813,12 @@
           "cloneUrl",
           "defaultBranch",
           "archived",
+          "sizeBytes",
+          "branches",
           "state",
           "projects",
           "importedCount",
           "repositoryImported",
-          "dismissed",
           "error",
           "scannedAt"
         ],
@@ -8825,25 +8845,6 @@
           "hiddenCount"
         ],
         "title": "DiscoveredRepositoryList",
-        "type": "object"
-      },
-      "DiscoveryDismissal": {
-        "additionalProperties": false,
-        "properties": {
-          "dismissed": {
-            "title": "Dismissed",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "dismissed"
-        ],
-        "title": "DiscoveryDismissal",
         "type": "object"
       },
       "DiscoverySource": {
@@ -38942,90 +38943,6 @@
         "summary": "Search the released components KiCad may place",
         "tags": [
           "remote-provider"
-        ]
-      }
-    },
-    "/api/v1/repo-discovery/candidates/{candidate_id}/dismiss": {
-      "post": {
-        "operationId": "dismiss_discovered_repository",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "candidate_id",
-            "required": true,
-            "schema": {
-              "title": "Candidate Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiscoveryDismissal"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Hide a discovered repository",
-        "tags": [
-          "repo-discovery"
-        ]
-      }
-    },
-    "/api/v1/repo-discovery/candidates/{candidate_id}/restore": {
-      "post": {
-        "operationId": "restore_discovered_repository",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "candidate_id",
-            "required": true,
-            "schema": {
-              "title": "Candidate Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiscoveryDismissal"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Show a hidden repository again",
-        "tags": [
-          "repo-discovery"
         ]
       }
     },

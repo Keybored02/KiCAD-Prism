@@ -51,6 +51,7 @@ class Inspection:
     head_sha: str = ""
     default_branch: str = ""
     projects: list[dict[str, Any]] = field(default_factory=list)
+    branches: list[str] = field(default_factory=list)
     error: str = ""
 
 
@@ -99,14 +100,15 @@ def sync_listing(connector_id: str, listed: Sequence[Mapping[str, Any]]) -> None
                 f"""
                 INSERT INTO {TABLE}
                     (id, connector_id, remote_id, full_name, web_url, clone_url, dedup_key,
-                     default_branch, archived, state, error)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     default_branch, archived, size_bytes, state, error)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (connector_id, remote_id) DO UPDATE SET
                     full_name = EXCLUDED.full_name,
                     web_url = EXCLUDED.web_url,
                     clone_url = EXCLUDED.clone_url,
                     dedup_key = EXCLUDED.dedup_key,
                     archived = EXCLUDED.archived,
+                    size_bytes = EXCLUDED.size_bytes,
                     default_branch = COALESCE(NULLIF(EXCLUDED.default_branch, ''), {TABLE_NAME}.default_branch),
                     state = CASE
                         WHEN EXCLUDED.state = 'blocked' THEN 'blocked'
@@ -129,6 +131,7 @@ def sync_listing(connector_id: str, listed: Sequence[Mapping[str, Any]]) -> None
                     dedup_key,
                     str(item.get("defaultBranch") or ""),
                     bool(item.get("archived")),
+                    item.get("sizeBytes"),
                     state,
                     error,
                 ),
@@ -154,7 +157,7 @@ def record_inspection(candidate_id: str, result: Inspection) -> None:
         conn.execute(
             f"""
             UPDATE {TABLE}
-            SET state = %s, head_sha = %s, projects = %s, error = %s, scanned_at = now(),
+            SET state = %s, head_sha = %s, projects = %s, branches = %s, error = %s, scanned_at = now(),
                 default_branch = COALESCE(NULLIF(%s, ''), default_branch)
             WHERE id = %s
             """,
@@ -162,21 +165,13 @@ def record_inspection(candidate_id: str, result: Inspection) -> None:
                 result.state,
                 result.head_sha,
                 Jsonb(result.projects),
+                Jsonb(result.branches),
                 result.error,
                 result.default_branch,
                 candidate_id,
             ),
         )
         conn.commit()
-
-
-def set_dismissed(candidate_id: str, dismissed: bool) -> bool:
-    with database.connection() as conn:
-        cursor = conn.execute(
-            f"UPDATE {TABLE} SET dismissed = %s WHERE id = %s", (dismissed, candidate_id)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
 
 
 def delete_for_connector(connector_id: str) -> None:
@@ -210,7 +205,7 @@ def inspect_repository(candidate: Mapping[str, Any], check_cancelled: Callable[[
         return Inspection(state="blocked", error=str(candidate.get("error") or ""))
     try:
         parsed = parse_remote_url(str(candidate["clone_url"]), git_remote_access.remote_url_policy())
-        branch, sha = git_remote_access.read_remote_head(parsed)
+        branch, sha, branches = git_remote_access.read_remote_refs(parsed)
         if not sha:
             return Inspection(state="empty", default_branch=branch or "")
         if sha == candidate.get("head_sha") and state in {"kicad", "empty"}:
@@ -230,6 +225,7 @@ def inspect_repository(candidate: Mapping[str, Any], check_cancelled: Callable[[
         state="kicad" if found else "empty",
         head_sha=sha,
         default_branch=branch or "",
+        branches=branches,
         projects=[
             {
                 "name": project.name,
@@ -346,15 +342,14 @@ def candidate_views(connector_id: str) -> list[dict[str, Any]]:
         in_directory: dict[str, int] = {}
         for project in projects:
             in_directory[project["relative_path"]] = in_directory.get(project["relative_path"], 0) + 1
-        imported_count = sum(
-            1
-            for project in projects
-            if known is not None
-            and (
+        def is_imported(project: dict[str, Any]) -> bool:
+            return known is not None and (
                 project["project_key"] in known
                 or (in_directory[project["relative_path"]] == 1 and project["relative_path"] in known)
             )
-        )
+
+        projects = [{**project, "imported": is_imported(project)} for project in projects]
+        imported_count = sum(1 for project in projects if project["imported"])
         scanned_at = row.get("scanned_at")
         views.append(
             {
@@ -364,11 +359,12 @@ def candidate_views(connector_id: str) -> list[dict[str, Any]]:
                 "cloneUrl": row["clone_url"],
                 "defaultBranch": row["default_branch"],
                 "archived": bool(row["archived"]),
+                "sizeBytes": row["size_bytes"],
+                "branches": list(row["branches"] or []),
                 "state": row["state"],
                 "projects": projects,
                 "importedCount": imported_count,
                 "repositoryImported": known is not None,
-                "dismissed": bool(row["dismissed"]),
                 "error": row["error"],
                 "scannedAt": scanned_at.isoformat() if scanned_at else None,
             }

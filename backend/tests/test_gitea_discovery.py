@@ -47,6 +47,7 @@ def _repo(repo_id: int, path: str, **extra) -> dict:
         "html_url": f"{BASE}/{path}",
         "ssh_url": f"ssh://git@192.168.1.15:38422/{path}.git",
         "clone_url": f"{BASE}/{path}.git",
+        "size": 512,
         **extra,
     }
 
@@ -87,6 +88,8 @@ class GiteaRepositoryListing(unittest.TestCase):
         self.assertEqual(first["sshUrl"], "ssh://git@192.168.1.15:38422/Team-Italia/psu.git")
         self.assertEqual(first["cloneUrl"], f"{BASE}/Team-Italia/psu.git")
         self.assertEqual(first["defaultBranch"], "main")
+        # Gitea reports KiB.
+        self.assertEqual(first["sizeBytes"], 512 * 1024)
         self.assertTrue(first["private"])
         self.assertTrue(archived["archived"])
         self.assertTrue(empty["emptyRepo"])

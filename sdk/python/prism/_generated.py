@@ -1547,6 +1547,7 @@ class DetectedPaths(TypedDict, total=True):
 class DiscoveredProjectView(TypedDict, total=True):
     has_pcb: bool
     has_schematic: bool
+    imported: bool
     name: str
     project_key: str
     relative_path: str
@@ -1554,9 +1555,9 @@ class DiscoveredProjectView(TypedDict, total=True):
 
 class DiscoveredRepository(TypedDict, total=True):
     archived: bool
+    branches: list[str]
     cloneUrl: str
     defaultBranch: str
-    dismissed: bool
     error: str
     fullName: str
     id: str
@@ -1564,6 +1565,7 @@ class DiscoveredRepository(TypedDict, total=True):
     projects: list[DiscoveredProjectView]
     repositoryImported: bool
     scannedAt: str | None
+    sizeBytes: int | None
     state: str
     webUrl: str
 
@@ -1571,11 +1573,6 @@ class DiscoveredRepository(TypedDict, total=True):
 class DiscoveredRepositoryList(TypedDict, total=True):
     candidates: list[DiscoveredRepository]
     hiddenCount: int
-
-
-class DiscoveryDismissal(TypedDict, total=True):
-    dismissed: bool
-    id: str
 
 
 class DiscoverySource(TypedDict, total=True):
@@ -4761,14 +4758,6 @@ class GeneratedClient:
             body=body,
         )
 
-    def dismiss_discovered_repository(self, candidate_id: str) -> DiscoveryDismissal:
-        """Hide a discovered repository"""
-        return self._request(
-            "POST",
-            "/api/v1/repo-discovery/candidates/{candidate_id}/dismiss",
-            path_params={"candidate_id": candidate_id},
-        )
-
     def download_asset(self, asset_id: str, *, rev: str, representation: str = '', exp: int, sig: str) -> Any:
         """Download one signed asset for placement"""
         return self._request(
@@ -6551,14 +6540,6 @@ class GeneratedClient:
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/repromote",
             path_params={"project_id": project_id, "comment_id": comment_id},
-        )
-
-    def restore_discovered_repository(self, candidate_id: str) -> DiscoveryDismissal:
-        """Show a hidden repository again"""
-        return self._request(
-            "POST",
-            "/api/v1/repo-discovery/candidates/{candidate_id}/restore",
-            path_params={"candidate_id": candidate_id},
         )
 
     def restore_metadata_field(self, field_id: str) -> MetadataField:

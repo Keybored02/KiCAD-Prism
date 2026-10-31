@@ -212,6 +212,15 @@ GITLAB_READABLE_REPOSITORY_LIMIT = 5000
 GITEA_READABLE_REPOSITORY_LIMIT = 5000
 
 
+def _size_bytes(value: Any, *, unit: int = 1) -> Optional[int]:
+    """A repository size in bytes from the host's number, or ``None`` when it did not report one."""
+
+    try:
+        return int(value) * unit
+    except (TypeError, ValueError):
+        return None
+
+
 def _gitlab_auth(connector: Mapping[str, Any], material: Mapping[str, Any], http: Any = None) -> Any:
     from app.services.trackers.gitlab_auth import AUTH_BOT, GitLabBotAuth, GitLabBotCredentials
 
@@ -303,6 +312,8 @@ def _gitlab_readable_repositories(connector: Mapping[str, Any], material: Mappin
             "membership": "true",
             # Reporter, the lowest level that can clone.
             "min_access_level": 20,
+            # Adds ``statistics.repository_size``, which the review screen shows.
+            "statistics": "true",
         },
         limit=GITLAB_READABLE_REPOSITORY_LIMIT,
     )
@@ -338,6 +349,7 @@ def _gitlab_project_pages(
                     "cloneUrl": str(item.get("http_url_to_repo") or ""),
                     "defaultBranch": str(item.get("default_branch") or ""),
                     "emptyRepo": bool(item.get("empty_repo")),
+                    "sizeBytes": _size_bytes((item.get("statistics") or {}).get("repository_size")),
                 }
             )
         url = response.next_page()
@@ -379,6 +391,8 @@ def _gitea_readable_repositories(connector: Mapping[str, Any], material: Mapping
                     "cloneUrl": str(item.get("clone_url") or ""),
                     "defaultBranch": str(item.get("default_branch") or ""),
                     "emptyRepo": bool(item.get("empty")),
+                    # Gitea reports the size in KiB.
+                    "sizeBytes": _size_bytes(item.get("size"), unit=1024),
                 }
             )
         url = response.next_page()

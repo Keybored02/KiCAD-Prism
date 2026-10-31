@@ -45,6 +45,17 @@ def head_sha_from_symref(output: str) -> Optional[str]:
     return None
 
 
+def branches_from_ls_remote(output: str, default_branch: Optional[str]) -> List[str]:
+    """Branch names in ``git ls-remote`` output, the default branch first."""
+    branches = []
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].startswith("refs/heads/"):
+            branches.append(parts[1].removeprefix("refs/heads/"))
+    branches.sort(key=lambda name: (name != default_branch, name.casefold()))
+    return branches
+
+
 def describe_target(parsed: ParsedRemote) -> str:
     """How a repository should be named in a message to the user."""
     return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
@@ -87,21 +98,23 @@ def git_env() -> dict:
     return env
 
 
-def read_remote_head(parsed: ParsedRemote) -> tuple[Optional[str], Optional[str]]:
-    """The remote's default branch and the commit it is at; ``(None, None)`` for an empty repository.
+def read_remote_refs(parsed: ParsedRemote) -> tuple[Optional[str], Optional[str], List[str]]:
+    """The remote's default branch, the commit it is at, and every branch.
 
-    One ``ls-remote`` round trip, no clone, so a scan can tell that a repository
-    has not changed since it was last read.
+    ``(None, None, [])`` for an empty repository. One ``ls-remote`` round trip,
+    no clone, so a scan can tell that a repository has not changed since it was
+    last read, and can offer its branches without cloning it.
     """
     git = Git()
     git.update_environment(**git_env())
     try:
-        output = git.ls_remote("--symref", parsed.url, "HEAD")
+        output = git.ls_remote("--symref", parsed.url, "HEAD", "refs/heads/*")
     except Exception as error:
         raise as_access_error(
             error, target=describe_target(parsed), host=parsed.host
         ) from error
-    return default_branch_from_symref(output), head_sha_from_symref(output)
+    default_branch = default_branch_from_symref(output)
+    return default_branch, head_sha_from_symref(output), branches_from_ls_remote(output, default_branch)
 
 
 def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:

@@ -28,13 +28,14 @@ def view(name: str, state: str = "kicad", **extra) -> dict:
         "archived": False,
         "state": state,
         "projects": [
-            {"name": "psu", "relative_path": ".", "project_key": ".::psu.kicad_pro", "has_schematic": True, "has_pcb": True}
+            {"name": "psu", "relative_path": ".", "project_key": ".::psu.kicad_pro", "has_schematic": True, "has_pcb": True, "imported": False}
         ]
         if state == "kicad"
         else [],
         "importedCount": 0,
         "repositoryImported": False,
-        "dismissed": False,
+        "sizeBytes": 1048576,
+        "branches": ["main", "dev"],
         "error": "Prism has no access" if state != "kicad" else "",
         "scannedAt": None,
         **extra,
@@ -55,7 +56,6 @@ class RepoDiscoveryRoutes(unittest.TestCase):
             (repo_discovery.service, "discovery_sources"),
             (repo_discovery.discovery, "start_scan_job"),
             (repo_discovery.discovery, "candidate_views"),
-            (repo_discovery.discovery, "set_dismissed"),
         ):
             patcher = mock.patch.object(target, value)
             setattr(self, value, patcher.start())
@@ -68,7 +68,6 @@ class RepoDiscoveryRoutes(unittest.TestCase):
             view("hw/odd", "error"),
             view("hw/docs", "empty"),
         ]
-        self.set_dismissed.return_value = True
 
     def call(self, method: str, path: str, user: str = "designer"):
         return request(self.app, method, f"/api/repo-discovery{path}", user=user)
@@ -79,13 +78,10 @@ class RepoDiscoveryRoutes(unittest.TestCase):
                 ("GET", "/sources"),
                 ("POST", "/sources/cn_gl/scan"),
                 ("GET", "/sources/cn_gl/candidates"),
-                ("POST", "/candidates/x/dismiss"),
-                ("POST", "/candidates/x/restore"),
             ):
                 with self.subTest(role=role, route=f"{method} {path}"):
                     self.assertEqual(self.call(method, path, role).status, 403)
         self.start_scan_job.assert_not_called()
-        self.set_dismissed.assert_not_called()
 
     def test_a_designer_lists_the_sources(self) -> None:
         response = self.call("GET", "/sources")
@@ -116,18 +112,6 @@ class RepoDiscoveryRoutes(unittest.TestCase):
 
     def test_candidates_of_an_unknown_host_are_refused(self) -> None:
         self.assertEqual(self.call("GET", "/sources/nope/candidates").status, 404)
-
-    def test_dismiss_and_restore(self) -> None:
-        self.assertEqual(self.call("POST", "/candidates/c1/dismiss").json, {"id": "c1", "dismissed": True})
-        self.set_dismissed.assert_called_with("c1", True)
-        self.assertEqual(self.call("POST", "/candidates/c1/restore").json, {"id": "c1", "dismissed": False})
-        self.set_dismissed.assert_called_with("c1", False)
-
-    def test_dismissing_a_missing_repository_is_not_found(self) -> None:
-        self.set_dismissed.return_value = False
-        response = self.call("POST", "/candidates/gone/dismiss")
-        self.assertEqual((response.status, response.json["code"]), (404, "candidate_not_found"))
-
 
 class TheApplicationExposesTheRouter(unittest.TestCase):
     def test_main_registers_it(self) -> None:

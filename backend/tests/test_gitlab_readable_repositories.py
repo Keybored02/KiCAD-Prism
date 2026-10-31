@@ -37,6 +37,7 @@ def _project(project_id: int, path: str, **extra) -> dict:
         "web_url": f"https://git.example.com/{path}",
         "ssh_url_to_repo": f"git@git.example.com:{path}.git",
         "http_url_to_repo": f"https://git.example.com/{path}.git",
+        "statistics": {"repository_size": 4096},
         **extra,
     }
 
@@ -66,6 +67,7 @@ class ReadableRepositoryListing(unittest.TestCase):
         self.assertEqual(params["min_access_level"], 20)
         self.assertEqual(params["membership"], "true")
         self.assertNotIn("archived", params)
+        self.assertEqual(params["statistics"], "true")
         # ``simple`` hides archived and empty_repo, which discovery needs.
         self.assertNotIn("simple", params)
 
@@ -86,11 +88,16 @@ class ReadableRepositoryListing(unittest.TestCase):
         self.assertEqual(first["sshUrl"], "git@git.example.com:hw/psu.git")
         self.assertEqual(first["cloneUrl"], "https://git.example.com/hw/psu.git")
         self.assertEqual(first["defaultBranch"], "main")
+        self.assertEqual(first["sizeBytes"], 4096)
         self.assertTrue(first["private"])
         self.assertTrue(archived["archived"])
         self.assertTrue(empty["emptyRepo"])
         self.assertEqual(empty["defaultBranch"], "")
         self.assertFalse(empty["private"])
+
+    def test_a_missing_size_is_unknown_not_zero(self) -> None:
+        repositories, _ = self.run_readable([_Raw([_project(1, "hw/psu", statistics=None)])])
+        self.assertIsNone(repositories[0]["sizeBytes"])
 
     def test_follows_the_next_page_link(self) -> None:
         next_url = f"{ROOT}/projects?page=2"

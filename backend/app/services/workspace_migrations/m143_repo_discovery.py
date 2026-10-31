@@ -21,11 +21,12 @@ def migrate(conn: Any) -> None:
             default_branch TEXT NOT NULL DEFAULT '',
             head_sha TEXT NOT NULL DEFAULT '',
             archived BOOLEAN NOT NULL DEFAULT FALSE,
+            size_bytes BIGINT,
+            branches JSONB NOT NULL DEFAULT '[]'::jsonb,
             state TEXT NOT NULL DEFAULT 'pending'
                 CHECK (state IN ('pending', 'kicad', 'empty', 'no_access', 'blocked', 'error')),
             projects JSONB NOT NULL DEFAULT '[]'::jsonb,
             error TEXT NOT NULL DEFAULT '',
-            dismissed BOOLEAN NOT NULL DEFAULT FALSE,
             scanned_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE (connector_id, remote_id)

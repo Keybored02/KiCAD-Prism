@@ -339,11 +339,6 @@
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
     "typed": true
   },
-  "dismiss_discovered_repository": {
-    "method": "POST",
-    "path": "/api/v1/repo-discovery/candidates/{candidate_id}/dismiss",
-    "typed": true
-  },
   "download_asset": {
     "method": "GET",
     "path": "/api/v1/remote-provider/assets/{asset_id}",
@@ -1442,11 +1437,6 @@
   "repromote_comment_tracker": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/repromote",
-    "typed": true
-  },
-  "restore_discovered_repository": {
-    "method": "POST",
-    "path": "/api/v1/repo-discovery/candidates/{candidate_id}/restore",
     "typed": true
   },
   "restore_metadata_field": {

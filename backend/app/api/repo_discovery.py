@@ -50,6 +50,7 @@ class DiscoveredProjectView(BaseModel):
     project_key: str
     has_schematic: bool
     has_pcb: bool
+    imported: bool
 
 
 class DiscoveredRepository(BaseModel):
@@ -61,11 +62,12 @@ class DiscoveredRepository(BaseModel):
     cloneUrl: str
     defaultBranch: str
     archived: bool
+    sizeBytes: Optional[int]
+    branches: list[str]
     state: str
     projects: list[DiscoveredProjectView]
     importedCount: int
     repositoryImported: bool
-    dismissed: bool
     error: str
     scannedAt: Optional[str]
 
@@ -76,13 +78,6 @@ class DiscoveredRepositoryList(BaseModel):
     candidates: list[DiscoveredRepository]
     # Repositories left out because only an administrator sees them.
     hiddenCount: int
-
-
-class DiscoveryDismissal(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    dismissed: bool
 
 
 def _refusal(exc: Exception) -> errors.DomainError:
@@ -145,20 +140,3 @@ async def list_discovered_repositories(connector_id: str, user: AuthenticatedUse
         }
 
     return await _run(read)
-
-
-async def _dismiss(candidate_id: str, dismissed: bool) -> dict[str, Any]:
-    found = await asyncio.to_thread(discovery.set_dismissed, candidate_id, dismissed)
-    if not found:
-        raise errors.NotFound("Repository not found", code="candidate_not_found")
-    return {"id": candidate_id, "dismissed": dismissed}
-
-
-@router.post("/candidates/{candidate_id}/dismiss", response_model=DiscoveryDismissal, summary="Hide a discovered repository")
-async def dismiss_discovered_repository(candidate_id: str) -> dict[str, Any]:
-    return await _dismiss(candidate_id, True)
-
-
-@router.post("/candidates/{candidate_id}/restore", response_model=DiscoveryDismissal, summary="Show a hidden repository again")
-async def restore_discovered_repository(candidate_id: str) -> dict[str, Any]:
-    return await _dismiss(candidate_id, False)

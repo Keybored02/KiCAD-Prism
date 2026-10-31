@@ -31,6 +31,7 @@ def listed(remote_id: str = "1", path: str = "hw/psu", **extra) -> dict:
         "cloneUrl": f"https://git.example.com/{path}.git",
         "defaultBranch": "main",
         "archived": False,
+        "sizeBytes": 2048,
         **extra,
     }
 
@@ -70,8 +71,8 @@ class ChoosingTheCloneUrl(unittest.TestCase):
 
 
 class InspectingARepository(unittest.TestCase):
-    def inspect(self, row: dict, *, head=("main", "abc"), found=None, clone_error=None):
-        with mock.patch.object(discovery.git_remote_access, "read_remote_head", return_value=head) as read, mock.patch.object(
+    def inspect(self, row: dict, *, head=("main", "abc", ["main", "dev"]), found=None, clone_error=None):
+        with mock.patch.object(discovery.git_remote_access, "read_remote_refs", return_value=head) as read, mock.patch.object(
             discovery, "clone_and_discover_projects", side_effect=clone_error, return_value=found or []
         ) as clone:
             result = discovery.inspect_repository(row, lambda: None)
@@ -82,6 +83,7 @@ class InspectingARepository(unittest.TestCase):
         self.assertEqual(result.state, "kicad")
         self.assertEqual(result.head_sha, "abc")
         self.assertEqual(result.default_branch, "main")
+        self.assertEqual(result.branches, ["main", "dev"])
         self.assertEqual([item["name"] for item in result.projects], ["psu", "amp"])
         self.assertEqual(result.projects[1]["project_key"], "amp::amp.kicad_pro")
 
@@ -90,7 +92,7 @@ class InspectingARepository(unittest.TestCase):
         self.assertEqual((result.state, result.projects), ("empty", []))
 
     def test_a_repository_with_no_commits_is_not_cloned(self) -> None:
-        result, _, clone = self.inspect(candidate(), head=(None, None))
+        result, _, clone = self.inspect(candidate(), head=(None, None, []))
         self.assertEqual(result.state, "empty")
         clone.assert_not_called()
 
@@ -117,7 +119,7 @@ class InspectingARepository(unittest.TestCase):
     def test_an_access_failure_on_the_head_read_is_no_access(self) -> None:
         with mock.patch.object(
             discovery.git_remote_access,
-            "read_remote_head",
+            "read_remote_refs",
             side_effect=GitAccessError("needs credentials", reason="credentials-required"),
         ):
             result = discovery.inspect_repository(candidate(), lambda: None)
@@ -132,7 +134,7 @@ class InspectingARepository(unittest.TestCase):
             self.inspect(candidate(), clone_error=JobCancelled("stop"))
 
     def test_a_blocked_url_is_never_contacted(self) -> None:
-        with mock.patch.object(discovery.git_remote_access, "read_remote_head") as read:
+        with mock.patch.object(discovery.git_remote_access, "read_remote_refs") as read:
             result = discovery.inspect_repository(candidate(state="blocked", error="host not allowed"), lambda: None)
         self.assertEqual((result.state, result.error), ("blocked", "host not allowed"))
         read.assert_not_called()
@@ -160,14 +162,16 @@ class StoredCandidates(unittest.TestCase):
         self.assertEqual(sorted(self.rows()), ["hw/amp", "hw/psu"])
         self.assertEqual(self.rows()["hw/psu"]["state"], "pending")
 
-        discovery.record_inspection(self.rows()["hw/psu"]["id"], discovery.Inspection(state="kicad", head_sha="abc"))
+        discovery.record_inspection(self.rows()["hw/psu"]["id"], discovery.Inspection(state="kicad", head_sha="abc", branches=["main", "dev"]))
         discovery.sync_listing(self.CONNECTOR, [listed("1", "hw/psu-renamed", archived=True), listed("3", "hw/new")])
         rows = self.rows()
         self.assertEqual(sorted(rows), ["hw/new", "hw/psu-renamed"])
         # Still listed: what the last scan found survives, the host's facts update.
         self.assertEqual(rows["hw/psu-renamed"]["state"], "kicad")
         self.assertEqual(rows["hw/psu-renamed"]["head_sha"], "abc")
+        self.assertEqual(rows["hw/psu-renamed"]["branches"], ["main", "dev"])
         self.assertTrue(rows["hw/psu-renamed"]["archived"])
+        self.assertEqual(rows["hw/psu-renamed"]["size_bytes"], 2048)
 
     def test_sync_leaves_other_connectors_alone(self) -> None:
         self.addCleanup(discovery.delete_for_connector, "cn_other")
@@ -189,15 +193,6 @@ class StoredCandidates(unittest.TestCase):
         self.assertTrue(row["error"])
         discovery.sync_listing(self.CONNECTOR, [listed("1", "hw/psu")])
         self.assertEqual(self.rows()["hw/psu"]["state"], "pending")
-
-    def test_dismissing_and_restoring(self) -> None:
-        discovery.sync_listing(self.CONNECTOR, [listed("1", "hw/psu")])
-        candidate_id = self.rows()["hw/psu"]["id"]
-        self.assertTrue(discovery.set_dismissed(candidate_id, True))
-        self.assertTrue(self.rows()["hw/psu"]["dismissed"])
-        self.assertTrue(discovery.set_dismissed(candidate_id, False))
-        self.assertFalse(self.rows()["hw/psu"]["dismissed"])
-        self.assertFalse(discovery.set_dismissed("missing", True))
 
     def test_scan_records_each_result_and_counts_unchanged(self) -> None:
         discovery.sync_listing(
@@ -271,6 +266,9 @@ class StoredCandidates(unittest.TestCase):
         self.assertTrue(views["hw/psu"]["repositoryImported"])
         self.assertEqual(views["hw/psu"]["importedCount"], 1)
         self.assertEqual(len(views["hw/psu"]["projects"]), 2)
+        # Which project is imported is said per project, so the review screen can lock it.
+        self.assertEqual([p["imported"] for p in views["hw/psu"]["projects"]], [True, False])
+        self.assertEqual(views["hw/psu"]["sizeBytes"], 2048)
         self.assertFalse(views["hw/amp"]["repositoryImported"])
         self.assertEqual(views["hw/amp"]["importedCount"], 0)
 
