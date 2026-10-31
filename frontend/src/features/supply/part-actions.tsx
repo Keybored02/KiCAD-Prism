@@ -11,7 +11,12 @@ export function PartActions({ detail, canEdit, canFollow, onChanged }: { detail:
       {detail.watch && canEdit ? <AlertPopover partId={detail.part.id} canEdit={canEdit} watch={detail.watch} onChanged={onChanged} /> : null}
       <WatchPopover detail={detail} canEdit={canFollow} onChanged={onChanged} />
       <DatasheetLink partId={detail.part.id} />
-      {canEdit ? <WorkItemButton subject={{ kind: "part", id: detail.part.id }} title={detail.part.mpn} /> : null}
+      {canEdit ? (
+        // Set apart from the datasheet: it opens a task in Prism, not a document.
+        <span className="ml-2 border-l pl-2">
+          <WorkItemButton subject={{ kind: "part", id: detail.part.id }} title={detail.part.mpn} />
+        </span>
+      ) : null}
     </>
   );
 }

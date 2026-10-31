@@ -1,4 +1,4 @@
-import { ClipboardList } from "lucide-react";
+import { ListTodo } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -31,7 +31,7 @@ export function WorkItemButton({ subject, title, action = "investigate", onCreat
   return (
     <>
       <Button size="sm" variant="ghost" onClick={() => setOpen(true)} title="Work item" aria-label="Open a work item">
-        <ClipboardList className="h-3.5 w-3.5" />
+        <ListTodo className="h-3.5 w-3.5" />
       </Button>
       {open ? <WorkItemDialog subject={subject} title={title} action={action} onClose={() => setOpen(false)} onCreated={onCreated} /> : null}
     </>
