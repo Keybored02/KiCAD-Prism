@@ -4,7 +4,6 @@ import type { DiscoveryFilters } from "@/lib/repo-discovery";
 
 const OPTIONS: { key: keyof DiscoveryFilters; label: string }[] = [
   { key: "showImported", label: "Already imported" },
-  { key: "showDismissed", label: "Hidden" },
   { key: "showArchived", label: "Archived" },
   { key: "showNoKicad", label: "No KiCad files" },
   { key: "showUnreadable", label: "Unreadable" },

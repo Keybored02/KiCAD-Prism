@@ -33,9 +33,6 @@ const WORKSPACE_PAGE_SIZE = 25;
 const ImportDialog = lazy(() =>
   import("./import-dialog").then((module) => ({ default: module.ImportDialog }))
 );
-const RepoDiscoveryDialog = lazy(() =>
-  import("./repo-discovery/repo-discovery-dialog").then((module) => ({ default: module.RepoDiscoveryDialog }))
-);
 const SettingsDialog = lazy(() =>
   import("./settings-dialog").then((module) => ({ default: module.SettingsDialog }))
 );
@@ -94,7 +91,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [isDiscoveryOpen, setIsDiscoveryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -654,7 +650,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 onImport={() => canManageProjects && setIsImportOpen(true)}
-                onDiscover={() => canManageProjects && setIsDiscoveryOpen(true)}
                 onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
                 onRefresh={() => void refresh()}
                 onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
@@ -783,11 +778,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       {isImportOpen && (
         <Suspense fallback={null}>
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />
-        </Suspense>
-      )}
-      {isDiscoveryOpen && (
-        <Suspense fallback={null}>
-          <RepoDiscoveryDialog open={isDiscoveryOpen} onOpenChange={setIsDiscoveryOpen} onImported={refresh} />
         </Suspense>
       )}
       {settingsOpen && (

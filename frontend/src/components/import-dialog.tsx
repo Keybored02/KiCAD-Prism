@@ -17,82 +17,29 @@ import { toast } from "sonner";
 import { fetchJson } from "@/lib/api";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 import { cancelPrismJob, isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
+import { classifyImportUrl, loadDiscoverySources, type DiscoverySource } from "@/lib/repo-discovery";
+import { RepoDiscoveryFlow } from "@/components/repo-discovery/repo-discovery-flow";
+import {
+  analysisResultOf,
+  importedProjectIdsOf,
+  isProjectAlreadyImported,
+  projectKeyOf,
+  projectsPerDirectory,
+  selectableProjectKeys,
+  type AnalysisResult,
+  type DiscoveredProject,
+} from "@/lib/import-analysis";
 
-export interface DiscoveredProject {
-  name: string;
-  relative_path: string;
-  /**
-   * Identifies one project. A directory can hold several KiCad projects, so the
-   * directory alone cannot: selecting by `relative_path` used to tick every
-   * project sharing a directory at once. Older backends do not send this.
-   */
-  project_key?: string;
-  /** The project's own .kicad_pro (or board) file within `relative_path`. */
-  project_file?: string;
-  has_schematic: boolean;
-  has_pcb: boolean;
-  has_project_file?: boolean;
-}
-
-/** The key a project is selected by, falling back to pre-`project_key` behaviour. */
-export const projectKeyOf = (project: DiscoveredProject): string =>
-  project.project_key ?? project.relative_path;
-
-/** How many discovered projects share each directory. */
-export function projectsPerDirectory(
-  projects: DiscoveredProject[],
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const project of projects) {
-    counts.set(project.relative_path, (counts.get(project.relative_path) ?? 0) + 1);
-  }
-  return counts;
-}
-
-export function isProjectAlreadyImported(
-  project: DiscoveredProject,
-  importedPaths: Set<string>,
-  perDirectory: Map<string, number>,
-): boolean {
-  if (importedPaths.has(projectKeyOf(project))) {
-    return true;
-  }
-  // A project registered before Prism recorded project files reports its bare
-  // directory. It stands for that directory's one project, so it must not mark
-  // a sibling that shares the directory as imported.
-  return (
-    importedPaths.has(project.relative_path) &&
-    perDirectory.get(project.relative_path) === 1
-  );
-}
-
-/** The keys of the projects the user can still choose to import. */
-export function selectableProjectKeys(
-  projects: DiscoveredProject[],
-  importedPaths: Set<string>,
-): string[] {
-  const perDirectory = projectsPerDirectory(projects);
-  return projects.flatMap((project) =>
-    isProjectAlreadyImported(project, importedPaths, perDirectory)
-      ? []
-      : [projectKeyOf(project)],
-  );
-}
-
-interface AnalysisResult {
-  repo_name: string;
-  repo_url: string;
-  import_type: "type1" | "type2";
-  projects: DiscoveredProject[];
-  /** Present only when nothing was found, explaining what was looked for. */
-  empty_reason?: string;
-  branches?: string[];
-  default_branch?: string | null;
-  ref?: string | null;
-  already_imported?: boolean;
-  /** Project keys already registered, so they can be shown as done. */
-  imported_paths?: string[];
-}
+// The dialog's tests import these from here.
+export {
+  analysisResultOf,
+  importedProjectIdsOf,
+  isProjectAlreadyImported,
+  projectKeyOf,
+  projectsPerDirectory,
+  selectableProjectKeys,
+};
+export type { DiscoveredProject };
 
 export function importReviewTitle(
   analysis: Pick<AnalysisResult, "import_type" | "projects">,
@@ -105,17 +52,6 @@ export function importReviewTitle(
 
 /** Job error code for a failure the user can fix by granting Prism access. */
 const GIT_ACCESS_ERROR_CODE = "git_access";
-
-/** The analysis a completed analyse job left in its result metadata. */
-export function analysisResultOf(job: PrismJobStatus): AnalysisResult | undefined {
-  return job.result_metadata?.result as AnalysisResult | undefined;
-}
-
-/** Project ids a completed import job registered. */
-export function importedProjectIdsOf(job: PrismJobStatus): string[] {
-  const ids = job.result_metadata?.project_ids;
-  return Array.isArray(ids) ? ids.map(String) : [];
-}
 
 /** Whether a failed job is one the user can fix by granting Prism access. */
 export function isAccessFailure(job: PrismJobStatus): boolean {
@@ -167,15 +103,12 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportComplete: () => void;
-  /** Skip the URL step and analyse this repository as soon as the dialog opens. */
-  initialUrl?: string;
-  /** When set, a finished import offers to go on to the next repository. */
-  onNext?: () => void;
 }
 
 type ImportState =
   | { step: "input" }
-  | { step: "input" }
+  /** A host address was pasted: pick several of its repositories. */
+  | { step: "discover"; source: DiscoverySource; scope: string }
   | { step: "analyzing"; url: string; jobId?: string; status?: PrismJobStatus }
   | { step: "review"; url: string; analysis: AnalysisResult }
   | { step: "importing"; url: string; jobId: string; status: PrismJobStatus }
@@ -219,13 +152,11 @@ export function ImportDialog({
   open,
   onOpenChange,
   onImportComplete,
-  initialUrl,
-  onNext,
 }: ImportDialogProps) {
-  const [state, setState] = useState<ImportState>(
-    initialUrl ? { step: "analyzing", url: initialUrl } : { step: "input" },
-  );
-  const [url, setUrl] = useState(initialUrl ?? "");
+  const [state, setState] = useState<ImportState>({ step: "input" });
+  const [url, setUrl] = useState("");
+  // Hosts that can be listed. Failing to read them only means every address is treated as a repository.
+  const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   // Empty means "whatever the remote's HEAD points at". The value feeds the
   // next analysis request but never the screen, so it is not state.
@@ -250,15 +181,31 @@ export function ImportDialog({
     }
   }, [open, stopPolling]);
 
-  // A repository handed in by discovery is analysed as soon as the dialog opens.
-  // Running again only restarts the same analysis, which the server deduplicates.
-  // react-doctor-disable-next-line no-set-state-after-await-in-effect - the job watcher gates every setter on its abort signal, and the cleanup stops it
   useEffect(() => {
-    if (!open || !initialUrl) return;
-    analyzeRepo("", initialUrl);
-    return stopPolling;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- analyzeRepo is rebuilt every render
-  }, [open, initialUrl, stopPolling]);
+    if (!open) return;
+    let cancelled = false;
+    loadDiscoverySources()
+      .then((found) => {
+        if (!cancelled) setSources(found);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // What the address in the box asks for: one repository, or a connected host's repositories.
+  const target = classifyImportUrl(url, sources);
+
+  /** The one button for both paths: list a host's repositories, or analyse the one repository. */
+  const continueFromInput = () => {
+    if (target.kind === "discover") {
+      setState({ step: "discover", source: target.source, scope: target.scope });
+      return;
+    }
+    if (target.kind === "empty" || target.kind === "unknown-host") return;
+    void analyzeRepo();
+  };
 
   const reset = () => {
     stopPolling();
@@ -273,7 +220,7 @@ export function ImportDialog({
     onOpenChange(false);
   };
 
-  const analyzeRepo = (branchOverride?: string, urlOverride?: string) => {
+  const analyzeRepo = async (branchOverride?: string, urlOverride?: string) => {
     // Retry passes the URL explicitly: a setUrl() in the same tick has not been
     // applied yet, so reading state here would analyse the previous value.
     const target = (urlOverride ?? url).trim();
@@ -283,24 +230,23 @@ export function ImportDialog({
     stopPolling();
     setState({ step: "analyzing", url: target });
 
-    // A promise chain rather than await: the dialog starts this from an effect
-    // too, and an effect must not hold a state setter behind an await.
-    fetchJson<{ job_id: string }>(
-      "/api/projects/analyze",
-      { method: "POST", body: JSON.stringify({ url: target, ref: branch.trim() || null }) },
-      "Analysis failed",
-    )
-      .then(({ job_id }) => {
-        // Start polling analysis job
-        void pollAnalysisJob(job_id, target);
-      })
-      .catch((error: any) => {
-        setState({
-          step: "complete",
-          success: false,
-          message: error.message || "Failed to start analysis",
-        });
+    try {
+      const { job_id } = await fetchJson<{ job_id: string }>(
+        "/api/projects/analyze",
+        { method: "POST", body: JSON.stringify({ url: target, ref: branch.trim() || null }) },
+        "Analysis failed",
+      );
+
+      // Start polling analysis job
+      void pollAnalysisJob(job_id, target);
+
+    } catch (error: any) {
+      setState({
+        step: "complete",
+        success: false,
+        message: error.message || "Failed to start analysis",
       });
+    }
   };
 
   /**
@@ -513,7 +459,7 @@ export function ImportDialog({
 
     if (state.step === "input" && url.trim()) {
       event.preventDefault();
-      void analyzeRepo();
+      continueFromInput();
       return;
     }
 
@@ -542,13 +488,17 @@ export function ImportDialog({
         else onOpenChange(true);
       }}
     >
-      <DialogContent className="max-w-lg" onKeyDown={handleDialogKeyDown}>
+      <DialogContent
+        className={state.step === "discover" ? "max-w-3xl" : "max-w-lg"}
+        onKeyDown={handleDialogKeyDown}
+      >
         {state.step === "input" && (
           <>
             <DialogHeader>
               <DialogTitle>Import Project</DialogTitle>
               <DialogDescription>
                 Enter the URL of a Git repository containing KiCad projects. GitHub, GitLab and self-hosted remotes are all supported.
+                Enter the address of a connected host instead to pick from all of its repositories.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -565,21 +515,48 @@ export function ImportDialog({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
                       e.preventDefault();
-                      void analyzeRepo();
+                      continueFromInput();
                     }
                   }}
                 />
+                {target.kind === "discover" && (
+                  <p className="col-span-3 col-start-2 text-xs text-muted-foreground">
+                    {target.source.displayName || target.source.host} is a connected host.{" "}
+                    {target.scope
+                      ? `Prism will list the repositories under ${target.scope}.`
+                      : "Prism will list its repositories so you can pick several."}
+                  </p>
+                )}
+                {target.kind === "unknown-host" && (
+                  <p className="col-span-3 col-start-2 text-xs text-destructive">
+                    {target.host} is not a connected host. Add a repository path to import one repository, or an
+                    administrator can connect the host in Settings, under Code hosts.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button onClick={() => void analyzeRepo()} disabled={!url.trim()}>
-                Analyze
+              <Button
+                onClick={continueFromInput}
+                disabled={target.kind === "empty" || target.kind === "unknown-host"}
+              >
+                {target.kind === "discover" ? "Find repositories" : "Analyze"}
               </Button>
             </div>
           </>
+        )}
+
+        {state.step === "discover" && (
+          <RepoDiscoveryFlow
+            source={state.source}
+            scope={state.scope}
+            onBack={() => setState({ step: "input" })}
+            onClose={handleClose}
+            onImported={onImportComplete}
+          />
         )}
 
         {state.step === "analyzing" && (
@@ -920,11 +897,6 @@ export function ImportDialog({
                   onClick={() => retryAnalysis(state.retryUrl as string)}
                 >
                   Try again
-                </Button>
-              )}
-              {state.success && onNext && (
-                <Button variant="outline" onClick={onNext}>
-                  Next repository
                 </Button>
               )}
               <Button onClick={handleClose}>Close</Button>
