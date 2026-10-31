@@ -82,6 +82,7 @@ from app.api.tracker_identity import admin_router as tracker_identity_admin_rout
 from app.api.tracker_identity import router as tracker_identity_router
 from app.api.catalog_admin import router as catalog_admin_router
 from app.api.catalog_part_relations import router as catalog_part_relations_router
+from app.api.catalog_drafting import router as catalog_drafting_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
@@ -105,6 +106,11 @@ from app.services.postgres_database import database
 from app.core.config import settings
 from app.core import runtime_logging
 from app.services import checkout_line_endings
+from app.services.git_credentials import (
+    configuration_warnings as git_credential_warnings,
+    git_credentials,
+    verify_git_credentials_or_exit,
+)
 from app.core.security_headers import apply_security_headers
 import asyncio
 import os
@@ -126,15 +132,19 @@ logger = logging.getLogger(__name__)
 KNOWN_GIT_HOSTS = ("github.com", "gitlab.com")
 
 def configure_git():
-    """Report how GITHUB_TOKEN will be used, without writing it anywhere.
+    """Report which HTTPS Git credentials are in use, without writing them anywhere.
 
     This used to run ``git config --global url.https://<token>@github.com/…``,
     which left the token in cleartext in the container's ``~/.gitconfig``. The
-    rewrite now travels in the environment of each Git invocation instead; see
-    ``git_remote_access._inject_github_token``.
+    rewrites now travel in the environment of each Git invocation instead; see
+    ``git_remote_access._inject_git_credentials``.
     """
-    if settings.GITHUB_TOKEN:
-        logger.info("GITHUB_TOKEN is set; HTTPS GitHub remotes will use it per invocation.")
+    for credential in git_credentials():
+        logger.info(
+            "%s is set; HTTPS remotes under %s will use it per invocation.",
+            credential.token_name,
+            credential.url_prefix,
+        )
 
 def scan_known_hosts():
     """Pin the hosted forges' SSH host keys, verifying them before trusting.
@@ -205,7 +215,7 @@ def verify_auth_configuration_or_exit() -> None:
         "",
         "      docker compose up -d backend",
         "",
-        "  Configuration guide:  docs/AUTHENTICATION_AND_ACCESS.md",
+        "  Configuration guide:  https://krishna-swaroop.github.io/KiCAD-Prism/admin/authentication/",
         "  Generate a secret:    openssl rand -base64 48",
         "",
         "  To run a local instance with no authentication at all, set",
@@ -239,11 +249,12 @@ def announce_auth_posture() -> None:
 
 def announce_configuration_warnings() -> None:
     """Log what is permitted but dangerous, so it is at least on the record."""
-    for warning in settings.configuration_warnings():
+    for warning in [*settings.configuration_warnings(), *git_credential_warnings()]:
         logger.warning("Configuration: %s", warning)
 
 
 verify_auth_configuration_or_exit()
+verify_git_credentials_or_exit("KiCAD Prism")
 
 
 @asynccontextmanager
@@ -421,6 +432,7 @@ app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(catalog_admin_router)
 app.include_router(catalog_part_relations_router)
+app.include_router(catalog_drafting_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])

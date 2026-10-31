@@ -867,6 +867,9 @@ def main() -> None:
     from app.services.git_access_service import warn_if_openssh_missing
 
     warn_if_openssh_missing(f"The {args.pool} worker")
+    from app.services.git_credentials import verify_git_credentials_or_exit
+
+    verify_git_credentials_or_exit(f"The {args.pool} worker")
     from app.services.ops import stats as ops_stats
 
     ops_stats.start(f"worker:{args.pool}")
