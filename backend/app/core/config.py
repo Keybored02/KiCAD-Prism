@@ -7,6 +7,8 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
+from dotenv import dotenv_values
+from functools import lru_cache
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
@@ -16,6 +18,7 @@ import re
 from app.core.design_bundle_config import DesignBundleSettings
 from app.core.pipeline_config import PipelineSettings
 from app.core.sim_studio_config import SimStudioSettings
+from app.core.supply_config import SupplySettings
 from app.core.worker_memory import default_worker_memory_budget_mib
 
 
@@ -36,7 +39,7 @@ _WEAK_SESSION_SECRETS = {
 _TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
+class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings, SupplySettings):
     """Application settings loaded from environment variables.
 
     The only reader of process configuration in `app`. Design-pipeline fields
@@ -291,6 +294,16 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
             "Publishing a Release Studio zip needs contents:write, not clone-only."
         ),
     )
+    PRISM_GIT_CREDENTIALS: str = Field(
+        default="",
+        description=(
+            "Extra HTTPS Git credentials for clone, fetch and push, as a JSON array of "
+            "{url_prefix, token_name, username?} objects. Each token is read from the "
+            "environment variable token_name names, and is sent only to remotes whose URL "
+            "starts with url_prefix (scheme, host, port and a trailing '/'). GITHUB_TOKEN "
+            "always covers https://github.com/. Release publishing uses PRISM_FORGE_HOSTS."
+        ),
+    )
     GITLAB_TOKEN: str = Field(
         default="",
         description=(
@@ -320,6 +333,48 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
     PRISM_COMMENT_LIVE_ENABLED: bool = Field(
         default=True,
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
+    )
+
+    PRISM_MCP_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "The read-only MCP server at /mcp and its OAuth metadata. Off by "
+            "default: agents reach Prism only when an administrator turns it on."
+        ),
+    )
+    PRISM_MCP_OPS_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Admin diagnostics (ADR scripting-and-mcp §11): the /api/ops routes, "
+            "the ops MCP tools and the ops:read/ops:act scopes. Off by default."
+        ),
+    )
+
+    PRISM_EVENT_RETENTION_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days the append-only event log behind GET /api/v1/events keeps rows; "
+            "older rows are pruned at startup."
+        ),
+    )
+
+    PRISM_MCP_AUDIT_RETENTION_DAYS: int = Field(
+        default=365,
+        ge=0,
+        description=(
+            "Days the MCP read audit (ws_mcp_audit, behind GET /api/admin/mcp-audit) "
+            "keeps rows; older rows are pruned at startup."
+        ),
+    )
+
+    PRISM_WEBHOOK_ALLOW_PRIVATE: bool = Field(
+        default=False,
+        description=(
+            "Allow outbound webhook targets that resolve to private, loopback or "
+            "link-local addresses, over http as well as https. Off by default; set "
+            "it only for a local test receiver."
+        ),
     )
 
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
@@ -391,6 +446,17 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
             "Lifetime for a KiCad agent sign-in token. Long by default because a "
             "desktop agent is signed in once and used for weeks; it is scoped and "
             "revocable, so a leaked token can be killed from the web console."
+        ),
+    )
+
+    PRISM_PAT_MAX_DAYS: int = Field(
+        default=365,
+        ge=1,
+        le=3650,
+        description=(
+            "Longest lifetime, in days, a personal access token may be given. A "
+            "token request defaults to 90 days; lower this to cap scripts and CI "
+            "at a shorter rotation period."
         ),
     )
 
@@ -1072,6 +1138,9 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        # `NAME=` in .env (or `NAME=${NAME}` in a compose file) means "not set":
+        # use the default instead of failing to parse "" as a number or boolean.
+        env_ignore_empty = True
         # Allow extra fields to be ignored
         extra = "ignore"
 
@@ -1083,9 +1152,40 @@ settings = Settings()
 def environment_value(name: str) -> str:
     """A variable whose name comes from data rather than code.
 
-    A forge host's `token_name` (PRISM_FORGE_HOSTS) and a KiCad path variable
+    A forge host's or Git credential's `token_name` (PRISM_FORGE_HOSTS,
+    PRISM_GIT_CREDENTIALS) and a KiCad path variable
     such as `${KICAD9_3DMODEL_DIR}` in a 3D model path name variables that no
     `Settings` field can declare. Read them here so this module stays the only
     configuration reader.
     """
     return os.environ.get(name, "")
+
+
+def configured_value(name: str) -> str:
+    """A variable named by data, read from the same sources as ``Settings``.
+
+    A Git credential's `token_name` (PRISM_GIT_CREDENTIALS) is documented as
+    another variable in the environment file. Settings reads that file without
+    exporting it, so a process started outside Compose would see the setting
+    but not the token. The process environment wins, as it does for Settings.
+    """
+    if name in os.environ:
+        return os.environ[name]
+    values = _env_file_values()
+    if name in values:
+        return values[name]
+    folded = name.casefold()
+    return next((value for key, value in values.items() if key.casefold() == folded), "")
+
+
+def _env_file_values() -> dict[str, str]:
+    path = Settings.model_config.get("env_file")
+    if not path or not os.path.isfile(path):
+        return {}
+    return _read_env_file(str(path), os.stat(path).st_mtime_ns)
+
+
+@lru_cache(maxsize=4)
+def _read_env_file(path: str, _mtime_ns: int) -> dict[str, str]:
+    encoding = Settings.model_config.get("env_file_encoding") or "utf-8"
+    return {key: value or "" for key, value in dotenv_values(path, encoding=encoding).items()}

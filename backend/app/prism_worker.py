@@ -16,10 +16,14 @@ from pathlib import Path
 from typing import IO
 
 from app.core.config import settings
+from app.core import runtime_logging
 from app.services.job_handlers import settle_job_end, sweep_job_ends
 from app.services.job_kinds import resource_capacities
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
+
+# SIGKILL does not exist on Windows; the stop that cannot be ignored is then a tree kill (see ``_signal_group``).
+FORCE = getattr(signal, "SIGKILL", signal.SIGABRT)
 
 
 logging.basicConfig(
@@ -41,6 +45,10 @@ class RunningJob:
     termination_reason: str = ""
     finalized_observed: float | None = None
     log_closed: bool = False
+    #: The claimed job's kind and the moment this process started it; the ops
+    #: heartbeat publishes both without reading the job row again.
+    kind: str = ""
+    started_at: datetime | None = None
 
 
 @dataclass
@@ -85,6 +93,7 @@ class PrismWorker:
         self.running: dict[str, RunningJob] = {}
         self.pending_releases: dict[str, PendingRelease] = {}
         self.stopping = False
+        self.started_at = datetime.now(timezone.utc)
         self._last_database_error_log = 0.0
         self._catalog_maintenance_date = ""
         self._auto_sync_attempts: dict[str, datetime] = {}
@@ -96,6 +105,12 @@ class PrismWorker:
         self._next_bundle_retention = 0.0
         self._bundle_upkeep: threading.Thread | None = None
         self._bundle_backfill_state = None
+        self._next_supply_scan = 0.0
+        self._next_webhook_delivery = 0.0
+        self._webhook_delivery: threading.Thread | None = None
+        self._next_worker_heartbeat = 0.0
+        self._next_profile_poll = 0.0
+        self._profile_run: threading.Thread | None = None
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
@@ -298,7 +313,11 @@ class PrismWorker:
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 cwd=str(Path(__file__).resolve().parents[1]),
-                start_new_session=True,
+                # Its own process group, so the worker can stop the job and anything the job started.
+                **(
+                    {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                    if os.name == "nt" else {"start_new_session": True}
+                ),
             )
         except Exception as error:
             log_handle.close()
@@ -324,6 +343,8 @@ class PrismWorker:
             process=process,
             log_handle=log_handle,
             last_heartbeat=now,
+            kind=str(job.get("kind") or ""),
+            started_at=datetime.now(timezone.utc),
         )
         logger.info(
             "Started job=%s fence=%s attempt=%s pid=%s",
@@ -336,6 +357,13 @@ class PrismWorker:
     @staticmethod
     def _signal_group(process: subprocess.Popen[bytes], sig: signal.Signals) -> None:
         if process.poll() is not None:
+            return
+        if os.name == "nt":
+            # No process groups to signal: a polite stop ends the job itself, a forced one ends it and its children.
+            if sig is FORCE:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
+            else:
+                process.terminate()
             return
         try:
             os.killpg(process.pid, sig)
@@ -479,7 +507,7 @@ class PrismWorker:
                 and now - running.termination_started
                 >= settings.PRISM_JOB_CANCEL_GRACE_SECONDS
             ):
-                self._signal_group(running.process, signal.SIGKILL)
+                self._signal_group(running.process, FORCE)
                 continue
 
             if now - running.last_heartbeat < self.heartbeat_seconds:
@@ -594,6 +622,88 @@ class PrismWorker:
             except Exception:
                 logger.exception("Design bundle retention failed")
 
+    def schedule_worker_heartbeat(self) -> None:
+        """Publish this worker's row at most every fifteen seconds.
+
+        The row carries identifiers, timings and counts only, never design
+        content: one ``{job_id, kind, started_at, pid}`` per running job.
+        """
+
+        now = time.monotonic()
+        if now < self._next_worker_heartbeat:
+            return
+        self._next_worker_heartbeat = now + 15
+        from app.services.ops import workers
+
+        workers.heartbeat(
+            self.worker_id,
+            self.worker_pool,
+            socket.gethostname(),
+            os.getpid(),
+            self.started_at,
+            self.concurrency,
+            settings.PRISM_WORKER_MEMORY_BUDGET_MIB,
+            [
+                {
+                    "job_id": running.job_id,
+                    "kind": running.kind,
+                    "started_at": running.started_at,
+                    "pid": running.process.pid,
+                }
+                for running in self.running.values()
+            ],
+        )
+
+    def schedule_webhook_deliveries(self) -> None:
+        """One outbound-webhook pass every five seconds, never two at once.
+
+        Delivery posts to user-supplied endpoints with a ten-second timeout, so
+        it runs as a daemon thread and the supervision loop only checks whether
+        the previous pass is still alive.
+        """
+
+        if self.worker_pool != "prism" or time.monotonic() < self._next_webhook_delivery:
+            return
+        if self._webhook_delivery is not None and self._webhook_delivery.is_alive():
+            return
+        self._next_webhook_delivery = time.monotonic() + 5
+        self._webhook_delivery = threading.Thread(
+            target=self._deliver_webhooks, name="webhook-delivery", daemon=True
+        )
+        self._webhook_delivery.start()
+
+    def schedule_profiles(self) -> None:
+        """Take a requested ops profile of this supervisor (ADR §11, D26), once a second.
+
+        The sampling runs in its own daemon thread, so it watches the
+        supervision loop rather than stalling it.
+        """
+
+        if self.worker_pool != "prism" or time.monotonic() < self._next_profile_poll:
+            return
+        self._next_profile_poll = time.monotonic() + 1.0
+        if self._profile_run is not None and self._profile_run.is_alive():
+            return
+        from app.services.ops import profiler
+
+        claimed = profiler.claim_for_worker(self.worker_id)
+        if claimed is None:
+            return
+        self._profile_run = threading.Thread(
+            target=profiler.run_claimed, args=(claimed,), name="ops-profile", daemon=True
+        )
+        self._profile_run.start()
+
+    def _deliver_webhooks(self) -> None:
+        from app.services.webhooks import delivery
+
+        try:
+            stats = delivery.run_pass()
+            if stats.get("failed"):
+                logger.info("Outbound webhooks: %s", stats)
+        except Exception:
+            logger.exception("Outbound webhook delivery pass failed")
+
     def schedule_tracker_jobs(self) -> None:
         if self.worker_pool != "prism" or time.monotonic() < self._next_tracker_scan:
             return
@@ -601,6 +711,15 @@ class PrismWorker:
 
         schedule_due_tracker_jobs()
         self._next_tracker_scan = time.monotonic() + 5
+
+    def schedule_supply_jobs(self) -> None:
+        if self.worker_pool != "prism" or time.monotonic() < self._next_supply_scan:
+            return
+        from app.services.supply.jobs import SCAN_SECONDS, schedule_due_supply_jobs
+
+        # Set the next scan first: a database error below must not make the loop retry every pass.
+        self._next_supply_scan = time.monotonic() + SCAN_SECONDS
+        schedule_due_supply_jobs()
 
     def sweep_job_ends(self) -> None:
         """Settle feature rows whose job's process died before settling them."""
@@ -639,6 +758,7 @@ class PrismWorker:
             return
         self.validate_memory_admission()
         self.mount_tracker_composition()
+        runtime_logging.start_poller()
         logger.info(
             "Worker %s started pool=%s concurrency=%s memory_budget=%sMiB",
             self.worker_id,
@@ -660,13 +780,29 @@ class PrismWorker:
             except Exception:
                 self._log_database_error("schedule tracker jobs")
             try:
+                self.schedule_supply_jobs()
+            except Exception:
+                self._log_database_error("schedule supply jobs")
+            try:
                 self.schedule_design_bundles()
             except Exception:
                 self._log_database_error("schedule design bundle upkeep")
             try:
+                self.schedule_webhook_deliveries()
+            except Exception:
+                self._log_database_error("schedule webhook deliveries")
+            try:
+                self.schedule_profiles()
+            except Exception:
+                self._log_database_error("schedule ops profiles")
+            try:
                 self.sweep_job_ends()
             except Exception:
                 self._log_database_error("settle ended jobs")
+            try:
+                self.schedule_worker_heartbeat()
+            except Exception:
+                self._log_database_error("publish the worker heartbeat")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:
@@ -694,7 +830,7 @@ class PrismWorker:
         kill_deadline = time.monotonic() + 5
         while self.running and time.monotonic() < kill_deadline:
             for running in self.running.values():
-                self._signal_group(running.process, signal.SIGKILL)
+                self._signal_group(running.process, FORCE)
             self.supervise()
             if self.running:
                 time.sleep(0.05)
@@ -713,6 +849,12 @@ class PrismWorker:
                 "Worker stopped with %s abandoned claims pending lease recovery",
                 len(self.pending_releases),
             )
+        try:
+            from app.services.ops import workers
+
+            workers.forget(self.worker_id)
+        except Exception:
+            logger.exception("Could not remove this worker's ops heartbeat")
         logger.info("Worker %s stopped", self.worker_id)
 
 
@@ -725,6 +867,12 @@ def main() -> None:
     from app.services.git_access_service import warn_if_openssh_missing
 
     warn_if_openssh_missing(f"The {args.pool} worker")
+    from app.services.git_credentials import verify_git_credentials_or_exit
+
+    verify_git_credentials_or_exit(f"The {args.pool} worker")
+    from app.services.ops import stats as ops_stats
+
+    ops_stats.start(f"worker:{args.pool}")
     worker = PrismWorker(args.pool)
     signal.signal(signal.SIGTERM, worker.request_stop)
     signal.signal(signal.SIGINT, worker.request_stop)
