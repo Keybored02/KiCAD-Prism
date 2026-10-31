@@ -14,7 +14,7 @@ from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
 from app.core.config import settings
-from app.services import derived_assets, event_log, git_remote_access, project_revision, project_service, path_config_service
+from app.services import derived_assets, event_log, git_checkout_service, git_remote_access, project_revision, project_service, path_config_service
 from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
 from app.services.checkout_line_endings import GITPYTHON_CLONE_KWARGS
 from app.services.git_failures import GitAccessError, as_access_error
@@ -1027,8 +1027,6 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         repo_hydration.hydrate(target_path, env=git_remote_access.git_env())
 
         context.check_cancelled()
-        checkout_report = hydrate_checkout(target_path, context)
-        context.check_cancelled()
         context.progress(
             stage="register-projects",
             message="Registering imported projects",
@@ -1072,7 +1070,6 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "import_type": import_type,
                 "thumbnail_job_ids": thumbnail_job_ids,
                 "follow_ups": follow_ups,
-                "checkout": checkout_report.to_dict(),
             },
         )
     except Exception:
@@ -1457,8 +1454,6 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             "path": sync_path,
             **({"hydration": hydration} if hydration else {}),
         }
-        if checkout is not None:
-            result["checkout"] = checkout
         return result
 
     except Exception as e:
