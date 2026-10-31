@@ -372,6 +372,68 @@ def candidate_views(connector_id: str) -> list[dict[str, Any]]:
     return views
 
 
+# --- Reading a pasted web address by the host's own address ------------------------
+
+
+def _stored_clone_url(connector_id: str, path: str) -> Optional[str]:
+    with database.connection() as conn:
+        row = conn.execute(
+            f"SELECT clone_url FROM {TABLE} WHERE connector_id = %s AND lower(full_name) = lower(%s)",
+            (connector_id, path),
+        ).fetchone()
+    return str(row["clone_url"]) if row and row["clone_url"] else None
+
+
+def _live_clone_url(connector_id: str, path: str) -> Optional[str]:
+    """Ask the host for its repositories, for an address that was never scanned. A failure is not an error here."""
+
+    from app.services.trackers.connector_service import ConnectorService
+
+    try:
+        listed = ConnectorService().list_readable_repositories(connector_id)
+    except Exception:  # noqa: BLE001 - not being able to look it up must not stop an import
+        logger.warning("Could not list repositories to resolve %s", path, exc_info=True)
+        return None
+    for item in listed:
+        if str(item.get("fullName") or "").casefold() == path.casefold():
+            return choose_clone_url(item)
+    return None
+
+
+def preferred_clone_url(url: str) -> str:
+    """The address to read a pasted repository address by.
+
+    A web address (``http(s)://host/org/repo``) on a connected host is replaced
+    by that host's own clone address for the repository, which is SSH when Prism
+    has a key and trusts the host. Prism holds no password for a web address, so
+    importing by it could only fail. Any other address, a host Prism has no
+    connection to, or a repository the host does not list comes back unchanged.
+    """
+
+    try:
+        parsed = parse_remote_url(url, git_remote_access.remote_url_policy())
+    except RemoteUrlError:
+        return url
+    path = parsed.path.strip("/").removesuffix(".git")
+    if parsed.scheme not in {"http", "https"} or path.count("/") < 1:
+        return url
+
+    from app.services.trackers.connector_service import ConnectorService
+
+    try:
+        sources = ConnectorService().discovery_sources()
+    except Exception:  # noqa: BLE001 - the connection list is optional here
+        logger.warning("Could not read the connected hosts to resolve %s", url, exc_info=True)
+        return url
+    for source in sources:
+        if str(source["host"]).casefold() != parsed.host.casefold():
+            continue
+        found = _stored_clone_url(source["id"], path) or _live_clone_url(source["id"], path)
+        if found:
+            return found
+    return url
+
+
 REPO_DISCOVERY_SCAN = JobKind(
     "repo_discovery_scan",
     run_scan_job,

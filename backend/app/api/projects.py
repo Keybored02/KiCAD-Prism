@@ -61,6 +61,7 @@ from app.services import (
     path_config_service,
     project_deletion,
     project_import_service,
+    repo_discovery_service,
     project_outputs,
     project_service,
     project_settings_service,
@@ -350,9 +351,10 @@ async def analyze_repository(
     # A rejected URL or an access failure is something the caller can fix, and
     # the message says how, so it must not be flattened into a generic 500.
     with caller_errors(((RemoteUrlError, GitAccessError), 400), unexpected="Analysis failed"):
+        url = await asyncio.to_thread(repo_discovery_service.preferred_clone_url, request.url)
         job_id = await asyncio.to_thread(
             project_import_service.start_analyze_job,
-            request.url,
+            url,
             request.ref,
             requested_by=user.email,
         )
@@ -400,9 +402,10 @@ async def import_project(
     For Type-2: imports selected subprojects.
     """
     with caller_errors(((RemoteUrlError, GitAccessError, ValueError), 400), unexpected="Import failed"):
+        url = await asyncio.to_thread(repo_discovery_service.preferred_clone_url, request.url)
         job_id = await asyncio.to_thread(
             project_import_service.start_import_job,
-            repo_url=request.url,
+            repo_url=url,
             import_type=request.import_type,
             selected_paths=request.selected_paths,
             ref=request.ref,
