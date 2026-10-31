@@ -112,7 +112,10 @@ def _reload_for_dev() -> "_Modules":
     for name in (
         "prism_theme",
         "widgets",
+        "prompts",
+        "loopback",
         "agent_client",
+        "git_workflow",
         "agent_launcher",
         "version",
         "crossprobe",

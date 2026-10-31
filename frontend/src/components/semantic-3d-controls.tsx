@@ -23,7 +23,7 @@ import type {
     PrismSemanticViewState,
 } from "@/types/prism-semantic-viewer";
 
-const layerPresets: readonly (readonly [PrismSemanticLayerPreset, string])[] = [
+const LAYER_PRESETS: readonly (readonly [PrismSemanticLayerPreset, string])[] = [
     ["all", "Show all"],
     ["none", "Hide all"],
     ["outer", "Outer copper"],
@@ -136,7 +136,7 @@ export function Semantic3dControls({
                                 <SelectValue placeholder="Layer preset" />
                             </SelectTrigger>
                             <SelectContent>
-                                {layerPresets.map(([value, label]) => (
+                                {LAYER_PRESETS.map(([value, label]) => (
                                     <SelectItem key={value} value={value}>{label}</SelectItem>
                                 ))}
                             </SelectContent>

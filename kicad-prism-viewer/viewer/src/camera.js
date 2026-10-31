@@ -38,6 +38,19 @@ export class CameraController {
     this.polar = mixAngle(this.polar, this.targetPolar, amount);
     this.distance = mix(this.distance, this.targetDistance, amount);
     this.orthoScale = mix(this.orthoScale, this.targetOrthoScale, amount);
+    // Within a hair of the target (far below a pixel) the easing lands, so
+    // a still view stops redrawing instead of creeping on for seconds.
+    if (this.settled()) this.snap();
+  }
+
+  settled() {
+    const scale = Math.max(this.distance, 1e-9);
+    const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
+    return this.focus.every((value, index) => near(value, this.targetFocus[index], 1e-5 * scale))
+      && Math.abs(Math.atan2(Math.sin(this.targetAzimuth - this.azimuth), Math.cos(this.targetAzimuth - this.azimuth))) <= 1e-5
+      && Math.abs(Math.atan2(Math.sin(this.targetPolar - this.polar), Math.cos(this.targetPolar - this.polar))) <= 1e-5
+      && near(this.distance, this.targetDistance, 1e-5 * scale)
+      && near(this.orthoScale, this.targetOrthoScale, 1e-5 * Math.max(this.orthoScale, 1e-9));
   }
 
   snap() {
@@ -80,6 +93,34 @@ export class CameraController {
           this.distance + this.sceneRadius * 4.5,
         );
     return mat4Multiply(projection, view);
+  }
+
+  /**
+   * Where the camera is heading (SB2-87): the view at its targets, and a lead
+   * view one more step along the same move (`lead` = 1 doubles the remaining
+   * offset). Loading for these as well keeps a move's destination resident
+   * before the camera gets there.
+   */
+  targetMatrix(width, height, orthographicMode = false, lead = 0) {
+    const ahead = (value, target) => target + (target - value) * lead;
+    const saved = [this.focus, this.azimuth, this.polar, this.distance, this.orthoScale];
+    this.focus = this.focus.map((value, index) => ahead(value, this.targetFocus[index]));
+    const turn = (value, target) => target + Math.atan2(Math.sin(target - value), Math.cos(target - value)) * lead;
+    this.azimuth = turn(this.azimuth, this.targetAzimuth);
+    this.polar = turn(this.polar, this.targetPolar);
+    this.distance = Math.max(this.sceneRadius * 0.001, ahead(this.distance, this.targetDistance));
+    this.orthoScale = Math.max(this.sceneRadius * 0.001, ahead(this.orthoScale, this.targetOrthoScale));
+    const matrix = this.matrix(width, height, orthographicMode);
+    [this.focus, this.azimuth, this.polar, this.distance, this.orthoScale] = saved;
+    return matrix;
+  }
+
+  /** True while the camera is still easing towards its targets. */
+  moving() {
+    const near = (a, b) => Math.abs(a - b) <= Math.max(1e-9, Math.abs(b) * 1e-4);
+    return !(this.focus.every((value, index) => near(value, this.targetFocus[index]))
+      && near(this.azimuth, this.targetAzimuth) && near(this.polar, this.targetPolar)
+      && near(this.distance, this.targetDistance) && near(this.orthoScale, this.targetOrthoScale));
   }
 
   /**

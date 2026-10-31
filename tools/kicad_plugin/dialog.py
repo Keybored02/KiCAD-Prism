@@ -14,13 +14,13 @@ import sys
 import threading
 
 import wx
-import wx.adv
 
 from . import agent_launcher
+from . import git_workflow
 from . import prism_theme as th
 from . import prompts
 from . import version
-from .agent_client import AgentClient, AgentUnavailable
+from .agent_client import PROBE_TIMEOUT, AgentClient, AgentUnavailable
 from .settings_dialog import SettingsDialog
 from .widgets import (
     Badge,
@@ -29,9 +29,11 @@ from .widgets import (
     ChangeRow,
     Disclosure,
     IconButton,
+    LinkLabel,
     ScrollThumb,
     StatusIcon,
     draw_kind_icon,
+    ui_font,
 )
 
 try:
@@ -44,12 +46,6 @@ LOGO = os.path.join(os.path.dirname(__file__), "assets", "prism-64.png")
 # A real board can produce hundreds of changed items. Cap what we draw so the
 # dialog stays responsive, and say so rather than silently truncating.
 MAX_ROWS_PER_FILE = 60
-
-# The object-level merge editor is alpha and not ready to ship. This hides its only
-# entry point, the "Merge in Prism" button on a diverged branch; the engine and the
-# agent routes stay in place. The web route is dev-only too (MERGE_EDITOR_ENABLED
-# in frontend/src/App.tsx).
-MERGE_EDITOR_ENABLED = False
 
 # Distinguishes "the diff is still computing in the background" from None
 # ("couldn't read") and [] ("nothing to commit"), so the changes card can show a
@@ -92,7 +88,10 @@ class PrismDialog(wx.Dialog):
         # Follow the OS/KiCad appearance: a light dialog inside a dark KiCad (or
         # the reverse) looks broken.
         self.pal = th.palette(dark=wx.SystemSettings.GetAppearance().IsDark())
+        self.SetFont(ui_font(self))
         self.board_path = board_path
+        # Git workflows decide; this dialog asks and shows. See git_workflow.py.
+        self.git = git_workflow.GitWorkflow()
         self.data = None
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
         # Stashes as of the last load. Rendered from, never fetched during a render.
@@ -129,7 +128,7 @@ class PrismDialog(wx.Dialog):
         header = wx.BoxSizer(wx.HORIZONTAL)
         if os.path.isfile(LOGO):
             img = wx.Image(LOGO, wx.BITMAP_TYPE_PNG).Scale(
-                28, 28, wx.IMAGE_QUALITY_HIGH
+                24, 24, wx.IMAGE_QUALITY_HIGH
             )
             header.Add(
                 wx.StaticBitmap(self, bitmap=wx.Bitmap(img)),
@@ -142,44 +141,62 @@ class PrismDialog(wx.Dialog):
         self.title.SetForegroundColour(_c(self.pal["foreground"]))
         tf = self.title.GetFont()
         tf.SetPointSize(th.FONT_TITLE)
-        tf.SetWeight(wx.FONTWEIGHT_BOLD)
+        # The web's headings are semibold (600), not heavy bold.
+        tf.SetWeight(wx.FONTWEIGHT_SEMIBOLD)
         self.title.SetFont(tf)
         header.Add(self.title, 0, wx.ALIGN_CENTER_VERTICAL)
 
         header.AddStretchSpacer()
 
-        # Who you are on the SERVER, over the three things whose state you would
-        # otherwise go looking for. The git identity is on the tooltip: it is a
-        # different identity, and the two can silently disagree.
-        corner = wx.BoxSizer(wx.VERTICAL)
-
-        self.user = wx.StaticText(self, label="", style=wx.ALIGN_RIGHT)
+        # The right side is ONE line: who you are, the health dots, and the two
+        # utilities. A two-line corner stack aligned badly against the single-line
+        # title, and refresh/settings crowded the footer beside the primary action.
+        #
+        # The user label is the SERVER identity, and only that. The git identity is a
+        # different person and lives on the tooltip: showing both inline would suggest
+        # they're the same thing, and they are exactly the thing worth telling apart.
+        self.user = wx.StaticText(self, label="")
         self.user.SetForegroundColour(_c(self.pal["muted_fg"]))
         uf = self.user.GetFont()
         uf.SetPointSize(th.FONT_SMALL)
         self.user.SetFont(uf)
-        corner.Add(self.user, 0, wx.ALIGN_RIGHT | wx.BOTTOM, th.SP_XS)
+        header.Add(self.user, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, th.SP_SM)
 
-        icons = wx.BoxSizer(wx.HORIZONTAL)
         # First, because it's the precondition for the rest: with no agent, the other
         # three know nothing and go grey.
         self.agent_icon = StatusIcon(
             self, "agent", self.pal, tooltip="Contacting the agent"
         )
-        icons.Add(self.agent_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        header.Add(self.agent_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.server_icon = StatusIcon(
             self, "server", self.pal, tooltip="Contacting the agent"
         )
-        icons.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        header.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.git_icon = StatusIcon(self, "git", self.pal, tooltip="No repository yet")
-        icons.Add(self.git_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        header.Add(self.git_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.library_icon = StatusIcon(
             self, "library", self.pal, tooltip="Symbol library"
         )
-        icons.Add(self.library_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
-        corner.Add(icons, 0, wx.ALIGN_RIGHT)
+        header.Add(self.library_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
 
-        header.Add(corner, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
+        header.Add(
+            IconButton(
+                self, "refresh", self.pal, tooltip="Refresh",
+                variant="ghost", on_click=self._load,
+            ),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            th.SP_SM,
+        )
+        header.Add(
+            IconButton(
+                self, "settings", self.pal, tooltip="Settings",
+                variant="ghost", on_click=self._on_settings,
+            ),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            th.SP_XS,
+        )
 
         root.Add(header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
@@ -220,6 +237,9 @@ class PrismDialog(wx.Dialog):
         root.Add(body, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_LG)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
+        # The footer carries the one destination action only. Refresh and settings
+        # moved up to the header, where utilities belong; a row mixing them with the
+        # primary action read as three unrelated buttons.
         self.open_btn = Button(
             self,
             "Open",
@@ -229,33 +249,15 @@ class PrismDialog(wx.Dialog):
             icon="open",
         )
         self.open_btn.Enable(False)
-        buttons.Add(self.open_btn, 0, wx.RIGHT, th.SP_SM)
-        buttons.Add(
-            IconButton(
-                self,
-                "refresh",
-                self.pal,
-                tooltip="Refresh",
-                variant="secondary",
-                on_click=self._load,
-            ),
-            0,
-        )
+        buttons.Add(self.open_btn, 0)
         buttons.AddStretchSpacer()
-        buttons.Add(
-            IconButton(
-                self,
-                "settings",
-                self.pal,
-                tooltip="Settings",
-                variant="secondary",
-                on_click=self._on_settings,
-            ),
-            0,
-        )
-        root.Add(buttons, 0, wx.EXPAND | wx.ALL, th.SP_LG)
+        root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, th.SP_LG)
 
         self.SetSizer(root)
+        # The height the dialog ASKED for at open. While the window still matches
+        # it, the height follows the content downward (see _fit_height_to_content);
+        # a user resize takes over and the height stops tracking.
+        self._asked_h = self.GetSize().height
 
     def _max_scroll_pos(self) -> int:
         """The furthest down the view may legally sit, in scroll units.
@@ -328,6 +330,45 @@ class PrismDialog(wx.Dialog):
         self.thumb.Refresh()  # the thumb size depends on the new content height
         self.Layout()
         self.Refresh()
+        self._fit_height_to_content()
+
+    def _fit_height_to_content(self):
+        """Shrink the window down to the content while the content is shorter.
+
+        The dialog asks for 731px at open because an expanded section needs it;
+        the collapsed panel is two-thirds empty, and dead space below the last
+        card reads as a blank screenshot rather than a finished layout. So while
+        the user has not resized the window themselves (the height is still what
+        we asked at open, +/- a few px), the height follows the content down.
+        It never grows back on its own: content taller than the window scrolls,
+        which is what the scroll area is for.
+        """
+        size = self.GetSize()
+        ours = getattr(self, "_auto_h", None)
+        # Stop once the user has resized: the height is theirs. It is ours to
+        # move only while it is still the height we asked at open, or a height
+        # this fit last set.
+        if ours is not None and abs(size.height - ours) > 4:
+            return
+        if ours is None and abs(size.height - self._asked_h) > 4:
+            return
+        # Height the ROOT sizer needs around the scroll area (header, footer,
+        # the window frame), plus what the content itself wants. Computed from the
+        # sizers rather than from scroll-position slack, which can be stale
+        # mid-layout and left the collapsed panel at its full asked height.
+        root_min = self.GetSizer().GetMinSize().height          # scroll pane at ~0
+        scroll_need = self.content.GetMinSize().height
+        chrome = size.height - self.GetClientSize().height       # title bar + borders
+        # Never below a usable floor, never above the height we asked at open:
+        # content taller than that scrolls, which is what the scroll area is for.
+        want_h = max(root_min + scroll_need, self.FromDIP(320)) + chrome
+        want_h = min(want_h, self._asked_h)
+        # Bidirectional, not shrink-only: the diff loads after the first fit, and
+        # a collapse that opened before its rows arrived must be allowed to grow
+        # back to the newly computed height.
+        if abs(want_h - size.height) > 8:
+            self._auto_h = want_h
+            self.SetSize(wx.Size(size.width, want_h))
 
     # -- data --------------------------------------------------------------
 
@@ -365,11 +406,9 @@ class PrismDialog(wx.Dialog):
                 project = None
                 # Only fetch the project when the versions are compatible; an outdated
                 # agent or plugin renders its own card instead of a project view.
-                running = health.get("version", "")
-                if not version.agent_too_old(running):
-                    verdict, _ = version.server_verdict(health.get("server_plugin"))
-                    if verdict != "required":
-                        project = client.project(board_path)
+                verdict = version.health_verdict(health)
+                if version.usable(verdict[0]):
+                    project = client.project(board_path)
                 # Stashes come along for the ride. The sync row needs the count on
                 # every render, and _rebuild re-renders on every collapse/expand, so
                 # reading them inline would put an HTTP round-trip on the UI thread
@@ -390,6 +429,7 @@ class PrismDialog(wx.Dialog):
                         gitignore = {}
                 payload = {
                     "health": health,
+                    "verdict": verdict,
                     "project": project,
                     "stashes": stashes,
                     "gitignore": gitignore,
@@ -442,7 +482,9 @@ class PrismDialog(wx.Dialog):
         # backend. The icon says which, and stays out of the way otherwise.
         self._set_server_icon(bool(health.get("backend_reachable")))
 
-        if version.agent_too_old(running):
+        # Computed once, on the worker, from the same /health payload.
+        verdict, download_url = payload["verdict"]
+        if verdict == "agent_outdated":
             self.data = None
             self.changes = None
             self._render_outdated_agent(running)
@@ -452,9 +494,7 @@ class PrismDialog(wx.Dialog):
         # The plugin follows the server it talks to. "required" means this plugin is
         # older than the server can serve, so there's no point rendering a UI whose calls
         # will fail.
-        self.verdict, self.download_url = version.server_verdict(
-            health.get("server_plugin")
-        )
+        self.verdict, self.download_url = verdict, download_url
         if self.verdict == "required":
             self.data = None
             self.changes = None
@@ -866,8 +906,10 @@ class PrismDialog(wx.Dialog):
         for _ in range(30):
             wx.MilliSleep(200)
             wx.Yield()
+            if not self:
+                return
             try:
-                AgentClient().health()
+                AgentClient().health(timeout=PROBE_TIMEOUT)
                 break
             except AgentUnavailable:
                 continue
@@ -905,9 +947,12 @@ class PrismDialog(wx.Dialog):
         self.status.SetToolTip("Open this folder")
         self.Layout()
 
+        # The changes card first: seeing what changed and committing it is why the
+        # panel is opened, and it used to sit below the fold behind the git card.
+        # The repository card answers where that work goes.
         self._render_detached_banner(git)
-        self._render_git(git, prism)
         self._render_changes()
+        self._render_git(git, prism)
         self.open_btn.Enable(bool(prism))
 
     def _add_branch_row(self, card, git):
@@ -951,14 +996,12 @@ class PrismDialog(wx.Dialog):
             th.SP_XS,
         )
 
-        badge = Badge(card, label, self.pal, tone=tone)
+        badge = Badge(card, label, self.pal, tone=tone, on_click=self._switch_branch)
         badge.SetToolTip(tip)
-        badge.SetCursor(wx.Cursor(wx.CURSOR_HAND))
-        badge.Bind(wx.EVT_LEFT_UP, lambda _e: self._switch_branch())
         line.Add(badge, 0, wx.ALIGN_CENTER_VERTICAL)
         line.AddStretchSpacer()
 
-        card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+        card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     # -- publishing ---------------------------------------------------------
 
@@ -1025,11 +1068,10 @@ class PrismDialog(wx.Dialog):
         if not name or not name.strip():
             return
         branch = name.strip()
-        try:
-            with wx.BusyCursor():
-                AgentClient().create_branch(project["repo_root"], branch)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            created = self.git.create_branch(project["repo_root"], branch)
+        if not created.ok:
+            prompts.tell(self, created.error, "Prism")
             return
         self._publish_new_branch(project["repo_root"], branch)
         self._load()
@@ -1046,11 +1088,18 @@ class PrismDialog(wx.Dialog):
         and publishing on the user's behalf puts a name on a shared remote that they
         may not have meant to create.
         """
-        try:
-            remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
-        except AgentUnavailable:
-            return ""  # cannot ask; keeping it local is the safe answer
-        if not remotes:
+        targets = self.git.new_branch_targets(repo)
+        if targets.kind == git_workflow.LOCAL_ONLY:
+            # Cannot ask; keeping it local is the safe answer, and the user is told.
+            prompts.tell(
+                self,
+                "'%s' was created here, but its remotes could not be listed, so it "
+                "stays on this computer:\n\n%s\n\nYou can publish it later from the panel."
+                % (branch, targets.error),
+                "Branch created",
+            )
+            return ""
+        if targets.kind == git_workflow.NO_REMOTE:
             # Say so. The user asked for a branch expecting to be asked where it goes,
             # and silence here reads as the question having been answered for them.
             prompts.tell(
@@ -1062,9 +1111,10 @@ class PrismDialog(wx.Dialog):
             )
             return ""
 
+        remotes = targets.remotes
         keep_local = "Keep it on this computer for now"
         choices = [keep_local] + [
-            "Publish to %s  (%s)" % (r["name"], r["url"]) for r in remotes
+            "Publish to %s  (%s)" % (r.name, r.url) for r in remotes
         ]
         index = prompts.ask_choice(
             self,
@@ -1075,7 +1125,7 @@ class PrismDialog(wx.Dialog):
         # None is cancelled, 0 is the "keep it local" row: both mean do not publish.
         if not index:
             return ""
-        return remotes[index - 1]["name"]
+        return remotes[index - 1].name
 
     def _publish_new_branch(self, repo, branch):
         """Publish a just-created branch, if the user picked somewhere for it.
@@ -1087,13 +1137,12 @@ class PrismDialog(wx.Dialog):
         target = self._ask_publish_target(repo, branch)
         if not target:
             return
-        try:
-            with wx.BusyCursor():
-                AgentClient().push(repo, set_upstream=True, remote=target)
-        except AgentUnavailable as exc:
+        with wx.BusyCursor():
+            published = self.git.publish(repo, target)
+        if not published.ok:
             prompts.tell(self, "'%s' was created, but publishing it to %s failed:\n\n%s\n\n"
                 "You can publish it later from the panel."
-                % (branch, target, exc),
+                % (branch, target, published.error),
                 "Prism")
 
     def _return_to_branch(self, branch):
@@ -1115,14 +1164,14 @@ class PrismDialog(wx.Dialog):
         # commit. Testing it alone made the whole card claim "Not a git repository" for a
         # repo that is plainly fine, so ask about the repo, not about the branch.
         if not git or not git.get("last_commit_hash"):
-            card = Card(self.scroll, "Git", self.pal)
+            card = Card(self.scroll, "Repository", self.pal)
             card.row("Status", "Not a git repository", tone="muted_fg")
             self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
-        # No heading: the branch and commit icons already say what this card is, and a
-        # "GIT" caption above them was one label too many.
-        card = Card(self.scroll, "", self.pal)
+        # Titled: the changes card above has its own header, and an untitled card
+        # floating after it read as a second list rather than a section.
+        card = Card(self.scroll, "Repository", self.pal)
 
         # The branch, first, as a clickable pill: it says which version you have open and
         # is the way to switch. No separate "Switch branch" button, the tag is the control.
@@ -1175,41 +1224,18 @@ class PrismDialog(wx.Dialog):
         if not project or not project.get("repo_root"):
             return
         repo = project["repo_root"]
-        try:
-            data = AgentClient().branches(repo)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        listed = self.git.switch_choices(repo)
+        if listed.kind == git_workflow.FAILED:
+            prompts.tell(self, listed.error, "Prism")
             return
-
-        current = data.get("current") or ""
-        default = data.get("default") or ""
-        local = [b for b in (data.get("local") or []) if b != current]
-        remote = data.get("remote") or []
-
-        # Build labelled choices, and a map from each label back to the ref to check out.
-        # A remote branch (origin/feature) is checked out by its SHORT name (feature) so
-        # git creates a local tracking branch instead of detaching HEAD. The default
-        # branch is marked so the user does not have to recall which of main/master it is.
-        ref_for = {}
-        choices = []
-        for b in local:
-            label = "%s  (default)" % b if b == default else b
-            choices.append(label)
-            ref_for[label] = b
-        for r in remote:
-            short = r.split("/", 1)[1] if "/" in r else r
-            label = "%s  (remote, default)" % short if short == default else "%s  (remote)" % short
-            choices.append(label)
-            ref_for[label] = short
-
-        if not choices:
+        if listed.kind == git_workflow.NOTHING:
             prompts.tell(self, "No other branches to switch to.", "Prism")
             return
 
-        picked = self._pick_branch(choices)
-        if not picked:
+        index = self._pick_branch([label for label, _ref in listed.choices])
+        if index is None:
             return
-        self._do_switch(repo, ref_for[picked])
+        self._do_switch(repo, listed.choices[index][1])
 
     def _pick_branch(self, choices):
         """A branch picker wide enough to read a branch name in.
@@ -1217,10 +1243,9 @@ class PrismDialog(wx.Dialog):
         wx.GetSingleChoice sizes itself to the text and cannot be resized, so anything
         like feature/long-descriptive-name was clipped in a narrow column.
         """
-        index = prompts.ask_choice(
+        return prompts.ask_choice(
             self, "Switch to which branch?", "Switch branch", choices
         )
-        return "" if index is None else choices[index]
 
     def _do_switch(self, repo, ref):
         """Switch to `ref` safely: settle any uncommitted work first, then check out.
@@ -1229,20 +1254,13 @@ class PrismDialog(wx.Dialog):
         and done here; _switch_now handles the board being open.
         """
         # Dry run: can we switch, or is the tree dirty? checkout_status is read-only.
-        try:
-            state = AgentClient().checkout_status(repo, ref) or {}
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        ready = self.git.switch_preflight(repo, ref)
+        if ready.kind == git_workflow.NEEDS_SETTLE:
+            if not self._resolve_before_switch(repo, ready.error):
+                return  # user cancelled or it failed
+        elif not ready.ok:
+            prompts.tell(self, ready.error, "Prism")
             return
-
-        if not state.get("can"):
-            reason = state.get("reason")
-            if reason in ("dirty", "untracked_collision"):
-                if not self._resolve_before_switch(repo, state.get("message", "")):
-                    return  # user cancelled or it failed
-            else:
-                prompts.tell(self, state.get("message", "Can't switch."), "Prism")
-                return
 
         self._switch_now(repo, ref)
 
@@ -1299,18 +1317,16 @@ class PrismDialog(wx.Dialog):
         message = prompts.ask_text(self, "Commit message:", "Commit")
         if not message or not message.strip():
             return False
-        try:
-            with wx.BusyCursor():
-                AgentClient().commit(repo, message.strip(), stage_all_design=True)
-        except AgentUnavailable as exc:
-            text = str(exc)
-            if "detached" in text.lower():
-                self._commit_on_new_branch(repo, message.strip())
-                # After creating a branch and committing, the tree is clean, but we are
-                # now on a different branch than the switch target, so re-checking is the
-                # honest thing. Treat as resolved; the caller re-runs the dry run.
-                return True
-            prompts.tell(self, text, "Prism")
+        with wx.BusyCursor():
+            committed = self.git.commit(repo, message.strip())
+        if committed.kind == git_workflow.NEEDS_BRANCH:
+            self._commit_on_new_branch(repo, message.strip())
+            # After creating a branch and committing, the tree is clean, but we are
+            # now on a different branch than the switch target, so re-checking is the
+            # honest thing. Treat as resolved; the caller re-runs the dry run.
+            return True
+        if not committed.ok:
+            prompts.tell(self, committed.error, "Prism")
             return False
         return True
 
@@ -1331,11 +1347,10 @@ class PrismDialog(wx.Dialog):
         carried is in the result below instead, where it is still true and costs
         nobody a click.
         """
-        try:
-            with wx.BusyCursor():
-                AgentClient().switch(repo, ref)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            switched = self.git.switch(repo, ref)
+        if not switched.ok:
+            prompts.tell(self, switched.error, "Prism")
             return
 
         prompts.tell(self, "Switched to %s.\n\n"
@@ -1347,8 +1362,8 @@ class PrismDialog(wx.Dialog):
     def _add_sync_row(self, card, git):
         """Fetch and push. Push shows only when there is something to push and it is safe.
 
-        Push is hidden when the branch has diverged: the pull row already routes that to
-        the merge, and offering Push there would invite a force the agent refuses anyway.
+        Push is hidden when the branch has diverged: the pull row explains that it needs
+        a merge, and offering Push there would invite a force the agent refuses anyway.
         Fetch is always safe (it touches no files), so it is always offered on a branch
         with an upstream.
         """
@@ -1371,9 +1386,9 @@ class PrismDialog(wx.Dialog):
             th.SP_XS,
         )
         # Pull, beside Fetch, only when there is something to pull and the branch has
-        # not diverged. A diverged branch is the merge's job, and _add_pull_row already
-        # explains that and offers it; pulling there would be a textual merge of a
-        # board, which is the one thing this must never do.
+        # not diverged. A diverged branch needs a merge, and _add_pull_row explains
+        # that; pulling there would be a textual merge of a board, which is the one
+        # thing this must never do.
         if behind and not ahead:
             row.Add(
                 IconButton(
@@ -1413,7 +1428,11 @@ class PrismDialog(wx.Dialog):
                 th.SP_SM,
             )
 
-        # Push only when ahead and NOT diverged (diverged is the merge's job).
+        # The push/publish button right-aligns: it is this row's primary action
+        # and belongs at the far end, like a form's submit.
+        row.AddStretchSpacer()
+
+        # Push only when ahead and NOT diverged (diverged needs a merge first).
         if ahead and not behind:
             row.Add(
                 Button(
@@ -1446,11 +1465,10 @@ class PrismDialog(wx.Dialog):
         project = (self.data or {}).get("project")
         if not project or not project.get("repo_root"):
             return
-        try:
-            with wx.BusyCursor():
-                AgentClient().fetch(project["repo_root"])
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            fetched = self.git.fetch(project["repo_root"])
+        if not fetched.ok:
+            prompts.tell(self, fetched.error, "Prism")
             return
         self._load()
 
@@ -1466,62 +1484,47 @@ class PrismDialog(wx.Dialog):
         if not project or not project.get("repo_root"):
             return
         repo = project["repo_root"]
-        try:
-            with wx.BusyCursor():
-                AgentClient().push(repo)
-        except AgentUnavailable as exc:
-            if getattr(exc, "code", "") == "no_upstream":
-                self._publish_branch(repo)
+        with wx.BusyCursor():
+            pushed = self.git.push(repo)
+        if pushed.kind == git_workflow.NEEDS_REMOTE:
+            target = self._ask_push_target(pushed.remotes)
+            if not target:
                 return
-            prompts.tell(self, str(exc), "Prism")
-            return
-        self._load()
-
-    def _publish_branch(self, repo):
-        """Push a branch that has no remote yet, asking WHERE when there is a choice.
-
-        The choice is real here in a way it never is for an ordinary push: nothing has
-        decided yet, and a repo with both `origin` and `upstream` (the fork layout) would
-        otherwise have the destination guessed for it.
-        """
-        try:
-            remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-
-        if not remotes:
+            with wx.BusyCursor():
+                pushed = self.git.publish(repo, target)
+        if pushed.kind == git_workflow.NO_REMOTE:
             prompts.tell(self, "This project has no remote to push to.\n\n"
                 "Add one with `git remote add`, then push again.",
                 "Prism")
             return
+        if not pushed.ok:
+            prompts.tell(self, pushed.error, "Prism")
+            return
+        self._load()
 
+    def _ask_push_target(self, remotes):
+        """Ask WHERE to publish a branch that has never been pushed.
+
+        The choice is real here in a way it never is for an ordinary push: nothing has
+        decided yet, and a repo with both `origin` and `upstream` (the fork layout) would
+        otherwise have the destination guessed for it. Returns the remote, or "".
+        """
         if len(remotes) == 1:
-            target = remotes[0]["name"]
+            target = remotes[0].name
             if not prompts.ask(
                 self,
                 "This branch hasn't been pushed yet.\n\nPublish it to %s?" % target,
                 "Publish branch",
                 yes="Publish",
             ):
-                return
-        else:
-            # remotes() puts origin first, so the default selection is the convention.
-            choices = ["%s  (%s)" % (r["name"], r["url"]) for r in remotes]
-            index = prompts.ask_choice(
-                self, "Publish this branch to which remote?", "Publish branch", choices
-            )
-            if index is None:
-                return
-            target = remotes[index]["name"]
-
-        try:
-            with wx.BusyCursor():
-                AgentClient().push(repo, set_upstream=True, remote=target)
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-        self._load()
+                return ""
+            return target
+        # remotes() puts origin first, so the default selection is the convention.
+        choices = ["%s  (%s)" % (r.name, r.url) for r in remotes]
+        index = prompts.ask_choice(
+            self, "Publish this branch to which remote?", "Publish branch", choices
+        )
+        return "" if index is None else remotes[index].name
 
     def _render_gitignore(self):
         """Offer a KiCad .gitignore to a project that has not got one.
@@ -1825,85 +1828,25 @@ class PrismDialog(wx.Dialog):
 
         A plain pull is an icon button beside Fetch in the sync row. This handles the
         situation that button deliberately refuses: both sides have moved on, where
-        pulling would mean a textual merge of a board and the answer is the object-level
-        merge instead.
+        pulling would mean a textual merge of a board. That merge has to happen outside
+        Prism for now.
         """
         behind = git.get("behind") or 0
         ahead = git.get("ahead") or 0
-
-        if ahead and behind and not MERGE_EDITOR_ENABLED:
-            # Diverged, and the merge editor is off: say what's going on, and that the
-            # merge has to happen outside Prism for now.
-            card.body.Add(
-                card.label(
-                    "This branch and the remote have both moved on "
-                    "(%d here, %d there). Merge them with git before pulling."
-                    % (ahead, behind),
-                    tone="warning",
-                    small=True,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
+        if not (ahead and behind):
             return
-
-        if ahead and behind:
-            # Diverged. A textual merge would produce a board neither author drew, so
-            # this opens the object-level merge instead: same two branches, but the user
-            # chooses what to take rather than git guessing.
-            card.body.Add(
-                card.label(
-                    "This branch and the remote have both moved on "
-                    "(%d here, %d there). Choose what to take from each."
-                    % (ahead, behind),
-                    tone="warning",
-                    small=True,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
-            card.body.Add(
-                Button(
-                    card,
-                    "Merge in Prism",
-                    self.pal,
-                    variant="secondary",
-                    on_click=self._merge,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
-            return
-
-    def _merge(self):
-        """Open the object-level merge for the branch this one has diverged from.
-
-        The board itself is merged in the browser, where there is room to show three
-        versions of it side by side. Nothing moves on disk until the user commits there,
-        so pressing this is safe even mid-edit.
-        """
-        project = (self.data or {}).get("project")
-        if not project:
-            return
-
-        # `@{u}` is the tracking branch, and it is the right target by construction: the
-        # ahead/behind counts that produced this button were measured against it, so
-        # anything else would merge a different branch than the one the user was told
-        # about. It also cannot go stale between reading the status and pressing the
-        # button, the way a resolved branch name could.
-        try:
-            with wx.BusyCursor():
-                AgentClient().start_merge(project["path"], "@{u}")
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-
-        prompts.tell(self, "Prism has opened the merge in your browser.\n\n"
-            "Nothing changes on disk until you finish it there.",
-            "Prism")
+        card.body.Add(
+            card.label(
+                "This branch and the remote have both moved on "
+                "(%d here, %d there). Merge them with git before pulling."
+                % (ahead, behind),
+                tone="warning",
+                small=True,
+            ),
+            0,
+            wx.TOP,
+            th.SP_XS,
+        )
 
     def _pull(self):
         """Fast-forward the working tree. The agent refuses anything riskier."""
@@ -2000,16 +1943,16 @@ class PrismDialog(wx.Dialog):
 
         if subject:
             if prism:
-                text = wx.adv.HyperlinkCtrl(card, label=subject, url="")
-                text.SetNormalColour(_c(self.pal["foreground"]))
-                text.SetHoverColour(_c(self.pal["primary"]))
-                text.SetVisitedColour(_c(self.pal["foreground"]))
-                text.SetBackgroundColour(_c(self.pal["card"]))
-                text.SetToolTip("Open this commit in Prism")
-                text.Bind(
-                    wx.adv.EVT_HYPERLINK,
-                    lambda _e, h=commit_hash, p=prism: self._open_commit(p, h),
+                # Plain text that tints on hover, not an underlined native
+                # hyperlink: the underline read as a browser link pasted into
+                # the panel, and the web UI's text links never underline.
+                text = LinkLabel(
+                    card,
+                    subject,
+                    self.pal,
+                    on_click=lambda h=commit_hash, p=prism: self._open_commit(p, h),
                 )
+                text.SetToolTip("Open this commit in Prism")
                 # The tag is part of the link: clicking the SHA is the obvious gesture,
                 # and having it do nothing would be a small betrayal.
                 sha.SetToolTip("Open this commit in Prism")
@@ -2027,7 +1970,7 @@ class PrismDialog(wx.Dialog):
             row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
 
         row.AddStretchSpacer()
-        card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+        card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     def _open_commit(self, prism, commit_hash):
         """Open this commit on the project's page in Prism, in its own branch.
@@ -2070,19 +2013,19 @@ class PrismDialog(wx.Dialog):
             # The diff is still being computed in the background; the rest of the
             # dialog is already up. Say so rather than looking empty or broken.
             card.row("Uncommitted changes", "Computing…", tone="muted_fg")
-            self.content.Add(card, 0, wx.EXPAND)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
         if self.changes is None:
             card.row("Uncommitted changes", "Couldn't read", tone="muted_fg")
-            self.content.Add(card, 0, wx.EXPAND)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
         if not self.changes:
             card.row(
                 "Uncommitted changes", "Nothing to commit", badge=True, tone="success"
             )
-            self.content.Add(card, 0, wx.EXPAND)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
         # KiCad's own droppings (backup archives, -bak files, autosaves, caches) are
@@ -2135,7 +2078,7 @@ class PrismDialog(wx.Dialog):
             self._add_staging(card, has_design=bool(design))
             self._add_commit_box(card, has_design=bool(design))
 
-        self.content.Add(card, 0, wx.EXPAND)
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
     def _staged_paths(self):
         """Files currently staged, from the git status the dialog already fetched."""
@@ -2153,10 +2096,12 @@ class PrismDialog(wx.Dialog):
         # Only when there is something staged: a "Staged:" heading over nothing is a
         # label explaining its own emptiness.
         if staged:
+            # A section caption, same style as the card headings: the staged list
+            # under it is indented, which is how it reads as a sub-list.
             card.body.Add(
-                card.label("Staged:", tone="foreground", bold=True),
+                card.label("Staged", tone="muted_fg", small=True, bold=True),
                 0,
-                wx.LEFT | wx.TOP,
+                wx.TOP,
                 th.SP_SM,
             )
             # The files themselves, not a count. "3 files staged" told you the number
@@ -2171,7 +2116,7 @@ class PrismDialog(wx.Dialog):
                 )
                 line.Add(
                     Button(
-                        card, "Unstage", self.pal, variant="secondary",
+                        card, "Unstage", self.pal, variant="secondary", size="sm",
                         on_click=lambda p=path: self._unstage_paths([p]),
                     ),
                     0,
@@ -2183,16 +2128,20 @@ class PrismDialog(wx.Dialog):
         # Outlined, not ghost: a ghost button is invisible until hovered, and this is
         # the control most people are looking for in this card. Hidden when there is no
         # design work, since it stages only design files and would refuse outright.
+        # Compact ("sm"), like the per-file toggles above: a full-height button in
+        # this row read as a second tier of primary actions.
         if has_design:
             row.Add(
-                Button(card, "Stage all", self.pal, variant="secondary", on_click=self._stage_all),
+                Button(card, "Stage all", self.pal, variant="secondary", size="sm",
+                       on_click=self._stage_all),
                 0,
                 wx.RIGHT,
                 th.SP_XS,
             )
         if staged:
             row.Add(
-                Button(card, "Unstage all", self.pal, variant="secondary", on_click=self._unstage_all),
+                Button(card, "Unstage all", self.pal, variant="secondary", size="sm",
+                       on_click=self._unstage_all),
                 0,
                 wx.RIGHT,
                 th.SP_XS,
@@ -2201,7 +2150,8 @@ class PrismDialog(wx.Dialog):
         # away", and a stash that took only half of it would leave the tree in a state
         # nobody asked for.
         row.Add(
-            Button(card, "Stash", self.pal, variant="secondary", on_click=self._stash),
+            Button(card, "Stash", self.pal, variant="secondary", size="sm",
+                   on_click=self._stash),
             0,
             wx.RIGHT,
             th.SP_XS,
@@ -2215,12 +2165,13 @@ class PrismDialog(wx.Dialog):
                 tooltip="Discard uncommitted changes",
                 variant="destructive-ghost",
                 on_click=self._discard,
+                size="sm",
             ),
             0,
             wx.ALIGN_CENTER_VERTICAL,
         )
-        # Breathing room under the "N files staged" line; the buttons sat right on it.
-        card.body.Add(row, 0, wx.LEFT | wx.TOP, th.SP_SM)
+        # Breathing room under the staged list; the buttons sat right on it.
+        card.body.Add(row, 0, wx.TOP, th.SP_SM)
 
     def _stage_all(self):
         self._staging_action(lambda repo: AgentClient().stage(repo, all=True))
@@ -2235,14 +2186,18 @@ class PrismDialog(wx.Dialog):
         self._staging_action(lambda repo: AgentClient().unstage(repo, paths=paths))
 
     def _file_stage_button(self, card, path):
-        """A per-file stage/unstage toggle, reflecting whether the path is staged now."""
+        """A per-file stage/unstage toggle, reflecting whether the path is staged now.
+
+        Compact ("sm"): it rides on a change row, and a default-height button
+        next to an 18px row made the row look like a billboard.
+        """
         if path in set(self._staged_paths()):
             return Button(
-                card, "Unstage", self.pal, variant="secondary",
+                card, "Unstage", self.pal, variant="secondary", size="sm",
                 on_click=lambda p=path: self._unstage_paths([p]),
             )
         return Button(
-            card, "Stage", self.pal, variant="secondary",
+            card, "Stage", self.pal, variant="secondary", size="sm",
             on_click=lambda p=path: self._stage_paths([p]),
         )
 
@@ -2275,29 +2230,32 @@ class PrismDialog(wx.Dialog):
         self._rebuild()
 
     def _add_commit_box(self, card, has_design=True):
-        """A message field and the commit buttons beneath the uncommitted changes.
+        """A message field and the commit button beneath the uncommitted changes.
 
-        Two buttons, because there are two intents. "Commit staged" honours exactly what
-        the user ticked, and only shows when something is staged. "Commit all" stages
-        every design change first (never churn) and commits, the quick path. A detached
-        HEAD is handled by the agent, which refuses and prompts to make a branch first.
+        One button, because there is only one intent: commit what this panel says will
+        be committed. Two buttons ("Commit staged" beside a "Commit" that staged
+        everything first) meant the second silently overrode the staging the user had
+        just done, which was a trap rather than a shortcut. When nothing is staged the
+        button falls back to staging every design change, so the quick path still works.
+        A detached HEAD is handled by the agent, which refuses and prompts to make a
+        branch first.
         """
         # SP_MD above the label separates the commit box from the staging controls;
         # they are two different steps and were running together.
         card.body.Add(
             card.label("Commit message", tone="muted_fg", small=True),
             0,
-            wx.LEFT | wx.TOP,
+            wx.TOP,
             th.SP_MD,
         )
-        # The field: taller, bordered, with a placeholder and real inner padding.
-        # wx.TextCtrl cannot be owner-drawn the way the buttons are, but BORDER_SIMPLE
-        # plus the muted fill and a themed border gives it the same shape as the rest
-        # of the panel instead of the raw native sunken box.
+        # The field: control height, bordered, with a placeholder and real inner
+        # padding. wx.TextCtrl cannot be owner-drawn the way the buttons are, but
+        # BORDER_SIMPLE plus the muted fill and a themed border gives it the same
+        # shape as the rest of the panel instead of the raw native sunken box.
         self.commit_message = wx.TextCtrl(
             card,
             value="",
-            size=wx.Size(-1, 32),
+            size=wx.Size(-1, self.FromDIP(th.CONTROL_HEIGHT)),
             style=wx.BORDER_SIMPLE,
         )
         self.commit_message.SetBackgroundColour(_c(self.pal["muted"]))
@@ -2310,7 +2268,7 @@ class PrismDialog(wx.Dialog):
         card.body.Add(
             self.commit_message,
             0,
-            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            wx.EXPAND | wx.TOP,
             th.SP_SM,
         )
 
@@ -2337,7 +2295,7 @@ class PrismDialog(wx.Dialog):
             button.Enable(False)
             button.SetToolTip("Stage a file first: there are no design changes to commit.")
         row.Add(button, 0)
-        card.body.Add(row, 0, wx.LEFT | wx.TOP | wx.BOTTOM, th.SP_SM)
+        card.body.Add(row, 0, wx.TOP, th.SP_SM)
 
     def _commit(self, staged_only=False):
         """Commit. `staged_only` commits exactly what is staged; otherwise all design work.
@@ -2354,17 +2312,13 @@ class PrismDialog(wx.Dialog):
             return
 
         repo = project["repo_root"]
-        try:
-            with wx.BusyCursor():
-                AgentClient().commit(
-                    repo, message, stage_all_design=not staged_only
-                )
-        except AgentUnavailable as exc:
-            text = str(exc)
-            if "detached" in text.lower():
-                self._commit_on_new_branch(repo, message, staged_only=staged_only)
-                return
-            prompts.tell(self, text, "Prism")
+        with wx.BusyCursor():
+            committed = self.git.commit(repo, message, staged_only=staged_only)
+        if committed.kind == git_workflow.NEEDS_BRANCH:
+            self._commit_on_new_branch(repo, message, staged_only=staged_only)
+            return
+        if not committed.ok:
+            prompts.tell(self, committed.error, "Prism")
             return
 
         self._load()
@@ -2380,14 +2334,12 @@ class PrismDialog(wx.Dialog):
         if not name or not name.strip():
             return
         branch = name.strip()
-        try:
-            with wx.BusyCursor():
-                AgentClient().create_branch(repo, branch)
-                AgentClient().commit(
-                    repo, message, stage_all_design=not staged_only
-                )
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
+        with wx.BusyCursor():
+            committed = self.git.commit_on_new_branch(
+                repo, branch, message, staged_only=staged_only
+            )
+        if not committed.ok:
+            prompts.tell(self, committed.error, "Prism")
             return
         # After the commit, so what gets published is the work, not an empty branch.
         self._publish_new_branch(repo, branch)
@@ -2461,7 +2413,7 @@ class PrismDialog(wx.Dialog):
                     0,
                     wx.ALIGN_CENTER_VERTICAL,
                 )
-            card.body.Add(line, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
+            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_SM)
 
         card.body.Add(
             card.label(
@@ -2498,7 +2450,7 @@ class PrismDialog(wx.Dialog):
                 wx.ALIGN_CENTER_VERTICAL,
             )
             line.Add(self._file_stage_button(card, path), 0, wx.ALIGN_CENTER_VERTICAL)
-            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_MD)
+            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_SM)
             return
 
         holder = wx.BoxSizer(wx.VERTICAL)
@@ -2561,10 +2513,10 @@ class PrismDialog(wx.Dialog):
                     ),
                     0,
                     wx.LEFT | wx.TOP,
-                    th.SP_MD * 2 + 12,
+                    th.SP_MD * 2 + 6,
                 )
 
-        card.body.Add(holder, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
+        card.body.Add(holder, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     # -- actions -----------------------------------------------------------
 
@@ -2646,6 +2598,7 @@ class StashesDialog(wx.Dialog):
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
         self.pal = pal
+        self.SetFont(ui_font(self))
         self.result = (None, None)
 
         self.SetBackgroundColour(_c(pal["background"]))

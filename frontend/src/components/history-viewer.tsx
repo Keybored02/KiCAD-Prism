@@ -41,6 +41,7 @@ import {
     selectRevisionSlot,
     type RevisionRef,
 } from "./history-comparison-selection";
+import { isLocalHeadCommit, localHeadNote } from "./history-head-label";
 import { historyFileOpenAction, visualizerTabForFile } from "./history-file-open";
 
 interface Release {
@@ -82,6 +83,8 @@ interface CommitsResponse {
     has_more: boolean;
     limit: number;
     offset: number;
+    /** The checkout's HEAD, listed or not. */
+    head?: string | null;
 }
 
 const COMMITS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
@@ -216,6 +219,19 @@ function KicadChip({ icon: Icon, label, count, color }: {
     );
 }
 
+// The checkout can be ahead of the listed branch tip. This marks the row that
+// is actually checked out, without making the remote tip look like HEAD.
+function LocalHeadMarker() {
+    return (
+        <span
+            className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground"
+            title="This commit is checked out in the project's local clone"
+        >
+            local HEAD
+        </span>
+    );
+}
+
 interface CommitItemProps {
     commit: Commit;
     projectId: string;
@@ -228,6 +244,33 @@ interface CommitItemProps {
     selectable: boolean;
     // The commit named in the URL: ringed and scrolled into view on mount.
     highlighted?: boolean;
+    // The checkout's HEAD, when it differs from the listed branch tip.
+    isLocalHead?: boolean;
+}
+
+function OpenInKiCadButton({ projectId, commit }: { projectId: string; commit: Commit }) {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => {
+                        // Fires a prism:// link the local agent handles: it finds the
+                        // project, clones it if missing, and moves the working tree to this
+                        // commit, refusing if that would destroy uncommitted work. Silently
+                        // ignored if the agent isn't installed.
+                        window.location.href = `prism://open/${projectId}?commit=${commit.full_hash}`;
+                    }}
+                    aria-label={`Open commit ${commit.hash} in KiCad`}
+                >
+                    <ExternalLink className="h-3 w-3" />
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>Open this version in KiCad (requires the Prism agent)</TooltipContent>
+        </Tooltip>
+    );
 }
 
 const ELEMENT_KIND_COLOR: Record<ElementChangeKind, string> = {
@@ -396,6 +439,7 @@ function CommitItem({
     onSetCompare,
     selectable,
     highlighted = false,
+    isLocalHead = false,
 }: CommitItemProps) {
     const rowRef = useRef<HTMLDivElement | null>(null);
     // Bring the URL-named commit into view once, when it first mounts as highlighted.
@@ -510,6 +554,7 @@ function CommitItem({
                                     {copied ? "Copied" : "Click to copy full hash"}
                                 </TooltipContent>
                             </Tooltip>
+                            {isLocalHead && <LocalHeadMarker />}
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
@@ -524,28 +569,7 @@ function CommitItem({
                                 </TooltipTrigger>
                                 <TooltipContent>Open this commit in the visualizer</TooltipContent>
                             </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 w-6 p-0"
-                                        onClick={() => {
-                                            // Fires a prism:// link the local agent handles: it
-                                            // finds the project, clones it if missing, and moves
-                                            // the working tree to this commit, refusing if that
-                                            // would destroy uncommitted work. Silently ignored if
-                                            // the agent isn't installed.
-                                            window.location.href =
-                                                `prism://open/${projectId}?commit=${commit.full_hash}`;
-                                        }}
-                                        aria-label={`Open commit ${commit.hash} in KiCad`}
-                                    >
-                                        <ExternalLink className="h-3 w-3" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Open this version in KiCad (requires the Prism agent)</TooltipContent>
-                            </Tooltip>
+                            <OpenInKiCadButton projectId={projectId} commit={commit} />
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
@@ -732,6 +756,9 @@ export function HistoryViewer({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [branchTipSha, setBranchTipSha] = useState<string | null>(null);
+    // The checkout's HEAD, read without a ref so Git resolves it locally
+    // rather than resolving the remote branch the list is showing.
+    const [localHeadSha, setLocalHeadSha] = useState<string | null>(null);
     const [copiedReleaseTag, setCopiedReleaseTag] = useState<string | null>(null);
     const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
         const sha = comparisonUrl.base;
@@ -888,6 +915,11 @@ export function HistoryViewer({
                 setCommitsHasMore(false);
             }
 
+            // The checkout's HEAD rides along with every page: the list resolves
+            // `branchRef` (the remote tip) and, for a Type-2 subproject, only
+            // commits touching it, so HEAD need not be listed at all.
+            setLocalHeadSha(commitsResult.status === "fulfilled" ? commitsResult.value.head ?? null : null);
+
             if (releasesResult.status === "rejected" && commitsResult.status === "rejected") {
                 const releaseMessage =
                     releasesResult.reason instanceof Error ? releasesResult.reason.message : "Failed to load releases";
@@ -932,6 +964,12 @@ export function HistoryViewer({
             </div>
         );
     }
+
+    const headNotice = localHeadNote(
+        branchTipSha,
+        localHeadSha,
+        commits.map((commit) => commit.full_hash),
+    );
 
     return (
         <div className="space-y-8">
@@ -1105,6 +1143,10 @@ export function HistoryViewer({
                     </div>
                 </div>
 
+                {headNotice && (
+                    <p className="text-xs text-muted-foreground">{headNotice}</p>
+                )}
+
                 {commits.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
                         No commits found
@@ -1120,6 +1162,7 @@ export function HistoryViewer({
                                 onOpenVisualizer={onOpenVisualizer}
                                 isBase={baseRevision?.sha === commit.full_hash}
                                 isCompare={compareRevision?.sha === commit.full_hash}
+                                isLocalHead={isLocalHeadCommit(commit.full_hash, branchTipSha, localHeadSha)}
                                 highlighted={highlightedCommit === commit.full_hash}
                                 onSetBase={() => setRevision("base", {
                                     sha: commit.full_hash,

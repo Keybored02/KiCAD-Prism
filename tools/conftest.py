@@ -1,10 +1,9 @@
 """Test configuration for the agent and plugin suites.
 
-The merge-engine tests drive the real thing: a 100 KB board, parsed and three-way
-merged for each case. That is the work being tested, so it cannot be mocked or cached
-away, but it is around twenty seconds a test and roughly six of the seven minutes the
-full suite takes. Paying that on every run while editing the plugin's UI is what made
-the suite something to avoid rather than something to lean on.
+Some suites drive a real engine on a full board (the merge engine on
+feat/merge-editor: around twenty seconds a test). That work cannot be mocked or
+cached away, and paying for it on every run while editing the plugin's UI is what
+made the suite something to avoid rather than something to lean on.
 
 So `slow` tests are skipped by default and run on request:
 
@@ -21,8 +20,9 @@ from __future__ import annotations
 import pytest
 
 # Suites whose cost is the real engine rather than the test harness. Named here rather
-# than marked file by file so the list is visible in one place.
-SLOW_MODULES = ("test_merge_session",)
+# than marked file by file so the list is visible in one place. None on this branch;
+# test_merge_session belongs here when the merge editor lands.
+SLOW_MODULES: tuple[str, ...] = ()
 
 
 def pytest_addoption(parser):
@@ -30,13 +30,13 @@ def pytest_addoption(parser):
         "--slow",
         action="store_true",
         default=False,
-        help="run the slow merge-engine tests as well as the fast suite",
+        help="run the slow engine tests as well as the fast suite",
     )
 
 
 def pytest_configure(config):
     config.addinivalue_line(
-        "markers", "slow: exercises the real merge engine on a full board"
+        "markers", "slow: exercises a real engine on a full board"
     )
 
 

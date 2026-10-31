@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { User, AuthConfig } from './types/auth';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { CommandPalette } from '@/components/command-palette';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { RoleAuthorityPopover } from '@/components/role-authority-popover';
 import { SessionExpiredBanner, SESSION_BANNER_HEIGHT } from '@/components/session-expired-banner';
+import { HelpDialogHost } from '@/features/bug-report/help-dialog-host';
+import { HelpMenu } from '@/features/bug-report/help-menu';
 import prismLogoMark from './assets/branding/kicad-prism/kicad-prism-icon.svg';
 
 const LoginPage = lazy(() =>
@@ -28,8 +30,6 @@ const Workspace = lazy(() =>
 const ProjectDetailPage = lazy(() =>
     import('./pages/ProjectDetailPage').then((module) => ({ default: module.ProjectDetailPage }))
 );
-const MergePage = lazy(() => import('./pages/MergePage'));
-const MERGE_EDITOR_ENABLED = import.meta.env.DEV;
 
 function RouteFallback() {
     return (
@@ -44,6 +44,33 @@ function FullScreenMessage({ message, isError = false }: { message: string; isEr
         <div className="flex items-center justify-center h-screen bg-background">
             <div className={isError ? "text-destructive" : "text-muted-foreground"}>{message}</div>
         </div>
+    );
+}
+
+/** A lazily loaded page, with the route fallback while its chunk loads. */
+const suspended = (page: ReactNode) => <Suspense fallback={<RouteFallback />}>{page}</Suspense>;
+
+function PasswordChangeGate({
+    authConfig,
+    user,
+    onSignOut,
+    onChanged,
+}: {
+    authConfig: AuthConfig;
+    user: User;
+    onSignOut: () => void;
+    onChanged: (user: User) => void;
+}) {
+    return (
+        <Suspense fallback={<RouteFallback />}>
+            <LoginPage
+                authConfig={authConfig}
+                workspaceName={authConfig.workspace_name}
+                restoredUser={user}
+                onSignOut={onSignOut}
+                onLoginSuccess={onChanged}
+            />
+        </Suspense>
     );
 }
 
@@ -213,6 +240,19 @@ function App() {
         return <FullScreenMessage message={authError || 'Failed to resolve current user.'} isError />;
     }
 
+    // The server refuses everything but the change itself while a temporary
+    // password stands, so a restored session goes straight to that form.
+    if (user.must_change_password) {
+        return (
+            <PasswordChangeGate
+                authConfig={authConfig}
+                user={user}
+                onSignOut={handleLogout}
+                onChanged={handleAuthCodeSuccess}
+            />
+        );
+    }
+
     // User is authenticated or auth is disabled - show app
     return (
         /*
@@ -247,6 +287,7 @@ function App() {
                 />
             ) : null}
             <Toaster richColors position="top-right" />
+            <HelpDialogHost authConfig={authConfig} />
             <CommandPalette
                 open={paletteOpen}
                 onOpenChange={setPaletteOpen}
@@ -296,6 +337,7 @@ function App() {
                                         <Search className="h-3.5 w-3.5" />
                                         {IS_APPLE_PLATFORM ? '⌘K' : 'Ctrl K'}
                                     </Button>
+                                    <HelpMenu />
                                     {user && user.email !== 'guest@local' && (
                                         <>
                                             <span className="text-sm text-muted-foreground">
@@ -323,35 +365,8 @@ function App() {
                 } />
                 <Route
                     path="/project/:projectId"
-                    element={
-                        <Suspense fallback={<RouteFallback />}>
-                            <ProjectDetailPage user={user} />
-                        </Suspense>
-                    }
+                    element={suspended(<ProjectDetailPage user={user} />)}
                 />
-                {/* The merge editor is alpha: dev builds only until it is ready. The
-                    plugin's entry point is off too (MERGE_EDITOR_ENABLED in dialog.py). */}
-                {MERGE_EDITOR_ENABLED && (
-                    <Route
-                        path="/merge"
-                        element={
-                            <Suspense fallback={<RouteFallback />}>
-                                <MergePage />
-                            </Suspense>
-                        }
-                    />
-                )}
-                {/* The merge UI rendered from a fixture, no agent needed. */}
-                {MERGE_EDITOR_ENABLED && (
-                    <Route
-                        path="/merge-preview"
-                        element={
-                            <Suspense fallback={<RouteFallback />}>
-                                <MergePage />
-                            </Suspense>
-                        }
-                    />
-                )}
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </div>

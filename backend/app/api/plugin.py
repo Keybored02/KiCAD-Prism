@@ -16,9 +16,9 @@ this server, not merely behind: it is the difference between "you should update"
 
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter
+
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -27,7 +27,8 @@ router = APIRouter()
 # every backend release claimed a plugin release that never happened. What they record
 # is a judgement about compatibility, which is not something a build can work out.
 
-# The plugin version shipped with this server.
+# The newest plugin behaviour this server relies on. Older plugins are told to update.
+# Not the latest plugin build: that is tools/kicad_plugin/version.py.
 PLUGIN_EXPECTED = "0.5.0"
 
 # The oldest plugin this server can still serve correctly.
@@ -40,10 +41,7 @@ PLUGIN_MIN = "0.3.0"
 
 # Where to get it. Overridable so a private deployment can serve its own build rather
 # than sending users to a public repo they may not be able to reach.
-DOWNLOAD_URL = os.environ.get(
-    "PRISM_PLUGIN_DOWNLOAD_URL",
-    "https://github.com/Keybored02/KiCAD-Prism/releases/latest",
-)
+DOWNLOAD_URL = settings.PRISM_PLUGIN_DOWNLOAD_URL
 
 
 @router.get("/version")

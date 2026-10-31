@@ -10,18 +10,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from git import Repo
 from git.exc import GitCommandError
 
+from app.core import errors
 from app.services import (
     comment_anchor_bindings,
     path_config_service,
+    project_revision,
     project_source_snapshot,
     semantic_index_service,
-    semantic_visualizer_service,
 )
+from app.services.design_bundle import design_keys
 
 ANCHOR_PINNED = "pinned"
 ANCHOR_UNPINNED = "unpinned"
@@ -30,13 +32,11 @@ SOURCE_MANUAL = "manual"
 NOT_PROMOTABLE_UNPINNED = "unpinned_anchor"
 
 
-class AnchorValidationError(Exception):
+class AnchorValidationError(errors.Invalid):
     """A displayed revision the server will not store (HTTP 422)."""
 
     def __init__(self, detail: str, *, code: str = "unknown_revision"):
-        super().__init__(detail)
-        self.detail = detail
-        self.code = code
+        super().__init__(detail, code=code)
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,8 @@ class ResolvedAnchor:
     file_path: Optional[str] = None
     project_relative_path: Optional[str] = None
     not_promotable_reason: Optional[str] = None
+    #: The displayed commit's design key (ADR amendment K2 §3.6), when a bundle serves it.
+    design_key: Optional[str] = None
 
 
 def _full_sha(value: Optional[str], field: str) -> Optional[str]:
@@ -84,31 +86,32 @@ def _identity(project: Any, commit: str) -> tuple[str, str]:
     return key, resolved_sha
 
 
+def _design_key(project: Any, commit: Optional[str]) -> Optional[str]:
+    """The commit's design key, or ``None`` while no bundle serves it (never builds one)."""
+    if not commit:
+        return None
+    return design_keys.of_commit(str(project.id), commit)
+
+
 def _project_relative_path(project: Any) -> Optional[str]:
     project_path = Path(getattr(project, "path", "") or "")
     if not project_path:
         return None
     try:
-        repo_root = semantic_visualizer_service._repo_root(project_path)
-        rel = semantic_visualizer_service._project_relative_path(
-            repo_root, project_path, getattr(project, "project_file", None),
-        )
-        return rel
+        return project_revision.project_file_rel(project_revision.locate(project))
     except (ValueError, OSError):
         anchor = getattr(project, "project_file", None)
         return str(anchor).replace("\\", "/") if anchor else None
 
 
 def _project_dir_in_repo(project: Any) -> tuple[Path, str]:
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    anchor = path_config_service.anchor_for_project(project)
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
     anchor_source = project_source_snapshot._anchor_source(project, require_file=True)
     if anchor_source is not None:
         project_rel = anchor_source.relative_to(repo_root).as_posix()
     else:
-        project_rel = semantic_visualizer_service._project_relative_path(
-            repo_root, Path(project.path), anchor
-        )
+        project_rel = project_revision.project_file_rel(location)
     project_dir = PurePosixPath(project_rel).parent.as_posix()
     if project_dir == ".":
         project_dir = ""
@@ -128,19 +131,37 @@ def _source_file(project: Any, commit: Optional[str], context: str) -> Optional[
         entries = semantic_index_service._source_entries_in_commit(
             repo_root, commit, project_dir
         )
-        suffix = ".kicad_pcb" if context.upper() == "PCB" else ".kicad_sch"
-        candidates = [path for path, _ in entries if path.endswith(suffix)]
-        if not candidates:
-            return None
-        anchor = path_config_service.anchor_for_project(project) or ""
-        stem = PurePosixPath(anchor).stem if anchor else ""
-        if stem:
-            for path in sorted(candidates):
-                if PurePosixPath(path).stem == stem:
-                    return path
-        return sorted(candidates)[0]
+        return _pick_source_file(project, [path for path, _ in entries], context)
     except (ValueError, OSError):
         return None
+
+
+def _pick_source_file(project: Any, paths: list[str], context: str) -> Optional[str]:
+    """The board, or the root sheet, among a revision's project-relative paths."""
+    suffix = ".kicad_pcb" if context.upper() == "PCB" else ".kicad_sch"
+    candidates = sorted(path for path in paths if path.endswith(suffix))
+    if not candidates:
+        return None
+    anchor = path_config_service.anchor_for_project(project) or ""
+    stem = PurePosixPath(anchor).stem if anchor else ""
+    if stem:
+        for path in candidates:
+            if PurePosixPath(path).stem == stem:
+                return path
+    return candidates[0]
+
+
+def _drawn_on(project: Any, binding: dict, context: str, paths: list[str]) -> Optional[str]:
+    """The one file an area was drawn on: its schematic page, else the board or root sheet.
+
+    A schematic page id is the sheet's project-relative path, followed by
+    ``:<instance path>`` for a sheet placed more than once.
+    """
+    page = str((binding.get("location") or {}).get("page") or "")
+    page = page.split(":", 1)[0].replace("\\", "/")
+    if page and context.upper() != "PCB":
+        return page
+    return _pick_source_file(project, paths, context)
 
 
 def resolve_canvas_anchor(
@@ -202,6 +223,7 @@ def resolve_canvas_anchor(
         source_revision_key=key or source_key,
         file_path=stored_file,
         project_relative_path=project_rel,
+        design_key=_design_key(project, resolved),
     )
 
 
@@ -238,6 +260,7 @@ def resolve_comparison_anchor(
         selected_side=side,
         file_path=stored_file,
         project_relative_path=_project_relative_path(project),
+        design_key=_design_key(project, displayed),
     )
 
 
@@ -254,6 +277,7 @@ def resolve_manual_pin(project: Any, *, commit: str, context: str = "PCB") -> Re
         source_revision_key=key,
         file_path=_source_file(project, resolved, context),
         project_relative_path=_project_relative_path(project),
+        design_key=_design_key(project, resolved),
     )
 
 
@@ -262,17 +286,24 @@ def resolve_displayed_bindings(
     comments: list[dict],
     displayed_commit: str,
     manual_bindings: dict[str, list[dict]],
+    record_design_keys: Optional[Callable[[dict[str, str]], None]] = None,
 ) -> list[dict]:
     """Add ancestry selection to rail comments without hiding any thread.
 
     ``candidate`` is deliberately not ``resolved``: only the loaded viewer can
     prove that a source UUID and schematic instance still exist at this commit.
+
+    A freehand area follows to a commit with the same design key. The
+    comment's stored ``designKey`` wins; an anchor without one is looked up
+    through the bundles once and handed to ``record_design_keys`` (comment id
+    to key) to be stored, so it survives its bundle's retention (K2 §3.6).
     """
     sha = _full_sha(displayed_commit, "revision")
     if not sha:
         raise AnchorValidationError("revision is required", code="invalid_commit")
     _identity(project, sha)
-    repo = Repo(_project_dir_in_repo(project)[0])
+    repo_root, project_dir = _project_dir_in_repo(project)
+    repo = Repo(repo_root)
     ancestry: dict[tuple[str, str], bool] = {}
 
     def is_ancestor(older: str, newer: str) -> bool:
@@ -284,6 +315,41 @@ def resolve_displayed_bindings(
             except GitCommandError:
                 ancestry[key] = False
         return ancestry[key]
+
+    stored = {
+        (comment.get("anchor") or {}).get("commit"): (comment.get("anchor") or {}).get("designKey")
+        for comment in comments
+        if (comment.get("anchor") or {}).get("designKey")
+    }
+    keys: dict[str, Optional[str]] = {}
+
+    def design_key(commit: str) -> Optional[str]:
+        if commit not in keys:
+            keys[commit] = stored.get(commit) or _design_key(project, commit)
+        return keys[commit]
+
+    def same_design(older: str, newer: str) -> bool:
+        older_key = design_key(older)
+        return older_key is not None and older_key == design_key(newer)
+
+    blobs: dict[str, dict[str, str]] = {}
+
+    def blobs_at(commit: str) -> dict[str, str]:
+        if commit not in blobs:
+            try:
+                blobs[commit] = dict(
+                    semantic_index_service._source_entries_in_commit(repo_root, commit, project_dir)
+                )
+            except ValueError:
+                blobs[commit] = {}
+        return blobs[commit]
+
+    def same_file_for(context: str) -> Callable[[dict, str], bool]:
+        def same_file(binding: dict, newer: str) -> bool:
+            older = blobs_at(binding["commit"])
+            path = _drawn_on(project, binding, context, list(older))
+            return path is not None and path in older and older[path] == blobs_at(newer).get(path)
+        return same_file
 
     result: list[dict] = []
     for comment in comments:
@@ -302,7 +368,15 @@ def resolve_displayed_bindings(
             resolved["anchorResolution"] = {"state": "unresolved", "reason": "unpinned"}
         else:
             resolved["anchorResolution"] = comment_anchor_bindings.select_binding(
-                bindings, sha, is_ancestor,
+                bindings, sha, is_ancestor, same_design, same_file_for(str(comment.get("context") or "")),
             )
         result.append(resolved)
+    found = {
+        comment["id"]: key
+        for comment in comments
+        if (origin := comment.get("anchor") or {}).get("commit") and not origin.get("designKey")
+        and (key := design_key(origin["commit"]))
+    }
+    if found and record_design_keys is not None:
+        record_design_keys(found)
     return result

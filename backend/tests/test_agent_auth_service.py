@@ -149,13 +149,13 @@ class AgentAuthServiceTests(unittest.TestCase):
         payload = agent_auth_service.validate_agent_token(token)
         jti = str(payload["jti"])
 
-        listed = self.catalog.list_agent_tokens(email="agent-test@example.com")
+        listed = agent_auth_service.list_agent_tokens(email="agent-test@example.com")
         self.assertIn(jti, {row["jti"] for row in listed})
 
         self.assertTrue(agent_auth_service.revoke_agent_token_by_jti(jti))
         with self.assertRaises(Exception):
             agent_auth_service.validate_agent_token(token)
-        remaining = self.catalog.list_agent_tokens(email="agent-test@example.com")
+        remaining = agent_auth_service.list_agent_tokens(email="agent-test@example.com")
         self.assertNotIn(jti, {row["jti"] for row in remaining})
 
     def test_revoking_an_unknown_jti_returns_false(self) -> None:
@@ -171,14 +171,14 @@ class AgentAuthServiceTests(unittest.TestCase):
         jti = str(payload["jti"])
 
         # Freshly issued: no use recorded yet.
-        row = self.catalog.get_agent_token(jti)
+        row = agent_auth_service.get_agent_token(jti)
         self.assertIsNone(row.get("last_used_at"))
 
         # Clear the in-process throttle so the touch is not suppressed, then touch.
         agent_auth_service._last_touched.pop(jti, None)
         agent_auth_service.touch_agent_token(payload)
 
-        row = self.catalog.get_agent_token(jti)
+        row = agent_auth_service.get_agent_token(jti)
         self.assertIsNotNone(row.get("last_used_at"))
 
     def test_touch_is_throttled(self) -> None:
@@ -191,16 +191,14 @@ class AgentAuthServiceTests(unittest.TestCase):
         jti = str(payload["jti"])
 
         calls = []
-        original = agent_auth_service._db().touch_agent_token
+        original = agent_auth_service._touch_registry
 
         def counting(j, when):
             calls.append(j)
             return original(j, when)
 
         agent_auth_service._last_touched.pop(jti, None)
-        with patch.object(
-            agent_auth_service._db(), "touch_agent_token", side_effect=counting
-        ):
+        with patch.object(agent_auth_service, "_touch_registry", side_effect=counting):
             agent_auth_service.touch_agent_token(payload)
             agent_auth_service.touch_agent_token(payload)  # within the window
         self.assertEqual(calls, [jti])  # only the first wrote

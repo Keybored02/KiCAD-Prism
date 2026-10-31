@@ -62,7 +62,10 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import socket
+import sys
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -74,8 +77,6 @@ from . import (
     discovery,
     gitignore,
     identity,
-    merge_session,
-    merge_tokens,
     protocol,
     remote_library,
     settings as settings_store,
@@ -83,19 +84,11 @@ from . import (
 )
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
+from .version import PLUGIN_MIN, VERSION
 from .worktree_diff import uncommitted_changes
 
-VERSION = "0.5.17"
-
-# The oldest plugin this agent can serve.
-#
-# Only bump this when a change here genuinely BREAKS an older plugin, not merely
-# when the agent gains something. Every route so far has been additive, so an older
-# plugin still works fine against a newer agent; declaring otherwise would break
-# working setups for no reason. The compatibility that actually bites runs the other
-# way (a new plugin meeting an old agent, because autostart kept it alive), and the
-# plugin checks for that itself.
-PLUGIN_MIN = "0.1.0"
+# How old /health's view of the backend may get before it checks again.
+BACKEND_RECHECK_SECONDS = 15
 
 log = logging.getLogger(__name__)
 
@@ -106,9 +99,6 @@ class AgentState:
     def __init__(self, prism: PrismClient):
         self.prism = prism
         self.token = secrets.token_urlsafe(32)
-        # Merge sessions, each scoped to one repository and one branch. Separate from
-        # `self.token` on purpose: the browser gets one of these, never the agent's key.
-        self.merges = merge_tokens.Sessions()
         # Deferred branch switches: wait for a pid to exit, then check out and reopen.
         # NOT what the plugin's switch button uses any more, see POST /switch: the
         # editors turned out to be DLLs inside kicad.exe rather than processes, so
@@ -132,19 +122,50 @@ class AgentState:
         # the files git says are dirty, so any edit invalidates it by itself.
         self._changes_cache: dict[tuple, list[dict]] = {}
         self._changes_lock = threading.Lock()
-        # What the backend expects of the plugin. Cached: /health runs on every plugin
-        # open, and a release doesn't change under a running agent.
+        # What /health reports about the backend: whether it answered, and the plugin
+        # version it expects. Checked in the background, see backend_status.
+        self._backend_lock = threading.Lock()
+        self._backend_checked = 0.0
+        self._backend_checking = False
+        self._backend_reachable = False
+        # Kept once known: a release doesn't change under a running agent.
         self._server_plugin: dict | None = None
 
-    def server_plugin_version(self) -> dict | None:
-        """The plugin version the backend expects, or None if it can't say.
+    def backend_status(self) -> tuple[bool, dict | None]:
+        """Whether the backend answered, and the plugin version it expects.
 
-        None covers both an unreachable backend and one too old to have the endpoint.
-        Either way the plugin should carry on rather than refuse to work.
+        Never waits on the backend. /health is how the plugin tells whether the agent
+        is alive, so it has to answer at once: when it waited, a hung backend made a
+        healthy agent look dead, and the plugin started another one. This returns the
+        last check and starts a new one in the background when that is stale.
+
+        The plugin version is None for both an unreachable backend and one too old to
+        have the endpoint. Either way the plugin should carry on rather than refuse to
+        work.
         """
-        if self._server_plugin is None:
-            self._server_plugin = self.prism.plugin_version()
-        return self._server_plugin
+        with self._backend_lock:
+            stale = time.monotonic() - self._backend_checked > BACKEND_RECHECK_SECONDS
+            if stale and not self._backend_checking:
+                self._backend_checking = True
+                threading.Thread(
+                    target=self._check_backend, name="prism-backend-check", daemon=True
+                ).start()
+            return self._backend_reachable, self._server_plugin
+
+    def _check_backend(self) -> None:
+        prism = self.prism
+        try:
+            reachable = prism.health()
+            plugin = self._server_plugin or prism.plugin_version()
+        finally:
+            with self._backend_lock:
+                self._backend_checking = False
+                # A check against a client rebuild_client has since replaced describes
+                # the old server. Drop it; the next /health starts a fresh one.
+                if prism is self.prism:
+                    self._backend_checked = time.monotonic()
+                    self._backend_reachable = reachable
+                    self._server_plugin = plugin
 
     def rebuild_client(self, saved) -> None:
         """Re-point at the backend after the URL or token changed.
@@ -157,8 +178,11 @@ class AgentState:
         )
         # A different server means different projects, so the cached diff answers
         # (which carry the Prism project row) are no longer trustworthy. It may also
-        # expect a different plugin version.
-        self._server_plugin = None
+        # expect a different plugin version, and be up when the old one was down.
+        with self._backend_lock:
+            self._server_plugin = None
+            self._backend_checked = 0.0
+            self._backend_reachable = False
         with self._changes_lock:
             self._changes_cache = {}
 
@@ -218,21 +242,6 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_text(self, status: int, text: str) -> None:
-        """Send a file's contents verbatim.
-
-        Board files are large and are s-expressions, not JSON. Wrapping one in a JSON
-        string would escape every quote in it, roughly double the bytes on the wire, and
-        force the page to parse a megabytes-long string before it could use it.
-        """
-        body = text.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors_headers()
-        self.end_headers()
-        self.wfile.write(body)
-
     def _allowed_origin(self) -> str:
         """The Prism web app's origin, if that is who is asking.
 
@@ -261,38 +270,20 @@ class _Handler(BaseHTTPRequestHandler):
         if not allowed:
             return
         self.send_header("Access-Control-Allow-Origin", allowed)
-        # X-Prism-Merge scopes a request to one merge session and is sent on every
-        # authenticated call from the page. Omitting it here still returns a valid
-        # preflight, so nothing looks wrong from the agent's side, but the browser
-        # silently refuses to send the request and the page reports a network failure
-        # it cannot explain. Every custom header the client sends must be listed.
-        self.send_header(
-            "Access-Control-Allow-Headers",
-            "Authorization, Content-Type, X-Prism-Merge",
-        )
+        # Every custom header the page sends must be listed. A missing one still
+        # returns a valid preflight, so nothing looks wrong from the agent's side, but
+        # the browser silently refuses to send the request.
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         # Without this a shared cache could hand one origin's response to another.
         self.send_header("Vary", "Origin")
 
     def do_OPTIONS(self):  # noqa: N802 - stdlib naming
-        """CORS preflight. Only the merge routes are reachable from a browser."""
+        """CORS preflight. Only /kicad-signin is reachable from a browser."""
         self.send_response(204)
         self._cors_headers()
         self.send_header("Content-Length", "0")
         self.end_headers()
-
-    def _merge_session(self):
-        """The merge session a browser request is scoped to, or None.
-
-        A session token is NOT the agent token: it authorises exactly one merge, in one
-        repository, and expires. The page never sees the agent's own key.
-        """
-        header = self.headers.get("Authorization", "")
-        token = header[7:] if header.startswith("Bearer ") else ""
-        session_id = self.headers.get("X-Prism-Merge", "")
-        if not token or not session_id:
-            return None
-        return self.state.merges.authorise(session_id, token)
 
     def _authorised(self) -> bool:
         header = self.headers.get("Authorization", "")
@@ -332,6 +323,7 @@ class _Handler(BaseHTTPRequestHandler):
         query = parse_qs(route.query)
 
         if route.path == "/health":
+            reachable, server_plugin = self.state.backend_status()
             self._send(
                 200,
                 {
@@ -343,18 +335,16 @@ class _Handler(BaseHTTPRequestHandler):
                     # means an old agent routinely meets a new plugin after an
                     # update, and a stale plugin can meet a new agent too.
                     "plugin_min": PLUGIN_MIN,
-                    "backend_reachable": self.state.prism.health(),
+                    "backend_reachable": reachable,
                     # What the SERVER expects of the plugin. The plugin follows the
                     # server it talks to, so this is what stops the two drifting.
-                    "server_plugin": self.state.server_plugin_version(),
+                    "server_plugin": server_plugin,
                 },
             )
             return
 
-        # The merge routes carry their own authorisation: a session token scoped to one
-        # repository, checked at the route itself. Everything else needs the agent token,
-        # which the browser is never given.
-        if route.path not in ("/merge/plan", "/merge/file") and not self._authorised():
+        # Everything past here needs the agent token, which the browser is never given.
+        if not self._authorised():
             self._send(401, {"error": "unauthorised"})
             return
 
@@ -444,70 +434,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"stashes": checkout.stashes(path)})
             return
 
-        if route.path == "/merge/file":
-            # One side of one file, as plain text. Not JSON: a 9MB board would be
-            # escaped, re-parsed and held twice for no gain, and the viewer wants the
-            # raw s-expression anyway.
-            session = self._merge_session()
-            if session is None:
-                self._send(401, {"error": "unauthorised"})
-                return
-            try:
-                content = merge_session.side_content(
-                    session.repo,
-                    session.theirs_ref,
-                    (query.get("path") or [""])[0],
-                    (query.get("side") or [""])[0],
-                )
-            except merge_session.MergeError as exc:
-                self._send(400, {"error": str(exc)})
-                return
-            self._send_text(200, content)
-            return
-
-        if route.path == "/merge/plan":
-            # What merging would involve. READ ONLY: nothing here touches the working
-            # tree, so it is safe to call while the user has KiCad open on the project.
-            #
-            # Reachable with EITHER the agent token (the plugin) or a merge session
-            # token (the browser tab). The session variant is scoped to one repository,
-            # so a page cannot point it at a different project.
-            session = self._merge_session()
-            if session is None and not self._authorised():
-                self._send(401, {"error": "unauthorised"})
-                return
-
-            path = session.repo if session else (query.get("path") or [""])[0]
-            ref = session.theirs_ref if session else (query.get("ref") or [""])[0]
-            if not path or not ref:
-                self._send(400, {"error": "path and ref are required"})
-                return
-            try:
-                self._send(200, merge_session.plan(path, ref).to_dict())
-            except merge_session.MergeError as exc:
-                self._send(400, {"error": str(exc)})
-            return
-
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
         route = urlparse(self.path)
 
-        # The merge routes carry their own authorisation: a session token scoped to one
-        # repository, or the claim exchange which is guarded by a single-use key in the
-        # URL fragment. Everything else needs the agent token, which the browser is
-        # never given.
-        # /kicad-signin is reachable from the Prism page as well. It is the one route
-        # that hands the agent's own token to a browser, so it is gated harder than the
-        # merge routes: see _kicad_signin for why the CORS origin check is load-bearing
-        # there rather than a convenience.
-        browser_routes = (
-            "/merge/claim",
-            "/merge/commit",
-            "/merge/abort",
-            "/kicad-signin",
-        )
-        if route.path not in browser_routes and not self._authorised():
+        # Everything needs the agent token, which the browser is never given, except
+        # /kicad-signin. That is reachable from the Prism page, and it is the one route
+        # that hands the agent's own token to a browser: see _kicad_signin for why the
+        # CORS origin check is load-bearing there rather than a convenience.
+        if route.path != "/kicad-signin" and not self._authorised():
             self._send(401, {"error": "unauthorised"})
             return
 
@@ -857,93 +793,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
             return
 
-        if route.path == "/merge/start":
-            # The plugin opens a merge. Returns a URL whose FRAGMENT carries a one-shot
-            # key; a fragment never reaches a server, so it cannot leak through logs or
-            # a Referer header. Agent token only: the browser cannot start its own.
-            path = body.get("path") or ""
-            ref = body.get("ref") or ""
-            if not path or not ref:
-                self._send(400, {"error": "path and ref are required"})
-                return
-            try:
-                # Fail here rather than after opening a window onto a merge that was
-                # never possible.
-                merge_session.plan(path, ref)
-            except merge_session.MergeError as exc:
-                self._send(400, {"error": str(exc)})
-                return
-
-            session = self.state.merges.create(path, ref)
-            url = self.state.prism.merge_url(session.id, self.server.server_port)
-            webbrowser.open(f"{url}#k={session.claim_key}")
-            self._send(200, {"ok": True, "session": session.id})
-            return
-
         if route.path == "/kicad-signin":
             self._send(*self._kicad_signin(body))
-            return
-
-        if route.path == "/merge/claim":
-            # Exchange the fragment key for a session token, once. The long-lived agent
-            # token is never handed to a page.
-            session = self.state.merges.claim(
-                body.get("session") or "", body.get("key") or ""
-            )
-            if session is None:
-                self._send(403, {"error": "this merge link is not valid"})
-                return
-            self._send(
-                200,
-                {
-                    "ok": True,
-                    "token": session.token,
-                    "session": session.id,
-                    "ref": session.theirs_ref,
-                },
-            )
-            return
-
-        if route.path == "/merge/commit":
-            # The browser sends DECISIONS, never file content. The agent re-reads
-            # base/ours/theirs from git and rebuilds the merge itself, so the worst a
-            # compromised page can do is pick wrong objects from commits that already
-            # exist in this repository.
-            session = self._merge_session()
-            if session is None:
-                self._send(401, {"error": "unauthorised"})
-                return
-            try:
-                result = merge_session.commit(
-                    session.repo,
-                    session.theirs_ref,
-                    body.get("decisions") or {},
-                    message=body.get("message") or "",
-                    stash_message=body.get("stash_message"),
-                    allow_new_violations=bool(body.get("allow_new_violations")),
-                    text_choices=body.get("text_choices") or {},
-                )
-            except merge_session.MergeError as exc:
-                # Conflicts travel as a list as well as in the sentence, so the page can
-                # offer a choice per file rather than asking the user to read one.
-                self._send(400, {"error": str(exc), "conflicts": exc.conflicts})
-                return
-            self.state.merges.close(session.id)
-            self._send(200, result)
-            return
-
-        if route.path == "/merge/abort":
-            session = self._merge_session()
-            if session is None:
-                self._send(401, {"error": "unauthorised"})
-                return
-            try:
-                result = merge_session.abort(session.repo)
-            except merge_session.MergeError as exc:
-                self._send(400, {"error": str(exc)})
-                return
-            self.state.merges.close(session.id)
-            self._send(200, result)
             return
 
         if route.path == "/quit":
@@ -1300,6 +1151,24 @@ def apply_sign_out(state: AgentState) -> str:
     return ""
 
 
+class _AgentServer(ThreadingHTTPServer):
+    """An HTTP server that owns its port outright.
+
+    HTTPServer sets SO_REUSEADDR, and on Windows that lets a second process bind a
+    port another one is already listening on. A second agent then "got" the preferred
+    port instead of falling back to a free one, and connections went to whichever
+    socket Windows picked. SO_EXCLUSIVEADDRUSE makes the bind fail instead. Elsewhere
+    SO_REUSEADDR never allowed two listeners, so it stays.
+    """
+
+    if sys.platform == "win32":
+        allow_reuse_address = False
+
+        def server_bind(self) -> None:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+
+
 def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
     """Bind 127.0.0.1 on the active profile's port, or an ephemeral one.
 
@@ -1316,10 +1185,10 @@ def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
     handler = type("Handler", (_Handler,), {"state": state})
     preferred = resolve().preferred_port
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", preferred), handler)
+        server = _AgentServer(("127.0.0.1", preferred), handler)
     except OSError:
         # Port 0 = let the OS pick a free one; we publish it via discovery.
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        server = _AgentServer(("127.0.0.1", 0), handler)
         log.warning(
             "Preferred port %d is in use; bound an ephemeral port instead.",
             preferred,
@@ -1339,6 +1208,8 @@ def serve(
     # The version goes in the discovery file so a NEWER agent starting up can tell it
     # should retire us. Without it an update leaves the old agent serving forever.
     discovery.write_endpoint(port, state.token, VERSION)
+    # Start the first backend check now, so the plugin's first /health has an answer.
+    state.backend_status()
 
     thread = threading.Thread(
         target=server.serve_forever, name="prism-agent-http", daemon=True

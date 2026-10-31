@@ -33,12 +33,13 @@ LIGHT = {
 DARK = {
     "background": "#020817",
     "foreground": "#F8FAFC",
-    "card": "#0B1222",
+    "card": "#020817",
     "primary": "#3B82F6",
     "primary_fg": "#0F172A",
     "muted": "#1E293B",
     "muted_fg": "#94A3B8",
     "accent": "#1E293B",
+    # Keep semantic diff/error text legible on the dark surface.
     "destructive": "#EF4444",
     "success": "#22C55E",
     "warning": "#F59E0B",
@@ -55,9 +56,18 @@ KIND_TONE = {"added": "success", "removed": "destructive", "changed": "warning"}
 
 # Type scale (points). wx sizes in points, unlike the web's rem.
 FONT_BODY = 9
-FONT_SMALL = 8
+FONT_SMALL = 9
 FONT_TITLE = 12
-FONT_MONO_FAMILY = "Consolas"
+
+# Actual Prism component defaults, not the upstream shadcn defaults:
+# button.tsx: text-xs/font-medium/h-8/px-2.5/rounded-none; card.tsx:
+# rounded-none; p-4; badge.tsx: h-6/px-2.5/text-xs font-medium.
+# CONTROL_SM is button.tsx's size "sm" (h-7), for row-adjacent actions like
+# the per-file Stage/Unstage toggles, which a default-height button swamped.
+CONTROL_HEIGHT = 32
+CONTROL_SM = 28
+CONTROL_PADDING_X = 10
+CARD_PADDING = 16
 
 # Spacing scale, mirroring the app's 4px rhythm.
 SP_XS = 4

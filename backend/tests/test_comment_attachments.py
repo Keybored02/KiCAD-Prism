@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -20,10 +18,8 @@ from app.core.security import AuthenticatedUser
 from app.services import comment_attachments
 from app.services.comment_attachments import AttachmentError
 from app.services.comments_revisions import Editor
-from app.services.comments_store_service import CommentsStoreService
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
-
-TEST_DSN = os.environ.get("TEST_POSTGRES_URL", "")
 
 
 def _png(size=(8, 6), *, exif: bool = False) -> bytes:
@@ -129,6 +125,7 @@ class AttachmentApiTests(unittest.TestCase):
         anchor = SimpleNamespace(
             base_commit="a" * 40, compare_commit="b" * 40, file_path=None, commit=None,
             source_revision_key=None, source=None, selected_side=None, project_relative_path=None,
+            design_key=None,
         )
         with patch.object(comments_api, "get_project_for_role_or_404", return_value=self.project), \
              patch.object(comments_api, "resolve_comparison_anchor", return_value=anchor), \
@@ -149,24 +146,12 @@ class AttachmentApiTests(unittest.TestCase):
         self.assertIn("sandbox", response.headers["content-security-policy"])
         self.assertTrue(response.headers["content-disposition"].startswith("attachment"))
 
-@unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
+@requires_scratch_postgres("comment store tests")
 class AttachmentStorePostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self._psycopg = psycopg
-        self.schema = "test_comment_att_" + uuid.uuid4().hex[:12]
-        self.store = CommentsStoreService()
-        self.store.schema = self.schema
-
-        @contextmanager
-        def connect():
-            with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                yield conn
-
-        self.store._connect = connect
+        self.scratch = scratch_schema(self, "test_comment_att", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.project_id = "p_" + uuid.uuid4().hex[:12]
         self.path = tempfile.TemporaryDirectory()
         self.blobs = tempfile.TemporaryDirectory()
@@ -175,8 +160,6 @@ class AttachmentStorePostgresTests(unittest.TestCase):
         self.addCleanup(root_patch.stop)
 
     def tearDown(self) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
         self.path.cleanup()
         self.blobs.cleanup()
 

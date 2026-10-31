@@ -391,6 +391,10 @@ def build_bootstrap_nonce_url_for_agent(
     from app.services import agent_auth_service
 
     payload = agent_auth_service.validate_agent_token(agent_token)
+    # D-P2-32: the browser session can do everything the user's role allows, so only an
+    # agent the user trusted to write may open one. A read-only agent signs in normally.
+    if not {"api:write", "*"} & set(str(payload.get("scope") or "").split()):
+        raise HTTPException(status_code=403, detail="A read-only agent cannot open a signed-in session")
     return _bootstrap_url_for(base_url, payload, next_url), str(payload["email"])
 
 
