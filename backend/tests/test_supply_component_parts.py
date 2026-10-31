@@ -163,12 +163,12 @@ class ComponentPartsTests(unittest.TestCase):
 
     # --- only library parts are followed (D12, D14) ---------------------------------------------------------------
 
-    def test_a_number_with_no_library_component_cannot_be_watched(self) -> None:
+    def test_a_number_with_no_library_component_can_be_watched_and_a_library_one_syncs_its_main_part(self) -> None:
         from app.services.supply import watches
 
         with self.store.connection() as conn:
-            with self.assertRaises(self.cp.NotInLibrary):
-                watches.add_watch(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+            record, created = watches.add_watch(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+            self.assertTrue(created, "a number no component names is watched all the same")
         component = self._component()
         with self.store.connection() as conn:
             # No sync has run for the new component: the watch syncs its main part itself.
@@ -176,7 +176,7 @@ class ComponentPartsTests(unittest.TestCase):
             self.assertTrue(created)
             self.assertEqual(self.cp.parts_of(conn, str(component["id"]))[0]["part_id"], record.part_id)
 
-    def test_only_library_parts_get_a_tier(self) -> None:
+    def test_library_and_other_watched_parts_both_get_a_tier(self) -> None:
         from app.services.supply import parts, tracking
 
         component = self._component()
@@ -191,9 +191,9 @@ class ComponentPartsTests(unittest.TestCase):
             tracking.recompute(conn, [loose.id, library.id])
             tiered = {row["part_id"] for row in conn.execute(
                 "SELECT part_id FROM supply_part_tiers WHERE part_id = ANY(%s)", ([loose.id, library.id],)).fetchall()}
-        self.assertEqual(tiered, {library.id}, "a watch on a non-library part is never polled")
+        self.assertEqual(tiered, {loose.id, library.id}, "a watch on a part no component names is polled too")
 
-    def test_a_notice_must_name_library_parts(self) -> None:
+    def test_a_notice_may_name_a_part_no_component_names(self) -> None:
         body = {"title": "EOL", "kind": "end_of_life", "parts": [{"manufacturer": "Nobody", "mpn": f"LOOSE-{uuid.uuid4().hex[:8]}"}]}
         from app.api import supply_pcn
 
@@ -203,7 +203,7 @@ class ComponentPartsTests(unittest.TestCase):
         install_error_handlers(app)
         app.include_router(supply_pcn.router)
         answer = _request(app, "POST", "/api/supply/notices", user=self.users["admin"], body=body)
-        self.assertEqual((answer.status, answer.json["code"]), (400, "not_in_library"))
+        self.assertEqual(answer.status, 201, answer.text)
 
     def test_one_off_results_for_non_library_numbers_expire(self) -> None:
         from datetime import datetime, timedelta, timezone

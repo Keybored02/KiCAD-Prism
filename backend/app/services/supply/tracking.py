@@ -408,8 +408,7 @@ def _sources(conn, part_ids: Sequence[str] | None) -> dict[str, list[dict[str, A
             found.setdefault(row["part_id"], []).append(
                 {"kind": "component", "ref": row["component_id"], "tier": int(row["tier"]), "rate": row["rate"]}
             )
-    library = component_parts.in_library(conn, found)
-    return {part_id: reasons for part_id, reasons in found.items() if part_id in library}
+    return found
 
 
 def _decide(reasons: list[dict[str, Any]]) -> tuple[int, str]:

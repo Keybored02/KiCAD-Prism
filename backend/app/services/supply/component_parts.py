@@ -282,20 +282,11 @@ def remove_alternate(conn, component_id: str, part_id: str, actor: str) -> None:
     write_audit(conn, actor, "component_part.remove", component_id, {"part_id": part_id}, subject_kind="component")
 
 
-def in_library(conn, part_ids: Iterable[str]) -> set[str]:
-    """The parts among these that are in the library (every one of them in a schema without the catalog)."""
-
-    wanted = sorted({str(item) for item in part_ids if item})
-    if not wanted or not library_present(conn):
-        return set(wanted)
-    rows = conn.execute(
-        "SELECT DISTINCT part_id FROM component_parts WHERE part_id = ANY(%s) AND approval = 'approved'", (wanted,)
-    ).fetchall()
-    return {row["part_id"] for row in rows}
-
-
 def library_part(conn, manufacturer: str, mpn: str, actor: str, *, may_create: bool = True) -> parts.PartRecord:
-    """The library part for a manufacturer and part number, or ``NotInLibrary``.
+    """The part for a manufacturer and part number: the library's when a component names the number, else the part itself.
+
+    A number no component names is tracked all the same (its part is made or found as with no library); ``NotInLibrary`` is only
+    for a line with no usable number.
 
     The components whose current revision names the number have their main part synced first, so a component added
     since the last hourly sync counts at once. One library part with the number is that part whatever the maker is
@@ -326,7 +317,7 @@ def library_part(conn, manufacturer: str, mpn: str, actor: str, *, may_create: b
     ).fetchall()
     library = [row["id"] for row in rows]
     if not library:
-        raise NotInLibrary(mpn)
+        return parts.ensure_part(conn, manufacturer, mpn, actor, may_create=may_create)
     found = parts.find_part(conn, manufacturer, mpn)
     if found and found.id in library:
         return found
