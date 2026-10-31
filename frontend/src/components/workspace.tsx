@@ -30,6 +30,10 @@ import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
 
 const WORKSPACE_PAGE_SIZE = 25;
 
+const ManufacturingDashboard = lazy(() =>
+  import("./manufacturing/manufacturing-dashboard").then((module) => ({ default: module.ManufacturingDashboard }))
+);
+
 const ImportDialog = lazy(() =>
   import("./import-dialog").then((module) => ({ default: module.ImportDialog }))
 );
@@ -90,7 +94,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
   const requestedSectionParam = searchParams.get("section");
   const requestedSection: WorkspaceSection =
-    requestedSectionParam === "library-manager" || requestedSectionParam === "supply" ? requestedSectionParam : "projects";
+    requestedSectionParam === "library-manager" || requestedSectionParam === "supply" || requestedSectionParam === "manufacturing" ? requestedSectionParam : "projects";
   const [section, setSection] = useState<WorkspaceSection>(requestedSection);
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -165,12 +169,14 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     setSection(nextSection);
     setSearchParams((currentParams) => {
       const next = new URLSearchParams(currentParams);
-      if (nextSection === "library-manager" || nextSection === "supply") {
+      if (nextSection === "library-manager" || nextSection === "supply" || nextSection === "manufacturing") {
         next.set("section", nextSection);
         // Each section owns its own view parameter; leaving one drops the other's.
         next.delete(nextSection === "supply" ? "libraryView" : "supplyView");
       } else {
         next.delete("section");
+      }
+      if (nextSection !== "library-manager") {
         next.delete("libraryView");
         next.delete("supplyView");
         next.delete("session");
@@ -691,6 +697,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                     onOpenLibraryManager={() => {}}
                   />
                 )
+              ) : section === "manufacturing" ? (
+                <Suspense fallback={<WorkspaceLoadingState />}>
+                  <ManufacturingDashboard user={user} projects={projects} />
+                </Suspense>
               ) : (
                 <div className="flex h-full min-h-0 flex-col p-6">
                   <WorkspaceBreadcrumbs
