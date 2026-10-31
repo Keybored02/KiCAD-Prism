@@ -7,7 +7,6 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listPartNotices: vi.fn(),
   addNotice: vi.fn(),
-  closeNotice: vi.fn(),
   checkPartNotices: vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
@@ -15,13 +14,14 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: v
 import { NoticesSection } from "./notices-section";
 import { toast } from "sonner";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 const part = { id: "p1", manufacturer: "Acme", mpn: "ABC-1" };
 
 const notice: SupplyNotice = {
   id: "n1", title: "PCN-1234", kind: "end_of_life", kind_label: "End of life", notice_url: "https://acme.example/pcn.pdf",
-  last_time_buy: "2026-04-15", last_time_ship: null, notes: "", state: "open", created_by: "a@example.com", parts: 3,
+  last_time_buy: "2026-04-15", last_time_ship: null, notes: "", state: "open", created_by: "a@example.com", created_at: "2026-03-01T00:00:00+00:00", parts: 3,
   source: "manual", source_label: "Entered by hand", published_on: null,
 };
 
@@ -35,7 +35,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.listPartNotices.mockResolvedValue([notice]);
   mocked.addNotice.mockResolvedValue({ id: "n2" });
-  mocked.closeNotice.mockResolvedValue();
 });
 afterEach(cleanup);
 
@@ -71,6 +70,7 @@ describe("the notices section", () => {
     await screen.findByText(notice.title);
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     render(<NoticesSection part={part} canEdit={false} />);
     await screen.findByText(notice.title);
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
@@ -94,6 +94,7 @@ describe("the notices section", () => {
     expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
     expect(screen.getByText("(1)")).toBeTruthy();
     unmount();
+    forgetServerState([]);
     mocked.listPartNotices.mockResolvedValue([notice]);
     const ending = render(<NoticesSection part={part} canEdit={false} />);
     await screen.findByText("PCN-1234");
@@ -119,6 +120,7 @@ describe("the notices section", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Check notices/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("a moment ago")));
     cleanup();
+    forgetServerState([]);
     render(<NoticesSection part={part} canEdit={false} />);
     await screen.findByText("PCN-1234");
     expect(screen.queryByRole("button", { name: /Check notices/ })).toBeNull();

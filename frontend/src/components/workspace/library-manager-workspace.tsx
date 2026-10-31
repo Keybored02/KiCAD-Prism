@@ -1,10 +1,9 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Database, DownloadCloud, Hourglass, PackageCheck, Table2, type LucideIcon } from "lucide-react";
+import { Database, DownloadCloud, PackageCheck, Table2, type LucideIcon } from "lucide-react";
 
 import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs } from "@/components/ui/tabs";
-import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
@@ -13,32 +12,44 @@ const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspac
 const LibraryComponentWorkspace = lazy(() => import("./library-component-workspace").then((module) => ({ default: module.LibraryComponentWorkspace })));
 const LibraryImportCenter = lazy(() => import("./library-import-center").then((module) => ({ default: module.LibraryImportCenter })));
 const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
-const EndingPartsView = lazy(() => import("@/features/supply/ending-parts-view").then((module) => ({ default: module.EndingPartsView })));
 
-type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "ending";
+type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases";
 
 const VIEW_LABELS: Record<LibraryView, string> = {
   catalog: "Catalog",
   "bulk-edit": "Bulk Edit",
   imports: "Import Center",
   releases: "Release Queue",
-  ending: "Ending Parts",
 };
+
+const VIEWS: LibraryView[] = ["catalog", "bulk-edit", "imports", "releases"];
+const MOVED_TO_SUPPLY: Readonly<Record<string, string>> = { ending: "dashboard", review: "review", connectors: "sources" };
 
 const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
   catalog: Database,
   "bulk-edit": Table2,
   imports: DownloadCloud,
   releases: PackageCheck,
-  ending: Hourglass,
 };
 
 export function LibraryManagerWorkspace({ user, projects }: { user: User | null; projects: Project[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const componentId = searchParams.get("component") || "";
   const requestedView = searchParams.get("libraryView") as LibraryView | null;
-  const views: LibraryView[] = canOpenSupply(user?.role) ? ["catalog", "bulk-edit", "imports", "releases", "ending"] : ["catalog", "bulk-edit", "imports", "releases"];
-  const view: LibraryView = requestedView && views.includes(requestedView) ? requestedView : "catalog";
+  // Ending Parts became notifications on the Supply Dashboard; Review and Connectors moved to Supply (Connectors as Sources). An old
+  // address, or a sign-in started before the move, goes there keeping its result.
+  const movedTo = MOVED_TO_SUPPLY[(requestedView as string | null) ?? ""];
+  useEffect(() => {
+    if (!movedTo) return;
+    setSearchParams((current) => {
+      const updated = new URLSearchParams(current);
+      updated.delete("libraryView");
+      updated.set("section", "supply");
+      updated.set("supplyView", movedTo);
+      return updated;
+    }, { replace: true });
+  }, [movedTo, setSearchParams]);
+  const view: LibraryView = requestedView && VIEWS.includes(requestedView) ? requestedView : "catalog";
 
   const setView = (next: LibraryView) => {
     setSearchParams((current) => {
@@ -90,7 +101,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
             Enter selects. */}
         <Tabs value={view} activationMode="manual" className="shrink-0">
           <StudioTabsList aria-label="Library Manager sections">
-            {views.map((item) => {
+            {VIEWS.map((item) => {
               const Icon = VIEW_ICONS[item];
               return (
                 <StudioTabsTrigger
@@ -113,7 +124,6 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
-        {view === "ending" && <EndingPartsView role={user?.role} onOpenComponent={(id) => openComponent(id, "overview", "ending")} />}
       </div>
       </Suspense>
     </div>

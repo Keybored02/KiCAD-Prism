@@ -16,7 +16,9 @@ vi.mock("@/features/supply/supply-api", () => ({
   lookupSupplyBom: vi.fn(),
   watchSupplyBomLines: vi.fn(),
   getSupplyPart: vi.fn(),
+  readSupplyPartOnView: vi.fn(async () => ({ read: 0 })),
 }));
+
 
 // Recharts is slow to load cold and is not what these tests are about.
 vi.mock("@/features/supply/stock-chart", () => ({ default: () => <div role="img" aria-label="Stock over the last 90 days" /> }));
@@ -26,6 +28,7 @@ import { lineKey } from "@/features/supply/bom-supply";
 import { partDetailFixture } from "@/features/supply/supply-test-fixtures";
 import { toast } from "sonner";
 import { EngineeringBomTable } from "./engineering-bom-table";
+import { bomBuyFixture, bomLineFixture, bomRollupFixture } from "@/features/supply/supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
@@ -59,25 +62,27 @@ const key = (maker: string, mpn: string) => lineKey({ manufacturer: maker, mpn }
 function lookupFor(build: number): SupplyBomLookup {
   return {
     build_quantity: build,
+    attrition_percent: 0,
+    attrition_by_part: null,
     lines: {
-      [key("Acme", "R-10K")]: {
+      [key("Acme", "R-10K")]: bomLineFixture({
         state: "tracked", part_id: "p1", manufacturer_match: "exact", need: 2 * build, watched: true, status: "ok", stock: 5000,
         lifecycle: "active", lead_time_days: 28, short: false,
-        buy: { quantity: 100, unit_price: "0.05", currency: "EUR", extended: "5", covers: true, connector_name: "TME", sku: "R-10K-TME", product_url: "https://shop.example/r" },
-      },
-      [key("Acme", "C-100N")]: {
+        buy: bomBuyFixture({ quantity: 100, unit_price: "0.05", currency: "EUR", extended: "5", covers: true, connector_name: "TME", sku: "R-10K-TME", product_url: "https://shop.example/r" }),
+      }),
+      [key("Acme", "C-100N")]: bomLineFixture({
         state: "tracked", part_id: "p2", manufacturer_match: "exact", need: build, watched: false, status: "error", stock: 3,
         lifecycle: "active", lead_time_days: null, short: true, buy: null,
-      },
-      [key("Other", "C-220N")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
-      [key("Acme", "R-47K-A")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
-      [key("Acme", "R-47K-B")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
-      [key("", "")]: { state: "no_mpn", part_id: null, manufacturer_match: null, need: build },
+      }),
+      [key("Other", "C-220N")]: bomLineFixture({ state: "unknown", part_id: null, manufacturer_match: null, need: build }),
+      [key("Acme", "R-47K-A")]: bomLineFixture({ state: "unknown", part_id: null, manufacturer_match: null, need: build }),
+      [key("Acme", "R-47K-B")]: bomLineFixture({ state: "unknown", part_id: null, manufacturer_match: null, need: build }),
+      [key("", "")]: bomLineFixture({ state: "no_mpn", part_id: null, manufacturer_match: null, need: build }),
     },
-    rollup: {
+    rollup: bomRollupFixture({
       lines: 4, tracked: 2, not_tracked: 2, watched: 1, at_risk: 1, short: 1, priced: 1, lines_priced: 1, parts: 2, currency: "EUR",
       cost_build: "5.00", cost_per_board: "0.5000", can_build: 3, limited_by: key("Acme", "C-100N"), without_stock_data: 0, health: 7.5, health_status: "ok",
-    },
+    }),
   };
 }
 
@@ -102,7 +107,8 @@ function renderTable(role: UserRole | null, projectId?: string, atHead = true) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.lookupSupplyBom.mockImplementation(async (_lines, build) => lookupFor(build));
+  // The server prices for the project's usual build, one board without one.
+  mocked.lookupSupplyBom.mockImplementation(async (_lines, options) => lookupFor(options?.projectId === "prj_1" ? 10 : 1));
   window.localStorage.clear();
 });
 afterEach(cleanup);
@@ -114,11 +120,18 @@ function rowOf(value: string): HTMLElement {
 }
 
 describe("supply columns on the BOM", () => {
+  it("asks the server to price a project's BOM at its usual build and spares, as the project page does", async () => {
+    renderTable("admin", "prj_1");
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalled());
+    const [, options] = mocked.lookupSupplyBom.mock.calls[0];
+    expect(options).toEqual(expect.objectContaining({ projectId: "prj_1" }));
+    expect(options?.buildQuantity).toBeUndefined();
+  });
+
   it("asks only for fitted parts and shows each row's figures", async () => {
     renderTable("designer");
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalled());
-    const [lines, build] = mocked.lookupSupplyBom.mock.calls[0];
-    expect(build).toBe(1);
+    const [lines] = mocked.lookupSupplyBom.mock.calls[0];
     expect(lines.map((line) => [line.mpn, line.quantity]).sort()).toEqual(
       [["", 1], ["C-100N", 1], ["C-220N", 1], ["R-10K", 2], ["R-47K-A", 1], ["R-47K-B", 1]],
     );
@@ -128,7 +141,7 @@ describe("supply columns on the BOM", () => {
     const resistors = rowOf("10k");
     expect(await within(resistors).findByText("OK")).toBeTruthy();
     expect(within(resistors).getByText("5,000")).toBeTruthy();
-    expect(within(resistors).getByText("4 wk")).toBeTruthy();
+    expect(within(resistors).getByText("4 w")).toBeTruthy();
   });
 
   it("marks a shortage and a part nobody watches", async () => {
@@ -149,8 +162,8 @@ describe("supply columns on the BOM", () => {
       expect(within(found).getByText("2 parts")).toBeTruthy();
       return found;
     });
-    // Four supply columns, and the table's own "Mixed" for the differing part numbers.
-    expect(within(row).getAllByRole("img", { name: /^Mixed/ })).toHaveLength(4);
+    // Six supply columns besides Supply, and the table's own "Mixed" for the differing part numbers.
+    expect(within(row).getAllByRole("img", { name: /^Mixed/ })).toHaveLength(6);
     expect(within(row).getAllByText("Mixed")).toHaveLength(1);
   });
 
@@ -164,7 +177,7 @@ describe("supply columns on the BOM", () => {
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
     expect(screen.queryByLabelText("Boards to build")).toBeNull();
     expect(screen.queryByLabelText("Spare parts, percent")).toBeNull();
-    expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.anything());
+    expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ projectId: "prj_1" }));
     expect(screen.queryByRole("link", { name: "Project supply" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Track|Tracking settings/ })).toBeNull();
   });
@@ -186,9 +199,50 @@ describe("supply columns on the BOM", () => {
   });
 });
 
+describe("the supply column set", () => {
+  const SUPPLY_HEADERS = [
+    "Reference", "Manufacturer Part Number", "Qty",
+    "Supply", "Stock", "Stores", "Unit price", "Extended", "Distributor", "Lead time",
+  ];
+  const headerNames = () => screen.getAllByRole("columnheader").map((cell) => cell.textContent);
+
+  it("leaves exactly the columns a supply engineer reads, in order", () => {
+    renderTable("designer");
+    expect(headerNames()).not.toEqual(SUPPLY_HEADERS);
+    fireEvent.click(screen.getByRole("button", { name: "Supply columns" }));
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+  });
+
+  it("puts the table back as it was when pressed again", () => {
+    renderTable("designer");
+    const before = headerNames();
+    const toggle = screen.getByRole("button", { name: "Supply columns" });
+    fireEvent.click(toggle);
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+    fireEvent.click(toggle);
+    expect(headerNames()).toEqual(before);
+  });
+
+  it("remembers the choice for the next visit", () => {
+    renderTable("designer");
+    fireEvent.click(screen.getByRole("button", { name: "Supply columns" }));
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+    cleanup();
+
+    renderTable("designer");
+    expect(headerNames()).toEqual(SUPPLY_HEADERS);
+    expect(screen.getByRole("button", { name: "Supply columns" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("has no switch for a reader without supply access", () => {
+    renderTable("viewer");
+    expect(screen.queryByRole("button", { name: "Supply columns" })).toBeNull();
+  });
+});
+
 describe("actions on the BOM", () => {
   it("reports a lookup that failed and retries", async () => {
-    mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async (_lines, build) => lookupFor(build));
+    mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async () => lookupFor(1));
     renderTable("designer");
     expect(await screen.findByText("Backend is down")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -209,7 +263,7 @@ describe("the part drawer", () => {
   }
 
   it("lists every part on a row that holds several, with a way to watch the unknown ones", async () => {
-    mocked.watchSupplyBomLines.mockResolvedValue({ watched: 1, already_watched: 0, skipped: [] });
+    mocked.watchSupplyBomLines.mockResolvedValue({ watched: 1, already_watched: 0, lcsc_linked: 0, skipped: [] });
     renderTable("designer");
     const drawer = await openDetails("47k");
     expect(within(drawer).getByText("2 parts on this row")).toBeTruthy();

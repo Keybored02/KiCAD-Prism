@@ -48,6 +48,13 @@ def get_spec(key: str) -> ProviderSpec:
         raise UnknownProvider(key) from None
 
 
+def is_simulated(key: str) -> bool:
+    """Whether a provider only makes figures up (the Simulated market): its prices and stock are test data, marked wherever they show."""
+
+    spec = _specs.get(key)
+    return bool(spec and spec.dev_only)
+
+
 def list_specs(*, include_dev: bool = False) -> list[ProviderSpec]:
     return sorted(
         (spec for spec in _specs.values() if include_dev or not spec.dev_only),

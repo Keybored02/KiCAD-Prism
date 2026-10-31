@@ -13,6 +13,7 @@ const SPARE: ReadonlyArray<{ id: keyof Schedule["spare"]; label: string }> = [
   { id: "waiting", label: "Parts waiting for room" },
   { id: "tier2_early", label: "Tier 2 parts ahead of schedule" },
   { id: "notices", label: "Change notices of untracked parts" },
+  { id: "library", label: "Library parts nobody follows" },
 ];
 
 function Form({ initial, readOnly }: { initial: Schedule; readOnly: boolean }) {
@@ -44,7 +45,7 @@ function Form({ initial, readOnly }: { initial: Schedule; readOnly: boolean }) {
 /** Which spare work is on. Administrators change it; anyone else sees it. */
 export function ScheduleSettings({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => getSchedule(signal), []);
-  const { data, status } = useLoaded<Schedule>("schedule", fetcher, "Could not load the schedule");
+  const { data, status } = useLoaded<Schedule>("settings/schedule", fetcher, "Could not load the schedule");
   if (status !== "ready" || !data) return null;
   return <Form initial={data} readOnly={readOnly} />;
 }

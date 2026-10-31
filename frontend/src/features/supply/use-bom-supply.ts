@@ -5,7 +5,7 @@ import type { SemanticComponent } from "@/types/prism-selection";
 import type { User } from "@/types/auth";
 import type { SupplyBomLookup, SupplyBomWatchResult } from "@/types/supply";
 import { buildLines, lineInput, type BomLineDetail } from "./bom-supply";
-import { getAssessmentSettings, lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
+import { lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
 // A lookup takes this many lines; a BOM with more shows the first ones and says so.
@@ -17,9 +17,9 @@ export interface BomSupply {
   /** False for roles that cannot read supply data: the table then shows nothing extra. */
   enabled: boolean;
   canWatch: boolean;
-  /** The boards the figures are for: one. */
+  /** The boards the figures are for: the tracked project's usual build, else one (UX-05, Q2). */
   buildQuantity: number;
-  /** Spares on top of what the boards use, as a percentage; null is by kind of part (small passives get some). The workspace's setting. */
+  /** Spares on top of what the boards use, as a percentage; null is by kind of part (small passives get some). As the server priced. */
   attritionPercent: number | null;
   /** The project the BOM is from; empty when it is not known. */
   projectId: string;
@@ -42,25 +42,23 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set();
 /** Supply figures for the fitted parts of a BOM, looked up once per change of parts or build size. */
 export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null, projectId = ""): BomSupply {
   const enabled = canOpenSupply(user?.role);
-  // The figures are for one board, with the workspace's spares (Supply settings), which the lookup waits for.
-  const settingsFetcher = useCallback((signal: AbortSignal) => getAssessmentSettings(signal), []);
-  const workspace = useLoaded("assessment-settings", settingsFetcher, "Could not load the settings", "supply");
-  const fallback = workspace.data?.settings;
-  const attritionPercent = fallback ? (fallback.spares_mode === "package" ? null : fallback.spares_percent) : 0;
   const allLines = useMemo(() => (enabled ? buildLines(fitted) : []), [enabled, fitted]);
   const lines = useMemo(() => allLines.slice(0, MAX_LINES), [allLines]);
   const fittedKeys = useMemo(() => (lines.length ? new Set(lines.map((line) => line.key)) : EMPTY_KEYS), [lines]);
 
+  // The server prices for the project's usual build and spares, as the project page does; one board with the workspace's spares
+  // for an untracked project or none.
   const requestKey = useMemo(
-    () => (enabled && lines.length > 0 && workspace.status !== "loading" ? `${BUILD_QUANTITY}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
-    [enabled, lines, attritionPercent, workspace.status],
+    () => (enabled && lines.length > 0 ? `${projectId}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
+    [enabled, lines, projectId],
   );
   const fetcher = useCallback(
-    (signal: AbortSignal) =>
-      lookupSupplyBom(lines.map(lineInput), BUILD_QUANTITY, { signal, attritionPercent }),
-    [lines, attritionPercent],
+    (signal: AbortSignal) => lookupSupplyBom(lines.map(lineInput), { signal, projectId }),
+    [lines, projectId],
   );
-  const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
+  const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey === null ? null : `bom-lookup/${requestKey}`, fetcher, "Could not look the BOM up");
+  const buildQuantity = data?.build_quantity ?? BUILD_QUANTITY;
+  const attritionPercent = data?.attrition_percent ?? null;
 
   const watchLines = useCallback(async (subset: readonly BomLineDetail[]) => {
     const batches: BomLineDetail[][] = [];
@@ -84,7 +82,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   return {
     enabled,
     canWatch: canEditSupply(user?.role),
-    buildQuantity: BUILD_QUANTITY,
+    buildQuantity,
     attritionPercent,
     projectId,
     lines,

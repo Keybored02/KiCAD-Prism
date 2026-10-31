@@ -9,20 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.supply import facts, parts, trade
+from app.services.supply import clock, facts, parts, trade
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 MAX_ECCN = 40
 
 
-class TradeMarkError(ValueError):
+class TradeMarkError(Refused):
     """The mark cannot be set. The message is safe to show."""
+
+    code = "invalid_trade_mark"
 
 
 def state(conn, part_id: str) -> dict[str, Any]:
     """``control`` (controlled, none, disputed, unknown), the classes behind it and the person's mark when there is one."""
 
-    mark = conn.execute("SELECT control, eccn, set_by, set_at FROM part_trade_marks WHERE part_id = %s", (part_id,)).fetchone()
+    mark = conn.execute("SELECT control, eccn, set_by, set_at FROM supply_part_trade_marks WHERE part_id = %s", (part_id,)).fetchone()
     entries = {fact["name"]: fact["sources"] for fact in facts.for_part(conn, part_id)}
     classes = list(dict.fromkeys(source["value"].strip() for source in entries.get("eccn", []) if source["value"].strip()))
     stated = trade.control_of(classes)
@@ -45,10 +48,10 @@ def set_mark(conn, part_id: str, control: str, eccn: str, actor: str) -> None:
     before = state(conn, part_id)["control"]
     conn.execute(
         """
-        INSERT INTO part_trade_marks (part_id, control, eccn, set_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id) DO UPDATE SET control = EXCLUDED.control, eccn = EXCLUDED.eccn, set_by = EXCLUDED.set_by, set_at = NOW()
+        INSERT INTO supply_part_trade_marks (part_id, control, eccn, set_by, set_at) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id) DO UPDATE SET control = EXCLUDED.control, eccn = EXCLUDED.eccn, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
         """,
-        (part_id, control, code if control == "controlled" else "", actor),
+        (part_id, control, code if control == "controlled" else "", actor, clock.now()),
     )
     write_audit(conn, actor, "part.trade_mark", part_id, {"before": before, "after": control, "eccn": code}, subject_kind="part")
 
@@ -56,7 +59,7 @@ def set_mark(conn, part_id: str, control: str, eccn: str, actor: str) -> None:
 def clear_mark(conn, part_id: str, actor: str) -> bool:
     actor = actor_text(actor)
     before = state(conn, part_id)["control"]
-    removed = conn.execute("DELETE FROM part_trade_marks WHERE part_id = %s", (part_id,)).rowcount
+    removed = conn.execute("DELETE FROM supply_part_trade_marks WHERE part_id = %s", (part_id,)).rowcount
     if removed:
         write_audit(conn, actor, "part.trade_mark", part_id, {"before": before, "after": None}, subject_kind="part")
     return bool(removed)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.supply import discovery, parts, settle
+from app.services.supply import component_parts, discovery, parts, settle
 from app.services.supply.identity import alias_key, match_key
 
 # Another maker's listing of a number (near) is kept on the part and shown there; only the legacy waiting state is queued.
@@ -19,8 +19,8 @@ _WAITING_STATES = (discovery.UNRESOLVED,)
 
 def manufacturers(conn, *, limit: int = 1000) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT m.id, m.name, COUNT(p.id) AS part_count FROM manufacturers m "
-        "LEFT JOIN parts p ON p.manufacturer_id = m.id GROUP BY m.id, m.name ORDER BY lower(m.name) LIMIT %s",
+        "SELECT m.id, m.name, COUNT(p.id) AS part_count FROM supply_manufacturers m "
+        "LEFT JOIN supply_parts p ON p.manufacturer_id = m.id GROUP BY m.id, m.name ORDER BY lower(m.name) LIMIT %s",
         (limit,),
     ).fetchall()
     return [{"id": row["id"], "name": row["name"], "part_count": int(row["part_count"])} for row in rows]
@@ -36,14 +36,14 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.raw_mpn, c.display_name AS connector, p.id AS part_id, p.mpn, p.match_key, m.name AS manufacturer
-        FROM listings l JOIN parts p ON p.id = l.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        JOIN connectors c ON c.id = l.connector_id
+        FROM supply_listings l JOIN supply_parts p ON p.id = l.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.match_state = 'manual' ORDER BY lower(p.mpn), c.display_name, l.sku LIMIT %s
         """,
         (limit,),
     ).fetchall()
     others: dict[str, set[str]] = {}
-    for item in conn.execute("SELECT part_id, match_key FROM part_numbers").fetchall():
+    for item in conn.execute("SELECT part_id, match_key FROM supply_part_numbers").fetchall():
         others.setdefault(item["part_id"], set()).add(item["match_key"])
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -56,17 +56,54 @@ def other_number_pins(conn, *, limit: int = 2000) -> list[dict[str, Any]]:
 
 
 def to_approve(conn, *, limit: int = 200) -> dict[str, list[dict[str, Any]]]:
-    """What QA and administrators have been asked to approve: waivers proposed on a finding."""
+    """What QA and administrators have been asked to approve: waivers proposed on a finding, alternates proposed for a component,
+    ending components proposed for dismissal, and alerts someone asked to switch off on a part."""
 
     waivers = conn.execute(
         """
-        SELECT w.id, w.part_id, p.mpn, m.name AS manufacturer, w.check_id, w.scope, w.reason, w.proposed_by, w.proposed_at
-        FROM waivers w JOIN parts p ON p.id = w.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        WHERE w.state = 'proposed' ORDER BY w.proposed_at LIMIT %s
+        SELECT d.id, d.part_id, p.mpn, m.name AS manufacturer, d.kind AS check_id, d.scope, d.reason, d.made_by AS proposed_by, d.made_at AS proposed_at
+        FROM supply_attention_decisions d JOIN supply_parts p ON p.id = d.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        WHERE d.decision = 'waive' AND d.state = 'proposed' AND d.attention_id IS NULL ORDER BY d.made_at LIMIT %s
         """,
         (limit,),
     ).fetchall()
-    return {"waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers]}
+    mutes = conn.execute(
+        """
+        SELECT d.id, d.part_id, p.mpn, m.name AS manufacturer, d.kind, d.made_by AS proposed_by, d.made_at AS proposed_at
+        FROM supply_attention_decisions d JOIN supply_parts p ON p.id = d.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        WHERE d.decision = 'mute' AND d.state = 'proposed' AND d.attention_id IS NULL ORDER BY d.made_at LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    dismissals = conn.execute(
+        """
+        SELECT d.id, d.component_id, r.name AS component_name, r.mpn AS component_mpn, d.scope AS reasons, d.made_by AS proposed_by,
+               d.made_at AS proposed_at
+        FROM supply_attention_decisions d JOIN components c ON c.id = d.component_id JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE d.decision = 'dismiss' AND d.state = 'proposed' AND d.attention_id IS NULL AND c.is_active = 1 ORDER BY d.made_at LIMIT %s
+        """,
+        (limit,),
+    ).fetchall() if component_parts.library_present(conn) else []
+    alternates = conn.execute(
+        """
+        SELECT cp.component_id, r.name AS component_name, r.mpn AS component_mpn, cp.part_id, p.mpn, m.name AS manufacturer,
+               cp.created_by AS proposed_by, cp.created_at AS proposed_at,
+               COALESCE(main.part_id, '') AS main_part_id, COALESCE(mp.mpn, '') AS main_mpn
+        FROM component_parts cp JOIN supply_parts p ON p.id = cp.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN components c ON c.id = cp.component_id JOIN component_revisions r ON r.id = c.current_revision_id
+        LEFT JOIN component_parts main ON main.component_id = cp.component_id AND main.role = 'main'
+        LEFT JOIN supply_parts mp ON mp.id = main.part_id
+        WHERE cp.role = %s AND cp.approval = %s AND c.is_active = 1 ORDER BY cp.created_at LIMIT %s
+        """,
+        (component_parts.ALTERNATE, component_parts.PENDING, limit),
+    ).fetchall() if component_parts.library_present(conn) else []
+    return {
+        "waivers": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in waivers],
+        "alternates": [{**dict(row), "component_id": str(row["component_id"]), "proposed_at": row["proposed_at"].isoformat()} for row in alternates],
+        "dismissals": [{**dict(row), "component_id": str(row["component_id"]), "reasons": row["reasons"].split(","),
+                        "proposed_at": row["proposed_at"].isoformat()} for row in dismissals],
+        "mutes": [{**dict(row), "proposed_at": row["proposed_at"].isoformat()} for row in mutes],
+    }
 
 
 def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
@@ -75,8 +112,8 @@ def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
     learned = conn.execute(
         """
         SELECT a.alias_key, a.alias_text, m.name AS manufacturer, a.first_seen_at,
-               (SELECT COUNT(*) FROM part_spellings s WHERE s.alias_key = a.alias_key) AS parts
-        FROM manufacturer_aliases a JOIN manufacturers m ON m.id = a.manufacturer_id
+               (SELECT COUNT(*) FROM supply_part_spellings s WHERE s.alias_key = a.alias_key) AS parts
+        FROM supply_manufacturer_aliases a JOIN supply_manufacturers m ON m.id = a.manufacturer_id
         WHERE a.source = 'learned' ORDER BY a.first_seen_at DESC LIMIT %s
         """,
         (limit,),
@@ -84,7 +121,7 @@ def matched_by_prism(conn, *, limit: int = 100) -> dict[str, Any]:
     settled = conn.execute(
         """
         SELECT e.subject_id AS part_id, p.mpn, m.name AS manufacturer, e.at
-        FROM audit_events e JOIN parts p ON p.id = e.subject_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_audit_events e JOIN supply_parts p ON p.id = e.subject_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE e.action = 'part.settle' AND e.actor = %s ORDER BY e.at DESC LIMIT %s
         """,
         (settle.SYSTEM, limit),
@@ -104,11 +141,11 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
                l.match_state, l.match_reason, l.first_seen_at, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
                o.reel_size, o.packaging_inferred,
                p.id AS part_id, p.mpn AS part_mpn, m.name AS part_manufacturer
-        FROM listings l
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN offers o ON o.listing_id = l.id
-        LEFT JOIN parts p ON p.id = l.part_id
-        LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_listings l
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_offers o ON o.listing_id = l.id
+        LEFT JOIN supply_parts p ON p.id = l.part_id
+        LEFT JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE l.match_state = ANY(%s)
         ORDER BY l.first_seen_at DESC, l.sku
         LIMIT %s
@@ -118,13 +155,13 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
     counts = {
         row["match_state"]: int(row["n"])
         for row in conn.execute(
-            "SELECT match_state, COUNT(*) AS n FROM listings WHERE match_state = ANY(%s) GROUP BY match_state",
+            "SELECT match_state, COUNT(*) AS n FROM supply_listings WHERE match_state = ANY(%s) GROUP BY match_state",
             (list(_WAITING_STATES),),
         ).fetchall()
     }
     waiting_by_alias: dict[str, int] = {}
     for row in conn.execute(
-        "SELECT raw_manufacturer FROM listings WHERE match_state = %s", (discovery.UNRESOLVED,)
+        "SELECT raw_manufacturer FROM supply_listings WHERE match_state = %s", (discovery.UNRESOLVED,)
     ).fetchall():
         key = alias_key(row["raw_manufacturer"])
         waiting_by_alias[key] = waiting_by_alias.get(key, 0) + 1

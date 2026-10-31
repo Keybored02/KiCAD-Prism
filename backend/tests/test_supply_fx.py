@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import fx  # noqa: E402
 from app.services.supply.providers.base import ProviderError  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
@@ -77,6 +78,7 @@ class FxDatabaseTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_fx.router)
         cls.app.include_router(supply_bom.router)
         supply_connectors.register_validation_redaction(cls.app)
@@ -92,10 +94,10 @@ class FxDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("fx_rates", "settings", "offers", "listings", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_fx_rates", "supply_settings", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider, storefront, display_name) VALUES ('c1', 'fake', 'EU', 'Eur shop'), ('c2', 'fake', 'US', 'Usd shop')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, storefront, display_name) VALUES ('c1', 'fake', 'EU', 'Eur shop'), ('c2', 'fake', 'US', 'Usd shop')")
 
     def call(self, method: str, path: str, *, role: str = "admin", body=None, query: str = ""):
         return _request(self.app, method, path, user=self.users[role], body=body, query=query)
@@ -121,10 +123,10 @@ class FxDatabaseTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, connector, sku, part_id))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, price_breaks, currency, moq) VALUES (%s, %s, 5000, %s::jsonb, %s, 1)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, price_breaks, currency, moq) VALUES (%s, %s, 5000, %s::jsonb, %s, 1)",
                 (listing_id, NOW, json.dumps([[1, price]]), currency))
 
     def lookup(self, lines):
@@ -160,7 +162,23 @@ class FxDatabaseTests(unittest.TestCase):
         self.offer(one, "c2", "B", "0.50", "USD")
         result = self.lookup([{"key": "a", "manufacturer": "Acme", "mpn": "P-1", "quantity": 2}])
         self.assertEqual((result["rollup"]["currency"], result["rollup"]["converted"], result["rollup"]["cost_build"]), ("USD", False, "10.00"))
+        self.assertEqual((result["lines"]["a"]["buy"]["test_data"], result["rollup"]["test_data"]), (True, True), "the simulated market's price is test data")
         self.assertEqual(result["rollup"]["original_costs"], {})
+
+    def test_a_rupee_workspace_totals_euro_offers_in_rupees(self) -> None:
+        from app.services.supply import settings as supply_settings
+
+        with self.store.connection() as conn:
+            one = self.parts.ensure_part(conn, "Acme", "P-1", "seed@example.com").id
+            supply_settings.save_form(conn, supply_settings.to_dto(supply_settings.DEFAULTS) | {"base_currency": "INR"}, "admin@example.com")
+        self.offer(one, "c1", "A", "0.50", "EUR")
+        lines = [{"key": "a", "manufacturer": "Acme", "mpn": "P-1", "quantity": 2}]
+        self.assertEqual(self.lookup(lines)["rollup"]["currency"], "EUR", "no rupee rate yet: the euros stay euros")
+        with self.store.connection() as conn:
+            fx.store(conn, date(2026, 3, 2), {"INR": Decimal("106")}, "ecb")
+        rollup = self.lookup(lines)["rollup"]
+        self.assertEqual((rollup["currency"], rollup["converted"], rollup["cost_build"]), ("INR", True, "1060.00"))
+        self.assertEqual(rollup["original_costs"], {"EUR": "10.00"})
 
 
 if __name__ == "__main__":

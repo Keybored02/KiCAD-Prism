@@ -14,7 +14,7 @@ from app.services.supply.identity import alias_key
 
 
 def groups(conn) -> list[dict[str, Any]]:
-    rows = conn.execute("SELECT alias_key, group_key, alias_text, source FROM maker_seeds ORDER BY group_key, alias_key").fetchall()
+    rows = conn.execute("SELECT alias_key, group_key, alias_text, source FROM supply_maker_seeds ORDER BY group_key, alias_key").fetchall()
     found: dict[str, dict[str, Any]] = {}
     for row in rows:
         group = found.setdefault(row["group_key"], {"group_key": row["group_key"], "name": row["group_key"], "spellings": []})
@@ -31,13 +31,13 @@ def add(conn, spelling: str, group_key: str | None, actor: str) -> None:
     key = alias_key(spelling)
     if not key:
         raise ValueError("Give a spelling.")
-    if conn.execute("SELECT 1 FROM maker_seeds WHERE alias_key = %s", (key,)).fetchone():
+    if conn.execute("SELECT 1 FROM supply_maker_seeds WHERE alias_key = %s", (key,)).fetchone():
         raise ValueError("That spelling is already in a group.")
     group = group_key or key
-    if group_key and not conn.execute("SELECT 1 FROM maker_seeds WHERE group_key = %s LIMIT 1", (group_key,)).fetchone():
+    if group_key and not conn.execute("SELECT 1 FROM supply_maker_seeds WHERE group_key = %s LIMIT 1", (group_key,)).fetchone():
         raise ValueError("There is no such group.")
     conn.execute(
-        "INSERT INTO maker_seeds (alias_key, group_key, alias_text, source) VALUES (%s, %s, %s, 'person')", (key, group, spelling.strip()[:120])
+        "INSERT INTO supply_maker_seeds (alias_key, group_key, alias_text, source) VALUES (%s, %s, %s, 'person')", (key, group, spelling.strip()[:120])
     )
     write_audit(conn, actor, "maker_seed.add", key, {"group": group}, subject_kind="manufacturer_alias")
     makers.refresh(conn, force=True)
@@ -45,7 +45,7 @@ def add(conn, spelling: str, group_key: str | None, actor: str) -> None:
 
 def remove(conn, key: str, actor: str) -> bool:
     actor = actor_text(actor)
-    gone = conn.execute("DELETE FROM maker_seeds WHERE alias_key = %s RETURNING alias_key", (key,)).fetchone()
+    gone = conn.execute("DELETE FROM supply_maker_seeds WHERE alias_key = %s RETURNING alias_key", (key,)).fetchone()
     if gone:
         write_audit(conn, actor, "maker_seed.remove", key, {}, subject_kind="manufacturer_alias")
         makers.refresh(conn, force=True)

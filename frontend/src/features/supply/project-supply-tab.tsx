@@ -7,14 +7,16 @@ import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canOpenSupply } from "@/lib/roles";
+import { CreateComponentDialog } from "@/components/workspace/create-component-dialog";
+import { canOpenSupply, canWriteCatalog } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { ProjectSupply } from "@/types/supply";
+import type { ProjectSupply, ProjectSupplyPart } from "@/types/supply";
 import { ProjectCostCards, ProjectCostHistory } from "./project-cost-cards";
 import { ProjectHeadline } from "./project-headline";
 import { OpenPartSheet } from "./open-part-sheet";
 import { ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectPartsList } from "./project-parts-list";
+import { ProjectReadNow } from "./project-read-now";
 import { getProjectSupply } from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { SettleBadge } from "./settle-badge";
@@ -45,11 +47,12 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
   // The boards a person typed; until then the page is for the project's usual build (100 when it has none).
   const [boardsChoice, setBoards] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [adding, setAdding] = useState<ProjectSupplyPart | null>(null);
   const fetcher = useCallback(
     (signal: AbortSignal) => getProjectSupply(projectId, variant, boardsChoice ?? undefined, "", signal),
     [projectId, variant, boardsChoice],
   );
-  const loaded = useLoaded<ProjectSupply>(allowed ? `${projectId}:${variant}:${boardsChoice ?? "usual"}` : null, fetcher, "Could not load the project's supply");
+  const loaded = useLoaded<ProjectSupply>(allowed ? `projects/${projectId}/supply/${variant}|${boardsChoice ?? "usual"}` : null, fetcher, "Could not load the project's supply");
   // The controls stay while a change reloads the page, so a person can go on typing.
   const [last, setLast] = useState<ProjectSupply | null>(null);
   if (loaded.data && loaded.data !== last) setLast(loaded.data);
@@ -69,7 +72,6 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
   if (!supply) return <Skeleton className="h-48 w-full" aria-label="Loading the project's supply" />;
   // A part opens its sheet over the page, with `part` in the address so Back closes it.
   const open = (partId: string) => setSearchParams((current) => { const next = new URLSearchParams(current); next.set("part", partId); return next; });
-  const everyPart = supply.parts ?? [];
   // The buttons sit on the page's title row when the page gives a place for them, else at the end of this row.
   const actions = (
     <>
@@ -103,20 +105,28 @@ export function ProjectSupplyTab({ projectId, user, actionsSlot }: { projectId: 
           <ProjectCostHistory supply={supply} />
         </div>
       ) : null}
-      {supply.available ? null : (
-        <p className="border border-dashed p-6 text-sm text-muted-foreground">
-          This project's BOM has not been read yet. Open it in the Visualizer, or track the project, and its parts appear here.
-        </p>
-      )}
+      {supply.available ? null : <ProjectReadNow projectId={projectId} onRead={loaded.retry} />}
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
       {supply.available ? (
         <section aria-label="Parts" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
-          <ProjectPartsList projectId={projectId} parts={everyPart} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open} />
+          <ProjectPartsList
+            projectId={projectId} variant={variant} boards={boardsChoice ?? undefined} currency={supply.rollup?.currency ?? ""} selectedId={searchParams.get("part")} onOpen={open}
+            onAddToLibrary={canWriteCatalog(user?.role) ? setAdding : undefined}
+          />
         </section>
       ) : null}
-      <OpenPartSheet user={user} active />
+      <OpenPartSheet user={user} />
+      {adding ? (
+        <CreateComponentDialog
+          key={adding.key}
+          open
+          onOpenChange={(next) => { if (!next) setAdding(null); }}
+          initial={{ value: "", manufacturer: adding.manufacturer, manufacturerPartNumber: adding.mpn }}
+          onCreated={() => loaded.refresh()}
+        />
+      ) : null}
     </div>
   );
 }

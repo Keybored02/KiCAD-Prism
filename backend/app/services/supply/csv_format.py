@@ -10,7 +10,8 @@ underscores):
     required   sku, mpn, manufacturer, stock
     optional   currency, moq, order_multiple, packaging, lead_time_days,
                lifecycle, discontinued, rohs, product_url,
-               incoming_qty, incoming_date
+               incoming_qty, incoming_date,
+               jlc_library (basic or extended), jlc_preferred (yes or no)
     prices     price_<quantity>, for example price_1, price_10, price_100
 
 Comma, semicolon or tab separated. UTF-8, with or without a byte order mark.
@@ -37,12 +38,13 @@ REQUIRED_COLUMNS = ("sku", "mpn", "manufacturer", "stock")
 OPTIONAL_COLUMNS = (
     "currency", "moq", "order_multiple", "packaging", "lead_time_days", "lifecycle",
     "discontinued", "rohs", "product_url", "incoming_qty", "incoming_date",
+    "jlc_library", "jlc_preferred",
 )
 
 TEMPLATE = (
     "sku,mpn,manufacturer,stock,currency,moq,order_multiple,packaging,lead_time_days,lifecycle,"
-    "price_1,price_10,price_100\n"
-    "EXAMPLE-1,ABC123,Acme,1200,EUR,1,1,cut_tape,,active,0.52,0.44,0.31\n"
+    "jlc_library,jlc_preferred,price_1,price_10,price_100\n"
+    "EXAMPLE-1,ABC123,Acme,1200,EUR,1,1,cut_tape,,active,,,0.52,0.44,0.31\n"
 )
 
 _ALIASES = {
@@ -67,6 +69,7 @@ _LIFECYCLE = {
     "last_time_buy": Lifecycle.LAST_TIME_BUY, "last time buy": Lifecycle.LAST_TIME_BUY, "ltb": Lifecycle.LAST_TIME_BUY,
     "obsolete": Lifecycle.OBSOLETE, "eol": Lifecycle.OBSOLETE, "end of life": Lifecycle.OBSOLETE,
 }
+_JLC_LIBRARY = {"basic": "Basic", "extended": "Extended"}
 _TRUE = {"yes", "y", "true", "1"}
 _FALSE = {"no", "n", "false", "0"}
 _PRICE_COLUMN = re.compile(r"^price_(\d+)$")
@@ -97,6 +100,9 @@ class CsvOfferRow:
     product_url: str
     incoming: Incoming | None
     price_breaks: tuple[PriceBreak, ...]
+    # JLCPCB's class of the part in its assembly library, and whether it is preferred.
+    jlc_library: str = ""
+    jlc_preferred: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +182,8 @@ def _choice(value: str, table: dict, default, label: str):
         return default
     if token in table:
         return table[token]
-    raise _Cell(f"Unknown {label}. Use one of: {', '.join(sorted({member.value for member in table.values()}))}.")
+    choices = sorted({getattr(member, "value", member) for member in table.values()})
+    raise _Cell(f"Unknown {label}. Use one of: {', '.join(choices)}.")
 
 
 def _parse_row(cells: dict[str, str], price_columns: list[tuple[int, str]], default_currency: str) -> CsvOfferRow:
@@ -202,6 +209,8 @@ def _parse_row(cells: dict[str, str], price_columns: list[tuple[int, str]], defa
     lifecycle = attempt("lifecycle", lambda: _choice(cells.get("lifecycle", ""), _LIFECYCLE, Lifecycle.UNKNOWN, "lifecycle"))
     discontinued = attempt("discontinued", lambda: bool(_boolean(cells.get("discontinued", ""))))
     rohs = attempt("rohs", lambda: _boolean(cells.get("rohs", "")))
+    jlc_library = attempt("jlc_library", lambda: _choice(cells.get("jlc_library", ""), _JLC_LIBRARY, "", "JLCPCB library"))
+    jlc_preferred = attempt("jlc_preferred", lambda: bool(_boolean(cells.get("jlc_preferred", ""))))
 
     url = attempt("product_url", lambda: _text(cells.get("product_url", ""), limit=500)) or ""
     if url and not url.lower().startswith("https://"):
@@ -245,6 +254,7 @@ def _parse_row(cells: dict[str, str], price_columns: list[tuple[int, str]], defa
         sku=sku, mpn=mpn, manufacturer=manufacturer, stock=stock, currency=currency,
         moq=moq, order_multiple=multiple, packaging=packaging, lead_time_days=lead, lifecycle=lifecycle,
         discontinued=bool(discontinued), rohs=rohs, product_url=url, incoming=incoming, price_breaks=tuple(breaks),
+        jlc_library=jlc_library, jlc_preferred=bool(jlc_preferred),
     )
 
 
@@ -334,3 +344,56 @@ def parse_offers_csv(content: bytes, *, default_currency: str = "") -> ParsedCsv
     if not rows and not total_errors:
         fail(reader.line_num, "", "The file has a header but no rows.")
     return result(rows if not total_errors else (), ignored)
+
+
+def _record_cell(value) -> str:
+    """A pushed value as a file's cell reads: nothing as blank, true and false as yes and no."""
+
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
+def parse_offer_records(records, *, default_currency: str = "") -> ParsedCsv:
+    """Offers pushed as records (``push.py``), checked as a file's rows are: the same columns, with ``prices`` as
+    ``{quantity, unit_price}`` pairs in place of ``price_<quantity>`` columns. A row's ``line`` is its position, from 1."""
+
+    errors: list[CsvRowError] = []
+    total_errors = 0
+
+    def fail(line: int, column: str, message: str) -> None:
+        nonlocal total_errors
+        total_errors += 1
+        if len(errors) < MAX_REPORTED_ERRORS:
+            errors.append(CsvRowError(line, column, message))
+
+    if len(records) > MAX_ROWS:
+        fail(0, "", f"More than {MAX_ROWS:,} rows.")
+        return ParsedCsv((), tuple(errors), total_errors)
+    rows: list[CsvOfferRow] = []
+    first_of: dict[str, int] = {}
+    for line, record in enumerate(records, start=1):
+        cells = {name: _record_cell(record.get(name)) for name in (*REQUIRED_COLUMNS, *OPTIONAL_COLUMNS)}
+        price_columns: list[tuple[int, str]] = []
+        for tier in record.get("prices") or []:
+            header = f"price_{tier.get('quantity')}"
+            if not _PRICE_COLUMN.match(header):
+                fail(line, "prices", "A price break needs a whole quantity.")
+                continue
+            cells[header] = str(tier.get("unit_price"))
+            price_columns.append((int(header[len("price_"):]), header))
+        try:
+            row = _parse_row(cells, price_columns, default_currency.upper())
+        except _Row as bad:
+            for column, message in bad.problems:
+                fail(line, column, message)
+            continue
+        key = row.sku.lower()
+        if key in first_of:
+            fail(line, "sku", f"Duplicate sku, first seen in row {first_of[key]}.")
+            continue
+        first_of[key] = line
+        rows.append(row)
+    return ParsedCsv(tuple(rows) if not total_errors else (), tuple(errors), total_errors)

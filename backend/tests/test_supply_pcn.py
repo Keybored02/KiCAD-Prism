@@ -13,6 +13,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import outlook, pcn  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
@@ -51,9 +52,9 @@ class PureTests(unittest.TestCase):
 
     def test_an_open_notice_is_a_signal_in_the_outlook(self) -> None:
         eol = outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("end_of_life")])
-        self.assertEqual(eol["band"], "under_2_years")
+        self.assertEqual(eol["band"], "ending")
         self.assertEqual(eol["signals"][0]["source"], "product change notice")
-        self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("nrnd", buy=None)])["band"], "2_to_5_years")
+        self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("nrnd", buy=None)])["band"], "warning_signs")
         self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("change")])["band"], "no_signs")
         self.assertEqual(outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice(state="closed")])["band"], "no_signs")
 
@@ -79,6 +80,7 @@ class PcnDatabaseTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_pcn.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -93,9 +95,9 @@ class PcnDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("pcn_parts", "pcns", "alerts", "watches", "parts", "manufacturers", "audit_events"):
+            for table in ("supply_pcn_parts", "supply_pcns", "supply_attention_decisions", "supply_attention", "supply_watches", "supply_parts", "supply_manufacturers", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
             record, _ = self.watches.add_watch(conn, "Acme", "ABC-1", "seed@example.com")
             self.part = record.part_id
 
@@ -142,13 +144,13 @@ class PcnDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             (alert,) = [a for a in self.alerts.list_alerts(conn, NOW + timedelta(hours=2)) if a["kind"] == "pcn"]
         self.assertEqual((alert["severity"], alert["detail"]["kind"], alert["state"]), ("error", "end_of_life", "open"), "a notice opens on the first look")
-        self.assertEqual(self.call("POST", f"/api/supply/notices/{notice_id}/close").status, 204)
+        with self.store.connection() as conn:
+            pcn.close(conn, notice_id, "admin@example.com")
         with self.store.connection() as conn:
             self.alerts.evaluate_parts(conn, [self.part], NOW + timedelta(hours=3))
             self.assertEqual([a for a in self.alerts.list_alerts(conn, NOW + timedelta(hours=4)) if a["kind"] == "pcn"], [])
         closed = self.call("GET", f"/api/supply/parts/{self.part}/notices").json["items"]
         self.assertEqual(closed[0]["state"], "closed")
-        self.assertEqual(self.call("POST", "/api/supply/notices/nope/close").status, 404)
 
 
 if __name__ == "__main__":

@@ -20,15 +20,14 @@ from decimal import Decimal
 from statistics import median
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts_view, price_breaks, price_quantity, pricing
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply import clock, offer_rules, parts_view, price_breaks, price_quantity, pricing
+from app.services.supply.vocabulary import ENDING_LIFECYCLES
 
 MIN_SAMPLE = 3
 MAX_SERIES = 6
 ALL = "all"
 METRICS = ("out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days", "price_index")
 INDEX_BASE = Decimal(100)
-_LIFECYCLE_RISK = {Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value}
 COMPARE_DAYS = 30
 CATEGORY_PREFIX = "category:"
 HISTORY_DAYS = 365
@@ -38,7 +37,7 @@ def _tracked_part_ids(conn) -> list[str]:
     return [
         row["id"]
         for row in conn.execute(
-            "SELECT p.id FROM parts p WHERE EXISTS (SELECT 1 FROM part_tiers t WHERE t.part_id = p.id)"
+            "SELECT p.id FROM supply_parts p WHERE EXISTS (SELECT 1 FROM supply_part_tiers t WHERE t.part_id = p.id)"
         ).fetchall()
     ]
 
@@ -53,12 +52,8 @@ def metrics_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
         result["dropped"] = sum(
             1 for row in with_data if row["offers"] and all(offer["discontinued"] for offer in row["offers"])
         ) / len(with_data)
-    result["lifecycle_risk"] = sum(1 for row in rows if row["lifecycle"] in _LIFECYCLE_RISK) / len(rows)
-    leads = [
-        min(offer["lead_time_days"] for offer in row["offers"] if offer["lead_time_days"] is not None)
-        for row in rows
-        if any(offer["lead_time_days"] is not None for offer in row["offers"])
-    ]
+    result["lifecycle_risk"] = sum(1 for row in rows if row["lifecycle"] in ENDING_LIFECYCLES) / len(rows)
+    leads = [lead for row in rows if (lead := offer_rules.lead_time_of(row["offers"])) is not None]
     if leads:
         result["median_lead_time_days"] = float(median(leads))
     return result
@@ -70,7 +65,7 @@ def _categories(conn, part_ids: Sequence[str]) -> dict[str, str]:
     if not part_ids:
         return {}
     rows = conn.execute(
-        "SELECT DISTINCT ON (part_id) part_id, value FROM part_facts WHERE name = 'category' AND part_id = ANY(%s) "
+        "SELECT DISTINCT ON (part_id) part_id, value FROM supply_part_facts WHERE name = 'category' AND part_id = ANY(%s) "
         "ORDER BY part_id, CASE provider WHEN 'digikey' THEN 0 WHEN 'mouser' THEN 1 ELSE 2 END, provider",
         (list(part_ids),),
     ).fetchall()
@@ -105,48 +100,42 @@ def compute(conn) -> dict[str, dict[str, Any]]:
 
 
 def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, list[Decimal]]:
-    """Per part, how each of its listings' unit price changed since ``since`` (latest price now over latest price then).
+    """Per part, how each of its counted listings' unit price at the part's quantity changed since ``since``: the price breaks in force
+    now over those in force then (``price_breaks``).
 
-    A listing with no price at either end, or a price of nothing, is left out. A part with no listing left has no entry.
+    A listing with no price at either end, a price of nothing, or a change of currency is left out. A part with no listing left has
+    no entry.
     """
 
     if not part_ids:
         return {}
     rows = conn.execute(
-        """
-        SELECT l.part_id, l.id AS listing_id,
-               (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.sampled_at < %s AND s.unit_price IS NOT NULL
-                ORDER BY s.sampled_at DESC LIMIT 1) AS before,
-               (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.unit_price IS NOT NULL
-                ORDER BY s.sampled_at DESC LIMIT 1) AS now
-        FROM listings l
-        WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
-        """,
-        (since, list(part_ids)),
+        # The listings the stock, lead and lifecycle figures count (``parts_view``): a disabled connector's kept prices are history,
+        # not today's market.
+        "SELECT l.id AS listing_id, l.part_id FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
+        "WHERE l.part_id = ANY(%s) AND supply_counted(l.match_state) AND c.enabled", (list(part_ids),),
     ).fetchall()
     quantities = price_quantity.of_parts(conn, part_ids)
-    kept = price_breaks.load(conn, [row["listing_id"] for row in rows if quantities[row["part_id"]] != pricing.REFERENCE_QUANTITY])
+    kept = price_breaks.load(conn, [row["listing_id"] for row in rows])
     found: dict[str, list[Decimal]] = {}
     for row in rows:
         ratio = _ratio_at_quantity(kept.get(row["listing_id"], []), quantities[row["part_id"]], since.date())
-        if ratio is None and row["before"] and row["now"] and row["before"] > 0:
-            ratio = Decimal(row["now"]) / Decimal(row["before"])
         if ratio is not None:
             found.setdefault(row["part_id"], []).append(ratio)
     return found
 
 
 def _ratio_at_quantity(history: Sequence[dict], quantity: int, since_day: date) -> Decimal | None:
-    """The price change of one listing at the part's own quantity, from the price breaks kept; None when they do not reach back to ``since_day``
-    (the reading at 100 pieces is used then)."""
+    """The price change of one listing at ``quantity`` from its kept breaks: the latest over those in force before ``since_day``
+    (on the day before it). None when they do not reach back that far."""
 
-    if quantity == pricing.REFERENCE_QUANTITY or not history:
+    if not history:
         return None
-    then, now = price_breaks.in_force(history, since_day), history[-1]
+    then, now = price_breaks.in_force(history, since_day - timedelta(days=1)), history[-1]
     if then is None:
         return None
-    before = pricing.unit_price_at(then["breaks"], moq=then["moq"], order_multiple=then["order_multiple"], wanted=quantity)
-    after = pricing.unit_price_at(now["breaks"], moq=now["moq"], order_multiple=now["order_multiple"], wanted=quantity)
+    before = pricing.unit_price_at(then["breaks"], moq=then["moq"], order_multiple=then["order_multiple"], wanted=quantity, up_to=then.get("up_to"))
+    after = pricing.unit_price_at(now["breaks"], moq=now["moq"], order_multiple=now["order_multiple"], wanted=quantity, up_to=now.get("up_to"))
     if not before or not after or then["currency"] != now["currency"]:
         return None
     return after / before
@@ -156,7 +145,7 @@ def _price_index(conn, kind: str, name: str, ids: Sequence[str], today: date) ->
     """Today's chain-linked price index of one group: the last stored value times the median price change since then."""
 
     last = conn.execute(
-        "SELECT day, value FROM market_indices WHERE scope_kind = %s AND scope_value = %s AND metric = 'price_index' AND day < %s "
+        "SELECT day, value FROM supply_market_indices WHERE scope_kind = %s AND scope_value = %s AND metric = 'price_index' AND day < %s "
         "ORDER BY day DESC LIMIT 1",
         (kind, name, today),
     ).fetchone()
@@ -172,8 +161,8 @@ def _price_index(conn, kind: str, name: str, ids: Sequence[str], today: date) ->
 def snapshot(conn, today: date | None = None) -> int:
     """Store today's indices unless they were stored already. Returns how many values were written."""
 
-    today = today or datetime.now(timezone.utc).date()
-    if conn.execute("SELECT 1 FROM market_indices WHERE day = %s LIMIT 1", (today,)).fetchone():
+    today = today or clock.now().date()
+    if conn.execute("SELECT 1 FROM supply_market_indices WHERE day = %s LIMIT 1", (today,)).fetchone():
         return 0
     written = 0
     for scope, data in compute(conn).items():
@@ -186,7 +175,7 @@ def snapshot(conn, today: date | None = None) -> int:
         data["metrics"]["price_index"] = float(_price_index(conn, kind, name, data["ids"], today) or INDEX_BASE)
         for metric, value in data["metrics"].items():
             conn.execute(
-                "INSERT INTO market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO supply_market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
                 (today, kind, name, metric, value, data["sample"]),
             )
             written += 1
@@ -196,22 +185,22 @@ def snapshot(conn, today: date | None = None) -> int:
 def overview(conn, today: date | None = None) -> dict[str, Any]:
     """The latest snapshot per scope, each metric with its value a month earlier when that was stored."""
 
-    today = today or datetime.now(timezone.utc).date()
-    latest_day = conn.execute("SELECT MAX(day) AS day FROM market_indices").fetchone()["day"]
+    today = today or clock.now().date()
+    latest_day = conn.execute("SELECT MAX(day) AS day FROM supply_market_indices").fetchone()["day"]
     if latest_day is None:
         return {"day": None, "scopes": []}
     before_day = conn.execute(
-        "SELECT MAX(day) AS day FROM market_indices WHERE day <= %s", (latest_day - timedelta(days=COMPARE_DAYS),)
+        "SELECT MAX(day) AS day FROM supply_market_indices WHERE day <= %s", (latest_day - timedelta(days=COMPARE_DAYS),)
     ).fetchone()["day"]
     scopes: dict[tuple[str, str], dict[str, Any]] = {}
     for row in conn.execute(
-        "SELECT scope_kind, scope_value, metric, value, sample_size FROM market_indices WHERE day = %s", (latest_day,)
+        "SELECT scope_kind, scope_value, metric, value, sample_size FROM supply_market_indices WHERE day = %s", (latest_day,)
     ).fetchall():
         scope = scopes.setdefault((row["scope_kind"], row["scope_value"]), {"scope": row["scope_value"] or "All followed parts", "kind": row["scope_kind"], "sample": row["sample_size"], "metrics": {}})
         scope["metrics"][row["metric"]] = {"value": float(row["value"]), "before": None}
     if before_day is not None:
         for row in conn.execute(
-            "SELECT scope_kind, scope_value, metric, value FROM market_indices WHERE day = %s", (before_day,)
+            "SELECT scope_kind, scope_value, metric, value FROM supply_market_indices WHERE day = %s", (before_day,)
         ).fetchall():
             target = scopes.get((row["scope_kind"], row["scope_value"]))
             if target and row["metric"] in target["metrics"]:
@@ -260,9 +249,9 @@ def history(conn, metric: str, today: date | None = None) -> dict[str, Any]:
 
     if metric not in METRICS:
         raise ValueError("unknown metric")
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.now().date()
     rows = conn.execute(
-        "SELECT day, scope_kind, scope_value, value, sample_size FROM market_indices "
+        "SELECT day, scope_kind, scope_value, value, sample_size FROM supply_market_indices "
         "WHERE metric = %s AND day >= %s ORDER BY day",
         (metric, today - timedelta(days=HISTORY_DAYS)),
     ).fetchall()

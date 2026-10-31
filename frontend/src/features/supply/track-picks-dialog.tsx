@@ -56,7 +56,7 @@ export function TrackPicksDialog({
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         {preview ? (
           <section aria-label="Cost" className="space-y-1">
-            <h3 className="text-xs font-medium text-muted-foreground">Call budget</h3>
+            <h3 className="text-xs font-medium text-muted-foreground">Daily call limit</h3>
             <TrackCostBars connectors={preview.connectors} />
           </section>
         ) : null}

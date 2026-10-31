@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Plug, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
@@ -17,10 +17,10 @@ import { CreateConnectorDialog } from "./create-connector-dialog";
 import { CsvUploadDialog } from "./csv-upload-dialog";
 import { EditConnectorDialog } from "./edit-connector-dialog";
 import { PauseConnectorDialog } from "./pause-connector-dialog";
+import { PushTokenDialog } from "./push-token-dialog";
 import { clearSupplyCsv, deleteSupplyConnector, testSupplyConnector } from "./supply-api";
 import { isQuickAction, useQuickConnectorActions } from "./use-connector-actions";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
 
 const SettingsDialog = lazy(() => import("./settings-view").then((module) => ({ default: module.SettingsDialog })));
@@ -28,11 +28,10 @@ const SettingsDialog = lazy(() => import("./settings-view").then((module) => ({ 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "apply-reset" | "test">; id: string };
 
 
-/** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
-export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
+/** Distributor accounts, budgets and state, in Supply > Sources. Admins change them. `after` follows the distributors. */
+export function SupplyConnectorsView({ user, headerSlot, after }: { user: User | null; headerSlot?: HTMLElement | null; after?: ReactNode }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();
-  const capacity = useSupplyCapacity();
   const budgets = useBudget();
   const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -134,7 +133,6 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
               <ConnectorCard
                 key={connector.id}
                 connector={connector}
-                capacity={capacity.find((item) => item.connector_id === connector.id)}
                 budget={budgets.find((item) => item.connector_id === connector.id)}
                 isAdmin={isAdmin}
                 onAction={handleAction}
@@ -142,6 +140,7 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
             ))}
           </div>
         ) : null}
+        {after}
       </div>
 
       <CreateConnectorDialog
@@ -177,6 +176,13 @@ export function SupplyConnectorsView({ user, headerSlot }: { user: User | null; 
             description: ignored.length > 0 ? `Ignored columns: ${ignored.join(", ")}` : undefined,
           });
         }}
+      />
+      <PushTokenDialog
+        key={dialog?.kind === "push-token" ? dialog.id : "none"}
+        target="connector"
+        id={dialog?.kind === "push-token" && target ? target.id : null}
+        name={target?.display_name ?? ""}
+        onClose={closeDialog}
       />
       <ConfirmDialog
         open={dialog?.kind === "csv-clear" && target !== null}

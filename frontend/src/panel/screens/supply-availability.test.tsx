@@ -14,7 +14,7 @@ const summary: PanelSupplySummary = {
 
 describe("the supply summary text", () => {
   it("says stock, distributors, lifecycle and price in one line", () => {
-    expect(summaryText(summary)).toMatch(/^38\.2k at 3 distributors, Active, from .*3\.05.* at 100$/);
+    expect(summaryText(summary)).toMatch(/^38\.2k at 3 distributors, Active, from .*3\.05.* × 100$/);
     expect(summaryText({ ...summary, distributors: 1, lifecycle: "unknown", unit_price: null })).toBe("38.2k at 1 distributor");
     expect(summaryText({ ...summary, stock: null })).toBe("Not read from distributors yet");
   });

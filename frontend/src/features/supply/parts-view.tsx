@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply } from "@/lib/roles";
+import { canEditSupply, canFollowSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { PartsScope } from "@/types/supply";
 import { BomFileView } from "./bom-file-view";
@@ -33,14 +33,14 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "watched", label: "Tracked" },
   { id: "tier1", label: "Tier 1" },
   { id: "tier2", label: "Tier 2" },
-  { id: "waiting", label: "Waiting for room" },
+  { id: "waiting", label: "Queued for calls" },
   { id: "pick", label: "Pick a packaging" },
   { id: "in_use", label: "In use" },
-  { id: "all", label: "All known" },
 ];
 
-/** Parts Prism knows about, with their stock. The URL holds the scope, search and open part. */
-export function PartsView({ user, headerSlot, active = true }: { user: User | null; headerSlot?: HTMLElement | null; active?: boolean }) {
+/** Supply > Tracking: the parts Prism follows, by tier, what waits for room or a packaging, and the BOM-file check. Browsing every
+ * part is the catalog's job. The URL holds the scope, search and open part. */
+export function PartsView({ user, headerSlot }: { user: User | null; headerSlot?: HTMLElement | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");
   const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "followed";
@@ -50,10 +50,11 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   const vendor = searchParams.get("partsVendor") ?? "";
   const sort = sortFromParam(searchParams.get("partsSort"));
   // The part sheet belongs to the tab being shown; a tab kept behind it draws none.
-  const openPart = active ? searchParams.get("part") : null;
+  const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
+  const canFollow = canFollowSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, items, total, hasMore, loadingMore, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
+  const { status, data, items, total, hasMore, loadingMore, moreFailed, loadMore, error, retry, refresh, forecastState } = useSupplyPartsFeed(scope, query, only, "", vendor, sort);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -79,8 +80,8 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
       <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
         <Upload className="h-4 w-4" />Upload BOM
       </Button>
-      <PermissionHint blocked={!canEdit} action="track parts" allowedRoles={["designer", "admin"]}>
-        <Button disabled={!canEdit} onClick={() => setWatching(true)}>
+      <PermissionHint blocked={!canFollow} action="track parts" allowedRoles={["designer", "qa", "admin"]}>
+        <Button disabled={!canFollow} onClick={() => setWatching(true)}>
           <Eye className="h-4 w-4" />Track a part
         </Button>
       </PermissionHint>
@@ -128,11 +129,11 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             {items.length === 0 ? (
-              <EmptyState scope={scope} searching={query !== "" || only !== "" || vendor !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
+              <EmptyState scope={scope} searching={query !== "" || only !== "" || vendor !== ""} canEdit={canEdit} canFollow={canFollow} onWatch={() => setWatching(true)} />
             ) : (
               <>
                 <PartsTable stickyHead layout={layout} items={items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} forecastState={forecastState} sort={sort} onSort={(next) => setParams({ partsSort: next })} />
-                <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={() => void loadMore()} />
+                <LoadMore hasMore={hasMore} loading={loadingMore} failed={moreFailed} onLoad={() => void loadMore()} />
                 <p className="text-xs text-muted-foreground">{`${total.toLocaleString()} ${total === 1 ? "part" : "parts"}`}</p>
               </>
             )}
@@ -147,7 +148,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
             <DialogTitle>Upload BOM</DialogTitle>
             <DialogDescription>A CSV with a part number or LCSC number column. Nothing is saved.</DialogDescription>
           </DialogHeader>
-          <div className="max-h-[75vh] overflow-y-auto"><BomFileView /></div>
+          <div className="max-h-[75vh] themed-scrollbar overflow-y-auto"><BomFileView /></div>
         </DialogContent>
       </Dialog>
       <PartSheet partId={openPart} user={user} onClose={() => setParams({ part: null })} onWatchChanged={() => void refresh()} />
@@ -164,7 +165,7 @@ export function PartsView({ user, headerSlot, active = true }: { user: User | nu
   );
 }
 
-function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope; searching: boolean; canEdit: boolean; onWatch: () => void }) {
+function EmptyState({ scope, searching, canEdit, canFollow, onWatch }: { scope: PartsScope; searching: boolean; canEdit: boolean; canFollow: boolean; onWatch: () => void }) {
   return (
     <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
       <PackageSearch className="h-8 w-8 text-muted-foreground" />
@@ -178,7 +179,7 @@ function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope;
               ? "No project BOM that Prism has read uses a part it knows. Open a project BOM, then watch its parts."
               : "Parts appear here once they are watched or matched."}
       </p>
-      {!searching && (scope === "watched" || scope === "followed") && canEdit ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
+      {!searching && (scope === "watched" || scope === "followed") && canFollow ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
       {!searching && scope === "in_use" && canEdit ? <ReadProjectBomsButton /> : null}
     </div>
   );

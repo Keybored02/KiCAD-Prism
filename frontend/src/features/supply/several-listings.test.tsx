@@ -12,7 +12,7 @@ afterEach(cleanup);
 
 const row = (partId: string, mpn: string, by: string) => ({
   part_id: partId, connector_id: "c1", connector: "DigiKey", provider: "digikey", mpn, manufacturer: "Acme", listings: 3,
-  picked_listing: by ? "l1" : null, picked_sku: by ? "CT-1" : "", picked_by: by, note: "", saves_calls_a_day: 0,
+  picked_listing: by ? "l1" : null, picked_sku: by ? "CT-1" : "", picked_by: by, note: "", new_since_pick: 0, saves_calls_a_day: 0,
 });
 
 describe("several listings at a distributor", () => {

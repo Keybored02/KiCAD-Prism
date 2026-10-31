@@ -4,11 +4,11 @@ The part sheet draws these as lines in each distributor's colour and opens them 
 
 * A line steps from reading to reading and is carried forward to the listing's last read (the offer's read time, not the
   last stored sample), so a part read once draws a flat line from that day to the last read.
-* A distributor's stock is what the part's stock counts there (``stock.counted_listing_sql``: every listing, except those a pick
-  stops being read at LCSC and JLCPCB), pooled or added up by pile as that provider shares it (``stock.aggregate``).
-* A distributor's price is its followed (picked) listing at the reference quantity, or its cheapest listing where none is picked,
-  in the base currency at the latest rates.
-  Listings whose smallest order is above the reference quantity are left out, unless there is nothing else.
+* A distributor's stock is what the part's stock counts there (``counted.listing_sql``: every listing, except those a pick
+  stops being read where a pick limits reading), pooled or added up by pile as that provider shares it (``stock.aggregate``).
+* A distributor's price is its followed (picked) listing at the part's price quantity (``price_breaks.price_on``: the price breaks in force
+  that day), or its cheapest listing where none is picked, in the base currency at the latest rates.
+  Listings whose smallest order is above that quantity are left out, unless there is nothing else.
 * ``total`` is what counts for the part.
 * ``stale`` marks a line whose distributor was not read for longer than the part's rate allows; the chart dashes the rest.
 
@@ -19,13 +19,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Any
 
-from app.services.supply import fx, insights, prices, stock
-from app.services.supply.assessment import settings_store
+from app.services.supply import clock, counted, fx, insights, price_breaks, price_quantity, stock
+from app.services.supply.history import days_sql
+from app.services.supply import settings as supply_settings
 
-_COUNTED = ("exact", "manual")
 MAX_DAYS = 3650
 # Days a listing may go unread before its line is dashed, by the part's rate.
 GAP_DAYS = {"daily": 2, "weekly": 9, "monthly": 35}
@@ -35,38 +34,26 @@ DEFAULT_DAYS = 90
 def _listings(conn, part_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT l.id, l.connector_id, c.display_name, c.provider, o.fetched_at, o.moq, o.packaging,
-               EXISTS (SELECT 1 FROM packaging_picks fp WHERE fp.listing_id = l.id) AS followed
-        FROM listings l
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN offers o ON o.listing_id = l.id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND {counted}
-        """.replace("{counted}", stock.counted_listing_sql()),
-        (part_id, list(_COUNTED)),
+        SELECT l.id, l.sku, l.connector_id, {pool} AS pool, c.display_name, c.provider, o.fetched_at, o.moq, o.packaging,
+               EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
+        FROM supply_listings l
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_offers o ON o.listing_id = l.id
+        WHERE l.part_id = %s AND {counted}
+        """.replace("{counted}", counted.listing_sql()).replace("{pool}", stock.pool_sql()),
+        (part_id,),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 def _day_figures(conn, listing_ids: list[str], since: datetime) -> dict[str, dict[date, dict[str, Any]]]:
-    """Each listing's last figures per day: raw readings where they exist, the daily rollup before."""
+    """Each listing's last figures per day (``days_sql``)."""
 
     figures: dict[str, dict[date, dict[str, Any]]] = defaultdict(dict)
     for row in conn.execute(
-        """
-        SELECT d.listing_id, d.day, d.last_stock AS stock, d.last_unit_price AS price, d.currency, d.marketplace
-        FROM samples_daily d WHERE d.listing_id = ANY(%s) AND d.day >= %s
-        """,
-        (listing_ids, since.date()),
-    ).fetchall():
-        figures[row["listing_id"]][row["day"]] = dict(row)
-    for row in conn.execute(
-        """
-        SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.unit_price AS price, s.currency, s.marketplace, s.moq
-        FROM samples s WHERE s.listing_id = ANY(%s) AND s.sampled_at >= %s
-        ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        """,
-        (listing_ids, since),
+        "SELECT listing_id, day, stock, marketplace, moq FROM "
+        + days_sql("SELECT unnest(%(ids)s::text[])", "%(since)s") + " d",
+        {"ids": listing_ids, "since": since.date()},
     ).fetchall():
         figures[row["listing_id"]][row["day"]] = dict(row)
     return figures
@@ -83,7 +70,7 @@ def _events(conn, part_id: str, total: list[list[Any]], first: date) -> list[dic
     for row in conn.execute(
         """
         SELECT COALESCE(n.published_on, (n.created_at AT TIME ZONE 'UTC')::date) AS day, n.title, n.kind
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id WHERE pp.part_id = %s
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id WHERE pp.part_id = %s
         """,
         (part_id,),
     ).fetchall():
@@ -93,7 +80,7 @@ def _events(conn, part_id: str, total: list[list[Any]], first: date) -> list[dic
 
 
 def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_DAYS) -> dict[str, Any]:
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     days = max(1, min(int(days), MAX_DAYS))
     listings = _listings(conn, part_id)
     empty = {"days": days, "currency": "", "connectors": [], "total": [], "events": []}
@@ -103,10 +90,12 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
     figures = {key: value for key, value in figures.items() if value}
     if not figures:
         return empty
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
-    tier = conn.execute("SELECT rate FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone()
+    tier = conn.execute("SELECT rate FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone()
     allowed_gap = GAP_DAYS.get(tier["rate"] if tier else "daily", GAP_DAYS["daily"])
+    quantity = int(price_quantity.of_part(conn, part_id)["quantity"])
+    kept = price_breaks.load(conn, list(figures))
 
     first = min(min(per_day) for per_day in figures.values())
     today = now.astimezone(timezone.utc).date()
@@ -119,7 +108,7 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
     last_day = max(ends.values())
 
     # Orderable listings carry the price lines; if none are, every listing does.
-    orderable = {item["id"] for item in listings if (item["moq"] or 1) <= prices.REFERENCE_QUANTITY}
+    orderable = {item["id"] for item in listings if (item["moq"] or 1) <= quantity}
     priced = orderable if any(item["id"] in orderable for item in listings if item["id"] in figures) else {item["id"] for item in listings}
 
     by_connector: dict[str, dict[str, Any]] = {}
@@ -145,8 +134,9 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
             mine = [item for item in info["listings"] if item["id"] in live]
             if not mine:
                 continue
+            # The pool and SKU let the total count connectors on one account once, as everywhere else (R1).
             rows = [{"connector_id": connector_id, "provider": info["provider"], "stock": live[item["id"]]["stock"], "marketplace": bool(live[item["id"]]["marketplace"]),
-                     "fetched_at": day, "packaging": item["packaging"]} for item in mine]
+                     "fetched_at": day, "packaging": item["packaging"], "pool": item["pool"], "sku": item["sku"]} for item in mine]
             rows_for_total.extend(rows)
             lines[connector_id]["stock"].append([day.isoformat(), stock.aggregate(rows, "any").total])
             candidates = []
@@ -154,8 +144,9 @@ def build(conn, part_id: str, now: datetime | None = None, days: int = DEFAULT_D
             followed = [item for item in mine if item["followed"]]
             for item in (followed or mine):
                 row = live[item["id"]]
-                if item["id"] in priced and row.get("price") is not None and row.get("currency") and not row.get("marketplace"):
-                    converted = rates.convert(Decimal(row["price"]), row["currency"], base)
+                if item["id"] in priced and not row.get("marketplace"):
+                    price, currency, _moq = price_breaks.price_on(kept.get(item["id"], []), day, quantity)
+                    converted = rates.convert(price, currency, base) if price is not None else None
                     if converted is not None:
                         candidates.append(converted)
             if candidates:

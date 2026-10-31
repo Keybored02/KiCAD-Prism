@@ -10,6 +10,7 @@ import sys
 import time
 import unittest
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -51,23 +52,25 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM connectors")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_connectors")
+            conn.execute("DELETE FROM supply_audit_events")
 
     def _connector(self, **overrides):
         values = dict(actor="ana@example.com", provider="csv")
         values.update(overrides)
         return self.connectors.create(**values)
 
-    def _provider(self, connector_id: str):
-        return self.CsvProvider(self.ProviderConfig(connector_id=connector_id), store=self.store)
+    def _provider(self, connector_id: str, *, provider_key: str = "csv", marketplace: bool = False):
+        return self.CsvProvider(
+            self.ProviderConfig(connector_id=connector_id), store=self.store, provider_key=provider_key, marketplace=marketplace,
+        )
 
     def _import(self, connector_id: str, text: str, **kwargs):
         return self.imports.import_file(connector_id, text.encode("utf-8"), actor="ana@example.com", **kwargs)
 
     def _audit_actions(self) -> list[str]:
         with self.store.connection() as conn:
-            return [r["action"] for r in conn.execute("SELECT action FROM audit_events ORDER BY id").fetchall()]
+            return [r["action"] for r in conn.execute("SELECT action FROM supply_audit_events ORDER BY id").fetchall()]
 
     # --- import and read back --------------------------------------------
 
@@ -90,6 +93,7 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
         connector = self._connector()
         self.assertIsNone(connector["csv_import"])
         self.assertFalse(connector["metered"])
+        self.assertTrue(connector["csv_fed"])
         self._import(connector["id"], self.csv_format.TEMPLATE, filename="stock.csv")
         shown = self.connectors.get(connector["id"])["csv_import"]
         self.assertEqual((shown["filename"], shown["row_count"], shown["imported_by"]), ("stock.csv", 1, "ana@example.com"))
@@ -105,6 +109,30 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
         self.assertEqual(provider.get_offers(["OLD-1", "OLD-2"]), [])
         self.assertEqual([o.sku for o in provider.get_offers(["NEW-1"])], ["NEW-1"])
         self.assertEqual(self.connectors.get(connector["id"])["csv_import"]["row_count"], 1)
+
+    def test_a_new_file_or_a_cleared_one_makes_the_connectors_listings_due_now(self) -> None:
+        connector = self._connector()
+        self._import(connector["id"], f"{HEADER}\nOLD-1,M1,Acme,5")
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO supply_listings (id, connector_id, sku, raw_mpn, raw_manufacturer, match_state) VALUES ('lst-csv', %s, 'OLD-1', 'M1', 'Acme', 'exact')",
+                (connector["id"],),
+            )
+            conn.execute("INSERT INTO supply_poll_state (listing_id, tier, next_poll_at) VALUES ('lst-csv', 'monthly', NOW() + INTERVAL '30 days')")
+
+        def due() -> bool:
+            with self.store.connection() as conn:
+                # On the app's clock, the one supply writes with (``clock.py``), not the database's.
+                return conn.execute("SELECT next_poll_at <= %s AS due FROM supply_poll_state WHERE listing_id = 'lst-csv'",
+                                    (datetime.now(timezone.utc),)).fetchone()["due"]
+
+        self.assertFalse(due())
+        self._import(connector["id"], f"{HEADER}\nOLD-1,M1,Acme,9")
+        self.assertTrue(due(), "the old offer is read again from the new file, not a month later")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = NOW() + INTERVAL '30 days' WHERE listing_id = 'lst-csv'")
+        self.imports.clear(connector["id"], actor="ana@example.com")
+        self.assertTrue(due(), "and when the file is removed")
 
     def test_a_rejected_file_changes_nothing(self) -> None:
         from app.services.supply.csv_import_service import CsvRejected
@@ -151,7 +179,34 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
 
     # --- guards -----------------------------------------------------------
 
-    def test_only_csv_connectors_take_a_file(self) -> None:
+    def test_a_csv_fed_distributor_takes_its_own_offers_file(self) -> None:
+        for provider in ("lcsc", "jlcpcb"):
+            connector = self._connector(provider=provider)
+            info, _ = self._import(connector["id"], f"{HEADER}\nS1,M1,Acme,5")
+            self.assertEqual(info.row_count, 1, provider)
+            self.assertTrue(self.connectors.get(connector["id"])["csv_fed"], provider)
+
+    def test_an_lcsc_upload_keeps_lcsc_as_the_provider(self) -> None:
+        connector = self._connector(provider="lcsc")
+        self._import(connector["id"], f"{HEADER}\nC1,M1,Acme,5")
+        provider = self._provider(connector["id"], provider_key="lcsc")
+        (match,) = provider.lookup_mpn("M1")
+        self.assertEqual(match.provider, "lcsc")
+        (offer,) = provider.get_offers(["C1"])
+        self.assertEqual(offer.provider, "lcsc")
+        self.assertFalse(offer.marketplace)
+
+    def test_a_jlcpcb_upload_is_marketplace_with_its_library_class_as_facts(self) -> None:
+        connector = self._connector(provider="jlcpcb")
+        text = f"{HEADER},jlc_library,jlc_preferred\nC1,M1,Acme,5,Extended,yes\nC2,M2,Acme,9,Basic,no\n"
+        self._import(connector["id"], text)
+        provider = self._provider(connector["id"], provider_key="jlcpcb", marketplace=True)
+        offers = {offer.sku: offer for offer in provider.get_offers(["C1", "C2"])}
+        self.assertTrue(all(offer.marketplace for offer in offers.values()))
+        self.assertEqual(offers["C1"].facts, (("jlc_library", "Extended"), ("jlc_preferred", "Preferred")))
+        self.assertEqual(offers["C2"].facts, (("jlc_library", "Basic"),))
+
+    def test_only_csv_fed_connectors_take_a_file(self) -> None:
         from app.services.supply.connectors import ConnectorError, ConnectorNotFound
 
         fake = self.connectors.create(actor="ana@example.com", provider="fake")
@@ -176,8 +231,8 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
         self._import(connector["id"], self.csv_format.TEMPLATE)
         self.connectors.delete(connector["id"], actor="ana@example.com")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM csv_offers").fetchone()["n"], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM csv_imports").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_csv_offers").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_csv_imports").fetchone()["n"], 0)
 
     def test_a_provider_only_sees_its_own_connectors_data(self) -> None:
         connector = self._connector()

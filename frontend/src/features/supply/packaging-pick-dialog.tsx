@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,6 +8,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { PackagingListing, PackagingOptions, PackagingSimilar } from "@/types/supply";
 import { PackagingChip } from "./packaging-chip";
 import { applySimilarPicks, clearPackagingPick, getPackagingOptions, pickPackaging } from "./packaging-api";
+import { PriceAtQuantity } from "./price-at-quantity";
+import { formatLeadTime } from "./supply-format";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 
 const money = (item: PackagingListing, quantity: string) => (item.prices[quantity] ? `${item.prices[quantity]} ${item.currency}` : "");
 
@@ -19,20 +22,16 @@ function Chip({ children, tone }: { children: ReactNode; tone?: "warning" }) {
 export function PackagingPickDialog({
   partId, connectorId, onClose, onChanged,
 }: { partId: string; connectorId: string; onClose: () => void; onChanged: () => void }) {
-  const [options, setOptions] = useState<PackagingOptions | null>(null);
+  const fetcher = useCallback((signal: AbortSignal) => getPackagingOptions(partId, connectorId, signal), [partId, connectorId]);
+  const loaded = useLoaded<PackagingOptions>(`parts/${partId}/packaging/${connectorId}`, fetcher, "Could not load the listings");
+  const options = loaded.data;
   const [similar, setSimilar] = useState<{ packaging: string; items: PackagingSimilar[] } | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
-  // The listing ticked to be followed; only the one picked now to begin with.
-  const [ticked, setTicked] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    getPackagingOptions(partId, connectorId, controller.signal)
-      .then((found) => { setOptions(found); setTicked(found.picked); })
-      .catch((caught: Error) => { if (!controller.signal.aborted) setError(caught.message); });
-    return () => controller.abort();
-  }, [partId, connectorId]);
+  const [failed, setError] = useState("");
+  const error = failed || (loaded.status === "error" ? loaded.error : "");
+  // The listing ticked to be followed; the one picked now until a person ticks another.
+  const [touched, setTicked] = useState<string | null | undefined>(undefined);
+  const ticked = touched === undefined ? options?.picked ?? null : touched;
 
   const pick = (listing: PackagingListing) => {
     pickPackaging(partId, connectorId, listing.id)
@@ -41,7 +40,7 @@ export function PackagingPickDialog({
         if (result.similar.length === 0) { toast.success("Packaging picked"); onClose(); return; }
         setSimilar({ packaging: result.packaging, items: result.similar });
         setChosen(new Set(result.similar.map((item) => item.part_id)));
-        setOptions((current) => (current ? { ...current, picked: listing.id } : current));
+        void invalidateSupply(`parts/${partId}`);
       })
       .catch((caught: Error) => setError(caught.message));
   };
@@ -80,7 +79,7 @@ export function PackagingPickDialog({
           <div className="space-y-2">
             {options.picked && options.picked_by === "auto" ? <p className="text-xs text-muted-foreground">Picked by Prism{options.note ? `: ${options.note}` : ""}.</p> : null}
             {options.saves_calls_a_day > 0 ? <p className="text-xs text-muted-foreground">Picking saves {options.saves_calls_a_day.toFixed(2)} calls a day here.</p> : null}
-            <ul className="max-h-[60vh] divide-y overflow-y-auto border" aria-label="Listings">
+            <ul className="max-h-[60vh] divide-y themed-scrollbar overflow-y-auto border" aria-label="Listings">
               {options.listings.map((item) => (
                 <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 hover:bg-muted/30">
                   <Checkbox
@@ -98,9 +97,9 @@ export function PackagingPickDialog({
                     {item.other_number ? <Chip tone="warning">Different number</Chip> : null}
                     <Chip><PackagingChip packaging={item.packaging} reelSize={item.reel_size} inferred={item.packaging_inferred} />{item.packaging === "unknown" ? "Packaging unknown" : null}</Chip>
                     {item.stock !== null ? <Chip>{item.stock.toLocaleString()} in stock</Chip> : null}
-                    {money(item, "100") ? <Chip>{money(item, "100")} at 100</Chip> : null}
+                    {money(item, "100") ? <Chip><PriceAtQuantity price={money(item, "100")} quantity={100} /></Chip> : null}
                     {item.moq !== null ? <Chip>min {item.moq}{(item.order_multiple ?? 1) > 1 ? ` in ${item.order_multiple}s` : ""}</Chip> : null}
-                    {item.lead_time_days !== null ? <Chip>{item.lead_time_days} days</Chip> : null}
+                    {item.lead_time_days !== null ? <Chip>{formatLeadTime(item.lead_time_days)}</Chip> : null}
                     {item.marketplace ? <Chip>Marketplace</Chip> : null}
                   </div>
                 </li>
@@ -109,7 +108,7 @@ export function PackagingPickDialog({
           </div>
         ) : null}
         {similar ? (
-          <ul className="max-h-64 space-y-1 overflow-y-auto text-sm" aria-label="Similar parts">
+          <ul className="max-h-64 space-y-1 themed-scrollbar overflow-y-auto text-sm" aria-label="Similar parts">
             {similar.items.map((item) => (
               <li key={item.part_id} className="flex items-center gap-2">
                 <Checkbox id={`sim-${item.part_id}`} checked={chosen.has(item.part_id)} onCheckedChange={(on) => toggle(item.part_id, on === true)} />

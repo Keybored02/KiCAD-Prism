@@ -8,6 +8,7 @@ import { CatalogSupplyBar } from "./catalog-supply-bar";
 import { passesSupplyFilter, supplyFilterFrom } from "./catalog-supply-filter";
 import * as api from "./catalog-supply-api";
 import { toast } from "sonner";
+import { standingFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 const rows = [
@@ -15,7 +16,7 @@ const rows = [
   { id: "c2", manufacturer: "Acme", mpn: "A-2" },
   { id: "c3", manufacturer: "", mpn: "" },
 ];
-const standing = { c1: { status: "ok" as const, stock: 10, watched: true }, c2: { status: "error" as const, stock: 0, watched: false } };
+const standing = { c1: standingFixture({ status: "ok", stock: 10, watched: true }), c2: standingFixture({ status: "error", stock: 0, watched: false }) };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -81,5 +82,15 @@ describe("the catalog supply filters", () => {
     expect(screen.getByRole("button", { name: /Track 1 shown/ })).toBeTruthy();
     rerender(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="viewer" onChanged={() => undefined} picked={new Set()} onClearPicks={() => undefined} />);
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("the In local stock filter", () => {
+  it("keeps components the local inventory can supply now", () => {
+    expect(supplyFilterFrom("local_stock")).toBe("local_stock");
+    expect(passesSupplyFilter("local_stock", standingFixture({ status: "unknown", stock: null, watched: false, local_available: 300 }))).toBe(true);
+    expect(passesSupplyFilter("local_stock", standingFixture({ status: "ok", stock: 10, watched: true, local_available: 0 }))).toBe(false);
+    expect(passesSupplyFilter("local_stock", standingFixture({ status: "ok", stock: 10, watched: true }))).toBe(false);
+    expect(passesSupplyFilter("local_stock", undefined)).toBe(false);
   });
 });

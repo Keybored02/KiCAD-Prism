@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { SupplyConnector } from "@/types/supply";
-import { budgetUsedPercent, clockTime, connectorState, errorCodeLabel, formatWhen, slowedText } from "./connector-status";
+import { budgetUsedPercent, connectorState, errorCodeLabel, failureWords, slowedText } from "./connector-status";
+import { clockTime } from "./supply-format";
 import { connectorFixture } from "./supply-test-fixtures";
 
 describe("connectorState", () => {
@@ -24,7 +25,7 @@ describe("connectorState", () => {
   });
 
   it("treats a CSV connector without an upload as not ready", () => {
-    const csv = connectorFixture({ provider: "csv", credentials: {}, metered: false });
+    const csv = connectorFixture({ provider: "csv", credentials: {}, metered: false, csv_fed: true });
     expect(connectorState(csv)).toEqual({ label: "No file uploaded", tone: "warning" });
     const withFile = { ...csv, csv_import: { filename: "a.csv", imported_by: "x", imported_at: "2026-03-01T00:00:00Z", row_count: 2 } };
     expect(connectorState(withFile).label).toBe("Active");
@@ -63,13 +64,12 @@ describe("labels", () => {
   it("translates known error codes and tidies the rest", () => {
     expect(errorCodeLabel("auth_failed")).toBe("credentials rejected");
     expect(errorCodeLabel("response_too_large")).toBe("response too large");
+    expect(failureWords("egress_denied", "DigiKey EU")).toBe("Can't reach DigiKey EU");
+    expect(failureWords("auth_failed", "Mouser")).toBe("Mouser refused the sign-in");
+    expect(failureWords("response_too_large", "TME")).toBe("Can't read TME's answer");
+    expect(failureWords("", "TME")).not.toMatch(/_/);
   });
 
-  it("formats times and survives bad input", () => {
-    expect(formatWhen(null)).toBe("");
-    expect(formatWhen("not a date")).toBe("");
-    expect(formatWhen("2026-03-01T10:00:00Z")).not.toBe("");
-  });
 });
 
 describe("a resting connector", () => {

@@ -30,18 +30,12 @@ number, since several in one ``manuPartNum`` term find nothing.
 
 from __future__ import annotations
 
-import re
-import time
 import unicodedata
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import datetime
 from urllib.parse import quote
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
-from app.services.supply.providers import packaging_hints
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
     CAP_OFFERS,
@@ -53,6 +47,8 @@ from app.services.supply.providers.base import (
     ProviderSpec,
 )
 from app.services.supply.identity import keep_family, match_key
+from app.services.supply.providers import normalise
+from app.services.supply.providers.http import HttpProvider
 from app.services.supply.providers.text_values import parse_count, parse_decimal
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
@@ -63,6 +59,8 @@ ALLOWED_HOSTS = ("api.element14.com",)
 # No limit is known for this service: an assumed, polite pace, drawn at random from 0.75 to 1.5 times this (see pacing.py). Change it when a limit is learned.
 PACE_SECONDS = 1.5
 MAX_MATCHES = 10
+# A search asks for further pages while the answer says more exist, up to this many pages (each a call).
+MAX_PAGES = 5
 
 STOREFRONTS = (
     "bg.farnell.com", "cz.farnell.com", "dk.farnell.com", "at.farnell.com", "ch.farnell.com", "de.farnell.com",
@@ -85,6 +83,7 @@ STORE_CURRENCY: Mapping[str, str] = {
     "uk.farnell.com": "GBP",
     "www.newark.com": "USD",
     "canada.newark.com": "CAD",
+    "in.element14.com": "INR",
     **{f"{code}.farnell.com": "EUR" for code in _EURO_STORES},
 }
 
@@ -96,41 +95,37 @@ _RELEASE_DROPPING = frozenset({6, 7})
 _STOCK_STATUS_ENDED = -3
 
 
-class FarnellProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class FarnellProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         self._api_key = config.credentials.get("api_key", "")
         self._store = config.storefront
         self._currency = config.currency or STORE_CURRENCY.get(config.storefront, "")
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
-    def _search(self, term: str) -> list[dict[str, Any]]:
+    def _search(self, term: str, *, pages: int = 1) -> list[dict[str, Any]]:
+        """The products a term finds, ``MAX_MATCHES`` a call, asking for the next page while the answer says there are more
+        (``numberOfResults``), up to ``pages`` calls."""
+
         if not self._api_key:
             raise AuthError("Farnell needs an API key")
         if not self._store:
             raise ProviderError("Farnell needs a store, such as uk.farnell.com")
-        self._pacer.wait()
-        answer = self._client.request_json("GET", BASE_URL, params={
-            "term": term,
-            "storeInfo.id": self._store,
-            "resultsSettings.responseGroup": "medium",
-            "resultsSettings.offset": "0",
-            "resultsSettings.numberOfResults": str(MAX_MATCHES),
-            "callInfo.responseDataFormat": "JSON",
-            "callInfo.apiKey": self._api_key,
-        })
-        return _products(answer)
+        found: list[dict[str, Any]] = []
+        for page in range(pages):
+            answer = self.request("GET", BASE_URL, params={
+                "term": term,
+                "storeInfo.id": self._store,
+                "resultsSettings.responseGroup": "medium",
+                "resultsSettings.offset": str(page * MAX_MATCHES),
+                "resultsSettings.numberOfResults": str(MAX_MATCHES),
+                "callInfo.responseDataFormat": "JSON",
+                "callInfo.apiKey": self._api_key,
+            })
+            products = _products(answer)
+            found += products
+            if len(products) < MAX_MATCHES or len(found) >= _total(answer):
+                break
+        return found
 
     # --- the contract ------------------------------------------------------
 
@@ -139,7 +134,7 @@ class FarnellProvider:
         if not wanted:
             return []
         found = [
-            product for product in self._search(f"manuPartNum:{mpn.strip()}")
+            product for product in self._search(f"manuPartNum:{mpn.strip()}", pages=MAX_PAGES)
             if product.get("sku") and product.get("translatedManufacturerPartNumber")
         ]
         return [
@@ -155,7 +150,7 @@ class FarnellProvider:
         if not wanted:
             return []
         found = [
-            product for product in self._search(f"any:{mpn.strip()}")
+            product for product in self._search(f"any:{mpn.strip()}", pages=MAX_PAGES)
             if product.get("sku") and product.get("translatedManufacturerPartNumber")
         ]
         return [
@@ -184,6 +179,15 @@ class FarnellProvider:
             description=str(product.get("displayName") or ""),
             datasheet_url=str(sheets[0]["url"]) if sheets else "",
         )
+
+
+def _total(answer: Any) -> int:
+    """How many products the search found in all, as the answer's wrapper says (0 when it does not)."""
+
+    for holder in [value for value in answer.values() if isinstance(value, dict)] if isinstance(answer, dict) else []:
+        if "numberOfResults" in holder:
+            return parse_count(holder.get("numberOfResults")) or 0
+    return 0
 
 
 def _products(answer: Any) -> list[dict[str, Any]]:
@@ -227,14 +231,9 @@ def _pack(product: Mapping[str, Any]) -> int:
 
 def _price_breaks(product: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
     pack = _pack(product)
-    tiers: dict[int, Decimal] = {}
-    for band in product.get("prices") or []:
-        if not isinstance(band, dict):
-            continue
-        quantity, cost = parse_count(band.get("from")), parse_decimal(band.get("cost"))
-        if quantity and cost is not None and cost >= 0:
-            tiers.setdefault(quantity * pack, cost / pack)
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
+    bands = [(parse_count(band.get("from")), parse_decimal(band.get("cost"))) for band in product.get("prices") or [] if isinstance(band, dict)]
+    # A band is priced per unit of sale (a pack of ``pack`` pieces): per piece here, from the pieces it starts at.
+    return normalise.price_breaks((quantity * pack if quantity else None, cost / pack if cost is not None else None) for quantity, cost in bands)
 
 
 # Each store words the unit in its own language ("EACH (SUPPLIED ON CUT TAPE)", "STÜCK (GURTABSCHNITT)", "UNITÀ, FORNITO SU
@@ -322,6 +321,8 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, s
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
+    limits_storage=True,
     label="Farnell / Newark / element14",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE}),
     max_batch=MAX_MATCHES,
@@ -330,4 +331,5 @@ SPEC = ProviderSpec(
     factory=lambda config: FarnellProvider(config),
     storefronts=STOREFRONTS,
     default_daily_budget=1000,
+    guesses_packaging=False,
 )

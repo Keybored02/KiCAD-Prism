@@ -12,12 +12,12 @@ const endings = [
   { suffix_key: "Q100", suffix_text: "Q100", kind: "grade" as const, source: "seeded" },
 ];
 
-beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); mocked.listNumberEndings.mockResolvedValue({ endings }); });
+beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); mocked.listNumberEndings.mockResolvedValue(endings); });
 afterEach(cleanup);
 
 describe("the endings of part numbers", () => {
   it("lists packaging and grade apart, adds an ending and removes one", async () => {
-    mocked.addNumberEnding.mockResolvedValue({ endings });
+    mocked.addNumberEnding.mockResolvedValue(endings);
     mocked.removeNumberEnding.mockResolvedValue(undefined);
     render(<NumberEndings />);
     fireEvent.click(await screen.findByRole("button", { name: /Endings of part numbers/ }));

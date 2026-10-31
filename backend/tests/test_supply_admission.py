@@ -18,8 +18,8 @@ POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 ACTOR = "ana@example.com"
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 
-# Listings per part at each provider, the dev data's averages (plan 4.4).
-AVERAGE_LISTINGS = {"digikey": 2.9, "lcsc": 2.1, "farnell": 2.2, "mouser": 1.0, "tme": 1.1}
+# Listings per part at each metered provider, the dev data's averages (plan 4.4).
+AVERAGE_LISTINGS = {"digikey": 2.9, "farnell": 2.2, "mouser": 1.0, "tme": 1.1}
 
 
 class CostTests(unittest.TestCase):
@@ -30,23 +30,22 @@ class CostTests(unittest.TestCase):
         return budget.cost(registry.get_spec(provider), tier, rate, listings)
 
     def test_tier_one_costs_match_the_plan_table(self) -> None:
-        for provider, expected in (("digikey", 1.033), ("lcsc", 2.13), ("farnell", 0.25), ("mouser", 0.14), ("tme", 0.045)):
+        for provider, expected in (("digikey", 1.033), ("farnell", 0.25), ("mouser", 0.103), ("tme", 0.045)):
             self.assertAlmostEqual(self.cost(provider, 1, "daily", AVERAGE_LISTINGS[provider]), expected, delta=0.005, msg=provider)
 
     def test_a_packaging_pick_cuts_the_cost_of_a_provider_that_reads_each_listing(self) -> None:
-        for provider, expected in (("digikey", 1.033), ("lcsc", 1.03), ("farnell", 0.13), ("mouser", 0.14), ("tme", 0.04)):
+        for provider, expected in (("digikey", 1.033), ("farnell", 0.13), ("mouser", 0.103), ("tme", 0.04)):
             self.assertAlmostEqual(self.cost(provider, 1, "daily", 1), expected, delta=0.005, msg=provider)
 
     def test_tier_two_weekly_costs_after_a_pick_match_the_plan_table(self) -> None:
-        for provider, expected in (("digikey", 0.154), ("lcsc", 0.15), ("farnell", 0.03), ("mouser", 0.02), ("tme", 0.01)):
+        for provider, expected in (("digikey", 0.154), ("farnell", 0.03), ("mouser", 0.02), ("tme", 0.01)):
             self.assertAlmostEqual(self.cost(provider, 2, "weekly", 1), expected, delta=0.005, msg=provider)
 
     def test_how_many_tier_one_parts_900_committed_calls_hold(self) -> None:
-        held = {provider: int(900 / self.cost(provider, 1, "daily", 1)) for provider in ("digikey", "lcsc", "farnell", "mouser", "tme")}
+        held = {provider: int(900 / self.cost(provider, 1, "daily", 1)) for provider in ("digikey", "farnell", "mouser", "tme")}
         self.assertAlmostEqual(held["digikey"], 870, delta=10)
-        self.assertAlmostEqual(held["lcsc"], 870, delta=10)
         self.assertAlmostEqual(held["farnell"], 6800, delta=100)
-        self.assertAlmostEqual(held["mouser"], 6600, delta=100)
+        self.assertAlmostEqual(held["mouser"], 8700, delta=100, msg="substances come with the offer: no call of their own")
 
     def test_a_part_the_provider_does_not_carry_costs_only_its_search(self) -> None:
         self.assertAlmostEqual(self.cost("digikey", 1, "daily", 0), 1 / 14, places=4, msg="searched again every two weeks")
@@ -55,9 +54,9 @@ class CostTests(unittest.TestCase):
         from app.services.supply import budget
         from app.services.supply.providers import registry
 
-        self.assertLess(self.cost("lcsc", 2, "monthly", 2), self.cost("lcsc", 2, "weekly", 2))
-        csv = registry.get_spec("csv")
-        self.assertEqual(budget.cost(csv, 1, "daily", 5), 0.0)
+        self.assertLess(self.cost("farnell", 2, "monthly", 2), self.cost("farnell", 2, "weekly", 2))
+        for key in ("csv", "lcsc", "jlcpcb"):
+            self.assertEqual(budget.cost(registry.get_spec(key), 1, "daily", 5), 0.0, key)
 
     def test_the_committed_share_is_at_most_ninety_percent(self) -> None:
         from app.services.supply import budget
@@ -69,10 +68,19 @@ class CostTests(unittest.TestCase):
     def test_the_saving_a_pick_brings(self) -> None:
         from app.services.supply import budget
         from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
 
-        self.assertAlmostEqual(budget.pick_saving(registry.get_spec("lcsc"), 1, "daily", 2), 1.0, places=4)
+        registry.register(ProviderSpec(
+            key="pick_demo", label="Pick demo", capabilities=frozenset({"search", "offers"}), max_batch=1,
+            stock_pooling="separate", credential_fields=(), factory=lambda config: None, default_daily_budget=100,
+        ), replace=True)
+        try:
+            self.assertAlmostEqual(budget.pick_saving(registry.get_spec("pick_demo"), 1, "daily", 2), 1.0, places=4)
+        finally:
+            registry.unregister("pick_demo")
         self.assertEqual(budget.pick_saving(registry.get_spec("digikey"), 1, "daily", 3), 0.0, "DigiKey reads a part in one call")
         self.assertEqual(budget.pick_saving(registry.get_spec("farnell"), 1, "daily", 3), 0.0, "a listing costs a place in a batch, not a call")
+        self.assertEqual(budget.pick_saving(registry.get_spec("lcsc"), 1, "daily", 3), 0.0, "a CSV-fed connector spends no calls")
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")
@@ -113,8 +121,8 @@ class AdmissionTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("bom_usage_projects", "tracked_projects", "listings", "watches", "parts", "manufacturer_aliases",
-                          "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_bom_usage_projects", "supply_tracked_projects", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases",
+                          "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
 
     # A capacity of 2 calls a day holds fifteen tier-1 parts at 0.1333 each, and no more.
@@ -131,7 +139,7 @@ class AdmissionTests(unittest.TestCase):
 
     def counts(self, connector_id: str) -> dict[str, int]:
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT state, COUNT(*) AS n FROM admissions WHERE connector_id = %s GROUP BY state", (connector_id,)).fetchall()
+            rows = conn.execute("SELECT state, COUNT(*) AS n FROM supply_admissions WHERE connector_id = %s GROUP BY state", (connector_id,)).fetchall()
         got = {row["state"]: int(row["n"]) for row in rows}
         return {"admitted": got.get("admitted", 0), "waiting": got.get("waiting", 0)}
 
@@ -162,13 +170,13 @@ class AdmissionTests(unittest.TestCase):
         for n in range(17):
             self.watch(n)
         with self.store.connection() as conn:
-            waiting = [r["part_id"] for r in conn.execute("SELECT part_id FROM admissions WHERE state = 'waiting' ORDER BY since, part_id").fetchall()]
-            admitted = conn.execute("SELECT part_id FROM admissions WHERE state = 'admitted' ORDER BY part_id LIMIT 1").fetchone()["part_id"]
-            watch_id = conn.execute("SELECT id FROM watches WHERE part_id = %s", (admitted,)).fetchone()["id"]
+            waiting = [r["part_id"] for r in conn.execute("SELECT part_id FROM supply_admissions WHERE state = 'waiting' ORDER BY since, part_id").fetchall()]
+            admitted = conn.execute("SELECT part_id FROM supply_admissions WHERE state = 'admitted' ORDER BY part_id LIMIT 1").fetchone()["part_id"]
+            watch_id = conn.execute("SELECT id FROM supply_watches WHERE part_id = %s", (admitted,)).fetchone()["id"]
             self.watches.remove_watch(conn, watch_id, ACTOR)
         self.assertEqual(self.counts(cid), {"admitted": 15, "waiting": 1}, "one waiting part took the freed room")
         with self.store.connection() as conn:
-            states = {r["part_id"]: r["state"] for r in conn.execute("SELECT part_id, state FROM admissions").fetchall()}
+            states = {r["part_id"]: r["state"] for r in conn.execute("SELECT part_id, state FROM supply_admissions").fetchall()}
         self.assertEqual(sorted(states.values()).count("waiting"), 1)
         self.assertEqual(len([p for p in waiting if states.get(p) == "admitted"]), 1)
 
@@ -242,14 +250,14 @@ class AdmissionTests(unittest.TestCase):
         for n in range(15):
             self.watch(n)
         with self.store.connection() as conn:
-            part_id = conn.execute("SELECT part_id FROM admissions ORDER BY part_id LIMIT 1").fetchone()["part_id"]
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, NOW))
+            part_id = conn.execute("SELECT part_id FROM supply_admissions ORDER BY part_id LIMIT 1").fetchone()["part_id"]
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, NOW))
             self.admission.sync(conn)
         self.assertEqual(self.counts(cid), {"admitted": 15, "waiting": 0}, "a part the provider does not carry costs less")
         for index in range(3):
             with self.store.connection() as conn:
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (f"l{index}", cid, f"S{index}", part_id))
         with self.store.connection() as conn:
             self.admission.sync(conn)
@@ -288,7 +296,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse(report["fits_nowhere"])
         self.assertEqual(self.counts(cid), {"admitted": 0, "waiting": 0})
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM parts").fetchone()["n"], 0, "no parts were made")
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_parts").fetchone()["n"], 0, "no parts were made")
             self.assertIsNone(self.tracking.tracked_project(conn, "p1"))
 
     def test_tracking_is_refused_when_nothing_fits_anywhere_and_leaves_no_trace(self) -> None:
@@ -303,7 +311,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertIn("0 calls a day", str(raised.exception).replace("(0 of 0 calls a day committed)", "0 calls a day"))
         with self.store.connection() as conn:
             self.assertIsNone(self.tracking.tracked_project(conn, "p1"))
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_tiers").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_tiers").fetchone()["n"], 0)
         self.assertEqual(self.counts(cid), {"admitted": 0, "waiting": 0})
 
     def test_applying_tracks_where_there_is_room_and_the_rest_waits(self) -> None:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Loader2, Radar, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -6,12 +6,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { TrackingPreview } from "@/types/supply";
+import type { ProjectTrackingPreview } from "@/types/supply";
 import { TrackChooseStep } from "./track-choose-step";
 import { TrackLinesStep, type TrackLine } from "./track-lines-step";
 import { RaiseBudgetDialog } from "./raise-budget-dialog";
 import { TrackProgressStep } from "./track-progress-step";
 import { chooseTrackLine, getProjectTracking, trackProject, untrackProject } from "./tracking-api";
+import { invalidateSupply, useLoaded } from "./use-loaded";
 import { useTrackProject } from "./use-track-project";
 
 type Step = "choose" | "lines" | "tracking";
@@ -19,13 +20,13 @@ type Step = "choose" | "lines" | "tracking";
 const TITLE: Record<Step, string> = { choose: "Track Project", lines: "Settle Lines", tracking: "Checking Distributors" };
 
 /** The lines the preview could not place: several makers share their number. */
-function waitingLines(preview: TrackingPreview | null): TrackLine[] {
+function waitingLines(preview: ProjectTrackingPreview | null): TrackLine[] {
   return (preview?.tracked?.skipped ?? []).flatMap((item) =>
     item.reason === "needs_choice" ? [{ mpn: item.mpn, manufacturer: item.manufacturer ?? "", candidates: item.candidates ?? [] }] : []);
 }
 
 /** How many parts tracking would take on, from the preview. */
-function partsOf(preview: TrackingPreview | null): number {
+function partsOf(preview: ProjectTrackingPreview | null): number {
   return Math.max(0, ...(preview?.connectors ?? []).map((item) => (item.admitted_new ?? 0) + (item.waiting_new ?? 0)));
 }
 
@@ -38,7 +39,7 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
   const { state, preview } = track;
   const [step, setStep] = useState<Step>("choose");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<TrackingPreview | null>(null);
+  const [result, setResult] = useState<ProjectTrackingPreview | null>(null);
   const [raising, setRaising] = useState<string | null>(null);
   const raised = track.connectors.find((item) => item.id === raising);
   const lines = useMemo(() => waitingLines(preview), [preview]);
@@ -145,16 +146,9 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
 /** "Track this project" while it is not tracked; once it is, a chip and a settings button that opens the same dialog. */
 export function TrackProjectButton({ projectId, onChanged }: { projectId: string; onChanged?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [tracked, setTracked] = useState<boolean | null>(null);
-  const [version, setVersion] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    getProjectTracking(projectId, controller.signal)
-      .then((state) => setTracked(Boolean(state.tracked)))
-      .catch(() => { if (!controller.signal.aborted) setTracked(false); });
-    return () => controller.abort();
-  }, [projectId, version]);
-  const changed = () => { setVersion((current) => current + 1); onChanged?.(); };
+  const fetcher = useCallback((signal: AbortSignal) => getProjectTracking(projectId, signal), [projectId]);
+  const tracked = Boolean(useLoaded(`projects/${projectId}/tracking`, fetcher, "Could not load the project's tracking").data?.tracked);
+  const changed = () => { void invalidateSupply(`projects/${projectId}`); onChanged?.(); };
   return (
     <>
       {tracked ? (

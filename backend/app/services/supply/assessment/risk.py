@@ -1,15 +1,20 @@
 """Risk sub-scores: 1 is good, 5 is bad, each with the reasons behind it.
 
-Pure functions over the same ``Facts`` the checks read. A sub-score with no data scores 1 with no
-reasons; health does not punish what Prism cannot see, and ``status`` says "unknown" when there is
-nothing to go on.
+Pure functions over the same ``Facts`` the checks read and the findings they made: what a check already
+decided (nothing in stock, RoHS, REACH) is read from its finding, so a waiver that quiets the finding
+quiets the score too. A sub-score with no data scores 1 with no reasons; health does not punish what
+Prism cannot see, and ``status`` says "unknown" when there is nothing to go on.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
-from app.services.supply.assessment.checks import Facts, lead_time_of, stock_of
+from app.services.supply import stock as stock_rules
+from app.services.supply.assessment import settings as ids
+from app.services.supply.assessment.checks import Facts, Finding, stock_of
+from app.services.supply.offer_rules import lead_time_of
 from app.services.supply.vocabulary import Lifecycle
 
 
@@ -26,7 +31,7 @@ _LIFECYCLE_SCORE = {
 
 
 # What the outlook band adds to the lifecycle score: a notice or last date to buy is as serious as a last time buy.
-_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "under_2_years": (4, "Signals say it ends within 2 years."), "2_to_5_years": (2, "Signals say it may end within 5 years.")}
+_OUTLOOK_SCORE = {"ended": (5, "Signals say it has ended."), "ending": (4, "Signals say its end is announced."), "warning_signs": (2, "There are warning signs of an end.")}
 
 
 def lifecycle(facts: Facts) -> SubScore:
@@ -47,10 +52,10 @@ def lifecycle(facts: Facts) -> SubScore:
 def sourcing(facts: Facts) -> SubScore:
     """How many distributors hold it. One is a single point of failure."""
 
-    holders = {o["connector_id"] for o in facts.offers if o["stock"] > 0 and not o["marketplace"]}
     if not facts.offers:
         return SubScore("sourcing", 1)
-    count = len(holders)
+    # Connectors on one account are one holder, as everywhere else.
+    count = stock_rules.holders(facts.offers)
     if count == 0:
         return SubScore("sourcing", 5, ("No distributor holds it.",))
     if count == 1:
@@ -58,14 +63,16 @@ def sourcing(facts: Facts) -> SubScore:
     return SubScore("sourcing", 2 if count == 2 else 1, (f"{count} distributors hold it.",) if count == 2 else ())
 
 
-def inventory(facts: Facts) -> SubScore:
+def inventory(facts: Facts, found: set[str]) -> SubScore:
     """Stock against what is needed, or against nothing when no build asks for it."""
 
     stock = stock_of(facts.offers)
     if stock is None:
         return SubScore("inventory", 1)
-    if stock == 0:
+    if ids.NO_DISTRIBUTOR_STOCK in found:
         return SubScore("inventory", 5, ("Nothing in stock.",))
+    if stock == 0:
+        return SubScore("inventory", 1)
     if facts.need is None or facts.need == 0:
         return SubScore("inventory", 1)
     cover = stock / facts.need
@@ -91,14 +98,18 @@ def market(facts: Facts) -> SubScore:
     return SubScore("market", score, (f"Lead time {lead} days.",) if score > 1 else ())
 
 
-def compliance(facts: Facts) -> SubScore:
-    known = [o["rohs"] for o in facts.offers if o.get("rohs") is not None]
-    if known and not any(known):
+def compliance(found: set[str]) -> SubScore:
+    if ids.ROHS_NONCOMPLIANT in found:
         return SubScore("compliance", 5, ("Listed as not RoHS compliant.",))
-    if facts.svhc_listed or any(o.get("reach_affected") for o in facts.offers):
+    if ids.ROHS_DISPUTED in found:
+        return SubScore("compliance", 3, ("Distributors disagree on RoHS.",))
+    if ids.REACH_SVHC in found:
         return SubScore("compliance", 3, ("Affected by REACH.",))
     return SubScore("compliance", 1)
 
 
-def sub_scores(facts: Facts) -> list[SubScore]:
-    return [lifecycle(facts), sourcing(facts), inventory(facts), market(facts), compliance(facts)]
+def sub_scores(facts: Facts, findings: Sequence[Finding]) -> list[SubScore]:
+    """The five sub-scores, from the facts and the findings a held waiver does not quiet."""
+
+    found = {f.check for f in findings if not (f.waiver and f.waiver.get("holds"))}
+    return [lifecycle(facts), sourcing(facts), inventory(facts, found), market(facts), compliance(found)]

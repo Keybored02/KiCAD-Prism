@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
-import type { BudgetCall, BudgetConnector, SupplyCapacity } from "@/types/supply";
+import type { BudgetCall, BudgetConnector } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { getBudget } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 
@@ -64,7 +65,7 @@ function Days({ rows, budget }: { rows: readonly BudgetCall[]; budget: number })
 }
 
 /** Where a connector's budget goes today and what tracking costs, shown under its card's Calls today bar. */
-export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capacity?: SupplyCapacity }) {
+export function BudgetDetail({ item }: { item: BudgetConnector }) {
   const today = totalsByPurpose(item.hourly);
   const standing = item.tracking;
   return (
@@ -78,12 +79,12 @@ export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capaci
           Tracking promises {standing.committed} of {standing.capacity} calls a day, for {standing.admitted} parts{standing.waiting > 0 ? `; ${standing.waiting} wait for room` : ""}.
         </p>
       ) : null}
-      {capacity?.quotes && capacity.quotes.of > 0 ? (
-        <p className="text-xs text-muted-foreground">Gives a price for {capacity.quotes.parts.toLocaleString()} of {capacity.quotes.of.toLocaleString()} tracked parts.</p>
+      {item.quotes.of > 0 ? (
+        <p className="text-xs text-muted-foreground">Gives a price for {item.quotes.parts.toLocaleString()} of {item.quotes.of.toLocaleString()} tracked parts.</p>
       ) : null}
-      {capacity && capacity.searches_pending > 0 ? (
+      {item.searches_pending > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {capacity.searches_pending.toLocaleString()} watched {capacity.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
+          {item.searches_pending.toLocaleString()} watched {item.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
         </p>
       ) : null}
       <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground" aria-label="Spent today">
@@ -108,7 +109,7 @@ export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capaci
             ))}
             {item.owners.parts.slice(0, 5).map((part) => (
               <li key={part.part_id} className="text-muted-foreground">
-                <Link to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(part.part_id)}`} className="text-primary hover:underline">{part.mpn}</Link>
+                <Link to={partHref(part.part_id)} className="text-primary hover:underline">{part.mpn}</Link>
                 , {part.manufacturer}: {part.calls_a_day.toFixed(2)} a day{part.pick_saves > 0 ? `, a packaging pick saves ${part.pick_saves.toFixed(2)}` : ""}
               </li>
             ))}
@@ -122,6 +123,6 @@ export function BudgetDetail({ item, capacity }: { item: BudgetConnector; capaci
 /** Every metered connector's budget, for the cards. Empty when it cannot be read. */
 export function useBudget(): BudgetConnector[] {
   const fetcher = useCallback((signal: AbortSignal) => getBudget(signal), []);
-  const { data } = useLoaded<BudgetConnector[]>("budget", fetcher, "Could not load the call budget", "supply");
+  const { data } = useLoaded<BudgetConnector[]>("connectors/budget", fetcher, "Could not load the call budget");
   return data ?? [];
 }

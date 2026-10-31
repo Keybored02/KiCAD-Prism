@@ -17,6 +17,11 @@ class AccessUserDeletedResponse(TypedDict, total=True):
     sessions_revoked: int
 
 
+class AccountRoom(TypedDict, total=True):
+    daily: int | None
+    weekly: int | None
+
+
 class AcknowledgeRequest(TypedDict, total=True):
     visibility: str
 
@@ -30,14 +35,6 @@ class ActiveSession(TypedDict, total=False):
     user_agent: str
 
 
-class AddWatchRequest(TypedDict, total=False):
-    manufacturer: str
-    mpn: str
-    packaging: str
-    pinned: bool
-    threshold: int | None
-
-
 class AgentTokenView(TypedDict, total=False):
     created_at: str | None
     email: str
@@ -48,10 +45,81 @@ class AgentTokenView(TypedDict, total=False):
     scopes: list[str]
 
 
+class AlertDetail(TypedDict, total=False):
+    """The facts behind an alert; which are present depends on its kind."""
+    chance: int | float | None
+    change_percent: int | float | None
+    change_summary: str | None
+    confidence: str | None
+    currency: str | None
+    days: int | float | None
+    days_to_zero: int | float | None
+    decrease_per_day: int | float | None
+    description: str | None
+    dropped: bool | None
+    kind: str | None
+    kind_label: str | None
+    last_time_buy: str | None
+    last_time_ship: str | None
+    lifecycle: str | None
+    new: int | float | None
+    now: str | None
+    price: str | None
+    problem: str | None
+    soon: bool | None
+    stock: int | float | None
+    target: str | None
+    threshold: int | float | None
+    title: str | None
+    to: str | None
+    version: int | float | None
+    was: str | None
+    was_status: str | None
+    weeks: int | float | None
+
+
+class AlertRules(TypedDict, total=True):
+    likely_out_percent: int | None
+    muted: list[str]
+    muting: list[str]
+    price_rise_percent: int | None
+    target_currency: str
+    target_price: str | None
+
+
+class AliasConfirmed(TypedDict, total=True):
+    listings_updated: int
+
+
+class AliasUndone(TypedDict, total=True):
+    listings: int
+
+
 class AlignmentRequest(TypedDict, total=False):
     offsetMm: list[float]
     rotationDeg: list[float]
     scale: float
+
+
+class AlternateRequest(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+
+
+class AlternativeCandidate(TypedDict, total=True):
+    differs: list[str]
+    fetched_at: str | None
+    grade: str
+    grade_label: str
+    lifecycle: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    problem: str | None
+    same: list[str]
+    status: str
+    stock: int | None
+    unknown: list[str]
 
 
 class AnalyzeRequest(TypedDict, total=False):
@@ -97,6 +165,45 @@ class ApprovalState(TypedDict, total=True):
     unpinned_models: list[UnpinnedModel]
 
 
+class ArrivalRecord(TypedDict, total=True):
+    on_time: int
+    resolved: int
+
+
+class Arrivals(TypedDict, total=True):
+    announced: int
+    arrived: int
+    median_delay_days: int | float | None
+    on_time: int | None
+    on_time_share: int | float | None
+    open: int
+    slipped: int
+
+
+class AssessmentCheck(TypedDict, total=True):
+    area: str
+    id: str
+    label: str
+
+
+class AssessmentSettings(TypedDict, total=True):
+    """The workspace's assessment, pricing, alerts and spares settings, as one form."""
+    alert_likely_out_percent: int
+    alert_price_rise_percent: int
+    base_currency: str
+    distributor_order: list[str]
+    last_buy_error_days: int
+    late_hours: int
+    lead_time_days: int
+    prefer_distributors: bool
+    price_quantity: int
+    severity: dict[str, str]
+    spares_mode: str
+    spares_others: float
+    spares_percent: float
+    spares_small_passives: float
+
+
 class AssessmentSettingsBody(TypedDict, total=False):
     alert_likely_out_percent: int
     alert_price_rise_percent: int
@@ -112,6 +219,14 @@ class AssessmentSettingsBody(TypedDict, total=False):
     spares_others: float
     spares_percent: float
     spares_small_passives: float
+
+
+class AssessmentSettingsView(TypedDict, total=True):
+    checks: list[AssessmentCheck]
+    currencies: list[str]
+    defaults: AssessmentSettings
+    ranges: SettingsRanges
+    settings: AssessmentSettings
 
 
 class AssetBrowseResult(TypedDict, total=True):
@@ -189,6 +304,19 @@ class AuthConfig(TypedDict, total=False):
 class AuthSuccessResponse(TypedDict, total=True):
     """The answer to a session mutation that has nothing else to say."""
     success: bool
+
+
+class BackInStock(TypedDict, total=True):
+    beyond_share: float
+    connector_id: str
+    high: str
+    low: str
+    median: str
+    name: str
+    provider: str
+    quote_days: int | None
+    ratio: float | None
+    state: ForecastModelState
 
 
 class BenchmarkMetrics(TypedDict, total=True):
@@ -279,6 +407,109 @@ class BomOut(TypedDict, total=True):
     commit: str | None
     designKey: str
     lines: list[BomLineOut]
+
+
+class BomRead(TypedDict, total=False):
+    changed: bool | None
+    done: int
+    failed: int
+    reason: str
+    state: str
+    total: int
+
+
+class BomSkippedLine(TypedDict, total=True):
+    key: str
+    reason: str
+
+
+class BomWatchPreview(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    watched: SupplyBomWatchResult
+
+
+class BomWatched(TypedDict, total=True):
+    already_watched: int
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    lcsc_linked: int
+    skipped: list[BomSkippedLine]
+    watched: int
+
+
+class BudgetCall(TypedDict, total=False):
+    calls: int
+    day: str | None
+    hour: int | None
+    kind: str | None
+    purpose: str
+
+
+class BudgetConnector(TypedDict, total=True):
+    """Where a connector's call budget goes, today and over two weeks, and what tracking costs."""
+    committed: Spent
+    connector_id: str
+    daily_budget: int
+    day: str
+    days: list[BudgetCall]
+    enabled: bool
+    free: FreeNow
+    hourly: list[BudgetCall]
+    library: BudgetLibrary | None
+    name: str
+    notices: BudgetNotices | None
+    owners: BudgetOwners
+    pool: Spent
+    provider: str
+    quotes: QuoteCoverage
+    refused_today: int
+    reset_in_seconds: int
+    searches_pending: int
+    shares_account: bool
+    spare_spent: int
+    spent: int
+    tracking: BudgetShare | None
+
+
+class BudgetLibrary(TypedDict, total=True):
+    """Matching the library's parts nothing follows, from spare budget."""
+    calls_a_day: int | float
+    days_left: int | float | None
+    found: int
+    not_found: int
+    total: int
+    waiting: int
+
+
+class BudgetNotices(TypedDict, total=True):
+    """The change-notice quota of a provider that keeps one apart from its product calls (DigiKey)."""
+    interval_days: int | float
+    limit: int
+    parts: int
+    per_day: int | float
+    used: int
+
+
+class BudgetOwners(TypedDict, total=True):
+    parts: list[PartCalls]
+    projects: list[ProjectCalls]
+
+
+class BudgetShare(TypedDict, total=False):
+    """One connector's committed share, and what a change adds to it."""
+    account: str
+    adds_calls: int | None
+    admitted: int
+    admitted_new: int | None
+    by_tier: dict[str, TierShare]
+    capacity: int
+    committed: int
+    connector_id: str
+    free: int
+    name: str
+    waiting: int
+    waiting_new: int | None
 
 
 class BuildDetail(TypedDict, total=True):
@@ -422,6 +653,12 @@ class BundleStore(TypedDict, total=True):
     archives: int
 
 
+class ByDistributor(TypedDict, total=True):
+    """Each distributor's own forecast: its most likely stock by day, and its price in 30 and 90 days."""
+    price: list[DistributorPrice]
+    stock: list[DistributorStock]
+
+
 class CacheEntry(TypedDict, total=False):
     disk_bytes: int | None
     disk_files: int | None
@@ -440,6 +677,11 @@ class CacheStats(TypedDict, total=True):
     bundle_store: BundleStore
     caches: list[CacheEntry]
     window_minutes: int
+
+
+class CallsToday(TypedDict, total=True):
+    interactive_spent: int
+    spent: int
 
 
 class CandidateCreated(TypedDict, total=True):
@@ -743,14 +985,41 @@ class ChangePasswordRequest(TypedDict, total=True):
     new_password: str
 
 
+class ChangedPart(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+    now: str
+    part_id: str
+    was: str | None
+
+
 class CheckAccessRequest(TypedDict, total=True):
     url: str
 
 
-class CheckIn(TypedDict, total=False):
+class CheckLine(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+
+
+class CheckProgress(TypedDict, total=True):
+    created_at: str
+    done: int
+    failed: int
+    id: str
     kind: str
-    lines: list[app__api__supply_checks__LineIn]
     project_id: str
+    reason: str
+    state: str
+    total: int
+
+
+class CheckStarted(TypedDict, total=True):
+    already_tracked: int
+    id: str
+    parts: int
+    progress: CheckProgress
+    skipped: list[SkippedLine]
 
 
 class ChoiceRequest(TypedDict, total=True):
@@ -1051,6 +1320,17 @@ class ComparisonReviewOut(TypedDict, total=True):
     jobId: str
 
 
+class ComplianceDraft(TypedDict, total=True):
+    """The draft RoHS and REACH declaration of a BOM: a working document, not a declaration."""
+    parts: list[DraftPart]
+    summary: DraftSummary
+
+
+class ComplianceMix(TypedDict, total=True):
+    reach: ReachMix
+    rohs: RohsMix
+
+
 class ComponentAsset(TypedDict, total=True):
     asset_type: str
     content_type: str
@@ -1102,6 +1382,16 @@ class ComponentDetail(TypedDict, total=True):
     workflow_stage: str
 
 
+class ComponentFollow(TypedDict, total=True):
+    watch: SupplyComponentWatch | None
+
+
+class ComponentFollowIn(TypedDict, total=False):
+    packaging: str
+    rate: str
+    tier: int
+
+
 class ComponentMutation(TypedDict, total=True):
     """A write that answers with the component's fresh payload."""
     component: CatalogComponent | None
@@ -1114,6 +1404,23 @@ class ComponentPage(TypedDict, total=True):
     page_size: int
     pages: int | None
     total: int | None
+
+
+class ComponentPart(TypedDict, total=True):
+    approval: str
+    created_at: str
+    created_by: str
+    decided_at: str | None
+    decided_by: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    role: str
+
+
+class ComponentParts(TypedDict, total=True):
+    component_id: str
+    parts: list[ComponentPart]
 
 
 class ComponentPayload(TypedDict, total=True):
@@ -1186,6 +1493,14 @@ class ComponentReleaseRecordPage(TypedDict, total=True):
     items: list[ComponentReleaseRecord]
 
 
+class ComponentRestriction(TypedDict, total=True):
+    level: str
+    reason: str
+    replacement_component_id: str | None
+    set_at: str
+    set_by: str
+
+
 class ComponentReviewDecision(TypedDict, total=True):
     component_id: str
     created_at: str
@@ -1225,6 +1540,10 @@ class ComponentRevisionPage(TypedDict, total=True):
     items: list[ComponentRevision]
 
 
+class ComponentStandings(TypedDict, total=True):
+    items: dict[str, SupplyComponentStanding]
+
+
 class ComponentUsage(TypedDict, total=True):
     component_id: str
     details: list[Any]
@@ -1249,10 +1568,6 @@ class ComponentValidation(TypedDict, total=True):
     summary: ValidationSummary
 
 
-class ComponentWatchRequest(TypedDict, total=False):
-    packaging: str
-
-
 class ConfirmAliasRequest(TypedDict, total=False):
     alias_key: str
     manufacturer_id: str | None
@@ -1266,6 +1581,77 @@ class ConnectorCredentials(TypedDict, total=False):
     oauthClientSecret: str
     privateKey: str
     webhookSecret: str
+
+
+class ConnectorHealth(TypedDict, total=True):
+    budget: int | None
+    calls_today: int
+    connector_id: str
+    enabled: bool
+    failing: int
+    interactive_calls_today: int
+    last_error_at: str | None
+    last_error_code: str
+    last_ok_at: str | None
+    late: int
+    late_by_hours: int | float
+    listings: int
+    name: str
+    oldest_read: str | None
+    paused_reason: str
+    provider: str
+
+
+class ConnectorProblem(TypedDict, total=True):
+    connector: str
+    reason: str
+
+
+class ConnectorSearches(TypedDict, total=True):
+    connector_id: str
+    done: int
+    name: str
+    total: int
+
+
+class ConnectorStock(TypedDict, total=True):
+    connector_id: str
+    connector_name: str
+    provider: str
+    stock: int
+
+
+class ControlMix(TypedDict, total=True):
+    controlled: int
+    disputed: int
+    none: int
+    unknown: int
+
+
+class ControlledPart(TypedDict, total=True):
+    by_person: bool
+    eccn: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    state: str
+
+
+class CostDay(TypedDict, total=True):
+    boards: int
+    cost_per_board: str
+    currency: str
+    day: str
+
+
+class Coverage(TypedDict, total=True):
+    cheapest: int
+    connector_id: str
+    in_stock: int
+    listed: int
+    name: str
+    provider: str
+    tracked: int
 
 
 class CreateCommentRequest(TypedDict, total=False):
@@ -1297,6 +1683,15 @@ class CreateComparisonCommentRequest(TypedDict, total=False):
     semanticItemId: str | None
     semanticItemRef: str | None
     severity: str | None
+
+
+class CreateConnectorRequest(TypedDict, total=False):
+    baseUrl: str
+    credentials: ConnectorCredentials | None
+    displayName: str
+    id: str | None
+    instanceKind: str
+    provider: str
 
 
 class CreateDisplayedRevision(TypedDict, total=False):
@@ -1365,6 +1760,25 @@ class CreateServiceClientRequest(TypedDict, total=False):
     scopes: list[str]
 
 
+class CreateSourceRequest(TypedDict, total=False):
+    base_url: str
+    category_id: int | None
+    display_name: str
+    interval_hours: int
+    kind: str
+    token: str
+
+
+class CreateSupplyConnectorInput(TypedDict, total=False):
+    credentials: dict[str, str]
+    currency: str
+    daily_budget: int | None
+    display_name: str
+    interactive_reserve_pct: int
+    provider: str
+    storefront: str
+
+
 class CreatedPersonalToken(TypedDict, total=False):
     """The one response that carries the secret, shown once."""
     created_at: str
@@ -1402,6 +1816,38 @@ class CredentialsRequest(TypedDict, total=True):
     credentials: dict[str, str]
 
 
+class CrossReference(TypedDict, total=True):
+    candidates: list[AlternativeCandidate]
+    judged_on: list[str]
+    suggested_by_distributors: list[str]
+    suggestions: list[DistributorSuggestion]
+
+
+class DashboardFigures(TypedDict, total=True):
+    at_risk: int
+    lifecycle: int
+    open_alerts: int
+    out_of_stock: int
+    waiting: int
+    watched: int
+
+
+class DashboardForecast(TypedDict, total=True):
+    """Parts likely out within four weeks, the model's state and the next expected events."""
+    coming_up: list[ForecastEvent]
+    likely_out_4w: int
+    part_ids_likely_out_4w: list[str]
+    state: ForecastModelState
+
+
+class DashboardProject(TypedDict, total=True):
+    count: int
+    project_id: str
+    project_name: str
+    stats: SupplyGroupStats
+    statuses: dict[str, int]
+
+
 class DatabasePoolMetrics(TypedDict, total=True):
     connectionWaitCount: int
     connectionWaitMaxMs: float
@@ -1409,7 +1855,17 @@ class DatabasePoolMetrics(TypedDict, total=True):
     pool: dict[str, Any]
 
 
-class DatasheetAddress(TypedDict, total=False):
+class Datasheet(TypedDict, total=True):
+    url: str | None
+
+
+class Deadline(TypedDict, total=True):
+    date: str
+    kind: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    source: str
     url: str
 
 
@@ -1430,8 +1886,28 @@ class DebugLoggingWindow(TypedDict, total=True):
     until: str
 
 
+class DecisionRequest(TypedDict, total=False):
+    approve: bool
+    main_part_id: str | None
+
+
+class DecisionState(TypedDict, total=True):
+    """A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``)."""
+    id: str
+    state: str
+
+
 class Declaration(TypedDict, total=False):
     cas: str
+    note: str
+
+
+class DeclaredSubstance(TypedDict, total=True):
+    cas: str
+    declared_at: str
+    declared_by: str
+    from_distributor: bool
+    listed_as: str | None
     note: str
 
 
@@ -1608,6 +2084,36 @@ class DetectedPaths(TypedDict, total=True):
     validation: PathConfigValidation
 
 
+class DismissIn(TypedDict, total=True):
+    reasons: list[str]
+
+
+class DistributorPrice(TypedDict, total=True):
+    connector_id: str
+    h30: PriceAt
+    h90: PriceAt
+    now: float
+
+
+class DistributorStock(TypedDict, total=True):
+    connector_id: str
+    path: list[StockPoint]
+
+
+class DistributorSuggestion(TypedDict, total=True):
+    """A number distributors suggest in place of the part, with every distributor that said it. Not compared with the part."""
+    asked: bool
+    manufacturer: str
+    mpn: str
+    notes: list[str]
+    part_id: str | None
+    sku: str
+    sources: list[SuggestionSource]
+    status: str | None
+    stock: int | None
+    tracked: bool
+
+
 class DocFileContent(TypedDict, total=True):
     content: str
     path: str
@@ -1673,6 +2179,21 @@ class DraftKlcResult(TypedDict, total=False):
     warning_count: int
 
 
+class DraftPart(TypedDict, total=True):
+    exemptions: list[str]
+    gaps: list[str]
+    manufacturer: str
+    mpn: str
+    on_candidate_list: list[str]
+    quantity: int
+    reach: str
+    reach_stated: str
+    references: str
+    rohs: str
+    rohs_stated: str
+    svhc_stated: str
+
+
 class DraftPreview(TypedDict, total=True):
     png_base64: str
     unit: int
@@ -1682,6 +2203,15 @@ class DraftSetupRequest(TypedDict, total=False):
     commit: str | None
     kind: str
     name: str
+
+
+class DraftSummary(TypedDict, total=True):
+    candidate_list_loaded: bool
+    note: str
+    parts: int
+    reach_unknown: int
+    rohs_unknown: int
+    with_gaps: int
 
 
 class DrillSummary(TypedDict, total=True):
@@ -1698,6 +2228,59 @@ class DrillTool(TypedDict, total=True):
     hits: int
     plated: bool
     slots: int
+
+
+class EndOfLife(TypedDict, total=True):
+    changes: int
+    needs: int
+    p12: ForecastChance
+    p24: ForecastChance
+    state: ForecastModelState
+
+
+class EndingComponent(TypedDict, total=True):
+    id: str
+    manufacturer: str
+    mpn: str
+    name: str
+    stage: str
+
+
+class EndingPart(TypedDict, total=True):
+    component: EndingComponent
+    dismissal_waiting: bool
+    dismissed: bool
+    fetched_at: str | None
+    healthy: int
+    last_buy: list[LastBuy]
+    lifecycle: str
+    part_id: str
+    problem: str | None
+    projects: list[EndingProject]
+    reasons: list[EndingReason]
+    restriction: ComponentRestriction | None
+    role: str
+    status: str
+    stock: int | None
+
+
+class EndingParts(TypedDict, total=True):
+    """Components whose part is ending, worst first."""
+    items: list[EndingPart]
+    more: int
+    tracked: int
+
+
+class EndingProject(TypedDict, total=True):
+    name: str
+    project_id: str
+    quantity: int
+
+
+class EndingReason(TypedDict, total=True):
+    kind: str
+    source: str
+    text: str
 
 
 class EventAndWebhookHealth(TypedDict, total=False):
@@ -1741,6 +2324,12 @@ class Exemption(TypedDict, total=False):
     note: str
 
 
+class ExpectedSpend(TypedDict, total=True):
+    """What tracking was expected to spend on the provider's previous day, and what it spent (null when nothing was counted)."""
+    expected: int | float
+    spent: int | float | None
+
+
 class FabricationLayer(TypedDict, total=True):
     colour: str
     file: str
@@ -1764,11 +2353,24 @@ class FabricationView(TypedDict, total=True):
     size: BoardSize | None
 
 
+class FactSource(TypedDict, total=True):
+    observed_at: str
+    provider: str
+    source: str
+    value: str
+
+
 class FailedBuild(TypedDict, total=True):
     """A bundle whose build failed outright."""
     commit: str | None
     reason: str
     revisionKey: str | None
+
+
+class FailingFeed(TypedDict, total=True):
+    kind: str
+    name: str
+    since: str | None
 
 
 class FileItem(TypedDict, total=True):
@@ -1778,6 +2380,35 @@ class FileItem(TypedDict, total=True):
     path: str
     size: int
     type: str
+
+
+class FillCandidate(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    description: str
+    manufacturer: str
+    manufacturer_matches: bool
+    mpn: str
+    product_url: str
+    provider: str
+    sku: str
+
+
+class FillDetails(TypedDict, total=True):
+    category: str
+    datasheet_url: str
+    description: str
+    package_name: str
+
+
+class FillSearchResult(TypedDict, total=True):
+    candidates: list[FillCandidate]
+    skipped: list[FillSkipped]
+
+
+class FillSkipped(TypedDict, total=True):
+    connector: str
+    reason: str
 
 
 class FingerprintRecord(TypedDict, total=True):
@@ -1956,11 +2587,83 @@ class FolderSnapshotRequest(TypedDict, total=False):
     display_name: str
 
 
+class FollowIn(TypedDict, total=False):
+    """How a part is followed. Only the fields sent change; a tier sent without a rate is weekly; a null threshold clears it."""
+    packaging: str | None
+    pinned: bool | None
+    rate: str | None
+    threshold: int | None
+    tier: int | None
+
+
+class FollowNumberIn(TypedDict, total=False):
+    manufacturer: str
+    mpn: str
+    packaging: str | None
+    pinned: bool | None
+    rate: str | None
+    threshold: int | None
+    tier: int | None
+
+
 class FootprintImportResult(TypedDict, total=False):
     component: CatalogComponent | None
     discovered_footprints: list[str] | None
     mode: str
     selected_footprint: str | None
+
+
+class ForecastChance(TypedDict, total=True):
+    percent: int
+    probability: float
+    word: str
+
+
+class ForecastEvent(TypedDict, total=True):
+    date: str
+    kind: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    probability: float | None
+    text: str
+
+
+class ForecastInputs(TypedDict, total=False):
+    drain_known: int
+    from_similar: int | None
+    holders: int
+    outages_modelled: int
+    span_days: int
+    weekly: bool
+
+
+class ForecastInsights(TypedDict, total=True):
+    """The Insights Forecasts section."""
+    coming_up: list[ForecastEvent]
+    currency: str
+    lead_times: list[GroupLeadTime]
+    lifecycle: LifecycleOutlook
+    likely_out_4w: int
+    prices: PriceOutlook
+    track_record: TrackRecord
+    warnings: list[GroupWarning]
+
+
+class ForecastModelState(TypedDict, total=True):
+    """Where a forecast model stands: learning (not enough checks, or missing too often), shown, or paused."""
+    checks: int
+    needs: int
+    reason: str
+    state: str
+
+
+class ForecastWeek(TypedDict, total=True):
+    date: str
+    percent: int
+    probability: float
+    week: int
+    word: str
 
 
 class ForgeRelease(TypedDict, total=True):
@@ -1975,6 +2678,13 @@ class ForgeSummary(TypedDict, total=True):
     owner_repo: str
     token_configured: bool
     token_hint: str
+
+
+class FreeNow(TypedDict, total=True):
+    """What scheduled work still needs before the reset, what is kept for people, and what is free to spend now."""
+    free: int
+    kept_for_people: int
+    scheduled: int
 
 
 class GenerateSSHKeyRequest(TypedDict, total=False):
@@ -2035,8 +2745,53 @@ class GitAccessResponse(TypedDict, total=True):
     trusted_hosts: list[str]
 
 
+class GroupLeadTime(TypedDict, total=True):
+    direction: str
+    high: float
+    kind: str
+    low: float
+    median: float
+    now: float
+    points: int
+    scope: str
+
+
+class GroupWarning(TypedDict, total=True):
+    after: float
+    before: float
+    direction: str
+    kind: str
+    metric: str
+    scope: str
+    since: str
+
+
 class HTTPValidationError(TypedDict, total=False):
     detail: list[ValidationError]
+
+
+class HistoryConnector(TypedDict, total=True):
+    connector_id: str
+    last_read: str | None
+    name: str
+    price: list[list[Any]]
+    provider: str
+    stale: bool
+    stock: list[list[Any]]
+
+
+class HistoryEvent(TypedDict, total=True):
+    day: str
+    kind: str
+    text: str
+
+
+class Holders(TypedDict, total=True):
+    none: int
+    one: int
+    three_plus: int
+    two: int
+    unknown: int
 
 
 class HostKeyForgetResponse(TypedDict, total=True):
@@ -2059,6 +2814,11 @@ class HostKeyTrustResponse(TypedDict, total=True):
     fingerprints: list[str]
     host: str
     trusted: bool
+
+
+class IgnoreRequest(TypedDict, total=True):
+    ignore: bool
+    remote_parts: list[str]
 
 
 class ImportAccessHelp(TypedDict, total=True):
@@ -2168,6 +2928,11 @@ class ImportedProposalCsv(TypedDict, total=True):
     skipped_unknown_rows: int
 
 
+class InStock(TypedDict, total=True):
+    days: int
+    share: float | None
+
+
 class IncompleteCounts(TypedDict, total=True):
     failed: int
     partial: int
@@ -2192,10 +2957,35 @@ class InlineBundle(TypedDict, total=True):
     symbol_name: str
 
 
+class InsightInputs(TypedDict, total=True):
+    current: int | None
+    points: int
+    points_in_run: int
+    span_days: int
+
+
 class InventoryImportResult(TypedDict, total=True):
     errors: list[str]
     not_found: int
     updated: int
+
+
+class InventorySource(TypedDict, total=True):
+    api_version: int | None
+    base_url: str
+    category_id: int | None
+    display_name: str
+    enabled: bool
+    has_token: bool
+    id: str
+    interval_hours: int
+    kind: str
+    last_error: str
+    last_status: str
+    last_sync_at: str | None
+    matched: int
+    server: str
+    unmatched: int
 
 
 class IpcOption(TypedDict, total=True):
@@ -2209,6 +2999,64 @@ class IpcOptions(TypedDict, total=True):
     silkscreen_colour: list[IpcOption]
     solder_mask_colour: list[IpcOption]
     via_treatment: list[IpcOption]
+
+
+class IssuedPushToken(TypedDict, total=True):
+    prefix: str
+    token: str
+
+
+class Items_BudgetConnector_(TypedDict, total=True):
+    items: list[BudgetConnector]
+
+
+class Items_PackagingSeveral_(TypedDict, total=True):
+    items: list[PackagingSeveral]
+
+
+class Items_SupplyAlert_(TypedDict, total=True):
+    items: list[SupplyAlert]
+
+
+class Items_SupplyBomComment_(TypedDict, total=True):
+    items: list[SupplyBomComment]
+
+
+class Items_SupplyConnector_(TypedDict, total=True):
+    items: list[SupplyConnector]
+
+
+class Items_SupplyMakerGroup_(TypedDict, total=True):
+    items: list[SupplyMakerGroup]
+
+
+class Items_SupplyManufacturer_(TypedDict, total=True):
+    items: list[SupplyManufacturer]
+
+
+class Items_SupplyNotice_(TypedDict, total=True):
+    items: list[SupplyNotice]
+
+
+class Items_SupplyNumberEnding_(TypedDict, total=True):
+    items: list[SupplyNumberEnding]
+
+
+class Items_SupplyProvider_(TypedDict, total=True):
+    items: list[SupplyProvider]
+
+
+class Items_SupplyWorkItem_(TypedDict, total=True):
+    items: list[SupplyWorkItem]
+
+
+class Items_WorkItemEvent_(TypedDict, total=True):
+    items: list[WorkItemEvent]
+
+
+class JlcClass(TypedDict, total=True):
+    library: str | None
+    preferred: bool
 
 
 class JobCancelOut(TypedDict, total=True):
@@ -2254,6 +3102,15 @@ class JobPhasesOut(TypedDict, total=False):
     claims: list[ClaimAttemptOut]
     queue_wait: QueueWaitOut | None
     stages: list[StageRunOut]
+
+
+class JobProgress(TypedDict, total=True):
+    """How far a supply job has got. Every supply job answers this shape (``progress.job_progress``)."""
+    done: int
+    failed: int
+    reason: str
+    state: str
+    total: int
 
 
 class JobRecord(TypedDict, total=True):
@@ -2420,6 +3277,20 @@ class LabelsBody(TypedDict, total=False):
     severityPrefix: str
 
 
+class LastBuy(TypedDict, total=True):
+    source: str
+    value: str
+
+
+class LastBuyLag(TypedDict, total=False):
+    available: bool
+    cases: int
+    high: float | None
+    low: float | None
+    median: float | None
+    needs: int | None
+
+
 class LatencyTotals(TypedDict, total=True):
     count: int
     estimatedTotalMs: float
@@ -2434,9 +3305,95 @@ class LatencyTotals(TypedDict, total=True):
     status5xx: int
 
 
+class LeadTimeBucket(TypedDict, total=True):
+    bucket: str
+    parts: int
+
+
+class LeadTimeTrend(TypedDict, total=True):
+    after: int
+    before: int
+    since: str
+
+
+class Leadership(TypedDict, total=True):
+    changes: int
+    followed: int
+    followed_share: int | float
+    leader: str | None
+    led: dict[str, int]
+
+
+class LearnedAlias(TypedDict, total=True):
+    alias_key: str
+    alias_text: str
+    first_seen_at: str
+    manufacturer: str
+    parts: int
+
+
+class LibraryComponentOf(TypedDict, total=True):
+    component_id: str | None
+
+
+class LifecycleInsights(TypedDict, total=True):
+    compliance: ComplianceMix
+    mix: LifecycleMix
+    outlook: Outlook
+
+
+class LifecycleMix(TypedDict, total=True):
+    active: int
+    last_time_buy: int
+    nrnd: int
+    obsolete: int
+    unknown: int
+
+
+class LifecycleOutlook(TypedDict, total=True):
+    changes: int
+    last_buy_lag: LastBuyLag
+    needs: int
+
+
+class LikelyUp(TypedDict, total=True):
+    change: float
+    flat: bool
+    high: float
+    low: float
+    manufacturer: str
+    median: float
+    mpn: str
+    now: float
+    part_id: str
+
+
+class LineAssessment(TypedDict, total=True):
+    checks: list[str]
+    health: int | float
+    open: int
+    status: str
+
+
+class LineCandidate(TypedDict, total=True):
+    manufacturer: str
+    part_id: str
+
+
 class LineChoiceIn(TypedDict, total=True):
     manufacturer: str
     part_id: str
+
+
+class LineIn(TypedDict, total=False):
+    footprint: str
+    key: str
+    lcsc: str
+    manufacturer: str
+    mpn: str
+    prism_id: str
+    quantity: int
+    value: str
 
 
 class LinkAssetRequest(TypedDict, total=False):
@@ -2444,6 +3401,10 @@ class LinkAssetRequest(TypedDict, total=False):
     file_path: str
     target_library: str
     target_name: str
+
+
+class LinkRequest(TypedDict, total=True):
+    component_id: str
 
 
 class ListedBuild(TypedDict, total=True):
@@ -2470,6 +3431,24 @@ class ListedBuild(TypedDict, total=True):
     warnings: list[Any]
 
 
+class ListingPart(TypedDict, total=True):
+    id: str
+    manufacturer: str
+    mpn: str
+
+
+class ListingPoll(TypedDict, total=True):
+    error_streak: int
+    last_error_code: str
+    last_polled_at: str | None
+    next_poll_at: str | None
+    tier: str
+
+
+class ListingsRejected(TypedDict, total=True):
+    rejected: int
+
+
 class LoadList(TypedDict, total=False):
     csv: str
     source_name: str
@@ -2489,6 +3468,33 @@ class LocalInventory(TypedDict, total=True):
     uom: str
 
 
+class LocalStock(TypedDict, total=False):
+    at_vendor: float | None
+    available: float | None
+    component_id: str
+    held: float | None
+    mixed_units: bool
+    rows: list[LocalStockRow]
+    stores: StoresState | None
+    uom: str
+
+
+class LocalStockRow(TypedDict, total=True):
+    allocated: float
+    batch: str
+    external: bool
+    fetched_at: str
+    key: str
+    location: str
+    quantity: float
+    source: str
+    source_id: str
+    stale: bool
+    status: str
+    uom: str
+    updated_at: str
+
+
 class LoginRequest(TypedDict, total=True):
     """Request body for OIDC auth code exchange."""
     code: str
@@ -2503,8 +3509,19 @@ class LoginStartResponse(TypedDict, total=True):
 
 class LookupRequest(TypedDict, total=False):
     attrition_percent: float | None
-    build_quantity: int
-    lines: list[app__api__supply_bom__LineIn]
+    build_quantity: int | None
+    lines: list[LineIn]
+    project_id: str
+
+
+class MakerChosen(TypedDict, total=True):
+    result: str
+
+
+class MakerSpelling(TypedDict, total=True):
+    alias_key: str
+    alias_text: str
+    source: str
 
 
 class MakerSpellingBody(TypedDict, total=False):
@@ -2527,6 +3544,28 @@ class ManifestAsset(TypedDict, total=True):
 class ManualRates(TypedDict, total=True):
     day: str
     rates: dict[str, float]
+
+
+class MarketBehaviour(TypedDict, total=True):
+    arrivals: Arrivals | None
+    exchange: dict[str, dict[str, Any]]
+    leadership: Leadership | None
+    repricing: dict[str, int | float]
+    restock_order: RestockOrder | None
+
+
+class MarketSeries(TypedDict, total=True):
+    kind: str
+    points: list[list[Any]]
+    sample: int
+    scope: str
+
+
+class MarketSignal(TypedDict, total=True):
+    kind: str
+    scope: str
+    signal: str
+    text: str
 
 
 class MateOut(TypedDict, total=True):
@@ -2796,6 +3835,21 @@ class ModelPage(TypedDict, total=True):
     items: list[ModelOut]
 
 
+class MoneyLine(TypedDict, total=True):
+    cost: str
+    key: str
+    manufacturer: str
+    mpn: str
+    part_id: str | None
+    share: float
+
+
+class MoneyOther(TypedDict, total=True):
+    cost: str
+    count: int
+    share: float
+
+
 class Monorepo(TypedDict, total=False):
     last_synced: str | None
     name: str
@@ -2835,6 +3889,48 @@ class MoveProjectsRequest(TypedDict, total=False):
     project_ids: list[str]
 
 
+class NamedDays(TypedDict, total=True):
+    days: float
+    name: str
+    parts: int
+
+
+class NamedParts(TypedDict, total=True):
+    name: str
+    parts: int
+
+
+class NativePrice(TypedDict, total=True):
+    currency: str
+    price: str
+
+
+class NewCheck(TypedDict, total=False):
+    kind: str
+    lines: list[CheckLine]
+    project_id: str
+
+
+class NewWorkItem(TypedDict, total=False):
+    action: str
+    note: str
+    owner: str
+    recheck_on: str | None
+    subject_id: str
+    subject_kind: str
+    title: str
+
+
+class NextBreak(TypedDict, total=True):
+    extra: str
+    quantity: int
+    unit_price: str
+
+
+class NoticeAdded(TypedDict, total=True):
+    id: str
+
+
 class NoticeIn(TypedDict, total=False):
     kind: str
     last_time_buy: str | None
@@ -2850,6 +3946,15 @@ class NoticePart(TypedDict, total=True):
     mpn: str
 
 
+class NumberFollowed(TypedDict, total=True):
+    tier: PartTracking | None
+    watch: SupplyWatch
+
+
+class NumbersCounted(TypedDict, total=True):
+    counted: int
+
+
 class NumbersRequest(TypedDict, total=True):
     keys: list[str]
 
@@ -2862,6 +3967,14 @@ class OldestQueued(TypedDict, total=False):
     age_seconds: float
     oldest_queued_at: str | None
     worker_pool: str
+
+
+class OpenRestock(TypedDict, total=False):
+    expected: str
+    kind: str
+    late: bool
+    quantity: int | None
+    quoted_lead_days: int | None
 
 
 class OpsProfile(TypedDict, total=False):
@@ -2889,9 +4002,183 @@ class OpsStatus(TypedDict, total=True):
     tools: list[str]
 
 
-class PartIn(TypedDict, total=False):
-    rate: str
+class Origin(TypedDict, total=True):
+    country: str
+    parts: int
+
+
+class OtherNumberListing(TypedDict, total=True):
+    connector: str
+    id: str
+    raw_mpn: str
+    sku: str
+
+
+class Outlook(TypedDict, total=True):
+    ended: int
+    ending: int
+    no_signs: int
+    unknown: int
+    warning_signs: int
+
+
+class OutlookSignal(TypedDict, total=True):
+    source: str
+    text: str
+    weight: str
+
+
+class PackagingListing(TypedDict, total=True):
+    currency: str
+    fetched_at: str | None
+    id: str
+    lead_time_days: int | None
+    marketplace: bool
+    moq: int | None
+    order_multiple: int | None
+    other_number: bool
+    packaging: str
+    packaging_inferred: bool
+    prices: dict[str, str | None]
+    product_url: str
+    raw_mpn: str
+    reel_size: int | None
+    sku: str
+    stock: int | None
+
+
+class PackagingNeedsPick(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listings: int
+
+
+class PackagingOptions(TypedDict, total=True):
+    can_unpin: bool
+    connector_id: str
+    listings: list[PackagingListing]
+    note: str
+    package: str
+    part_id: str
+    picked: str | None
+    picked_by: str
+    saves_calls_a_day: int | float
+
+
+class PackagingPicked(TypedDict, total=True):
+    packaging: str
+    picked: str
+    similar: list[PackagingSimilar]
+
+
+class PackagingPickedBy(TypedDict, total=True):
+    by: str
+    note: str
+
+
+class PackagingProposal(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listing_id: str
+    note: str
+    packaging: str
+    saves_calls_a_day: int | float
+    sku: str
+
+
+class PackagingProposals(TypedDict, total=True):
+    items: list[PackagingProposal]
+    saves_calls_a_day: int | float
+
+
+class PackagingSeveral(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listings: int
+    manufacturer: str
+    mpn: str
+    new_since_pick: int
+    note: str
+    part_id: str
+    picked_by: str
+    picked_listing: str | None
+    picked_sku: str
+    provider: str
+    saves_calls_a_day: int | float
+
+
+class PackagingSimilar(TypedDict, total=True):
+    connector: str
+    connector_id: str
+    listing_id: str
+    listings: int
+    manufacturer: str
+    mpn: str
+    part_id: str
+    saves_calls_a_day: int | float
+    sku: str
+
+
+class PartAlertRules(TypedDict, total=True):
+    """A part's rules, and the kinds that can be switched off."""
+    likely_out_percent: int | None
+    mutable: list[str]
+    muted: list[str]
+    muting: list[str]
+    price_rise_percent: int | None
+    target_currency: str
+    target_price: str | None
+
+
+class PartCalls(TypedDict, total=True):
+    calls_a_day: int | float
+    manufacturer: str
+    mpn: str
+    part_id: str
+    pick_saves: int | float
     tier: int
+
+
+class PartFollowed(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    tier: PartTracking | None
+    watch: SupplyWatch | None
+
+
+class PartForecast(TypedDict, total=False):
+    """Everything the part sheet's Forecast section and chart bands need. Nothing is saved by asking at a quantity."""
+    available: bool
+    back: list[BackInStock] | None
+    buy_state: dict[str, Any] | None
+    by_distributor: ByDistributor | None
+    end_of_life: EndOfLife | None
+    inputs: ForecastInputs | None
+    models: dict[str, dict[str, Any]]
+    out_everywhere: dict[str, Any] | None
+    out_now: bool | None
+    path: list[StockBand] | None
+    price: PriceForecast | None
+    quantity: int | None
+    reason: str | None
+    runout: Runout | None
+    today: str
+    weeks: list[ForecastWeek] | None
+
+
+class PartHistory(TypedDict, total=True):
+    """Stock and price a line per distributor over the last ``days`` days."""
+    connectors: list[HistoryConnector]
+    currency: str
+    days: int
+    events: list[HistoryEvent]
+    total: list[list[Any]]
+
+
+class PartLookup(TypedDict, total=True):
+    """The part Prism knows for a manufacturer and number, and whether it follows it."""
+    followed: bool
+    part_id: str | None
 
 
 class PartManifest(TypedDict, total=True):
@@ -2903,6 +4190,65 @@ class PartManifest(TypedDict, total=True):
     representation_id: str
     summary: str
     symbol_name: str
+
+
+class PartName(TypedDict, total=True):
+    first_seen: str | None
+    id: str
+    manufacturer: str
+    mpn: str
+
+
+class PartPackaging(TypedDict, total=True):
+    """Picks made on this part, and the distributors where it still waits for one."""
+    needs_pick: list[PackagingNeedsPick]
+    picked_by: dict[str, PackagingPickedBy]
+    picks: dict[str, str]
+
+
+class PartPrice(TypedDict, total=True):
+    """The cheapest counted unit price per day. ``trend`` is the move over the last 30 days, or null when there is too little to read one."""
+    currency: str
+    default: int
+    headline: SupplyHeadlinePrice
+    history: list[PriceDay]
+    own: bool
+    quantity: int
+    trend: PriceTrend | None
+
+
+class PartReadOnView(TypedDict, total=True):
+    read: int
+
+
+class PartTracking(TypedDict, total=True):
+    """How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null."""
+    rate: str
+    reasons: list[TrackingReason]
+    tier: int
+
+
+class PartTrackingState(TypedDict, total=True):
+    tier: PartTracking | None
+    waiting_at: list[str]
+    watch: SupplyWatch | None
+
+
+class PartTrade(TypedDict, total=True):
+    """Export control: what distributors state, and a person's mark that wins over it."""
+    control: str
+    eccn: list[str]
+    mark: TradeMark | None
+    stated: str
+    stated_eccn: list[str]
+
+
+class PartUse(TypedDict, total=True):
+    only_in_variants: list[str]
+    project_id: str
+    project_name: str
+    quantity: int
+    references: str
 
 
 class PasswordLoginRequest(TypedDict, total=False):
@@ -2963,6 +4309,10 @@ class PersonalTokenView(TypedDict, total=False):
 
 class PickIn(TypedDict, total=True):
     listing_id: str
+
+
+class PicksMade(TypedDict, total=True):
+    picked: int
 
 
 class PinCommentRequest(TypedDict, total=True):
@@ -3032,8 +4382,96 @@ class PreferredIn(TypedDict, total=True):
     connector_id: str
 
 
+class PreferredStanding(TypedDict, total=True):
+    """The distributor a person prefers for a part, and what it holds."""
+    connector_id: str
+    connector_name: str
+    provider: str
+    stock: int
+
+
+class PriceAt(TypedDict, total=True):
+    date: str
+    high: float
+    low: float
+    median: float
+
+
+class PriceDay(TypedDict, total=True):
+    day: str
+    price: int | float
+
+
+class PriceForecast(TypedDict, total=True):
+    h30: PriceHorizon
+    h90: PriceHorizon
+    inputs: PriceInputs
+    now: float
+
+
+class PriceHorizon(TypedDict, total=True):
+    date: str
+    flat: bool
+    high: float
+    low: float
+    median: float
+    state: ForecastModelState
+
+
+class PriceInputs(TypedDict, total=True):
+    own_moves: int
+    pooled_moves: int
+    readings: int
+    span_days: int
+
+
+class PriceMove(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+    part_id: str
+    percent: float
+
+
+class PriceMovers(TypedDict, total=True):
+    down: list[PriceMove]
+    up: list[PriceMove]
+
+
+class PriceOutlook(TypedDict, total=True):
+    flat: int
+    likeliest_up: list[LikelyUp]
+    parts: int
+
+
+class PriceQuantity(TypedDict, total=True):
+    default: int
+    own: bool
+    quantity: int
+
+
 class PriceQuantityIn(TypedDict, total=False):
     quantity: int | None
+
+
+class PriceRange(TypedDict, total=True):
+    """Lowest, highest and median over the distributors that price it."""
+    high: str
+    low: str
+    median: str
+    sellers: int
+
+
+class PriceTier(TypedDict, total=True):
+    quantity: int
+    unit_price: float | str
+
+
+class PriceTrend(TypedDict, total=True):
+    change_percent: int | float
+    currency: str
+    days: int
+    now: str
+    was: str
 
 
 class ProcessInfo(TypedDict, total=True):
@@ -3095,6 +4533,17 @@ class ProjectBranches(TypedDict, total=True):
     default_ref: str | None
 
 
+class ProjectCalls(TypedDict, total=True):
+    calls_a_day: int | float
+    project_id: str
+    project_name: str
+
+
+class ProjectChip(TypedDict, total=True):
+    count: int
+    key: str
+
+
 class ProjectCommentsSourceUrls(TypedDict, total=True):
     """The helper URLs a KiCad comments source needs for one project."""
     base_url: str | None
@@ -3148,6 +4597,23 @@ class ProjectConfigSaved(TypedDict, total=True):
     validation: PathConfigValidation
 
 
+class ProjectCost(TypedDict, total=True):
+    currency: str
+    points: list[list[Any]]
+    project_id: str
+    project_name: str
+
+
+class ProjectCostPoint(TypedDict, total=True):
+    boards: int
+    cost_build: str | None
+    cost_per_board: str | None
+    currency: str | None
+    lines: int
+    lines_priced: int
+    short: int
+
+
 class ProjectDeleted(TypedDict, total=False):
     """A removed project and what happened to its files and repository."""
     message: str
@@ -3185,6 +4651,13 @@ class ProjectIn(TypedDict, total=False):
     variants: list[str]
 
 
+class ProjectMoney(TypedDict, total=True):
+    """The lines that cost the most for the build, with their share, and what all the others cost."""
+    lines: list[MoneyLine]
+    other: MoneyOther
+    total: str
+
+
 class ProjectName(TypedDict, total=True):
     display_name: str | None
     fallback_name: str
@@ -3199,9 +4672,71 @@ class ProjectNameUpdated(TypedDict, total=True):
     message: str
 
 
+class ProjectOpen(TypedDict, total=True):
+    """What a tracked project waits on a person for."""
+    choices: list[SupplyChoice]
+    lines: list[TrackLine]
+
+
 class ProjectOverview(TypedDict, total=True):
     project: Project
     readme: str | None
+
+
+class ProjectPartRow(TypedDict, total=False):
+    changes_at: str | None
+    currency: str
+    dated_by: str
+    distributors: list[RowDistributor]
+    dropped: bool
+    fetched_at: str | None
+    flags: list[str]
+    forecast: RowForecast | None
+    health: int | float
+    id: str
+    jlc: JlcClass | None
+    lead_days: int | None
+    lifecycle: str
+    line: ProjectSupplyPart | None
+    listings: int
+    manufacturer: str
+    manufacturer_provisional: bool
+    mpn: str
+    offers: list[SupplyRowOffer]
+    preferred_connector_id: str | None
+    price_change_percent: int | float | None
+    price_kind: str | None
+    price_lead_days: int | None
+    price_native: NativePrice | None
+    price_quantity: int
+    price_range: PriceRange | None
+    price_seen_day: str | None
+    price_test_data: bool
+    price_unrated: list[str]
+    priced_with: str
+    problem: str | None
+    project_names: list[str]
+    runs_out_days: int | None
+    spark: list[int] | None
+    status: str
+    stock: int | None
+    tier: str | None
+    tracking: PartTracking | None
+    unit_price: str | None
+    used_in: int
+    watch: SupplyWatchSummary | None
+
+
+class ProjectPartsPage(TypedDict, total=True):
+    """A project's parts, a page at a time, each with its BOM lines; the chips count over the whole project."""
+    chips: list[ProjectChip]
+    forecast_state: dict[str, str]
+    items: list[ProjectPartRow]
+    limit: int
+    next_offset: int | None
+    offset: int
+    total: int
+    unmatched: list[ProjectSupplyPart]
 
 
 class ProjectPathConfig(TypedDict, total=True):
@@ -3304,6 +4839,84 @@ class ProjectSearchResults(TypedDict, total=True):
     results: list[ProjectSearchHit]
 
 
+class ProjectSupply(TypedDict, total=False):
+    """How a project stands in supply, from its stored BOM. Without a BOM read, only ``available``, the variants, releases and notes."""
+    attrition_percent: float | None
+    available: bool
+    build_quantity: int | None
+    cost_curve: list[ProjectCostPoint] | None
+    cost_history: list[CostDay] | None
+    cost_history_left_out: list[CostDay] | None
+    money: ProjectMoney | None
+    notes: list[SupplyBomComment]
+    parts: list[ProjectSupplyPart] | None
+    releases: list[ProjectSupplyRelease]
+    rollup: SupplyBomRollup | None
+    usual_build: int | None
+    usual_spares: str | None
+    variant: str
+    variants: list[str]
+
+
+class ProjectSupplyPart(TypedDict, total=True):
+    """One line of a project's stored BOM, as the project's Supply tab lists it."""
+    alerts: int
+    alternates: list[SupplyBomAlternate]
+    buy_quantity: int | None
+    in_library: bool | None
+    key: str
+    lifecycle: str | None
+    line_cost: str | None
+    manufacturer: str
+    mpn: str
+    need: int | None
+    notes: int
+    part_id: str | None
+    prism_id: str
+    quantity: int
+    references: str
+    short: bool
+    state: str
+    status: str | None
+    status_from: str | None
+    stock: int | None
+    stores: StoresState | None
+    test_data: bool
+    unit_currency: str | None
+    unit_price: str | None
+    unit_price_in_total: str | None
+
+
+class ProjectSupplyRelease(TypedDict, total=True):
+    build_id: str
+    changed_since: list[ChangedPart]
+    created_at: str
+    health: float | None
+    needing_a_look: int
+    parts: int
+    status: str
+    tag: str
+
+
+class ProjectTracked(TypedDict, total=True):
+    parts_created: int
+    project_id: str
+    skipped: list[SkippedProjectLine]
+    variants: list[str]
+
+
+class ProjectTrackingPreview(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+    tracked: ProjectTracked
+
+
+class ProjectTrackingState(TypedDict, total=True):
+    has_usage: bool
+    tracked: TrackedProject | None
+    variants: list[str]
+
+
 class ProjectVariantCatalog(TypedDict, total=True):
     """The revision's variant catalog and its diagnostics."""
     commit: str | None
@@ -3314,10 +4927,61 @@ class ProjectVariantCatalog(TypedDict, total=True):
     variants: list[VariantCatalogEntry]
 
 
+class Promises(TypedDict, total=True):
+    kept: float | None
+    median_days_late: float | None
+    resolved: int
+
+
 class ProposeWaiverRequest(TypedDict, total=False):
     check: str
     quantity: int | None
     reason: str
+
+
+class ProposedAlternate(TypedDict, total=True):
+    component_id: str
+    component_mpn: str
+    component_name: str
+    main_mpn: str
+    main_part_id: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    proposed_at: str
+    proposed_by: str
+
+
+class ProposedDismissal(TypedDict, total=True):
+    component_id: str
+    component_mpn: str
+    component_name: str
+    id: str
+    proposed_at: str
+    proposed_by: str
+    reasons: list[str]
+
+
+class ProposedMute(TypedDict, total=True):
+    id: str
+    kind: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    proposed_at: str
+    proposed_by: str
+
+
+class ProposedWaiver(TypedDict, total=True):
+    check_id: str
+    id: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+    proposed_at: str
+    proposed_by: str
+    reason: str
+    scope: str
 
 
 class PublishRecord(TypedDict, total=True):
@@ -3354,6 +5018,76 @@ class PushCommentsView(TypedDict, total=True):
     success: bool
 
 
+class PushLevelsRequest(TypedDict, total=True):
+    items: list[PushedLevel]
+
+
+class PushLevelsResult(TypedDict, total=True):
+    matched: int
+    records: int
+    unmatched: int
+
+
+class PushOffersRequest(TypedDict, total=False):
+    offers: list[PushedOffer]
+    replace: bool
+
+
+class PushOffersResult(TypedDict, total=True):
+    kept: int
+    pushed_at: str
+    received: int
+    recorded: int
+
+
+class PushToken(TypedDict, total=True):
+    created_at: str
+    created_by: str
+    last_used_at: str | None
+    prefix: str
+
+
+class PushedLevel(TypedDict, total=False):
+    """One stock record. ``part`` is the source's own id for the part; its numbers are matched to library components."""
+    allocated: float
+    batch: str
+    external: bool
+    ipn: str
+    location: str
+    manufacturer: str
+    mpn: str
+    name: str
+    part: str
+    quantity: float
+    sku: str
+    status: str
+    supplier: str
+    units: str
+    updated: str
+
+
+class PushedOffer(TypedDict, total=False):
+    """One listing, with the columns of the offers file. Values are checked as a file's are."""
+    currency: str
+    discontinued: bool
+    incoming_date: str | None
+    incoming_qty: int | None
+    jlc_library: str
+    jlc_preferred: bool
+    lead_time_days: int | None
+    lifecycle: str
+    manufacturer: str
+    moq: int | None
+    mpn: str
+    order_multiple: int | None
+    packaging: str
+    prices: list[PriceTier]
+    product_url: str
+    rohs: bool | None
+    sku: str
+    stock: int
+
+
 class QueueDepth(TypedDict, total=True):
     count: int
     kind: str
@@ -3365,6 +5099,18 @@ class QueueWaitOut(TypedDict, total=False):
     claimed_at: str | None
     created_at: str | None
     seconds: float | None
+
+
+class QuoteCoverage(TypedDict, total=True):
+    of: int
+    parts: int
+
+
+class ReachMix(TypedDict, total=True):
+    affected: int
+    compliant: int
+    not_applicable: int
+    unknown: int
 
 
 class ReattachCommentRequest(TypedDict, total=False):
@@ -3415,6 +5161,68 @@ class RejectManyRequest(TypedDict, total=True):
     listing_ids: list[str]
 
 
+class ReleaseAssessment(TypedDict, total=True):
+    attention: list[ReleaseCheckLine]
+    health: int | float | None
+    lines: list[ReleaseCheckLine]
+    needing_a_look: int
+    not_tracked: int
+    parts: int
+    status: str
+    tracked: int
+    without_number: int
+
+
+class ReleaseBomKept(TypedDict, total=True):
+    parts: int
+    stored: bool
+    without_number: int
+
+
+class ReleaseCheckLine(TypedDict, total=True):
+    alternates: list[str]
+    findings: list[ReleaseFinding]
+    health: int | float | None
+    manufacturer: str
+    mpn: str
+    part_id: str | None
+    quantity: int
+    state: str
+    status: str | None
+    status_from: str | None
+    waived: int
+
+
+class ReleaseCheckResult(TypedDict, total=True):
+    attention: list[ReleaseCheckLine]
+    available: bool
+    health: int | float | None
+    lines: list[ReleaseCheckLine]
+    needing_a_look: int
+    not_tracked: int
+    parts: int
+    status: str
+    tracked: int
+    without_number: int
+
+
+class ReleaseCheckUnavailable(TypedDict, total=True):
+    available: bool
+    reason: str
+
+
+class ReleaseCompliance(TypedDict, total=True):
+    created_at: str
+    draft: ComplianceDraft
+    tag: str
+
+
+class ReleaseFinding(TypedDict, total=True):
+    check: str
+    severity: str
+    text: str
+
+
 class ReleaseQueuePage(TypedDict, total=True):
     items: list[CatalogComponent]
     page: int
@@ -3428,6 +5236,21 @@ class ReleaseQueueSummary(TypedDict, total=True):
     blocked: int
     done: int
     qa_review: int
+
+
+class ReleaseSnapshot(TypedDict, total=True):
+    """The supply check frozen when a release was published."""
+    assessment: ReleaseAssessment
+    build_id: str
+    commit_sha: str
+    compliance: ComplianceDraft | None
+    created_at: str
+    created_by: str
+    health: float | None
+    id: str
+    project_id: str
+    status: str
+    tag: str
 
 
 class ReleaseStatusRequest(TypedDict, total=False):
@@ -3447,6 +5270,12 @@ class ReleasedRevision(TypedDict, total=True):
     released_at: str
     revision_id: str
     version: int
+
+
+class ReliabilityBin(TypedDict, total=True):
+    cases: int
+    happened: float
+    said: float
 
 
 class RenderHighlight(TypedDict, total=False):
@@ -3539,6 +5368,15 @@ class RequestTraceOut(TypedDict, total=True):
     requests: list[TracedRequestOut]
 
 
+class Resilience(TypedDict, total=True):
+    none: int
+    not_read: int
+    one: int
+    three_plus: int
+    two: int
+    unknown: int
+
+
 class ResolvedPaths(TypedDict, total=False):
     """Fully resolved absolute paths."""
     design_outputs_dir: str | None
@@ -3568,6 +5406,27 @@ class ResourceUsage(TypedDict, total=True):
     resource: str
 
 
+class RestockOrder(TypedDict, total=True):
+    first: str
+    firsts: dict[str, int]
+    rounds: int
+
+
+class RestockRecord(TypedDict, total=True):
+    connector_id: str
+    kept: int
+    name: str
+    open: OpenRestock | None
+    provider: str
+    resolved: int
+    stock_outs: int
+
+
+class RestockedFirst(TypedDict, total=True):
+    first: float | None
+    rounds: int
+
+
 class RestrictionIn(TypedDict, total=False):
     level: str
     reason: str
@@ -3577,6 +5436,12 @@ class RestrictionIn(TypedDict, total=False):
 class ReuseAssetRequest(TypedDict, total=False):
     asset_id: str
     counterpart_asset_id: str
+
+
+class ReviewCounts(TypedDict, total=True):
+    aliases: int
+    near: int
+    unresolved: int
 
 
 class ReviewDecision(TypedDict, total=True):
@@ -3631,11 +5496,45 @@ class RevokeSessionsResponse(TypedDict, total=False):
     revoked: int
 
 
+class RiskRow(TypedDict, total=True):
+    lifecycle: str
+    not_read: int
+    one: int
+    out: int
+    two_plus: int
+
+
+class RohsExemption(TypedDict, total=True):
+    """A RoHS exemption a person named from the manufacturer's declaration."""
+    code: str
+    declared_by: str
+    note: str
+
+
+class RohsMix(TypedDict, total=True):
+    compliant: int
+    disputed: int
+    not_applicable: int
+    not_compliant: int
+    unknown: int
+
+
 class RoleAssignmentResponse(TypedDict, total=False):
     email: str
     has_password: bool
     role: str
     source: str
+
+
+class RoomFigure(TypedDict, total=True):
+    limited_by: str
+    room: int
+
+
+class RoomHeadline(TypedDict, total=True):
+    """The distributor that fills first, among those every part is read at."""
+    daily: RoomFigure | None
+    weekly: RoomFigure | None
 
 
 class RouteLatencyOut(TypedDict, total=True):
@@ -3659,12 +5558,61 @@ class RouteLatencyRow(TypedDict, total=True):
     status5xx: int
 
 
+class RowDistributor(TypedDict, total=True):
+    """A distributor that lists the part: stock above zero is filled."""
+    connector_id: str
+    currency: str
+    name: str
+    price: str | None
+    provider: str
+    stock: int
+
+
+class RowForecast(TypedDict, total=False):
+    """The kept forecast: when it likely runs out and the chance of being out within four and eight weeks."""
+    available: bool | None
+    can_buy_4w: int | float | None
+    can_buy_8w: int | float | None
+    made_on: str
+    out_now: bool | None
+    p_out_4w: int | float | None
+    p_out_8w: int | float | None
+    runout: RunoutForecast | None
+
+
 class RulesRequest(TypedDict, total=False):
     likely_out_percent: int | None
     muted: list[str]
     price_rise_percent: int | None
     target_currency: str
     target_price: str | None
+
+
+class Runout(TypedDict, total=True):
+    """A range of dates (10% to 90%) with the most likely in the middle."""
+    high: str
+    low: str
+    median: str
+    percent: int
+    probability: float
+    state: ForecastModelState
+    word: str
+
+
+class RunoutForecast(TypedDict, total=True):
+    high_date: str
+    low_date: str
+    median_date: str
+    p: int | float
+
+
+class Runway(TypedDict, total=True):
+    few_readings: int
+    out_now: int
+    runs_out_2w: int
+    runs_out_8w: int
+    runs_out_later: int
+    steady: int
 
 
 class SSHKeyResponse(TypedDict, total=False):
@@ -3689,13 +5637,50 @@ class ScanRequest(TypedDict, total=False):
     force: bool
 
 
+class ScatterMissing(TypedDict, total=True):
+    no_lead_time: int
+    no_rate: int
+
+
+class ScatterPoint(TypedDict, total=True):
+    days_to_zero: float
+    lead_days: float
+    manufacturer: str
+    mpn: str
+    part_id: str
+
+
 class ScheduleIn(TypedDict, total=True):
     spare: dict[str, bool]
+
+
+class ScheduleSettings(TypedDict, total=True):
+    """Which spare work is on. Spare budget is the calls nothing else needs, at any hour."""
+    spare: SpareWork
+
+
+class ScorecardRow(TypedDict, total=True):
+    """One distributor's record on the parts two or more distributors list. A figure is null until it rests on min_events."""
+    connector_id: str
+    in_stock: InStock
+    name: str
+    parts: int
+    promises: Promises
+    provider: str
+    restocked_first: RestockedFirst
+    stock_outs: StockOuts
+    wait: Wait
 
 
 class SearchRequest(TypedDict, total=False):
     manufacturer: str
     mpn: str
+
+
+class Seasonality(TypedDict, total=True):
+    index: dict[str, int | float]
+    peak: int
+    trough: int
 
 
 class SemanticIndexGenerateQueued(TypedDict, total=True):
@@ -3725,6 +5710,20 @@ class SemanticIndexStatus(TypedDict, total=True):
     projectId: str
     schema: str
     sourceRevisionKey: str
+
+
+class ServerCategory(TypedDict, total=True):
+    name: str
+    parent: int | None
+    pathstring: str
+    pk: int
+
+
+class ServerCheck(TypedDict, total=True):
+    api_version: int
+    categories: list[ServerCategory]
+    instance: str
+    server: str
 
 
 class ServerFolderImportRequest(TypedDict, total=False):
@@ -3788,16 +5787,62 @@ class SetUserPasswordResponse(TypedDict, total=True):
     sessions_revoked: int
 
 
+class SettingsRanges(TypedDict, total=True):
+    alert_likely_out_percent: list[Any]
+    alert_price_rise_percent: list[Any]
+    last_buy_error_days: list[Any]
+    late_hours: list[Any]
+    lead_time_days: list[Any]
+    price_quantity: list[Any]
+    spares: list[Any]
+
+
+class SettleUndone(TypedDict, total=True):
+    undone: bool
+
+
+class SettledPart(TypedDict, total=True):
+    at: str
+    manufacturer: str
+    mpn: str
+    part_id: str
+
+
 class SheetPdf(TypedDict, total=True):
     media_type: str
     path: str
     released_digest: str
 
 
+class SheetRequest(TypedDict, total=True):
+    xlsx_base64: str
+
+
+class SheetRows(TypedDict, total=True):
+    rows: list[list[str]]
+
+
+class SigninStarted(TypedDict, total=True):
+    url: str
+
+
 class SimilarIn(TypedDict, total=True):
     connector_id: str
     packaging: str
     part_ids: list[str]
+
+
+class SkippedLine(TypedDict, total=True):
+    mpn: str
+    reason: str
+
+
+class SkippedProjectLine(TypedDict, total=False):
+    """A BOM line tracking left out: not in the library, or a number several makers share (with the parts it could mean)."""
+    candidates: list[LineCandidate] | None
+    manufacturer: str | None
+    mpn: str
+    reason: str
 
 
 class SlowQueriesOut(TypedDict, total=False):
@@ -3858,6 +5903,23 @@ class SourceResponse(TypedDict, total=True):
     source: SourceDiscovery
 
 
+class Sourcing(TypedDict, total=True):
+    coverage: list[Coverage]
+    resilience: Resilience
+
+
+class SpareWork(TypedDict, total=True):
+    library: bool
+    notices: bool
+    tier2_early: bool
+    waiting: bool
+
+
+class Spent(TypedDict, total=True):
+    capacity: int
+    spent: int
+
+
 class StageRunOut(TypedDict, total=False):
     ended_at: str | None
     seconds: float | None
@@ -3869,6 +5931,11 @@ class StartDesignCompareResponse(TypedDict, total=True):
     job_id: str
 
 
+class StatusCount(TypedDict, total=True):
+    count: int
+    status: str
+
+
 class StatusReadiness(TypedDict, total=True):
     available_assets: list[str]
     progress: int
@@ -3878,7 +5945,37 @@ class StatusReadiness(TypedDict, total=True):
 
 
 class StatusRequest(TypedDict, total=True):
-    components: list[app__api__supply_bom__LineIn]
+    components: list[LineIn]
+
+
+class StockBand(TypedDict, total=True):
+    day: str
+    high: float
+    low: float
+    median: float
+
+
+class StockDay(TypedDict, total=True):
+    day: str
+    listings: int
+    stock: int
+
+
+class StockOuts(TypedDict, total=True):
+    median_days_out: float | None
+    n: int
+
+
+class StockPoint(TypedDict, total=True):
+    day: str
+    median: float
+
+
+class StoresState(TypedDict, total=True):
+    """What the stores hold of a component: the same four states on every screen."""
+    available: float | None
+    since: str | None
+    state: str
 
 
 class SubmitSetupRequest(TypedDict, total=True):
@@ -3896,13 +5993,760 @@ class Subsheets(TypedDict, total=True):
     files: list[SubsheetFile]
 
 
+class SubstitutesAsked(TypedDict, total=True):
+    asked: int
+    found: int
+    problems: list[ConnectorProblem]
+    resolved: int
+
+
 class SuffixBody(TypedDict, total=True):
     ending: str
     kind: str
 
 
+class SuggestionSource(TypedDict, total=True):
+    name: str
+    provider: str
+
+
 class Supply(TypedDict, total=True):
     sources: list[SupplySource]
+
+
+class SupplyAlert(TypedDict, total=True):
+    acknowledged_by: str
+    detail: AlertDetail
+    id: int
+    kind: str
+    last_event_at: str | None
+    manufacturer: str
+    mpn: str
+    opened_at: str | None
+    part_id: str
+    resolved_at: str | None
+    severity: str
+    snoozed_until: str | None
+    state: str
+
+
+class SupplyAssessment(TypedDict, total=True):
+    changes_at: str | None
+    findings: list[SupplyFinding]
+    health: int | float
+    need: int | None
+    part_id: str
+    status: str
+    sub_scores: list[SupplySubScore]
+
+
+class SupplyBomAlternate(TypedDict, total=True):
+    """An approved alternate of a line's component. Its stock and offers count for the line."""
+    manufacturer: str
+    mpn: str
+    part_id: str
+    status: str
+    stock: int | None
+
+
+class SupplyBomBuy(TypedDict, total=True):
+    connector_name: str
+    covers: bool
+    currency: str
+    extended: str
+    in_base: str | None
+    next_break: NextBreak | None
+    part_id: str | None
+    product_url: str
+    provider: str
+    quantity: int
+    sku: str
+    test_data: bool
+    unit_price: str
+    waste: int
+    waste_cost: str
+
+
+class SupplyBomComment(TypedDict, total=True):
+    """A note on a line of a project's BOM."""
+    author: str
+    author_name: str
+    body: str
+    created_at: str
+    id: str
+    line_key: str
+
+
+class SupplyBomLineResult(TypedDict, total=False):
+    """One line of a lookup. A line without a part has only the first fields."""
+    alternates: list[SupplyBomAlternate] | None
+    assessment: LineAssessment | None
+    bought_with: str | None
+    buy: SupplyBomBuy | None
+    fetched_at: str | None
+    in_library: bool | None
+    jlc: JlcClass | None
+    lead_time_days: int | None
+    lifecycle: str | None
+    manufacturer_match: str | None
+    need: int
+    part_id: str | None
+    part_need: int | None
+    preferred: PreferredStanding | None
+    problem: str | None
+    short: bool | None
+    state: str
+    status: str | None
+    status_from: str | None
+    stock: int | None
+    stores: StoresState | None
+    usable: int | None
+    watched: bool | None
+
+
+class SupplyBomLookup(TypedDict, total=True):
+    attrition_by_part: dict[str, float] | None
+    attrition_percent: float | None
+    build_quantity: int
+    lines: dict[str, SupplyBomLineResult]
+    rollup: SupplyBomRollup
+
+
+class SupplyBomRollup(TypedDict, total=True):
+    at_risk: int
+    can_build: int | None
+    converted: bool
+    cost_build: str | None
+    cost_per_board: str | None
+    currency: str | None
+    health: int | float | None
+    health_status: str
+    limited_by: str | None
+    lines: int
+    lines_priced: int
+    needs_a_look: int
+    not_tracked: int
+    original_costs: dict[str, str]
+    parts: int
+    priced: int
+    rates_day: str | None
+    short: int
+    test_data: bool
+    tracked: int
+    waste_cost: str | None
+    watched: int
+    without_stock_data: int
+
+
+class SupplyBomWatchResult(TypedDict, total=True):
+    already_watched: int
+    lcsc_linked: int
+    skipped: list[BomSkippedLine]
+    watched: int
+
+
+class SupplyChoice(TypedDict, total=True):
+    kind: str
+    manufacturer: str
+    mpn: str
+    options: list[SupplyChoiceOption]
+    part_id: str
+
+
+class SupplyChoiceOption(TypedDict, total=True):
+    connectors: list[str]
+    key: str
+    listings: int
+    spelling: str
+    spellings: list[str]
+
+
+class SupplyCompliance(TypedDict, total=True):
+    """RoHS and REACH of a part, and the substances a supplier declared for it."""
+    exemptions: list[RohsExemption]
+    facts: list[SupplyFact]
+    list: SupplySvhcList
+    reach: SupplyComplianceState
+    rohs: SupplyComplianceState
+    substances: list[DeclaredSubstance]
+
+
+class SupplyComplianceState(TypedDict, total=True):
+    reason: str
+    state: str
+
+
+class SupplyComponentStanding(TypedDict, total=False):
+    """Where a catalog component stands, for the catalog table."""
+    currency: str
+    local_available: float | None
+    restriction: str | None
+    status: str
+    stock: int | None
+    stores: StoresState | None
+    test_data: bool | None
+    unit_price: str | None
+    watched: bool
+
+
+class SupplyComponentWatch(TypedDict, total=True):
+    component_id: str
+    owner: str
+    packaging: str
+    rate: str
+    tier: int
+
+
+class SupplyConnector(TypedDict, total=False):
+    assembly_only: bool
+    block_streak: int
+    catalogue: bool
+    catalogue_available: bool
+    cooldown_until: str | None
+    created_at: str | None
+    created_by: str
+    credentials: dict[str, bool]
+    credentials_status: str
+    csv_fed: bool
+    csv_import: SupplyCsvImport | None
+    currency: str
+    daily_budget: int
+    display_name: str
+    enabled: bool
+    id: str
+    interactive_reserve_pct: int
+    keep_days: int | None
+    keep_unused: bool
+    last_error_at: str | None
+    last_error_code: str
+    last_ok_at: str | None
+    limits_storage: bool
+    metered: bool
+    paused_reason: str
+    provider: str
+    provider_available: bool
+    provider_label: str
+    rate_limits: dict[str, dict[str, str]]
+    rate_limits_at: str | None
+    reset_from_provider: bool
+    reset_suggestion: dict[str, Any] | None
+    reset_time: str
+    reset_tz: str
+    retention_days: int | None
+    signin: SupplySignin
+    slow_until: str | None
+    storefront: str
+    updated_at: str | None
+    usage_today: CallsToday
+
+
+class SupplyConnectorCheck(TypedDict, total=True):
+    checked_at: str
+    code: str
+    message: str
+    ok: bool
+    took_ms: int
+
+
+class SupplyCredentialField(TypedDict, total=True):
+    label: str
+    name: str
+    secret: bool
+
+
+class SupplyCsvImport(TypedDict, total=True):
+    filename: str
+    imported_at: str
+    imported_by: str
+    row_count: int
+
+
+class SupplyCsvResult(TypedDict, total=True):
+    filename: str
+    ignored_columns: list[str]
+    imported_at: str
+    imported_by: str
+    row_count: int
+
+
+class SupplyDashboard(TypedDict, total=True):
+    """The Dashboard page in one read."""
+    alerts_by_day: list[dict[str, int | str]]
+    connectors: int
+    deadlines: list[Deadline]
+    ending_components: int
+    failing_feeds: list[FailingFeed]
+    figure_history: dict[str, list[int]]
+    figures: DashboardFigures
+    forecast: DashboardForecast
+    holders: Holders
+    insights_ready: int
+    no_data: int
+    project_costs: list[ProjectCost]
+    projects: list[DashboardProject]
+    recent_changes: list[SupplyRecentChange]
+    risk_grid: list[RiskRow]
+    runway: Runway
+    statuses: list[StatusCount]
+
+
+class SupplyDistributorBehaviour(TypedDict, total=False):
+    arrivals: ArrivalRecord | None
+    leaders: list[NamedParts]
+    repricing: list[NamedDays]
+    restock_first: list[NamedParts]
+    scorecard: SupplyScorecard | None
+
+
+class SupplyFact(TypedDict, total=True):
+    """One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source."""
+    disagree: bool
+    label: str
+    name: str
+    sources: list[FactSource]
+
+
+class SupplyFinding(TypedDict, total=True):
+    check: str
+    detail: dict[str, Any]
+    scope: str
+    severity: str
+    text: str
+    waiver: SupplyWaiver | None
+
+
+class SupplyFxRates(TypedDict, total=True):
+    """The rates loaded: their day, the currencies they price and whether they are too old to trust."""
+    currencies: list[str]
+    day: str | None
+    stale: bool
+
+
+class SupplyFxRatesSaved(TypedDict, total=True):
+    currencies: list[str]
+    day: str | None
+    saved: int
+    stale: bool
+
+
+class SupplyGroupStats(TypedDict, total=False):
+    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
+    alerts: int | None
+    all_variants: bool | None
+    at_risk: int
+    boards: int | None
+    bom_read_at: str | None
+    build_quantity: int | None
+    cost_change_percent: int | float | None
+    cost_per_board: str | None
+    currency: str | None
+    end_of_life: int
+    lines: int | None
+    lines_priced: int | None
+    one_distributor: int
+    out: int
+    packaging: str | None
+    runs_out_soon: int
+    test_data: bool | None
+    unchecked: int | None
+    variants: list[str] | None
+
+
+class SupplyHeadlinePrice(TypedDict, total=True):
+    currency: str
+    price_kind: str | None
+    price_lead_days: int | None
+    price_native: NativePrice | None
+    price_quantity: int
+    price_range: PriceRange | None
+    price_seen_day: str | None
+    price_test_data: bool
+    price_unrated: list[str]
+    unit_price: str | None
+
+
+class SupplyHealth(TypedDict, total=True):
+    """Calls against budget, errors and late reads per connector, and the periodic tasks' runs."""
+    connectors: list[ConnectorHealth]
+    tasks: list[TaskRun]
+
+
+class SupplyInsight(TypedDict, total=True):
+    anomalies: list[dict[str, Any]]
+    beyond_year: bool
+    concentration: int | float | None
+    confidence: str
+    days_to_threshold: int | None
+    days_to_zero: int | None
+    days_to_zero_recent: int | None
+    decrease_per_day: int | float | None
+    inputs: InsightInputs
+    lead_gap_days: int | None
+    lead_time_trend: LeadTimeTrend | None
+    pace: str | None
+    recent_decrease_per_day: int | float | None
+    restock_expected_in_days: int | None
+    restock_interval_days: int | None
+    restock_latency_days: int | None
+    restocks: int
+    seasonality: Seasonality | None
+    sources_change: int | None
+    trend: str | None
+    volatility: int | float | None
+    zero_share: int | float | None
+
+
+class SupplyInsightsPage(TypedDict, total=True):
+    """The Insights page: counts of findings, the runway scatter, distributors, market."""
+    counts: dict[str, int]
+    distributors: SupplyDistributorBehaviour
+    lead_times: list[LeadTimeBucket]
+    lifecycle: LifecycleInsights
+    market: SupplyMarket
+    market_trends: dict[str, list[float]]
+    price_movers: PriceMovers
+    scatter: list[ScatterPoint]
+    scatter_missing: ScatterMissing
+    sourcing: Sourcing
+    tracked: int
+    trade: Trade
+
+
+class SupplyListing(TypedDict, total=True):
+    connector_id: str
+    connector_name: str
+    counted: bool
+    id: str
+    match_reason: str
+    match_state: str
+    offer: SupplyOffer | None
+    packaging: str
+    packaging_inferred: bool
+    page_url: str
+    poll: ListingPoll | None
+    provider: str
+    raw_manufacturer: str
+    raw_mpn: str
+    reel_size: int | None
+    sku: str
+    test_data: bool
+
+
+class SupplyMakerGroup(TypedDict, total=True):
+    group_key: str
+    name: str
+    spellings: list[MakerSpelling]
+
+
+class SupplyManufacturer(TypedDict, total=True):
+    id: str
+    name: str
+    part_count: int
+
+
+class SupplyMarket(TypedDict, total=False):
+    compared_with: str | None
+    day: str | None
+    min_sample: int | None
+    scopes: list[SupplyMarketScope]
+    signals: list[MarketSignal] | None
+
+
+class SupplyMarketHistory(TypedDict, total=True):
+    """One metric over the stored days, a line per group."""
+    metric: str
+    series: list[MarketSeries]
+
+
+class SupplyMarketMetric(TypedDict, total=True):
+    before: float | None
+    value: float
+
+
+class SupplyMarketScope(TypedDict, total=True):
+    kind: str
+    metrics: dict[str, SupplyMarketMetric]
+    sample: int
+    scope: str
+
+
+class SupplyMatched(TypedDict, total=True):
+    """What Prism decided by itself and a person may undo."""
+    aliases: list[LearnedAlias]
+    parts: list[SettledPart]
+
+
+class SupplyNotice(TypedDict, total=True):
+    created_at: str
+    created_by: str
+    id: str
+    kind: str
+    kind_label: str
+    last_time_buy: str | None
+    last_time_ship: str | None
+    notes: str
+    notice_url: str
+    parts: int
+    published_on: str | None
+    source: str
+    source_label: str
+    state: str
+    title: str
+
+
+class SupplyNoticeCheck(TypedDict, total=True):
+    connectors: int
+    new: int
+    problems: list[ConnectorProblem]
+    read: int
+
+
+class SupplyNumberEnding(TypedDict, total=True):
+    kind: str
+    source: str
+    suffix_key: str
+    suffix_text: str
+
+
+class SupplyOffer(TypedDict, total=True):
+    currency: str
+    discontinued: bool
+    fetched_at: str
+    incoming: list[list[Any]]
+    lead_time_days: int | None
+    lifecycle: str
+    marketplace: bool
+    moq: int
+    order_multiple: int
+    price_breaks: list[list[Any]]
+    product_url: str
+    reach_affected: bool | None
+    rohs: bool | None
+    stock: int
+
+
+class SupplyOtherNumberGroup(TypedDict, total=True):
+    """Listings pinned as a part although numbered otherwise."""
+    listings: list[OtherNumberListing]
+    manufacturer: str
+    mpn: str
+    part_id: str
+
+
+class SupplyOutlook(TypedDict, total=True):
+    """A rule-based band with every signal behind it."""
+    band: str
+    label: str
+    method: str
+    signals: list[OutlookSignal]
+
+
+class SupplyParameter(TypedDict, total=True):
+    key: str | None
+    name: str
+    raw: str
+    sources: list[str]
+    unit: str
+    value: str | None
+
+
+class SupplyPartDetail(TypedDict, total=True):
+    """The part sheet in one read."""
+    distributor_history: PartHistory
+    fetched_at: str | None
+    history: list[StockDay]
+    insight: SupplyInsight
+    jlc: JlcClass | None
+    lifecycle: str
+    listings: list[SupplyListing]
+    market_behaviour: MarketBehaviour
+    outlook: SupplyOutlook
+    packaging: PartPackaging
+    parameters: list[SupplyParameter]
+    part: PartName
+    preferred_connector_id: str | None
+    price: PartPrice
+    problem: str | None
+    problem_text: str
+    restock_record: list[RestockRecord]
+    status: str
+    stock: int | None
+    stock_by_connector: list[ConnectorStock]
+    tracking: PartTracking | None
+    trade: PartTrade
+    used_in: list[PartUse]
+    watch: SupplyWatchSummary | None
+
+
+class SupplyPartGroup(TypedDict, total=True):
+    count: int
+    project_id: str
+    project_name: str
+    stats: SupplyGroupStats
+    statuses: dict[str, int]
+    tracked: bool
+
+
+class SupplyPartGroups(TypedDict, total=True):
+    """The matching parts grouped by the projects that use them, tracked projects first."""
+    items: list[SupplyPartGroup]
+    total: int
+
+
+class SupplyPartRow(TypedDict, total=False):
+    changes_at: str | None
+    currency: str
+    dated_by: str
+    distributors: list[RowDistributor]
+    dropped: bool
+    fetched_at: str | None
+    flags: list[str]
+    forecast: RowForecast | None
+    health: int | float
+    id: str
+    jlc: JlcClass | None
+    lead_days: int | None
+    lifecycle: str
+    listings: int
+    manufacturer: str
+    manufacturer_provisional: bool
+    mpn: str
+    offers: list[SupplyRowOffer]
+    preferred_connector_id: str | None
+    price_change_percent: int | float | None
+    price_kind: str | None
+    price_lead_days: int | None
+    price_native: NativePrice | None
+    price_quantity: int
+    price_range: PriceRange | None
+    price_seen_day: str | None
+    price_test_data: bool
+    price_unrated: list[str]
+    priced_with: str
+    problem: str | None
+    project_names: list[str]
+    runs_out_days: int | None
+    spark: list[int] | None
+    status: str
+    stock: int | None
+    tier: str | None
+    tracking: PartTracking | None
+    unit_price: str | None
+    used_in: int
+    watch: SupplyWatchSummary | None
+
+
+class SupplyPartsPage(TypedDict, total=True):
+    forecast_state: dict[str, str]
+    items: list[SupplyPartRow]
+    limit: int
+    next_offset: int | None
+    offset: int
+    total: int
+
+
+class SupplyProvider(TypedDict, total=True):
+    capabilities: list[str]
+    credential_fields: list[SupplyCredentialField]
+    csv_fed: bool
+    default_daily_budget: int
+    key: str
+    label: str
+    max_batch: int
+    metered: bool
+    stock_pooling: str
+    storefronts: list[str]
+
+
+class SupplyReadNow(TypedDict, total=True):
+    connectors: int
+    problems: list[ConnectorProblem]
+    read: int
+
+
+class SupplyRecentChange(TypedDict, total=False):
+    """Something that happened lately to a watched part."""
+    alert: SupplyAlert | None
+    at: str
+    detail: dict[str, Any] | None
+    manufacturer: str
+    mpn: str
+    part_id: str | None
+    sku: str
+    type: str
+
+
+class SupplyReviewAlias(TypedDict, total=True):
+    """A spelling a distributor used that maps to no manufacturer yet."""
+    alias_key: str
+    alias_text: str
+    first_seen_at: str
+    seen_at_provider: str
+    waiting_listings: int
+
+
+class SupplyReviewListing(TypedDict, total=True):
+    connector_id: str
+    connector_name: str
+    first_seen_at: str
+    id: str
+    match_reason: str
+    match_state: str
+    packaging: str
+    packaging_inferred: bool
+    part: ListingPart | None
+    provider: str
+    raw_manufacturer: str
+    raw_mpn: str
+    reel_size: int | None
+    sku: str
+
+
+class SupplyReviewQueue(TypedDict, total=True):
+    aliases: list[SupplyReviewAlias]
+    choices: list[SupplyChoice]
+    counts: ReviewCounts
+    listings: list[SupplyReviewListing]
+    manufacturers: list[SupplyManufacturer]
+    matched: SupplyMatched
+    other_numbers: list[SupplyOtherNumberGroup]
+    to_approve: SupplyToApprove
+
+
+class SupplyRowOffer(TypedDict, total=True):
+    """One distributor's offer: stock, smallest order, packaging and price breaks as [from quantity, price]."""
+    also_packaging: list[str]
+    base_currency: str
+    base_price_breaks: list[list[Any]] | None
+    connector_id: str
+    currency: str
+    followed: bool
+    moq: int
+    name: str
+    packaging: str
+    packaging_inferred: bool
+    price_breaks: list[list[Any]]
+    product_url: str
+    provider: str
+    reel_size: int | None
+    sku: str
+    skus: list[str]
+    stock: int
+
+
+class SupplyScorecard(TypedDict, total=True):
+    distributors: list[ScorecardRow]
+    min_events: int
+    shared_parts: int
+
+
+class SupplySignin(TypedDict, total=True):
+    expires_at: str | None
+    granted_at: str | None
+    granted_by: str
+    redirect_uri: str
+    signed_in: bool
+    state: str
 
 
 class SupplySource(TypedDict, total=True):
@@ -3920,6 +6764,77 @@ class SupplySource(TypedDict, total=True):
     uom: str
 
 
+class SupplySubScore(TypedDict, total=True):
+    name: str
+    reasons: list[str]
+    score: int | float
+
+
+class SupplySvhcList(TypedDict, total=True):
+    """The ECHA Candidate List Prism holds."""
+    loaded: bool
+    loaded_at: str | None
+    loaded_by: str
+    source_name: str
+    substances: int
+
+
+class SupplyToApprove(TypedDict, total=True):
+    """What QA and administrators have been asked to approve."""
+    alternates: list[ProposedAlternate]
+    dismissals: list[ProposedDismissal]
+    mutes: list[ProposedMute]
+    waivers: list[ProposedWaiver]
+
+
+class SupplyWaiver(TypedDict, total=True):
+    decided_by: str | None
+    holds: bool
+    id: str
+    outdated: bool
+    proposed_by: str
+    reason: str
+    state: str
+
+
+class SupplyWatch(TypedDict, total=True):
+    manufacturer: str
+    mpn: str
+    owner: str
+    packaging: str
+    part_id: str
+    pinned: bool
+    rate: str
+    threshold: int | None
+    tier: int
+
+
+class SupplyWatchSummary(TypedDict, total=True):
+    owner: str
+    packaging: str
+    pinned: bool
+    threshold: int | None
+
+
+class SupplyWorkItem(TypedDict, total=True):
+    """An engineering decision about a component or a part: what is proposed, who owns it, the evidence, the projects it
+touches (as the caller may see them), QA's disposition and when to look again."""
+    action: str
+    created_at: str
+    created_by: str
+    evidence: list[WorkItemEvidence]
+    id: str
+    owner: str
+    projects: list[WorkItemProject]
+    recheck_on: str | None
+    state: str
+    subject_id: str
+    subject_kind: str
+    subject_name: str
+    title: str
+    updated_at: str
+
+
 class SymbolImportResult(TypedDict, total=False):
     """``selection_required`` stops before writing; ``imported`` carries the component."""
     component: CatalogComponent | None
@@ -3933,6 +6848,24 @@ class SyncQueued(TypedDict, total=True):
     job_id: str
     message: str
     status: str
+
+
+class SyncResult(TypedDict, total=True):
+    error: str
+    matched: int
+    records: int
+    status: str
+    unmatched: int
+
+
+class TaskRun(TypedDict, total=True):
+    every_seconds: int
+    last_error: str
+    last_error_at: str | None
+    last_ok_at: str | None
+    name: str
+    next_at: str | None
+    started_at: str | None
 
 
 class ThreadPoolMetrics(TypedDict, total=True):
@@ -3965,6 +6898,11 @@ class ThumbnailsQueued(TypedDict, total=True):
     job_ids: list[str]
     message: str
     status: str
+
+
+class TierShare(TypedDict, total=True):
+    calls: int
+    parts: int
 
 
 class TokenExchangeResponse(TypedDict, total=True):
@@ -4011,6 +6949,53 @@ class TracedRequestOut(TypedDict, total=True):
     status: int
 
 
+class TrackLine(TypedDict, total=True):
+    """A BOM line whose number several makers share: pick the part it means."""
+    candidates: list[LineCandidate]
+    manufacturer: str
+    mpn: str
+
+
+class TrackProgress(TypedDict, total=True):
+    """How far the first searches of a project's parts have got, per distributor."""
+    connectors: list[ConnectorSearches]
+    done: int
+    failed: int
+    parts: int
+    reason: str
+    state: str
+    total: int
+
+
+class TrackRecord(TypedDict, total=True):
+    models: list[TrackRecordModel]
+    reliability: dict[str, list[ReliabilityBin]]
+
+
+class TrackRecordModel(TypedDict, total=True):
+    checks: int
+    kind: str
+    label: str
+    needs: int
+    reason: str
+    score: float | None
+    since: str | None
+    state: str
+    target: str
+
+
+class TrackedProject(TypedDict, total=True):
+    all_variants: bool
+    build_quantity: int
+    connector_ids: list[str] | None
+    packaging: str
+    project_id: str
+    spares: str | None
+    tracked_at: str
+    tracked_by: str
+    variants: list[str]
+
+
 class TrackerDestinationView(TypedDict, total=True):
     connectorId: str
     containerKind: str
@@ -4036,9 +7021,88 @@ class TrackerProjectionView(TypedDict, total=False):
     syncState: str | None
 
 
+class TrackingPreview(TypedDict, total=True):
+    connectors: list[BudgetShare]
+    fits_nowhere: bool
+
+
+class TrackingReason(TypedDict, total=False):
+    """Why Prism follows a part: a project, a person or a component (``kind``), and which (``ref``)."""
+    kind: str
+    ref: str
+    variant: str | None
+
+
+class TrackingRoom(TypedDict, total=True):
+    """How many more typical parts tracking has room for, per distributor and overall."""
+    accounts: list[TrackingRoomAccount]
+    headline: RoomHeadline
+
+
+class TrackingRoomAccount(TypedDict, total=True):
+    assembly_only: bool
+    by_tier: dict[str, TierShare]
+    capacity: int
+    carried_percent: int | float
+    connector_ids: list[str]
+    estimated_per_day: int | float
+    factor: int | float
+    free: int
+    measured_per_day: int | float | None
+    name: str
+    room: AccountRoom
+    searched: int
+    waiting: int
+    yesterday: ExpectedSpend
+
+
+class Trade(TypedDict, total=True):
+    control: ControlMix
+    controlled: list[ControlledPart]
+    origins: list[Origin]
+    other_origins: int
+
+
+class TradeMark(TypedDict, total=True):
+    control: str
+    eccn: str
+    set_at: str
+    set_by: str
+
+
 class TradeMarkIn(TypedDict, total=False):
     control: str
     eccn: str
+
+
+class UnmatchedChanged(TypedDict, total=True):
+    changed: int
+
+
+class UnmatchedCounts(TypedDict, total=True):
+    """How many of a source's unmatched parts wait (in all and per reason), are linked, or were set aside."""
+    ignored: int
+    linked: int
+    mpn_shared: int
+    no_component: int
+    sap_code_shared: int
+    waiting: int
+
+
+class UnmatchedPart(TypedDict, total=False):
+    ipn: str
+    linked_at: str | None
+    linked_component_id: str | None
+    linked_mpn: str
+    linked_name: str
+    manufacturer: str
+    mpn: str
+    name: str
+    quantity: float
+    reason: str
+    records: int
+    remote_part: str
+    seen_at: str
 
 
 class UnpinnedModel(TypedDict, total=True):
@@ -4079,6 +7143,13 @@ class UpdateComponentMetadataRequest(TypedDict, total=False):
     vendor_part_number: str | None
 
 
+class UpdateConnectorRequest(TypedDict, total=False):
+    baseUrl: str | None
+    credentials: ConnectorCredentials | None
+    displayName: str | None
+    instanceKind: str | None
+
+
 class UpdateFolderRequest(TypedDict, total=False):
     name: str | None
     parent_id: str | None
@@ -4107,10 +7178,29 @@ class UpdateRepresentationRequest(TypedDict, total=False):
     symbol_asset_id: str | None
 
 
-class UpdateWatchRequest(TypedDict, total=False):
-    packaging: str | None
-    pinned: bool | None
-    threshold: int | None
+class UpdateSourceRequest(TypedDict, total=False):
+    base_url: str | None
+    category_id: int | None
+    display_name: str | None
+    enabled: bool | None
+    interval_hours: int | None
+    token: str | None
+
+
+class UpdateSupplyConnectorInput(TypedDict, total=False):
+    catalogue: bool | None
+    currency: str | None
+    daily_budget: int | None
+    display_name: str | None
+    enabled: bool | None
+    interactive_reserve_pct: int | None
+    keep_days: int | None
+    keep_unused: bool | None
+    reset_from_provider: bool | None
+    reset_time: str | None
+    reset_tz: str | None
+    retention_days: int | None
+    storefront: str | None
 
 
 class UploadReceipt(TypedDict, total=True):
@@ -4136,6 +7226,20 @@ class UpsertRoleRequest(TypedDict, total=True):
     role: str
 
 
+class UsageBuild(TypedDict, total=True):
+    missing: int
+    projects: int
+    queued: int
+
+
+class UsageRefreshed(TypedDict, total=True):
+    """Projects whose BOM usage was read again, left as it was, without a semantic index, and removed."""
+    removed: int
+    unchanged: int
+    updated: int
+    without_index: int
+
+
 class UserPasswordDeletedResponse(TypedDict, total=True):
     deleted: bool
     email: str
@@ -4148,6 +7252,11 @@ class UserSession(TypedDict, total=False):
     name: str
     picture: str
     role: str
+
+
+class UsualBuild(TypedDict, total=True):
+    build_quantity: int
+    project_id: str
 
 
 class ValidationAsset(TypedDict, total=True):
@@ -4257,8 +7366,19 @@ class ViewerSupportFiles(TypedDict, total=True):
     files: list[ViewerSupportFile]
 
 
+class Wait(TypedDict, total=True):
+    n: int
+    quoted_days: float | None
+    real_days: float | None
+
+
+class WaiverProposed(TypedDict, total=True):
+    id: str
+    state: str
+
+
 class WatchRequest(TypedDict, total=False):
-    lines: list[app__api__supply_bom__LineIn]
+    lines: list[LineIn]
     rate: str
     tier: int
 
@@ -4373,6 +7493,39 @@ class WebhookView(TypedDict, total=False):
     url: str
 
 
+class WorkItemChange(TypedDict, total=False):
+    action: str | None
+    clear_recheck: bool
+    note: str
+    owner: str | None
+    recheck_on: str | None
+    title: str | None
+
+
+class WorkItemDecision(TypedDict, total=False):
+    note: str
+    state: str
+
+
+class WorkItemEvent(TypedDict, total=True):
+    """One change in a work item's history."""
+    action: str
+    actor: str
+    at: str
+    detail: dict[str, Any]
+
+
+class WorkItemEvidence(TypedDict, total=True):
+    at: str
+    by: str
+    text: str
+
+
+class WorkItemProject(TypedDict, total=True):
+    name: str
+    project_id: str
+
+
 class WorkerInfo(TypedDict, total=False):
     concurrency: int | None
     host: str | None
@@ -4452,61 +7605,6 @@ class app__api__jobs__JobEvent(TypedDict, total=True):
     stage: str | None
 
 
-class app__api__supply_bom__LineIn(TypedDict, total=False):
-    footprint: str
-    key: str
-    lcsc: str
-    manufacturer: str
-    mpn: str
-    prism_id: str
-    quantity: int
-    value: str
-
-
-class app__api__supply_checks__LineIn(TypedDict, total=False):
-    manufacturer: str
-    mpn: str
-
-
-class app__api__supply_connectors__CreateConnectorRequest(TypedDict, total=False):
-    credentials: dict[str, str]
-    currency: str
-    daily_budget: int | None
-    display_name: str
-    interactive_reserve_pct: int
-    provider: str
-    storefront: str
-
-
-class app__api__supply_connectors__UpdateConnectorRequest(TypedDict, total=False):
-    currency: str | None
-    daily_budget: int | None
-    display_name: str | None
-    enabled: bool | None
-    interactive_reserve_pct: int | None
-    keep_days: int | None
-    reset_time: str | None
-    reset_tz: str | None
-    retention_days: int | None
-    storefront: str | None
-
-
-class app__api__tracker_connectors__CreateConnectorRequest(TypedDict, total=False):
-    baseUrl: str
-    credentials: ConnectorCredentials | None
-    displayName: str
-    id: str | None
-    instanceKind: str
-    provider: str
-
-
-class app__api__tracker_connectors__UpdateConnectorRequest(TypedDict, total=False):
-    baseUrl: str | None
-    credentials: ConnectorCredentials | None
-    displayName: str | None
-    instanceKind: str | None
-
-
 class GeneratedClient:
     """One method per operation in the /api/v1 OpenAPI document."""
 
@@ -4543,7 +7641,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> SupplyBomComment:
         """Add Comment"""
         return self._request(
             "POST",
@@ -4570,7 +7668,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_maker_spelling(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_maker_spelling(self, *, body: dict[str, Any] | None = None) -> Items_SupplyMakerGroup_:
         """Add Maker Spelling"""
         return self._request(
             "POST",
@@ -4587,7 +7685,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_notice(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_notice(self, *, body: dict[str, Any] | None = None) -> NoticeAdded:
         """Add Notice"""
         return self._request(
             "POST",
@@ -4595,7 +7693,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_number_ending(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add_number_ending(self, *, body: dict[str, Any] | None = None) -> Items_SupplyNumberEnding_:
         """Add Number Ending"""
         return self._request(
             "POST",
@@ -4609,14 +7707,6 @@ class GeneratedClient:
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies",
             path_params={"project_id": project_id, "comment_id": comment_id},
-            body=body,
-        )
-
-    def add_watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Add Watch"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/watches",
             body=body,
         )
 
@@ -4661,7 +7751,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def apply_proposed(self, part_id: str) -> dict[str, int]:
+    def apply_proposed(self, part_id: str) -> PicksMade:
         """Apply Proposed"""
         return self._request(
             "POST",
@@ -4669,7 +7759,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def apply_similar(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def apply_similar(self, *, body: dict[str, Any] | None = None) -> PicksMade:
         """Apply Similar"""
         return self._request(
             "POST",
@@ -4710,7 +7800,7 @@ class GeneratedClient:
             path_params={"field_id": field_id},
         )
 
-    def ask_substitutes(self, part_id: str) -> dict[str, Any]:
+    def ask_substitutes(self, part_id: str) -> SubstitutesAsked:
         """Ask Substitutes"""
         return self._request(
             "POST",
@@ -4744,15 +7834,6 @@ class GeneratedClient:
             query={"since": since},
         )
 
-    def bom_health(self, project_id: str, *, build_quantity: int = 1, variant: str = '') -> dict[str, Any]:
-        """Bom Health"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/projects/{project_id}/bom-health",
-            path_params={"project_id": project_id},
-            query={"build_quantity": build_quantity, "variant": variant},
-        )
-
     def browse_library_assets(self, *, asset_type: str, q: str = '', limit: int = 50) -> AssetBrowseResult:
         """Browse stored library assets"""
         return self._request(
@@ -4761,14 +7842,14 @@ class GeneratedClient:
             query={"asset_type": asset_type, "q": q, "limit": limit},
         )
 
-    def budget(self) -> list[dict[str, Any]]:
+    def budget(self) -> Items_BudgetConnector_:
         """Budget"""
         return self._request(
             "GET",
             "/api/v1/supply/budget",
         )
 
-    def build_usage(self) -> dict[str, int]:
+    def build_usage(self) -> UsageBuild:
         """Build Usage"""
         return self._request(
             "POST",
@@ -4840,7 +7921,15 @@ class GeneratedClient:
             body=body,
         )
 
-    def check_notices(self, part_id: str) -> dict[str, Any]:
+    def check_inventory_source(self, source_id: str) -> ServerCheck:
+        """Check Inventory Source"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/check",
+            path_params={"source_id": source_id},
+        )
+
+    def check_notices(self, part_id: str) -> SupplyNoticeCheck:
         """Check Notices"""
         return self._request(
             "POST",
@@ -4865,7 +7954,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def choose_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+    def choose_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> MakerChosen:
         """Choose Maker"""
         return self._request(
             "POST",
@@ -4922,14 +8011,6 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def close_notice(self, notice_id: str) -> None:
-        """Close Notice"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/notices/{notice_id}/close",
-            path_params={"notice_id": notice_id},
-        )
-
     def compare_component_revisions(self, component_id: str, *, before: str, after: str) -> RevisionComparison:
         """Compare component revisions"""
         return self._request(
@@ -4948,6 +8029,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def component_state(self, component_id: str) -> ComponentFollow:
+        """Component State"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/tracking/components/{component_id}",
+            path_params={"component_id": component_id},
+        )
+
     def components_by_category(self, *, category: str, page: int = 1, page_size: int = 50, include_total: bool = False) -> ComponentPage:
         """List the released components in one category"""
         return self._request(
@@ -4956,7 +8045,7 @@ class GeneratedClient:
             query={"category": category, "page": page, "page_size": page_size, "include_total": include_total},
         )
 
-    def components_status(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def components_status(self, *, body: dict[str, Any] | None = None) -> ComponentStandings:
         """Components Status"""
         return self._request(
             "POST",
@@ -4971,7 +8060,7 @@ class GeneratedClient:
             "/api/v1/agent/config",
         )
 
-    def confirm_alias(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def confirm_alias(self, *, body: dict[str, Any] | None = None) -> AliasConfirmed:
         """Confirm Alias"""
         return self._request(
             "POST",
@@ -5003,6 +8092,14 @@ class GeneratedClient:
             "/api/v1/supply/projects/{project_id}/costing.zip",
             path_params={"project_id": project_id},
             query={"variant": variant, "build_quantity": build_quantity},
+        )
+
+    def count_unmatched_parts(self, source_id: str) -> UnmatchedCounts:
+        """Count Unmatched Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched/counts",
+            path_params={"source_id": source_id},
         )
 
     def create_anchored_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
@@ -5082,6 +8179,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_inventory_source(self, *, body: dict[str, Any] | None = None) -> InventorySource:
+        """Create Inventory Source"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources",
+            body=body,
+        )
+
     def create_metadata_batch(self, *, body: dict[str, Any] | None = None) -> MetadataBatch:
         """Stage a metadata batch"""
         return self._request(
@@ -5130,7 +8235,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_supply_connector(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_supply_connector(self, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Create Supply Connector"""
         return self._request(
             "POST",
@@ -5146,7 +8251,15 @@ class GeneratedClient:
             body=body,
         )
 
-    def cross_reference_of(self, part_id: str) -> dict[str, Any]:
+    def create_work_item(self, *, body: dict[str, Any] | None = None) -> SupplyWorkItem:
+        """Create Work Item"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/work-items",
+            body=body,
+        )
+
+    def cross_reference_of(self, part_id: str) -> CrossReference:
         """Cross Reference Of"""
         return self._request(
             "GET",
@@ -5161,18 +8274,52 @@ class GeneratedClient:
             "/api/v1/supply/csv-template",
         )
 
-    def current_rates(self) -> dict[str, Any]:
+    def current_rates(self) -> SupplyFxRates:
         """Current Rates"""
         return self._request(
             "GET",
             "/api/v1/supply/fx",
         )
 
-    def dashboard_figures(self) -> dict[str, Any]:
+    def dashboard_figures(self) -> SupplyDashboard:
         """Dashboard Figures"""
         return self._request(
             "GET",
             "/api/v1/supply/dashboard",
+        )
+
+    def decide_alternate(self, component_id: str, part_id: str, *, body: dict[str, Any] | None = None) -> ComponentParts:
+        """Decide Alternate"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/components/{component_id}/alternates/{part_id}/decision",
+            path_params={"component_id": component_id, "part_id": part_id},
+            body=body,
+        )
+
+    def decide_dismissal(self, decision_id: str, verdict: str) -> None:
+        """Decide Dismissal"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/ending/dismissals/{decision_id}/{verdict}",
+            path_params={"decision_id": decision_id, "verdict": verdict},
+        )
+
+    def decide_mute(self, decision_id: str, verdict: str) -> None:
+        """Decide Mute"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/mutes/{decision_id}/{verdict}",
+            path_params={"decision_id": decision_id, "verdict": verdict},
+        )
+
+    def decide_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> SupplyWorkItem:
+        """Decide Work Item"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/work-items/{item_id}/state",
+            path_params={"item_id": item_id},
+            body=body,
         )
 
     def declare_substance(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
@@ -5239,6 +8386,14 @@ class GeneratedClient:
             "/api/v1/folders/{folder_id}",
             path_params={"folder_id": folder_id},
             query={"cascade": cascade},
+        )
+
+    def delete_inventory_source(self, source_id: str) -> None:
+        """Delete Inventory Source"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/inventory-sources/{source_id}",
+            path_params={"source_id": source_id},
         )
 
     def delete_project_endpoint(self, project_id: str) -> ProjectDeleted:
@@ -5337,7 +8492,7 @@ class GeneratedClient:
             path_params={"component_id": component_id, "asset_id": asset_id},
         )
 
-    def details(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def details(self, *, body: dict[str, Any] | None = None) -> FillDetails:
         """Details"""
         return self._request(
             "POST",
@@ -5359,6 +8514,15 @@ class GeneratedClient:
             "POST",
             "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
             path_params={"snapshot_id": snapshot_id},
+            body=body,
+        )
+
+    def dismiss_ending(self, component_id: str, *, body: dict[str, Any] | None = None) -> DecisionState:
+        """Dismiss Ending"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/ending/{component_id}/dismissal",
+            path_params={"component_id": component_id},
             body=body,
         )
 
@@ -5438,7 +8602,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def enter_rates(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def enter_rates(self, *, body: dict[str, Any] | None = None) -> SupplyFxRatesSaved:
         """Enter Rates"""
         return self._request(
             "POST",
@@ -5483,7 +8647,7 @@ class GeneratedClient:
             query={"field": field},
         )
 
-    def find_part(self, *, mpn: str, manufacturer: str = '') -> dict[str, Any]:
+    def find_part(self, *, mpn: str, manufacturer: str = '') -> PartLookup:
         """Find Part"""
         return self._request(
             "GET",
@@ -5491,7 +8655,33 @@ class GeneratedClient:
             query={"mpn": mpn, "manufacturer": manufacturer},
         )
 
-    def forecasts_insights(self) -> dict[str, Any]:
+    def follow_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> ComponentFollow:
+        """Follow Component"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/components/{component_id}",
+            path_params={"component_id": component_id},
+            body=body,
+        )
+
+    def follow_number(self, *, body: dict[str, Any] | None = None) -> NumberFollowed:
+        """Follow Number"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/tracking/parts",
+            body=body,
+        )
+
+    def follow_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> PartFollowed:
+        """Follow Part"""
+        return self._request(
+            "PUT",
+            "/api/v1/supply/tracking/parts/{part_id}",
+            path_params={"part_id": part_id},
+            body=body,
+        )
+
+    def forecasts_insights(self) -> ForecastInsights:
         """Forecasts Insights"""
         return self._request(
             "GET",
@@ -5547,7 +8737,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def get_alert_rules(self, part_id: str) -> dict[str, Any]:
+    def get_alert_rules(self, part_id: str) -> PartAlertRules:
         """Get Alert Rules"""
         return self._request(
             "GET",
@@ -5555,7 +8745,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def get_assessment(self, part_id: str, *, quantity: int | None = None) -> dict[str, Any]:
+    def get_assessment(self, part_id: str, *, quantity: int | None = None) -> SupplyAssessment:
         """Get Assessment"""
         return self._request(
             "GET",
@@ -5564,7 +8754,7 @@ class GeneratedClient:
             query={"quantity": quantity},
         )
 
-    def get_assessment_settings(self) -> dict[str, Any]:
+    def get_assessment_settings(self) -> AssessmentSettingsView:
         """Get Assessment Settings"""
         return self._request(
             "GET",
@@ -5617,13 +8807,6 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
             path_params={"project_id": project_id, "candidate_id": candidate_id},
-        )
-
-    def get_capacity(self) -> list[dict[str, Any]]:
-        """Get Capacity"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/capacity",
         )
 
     def get_catalog_asset_content(self, asset_id: str) -> Any:
@@ -5747,6 +8930,14 @@ class GeneratedClient:
             query={"representation": representation, "revision": revision},
         )
 
+    def get_component_parts(self, component_id: str) -> ComponentParts:
+        """Get Component Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/components/{component_id}/parts",
+            path_params={"component_id": component_id},
+        )
+
     def get_component_revision(self, component_id: str, revision_id: str) -> CatalogComponent:
         """Read a component revision"""
         return self._request(
@@ -5763,20 +8954,20 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
-    def get_component_watch(self, component_id: str) -> dict[str, Any]:
-        """Get Component Watch"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/components/{component_id}/watch",
-            path_params={"component_id": component_id},
-        )
-
     def get_connector(self, connector_id: str) -> dict[str, Any]:
         """Get Connector"""
         return self._request(
             "GET",
             "/api/v1/admin/trackers/connectors/{connector_id}",
             path_params={"connector_id": connector_id},
+        )
+
+    def get_connector_push_token(self, target_id: str) -> PushToken | None:
+        """Get Connector Push Token"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/connectors/{target_id}/push-token",
+            path_params={"target_id": target_id},
         )
 
     def get_current_session_user(self) -> UserSession:
@@ -5786,7 +8977,7 @@ class GeneratedClient:
             "/api/v1/auth/me",
         )
 
-    def get_datasheet(self, part_id: str) -> dict[str, Any]:
+    def get_datasheet(self, part_id: str) -> Datasheet:
         """Get Datasheet"""
         return self._request(
             "GET",
@@ -5885,6 +9076,14 @@ class GeneratedClient:
             query={"representation": representation, "revision": revision},
         )
 
+    def get_inventory_source_push_token(self, target_id: str) -> PushToken | None:
+        """Get Inventory Source Push Token"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
     def get_job(self, job_id: str) -> JobStatus:
         """One job's status"""
         return self._request(
@@ -5928,7 +9127,15 @@ class GeneratedClient:
             query={"log_lines": log_lines},
         )
 
-    def get_makers(self) -> dict[str, Any]:
+    def get_local_stock(self, component_id: str) -> LocalStock:
+        """Get Local Stock"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/components/{component_id}/local-stock",
+            path_params={"component_id": component_id},
+        )
+
+    def get_makers(self) -> Items_SupplyMakerGroup_:
         """Get Makers"""
         return self._request(
             "GET",
@@ -5974,7 +9181,7 @@ class GeneratedClient:
             query={"subpath": subpath},
         )
 
-    def get_number_endings(self) -> dict[str, Any]:
+    def get_number_endings(self) -> Items_SupplyNumberEnding_:
         """Get Number Endings"""
         return self._request(
             "GET",
@@ -6015,14 +9222,7 @@ class GeneratedClient:
             query={"type": type, "folder": folder, "commit": commit},
         )
 
-    def get_overview(self) -> dict[str, Any]:
-        """Get Overview"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/overview",
-        )
-
-    def get_part(self, part_id: str) -> dict[str, Any]:
+    def get_part(self, part_id: str) -> SupplyPartDetail:
         """Get Part"""
         return self._request(
             "GET",
@@ -6030,7 +9230,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def get_part_history(self, part_id: str, *, days: int = 90) -> dict[str, Any]:
+    def get_part_history(self, part_id: str, *, days: int = 90) -> PartHistory:
         """Get Part History"""
         return self._request(
             "GET",
@@ -6313,7 +9513,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
-    def get_review_queue(self) -> dict[str, Any]:
+    def get_review_queue(self) -> SupplyReviewQueue:
         """Get Review Queue"""
         return self._request(
             "GET",
@@ -6328,7 +9528,7 @@ class GeneratedClient:
             query={"window_minutes": window_minutes, "route_prefix": route_prefix, "limit": limit},
         )
 
-    def get_schedule(self) -> dict[str, Any]:
+    def get_schedule(self) -> ScheduleSettings:
         """Get Schedule"""
         return self._request(
             "GET",
@@ -6443,6 +9643,15 @@ class GeneratedClient:
             "/api/v1/workspace/bootstrap",
         )
 
+    def ignore_unmatched_parts(self, source_id: str, *, body: dict[str, Any] | None = None) -> UnmatchedChanged:
+        """Ignore Unmatched Parts"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched/ignore",
+            path_params={"source_id": source_id},
+            body=body,
+        )
+
     def impedance_template(self, project_id: str) -> Any:
         """Download the controlled-impedance template"""
         return self._request(
@@ -6515,14 +9724,37 @@ class GeneratedClient:
             query={"commit": commit},
         )
 
-    def insights_overview(self) -> dict[str, Any]:
+    def insights_overview(self) -> SupplyInsightsPage:
         """Insights Overview"""
         return self._request(
             "GET",
             "/api/v1/supply/insights",
         )
 
-    def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def insights_risk_csv(self) -> Any:
+        """Insights Risk Csv"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/insights/risk.csv",
+        )
+
+    def issue_connector_push_token(self, target_id: str) -> IssuedPushToken:
+        """Issue Connector Push Token"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
+    def issue_inventory_source_push_token(self, target_id: str) -> IssuedPushToken:
+        """Issue Inventory Source Push Token"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
+    def keep_usual_build(self, project_id: str, *, body: dict[str, Any] | None = None) -> UsualBuild:
         """Keep Usual Build"""
         return self._request(
             "PUT",
@@ -6531,7 +9763,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def library_component_of(self, part_id: str) -> dict[str, Any]:
+    def library_component_of(self, part_id: str) -> LibraryComponentOf:
         """Library Component Of"""
         return self._request(
             "GET",
@@ -6548,6 +9780,15 @@ class GeneratedClient:
             body=body,
         )
 
+    def link_unmatched_part(self, source_id: str, remote_part: str, *, body: dict[str, Any] | None = None) -> SyncResult:
+        """Link Unmatched Part"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched/{remote_part}/link",
+            path_params={"source_id": source_id, "remote_part": remote_part},
+            body=body,
+        )
+
     def list_access_users(self) -> list[RoleAssignmentResponse]:
         """List Access Users"""
         return self._request(
@@ -6555,7 +9796,7 @@ class GeneratedClient:
             "/api/v1/settings/access/users",
         )
 
-    def list_alerts(self, *, include_resolved: bool = False) -> dict[str, Any]:
+    def list_alerts(self, *, include_resolved: bool = False) -> Items_SupplyAlert_:
         """List Alerts"""
         return self._request(
             "GET",
@@ -6616,7 +9857,7 @@ class GeneratedClient:
             "/api/v1/remote-provider/categories",
         )
 
-    def list_comments(self, project_id: str) -> dict[str, Any]:
+    def list_comments(self, project_id: str) -> Items_SupplyBomComment_:
         """List Comments"""
         return self._request(
             "GET",
@@ -6688,7 +9929,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def list_ending(self) -> dict[str, Any]:
+    def list_ending(self) -> EndingParts:
         """List Ending"""
         return self._request(
             "GET",
@@ -6724,6 +9965,13 @@ class GeneratedClient:
             "/api/v1/trackers/identities",
         )
 
+    def list_inventory_sources(self) -> list[InventorySource]:
+        """List Inventory Sources"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources",
+        )
+
     def list_linkable_connectors(self) -> list[dict[str, Any]]:
         """List Linkable Connectors"""
         return self._request(
@@ -6731,7 +9979,7 @@ class GeneratedClient:
             "/api/v1/trackers/linkable-connectors",
         )
 
-    def list_manufacturers(self) -> dict[str, Any]:
+    def list_manufacturers(self) -> Items_SupplyManufacturer_:
         """List Manufacturers"""
         return self._request(
             "GET",
@@ -6800,7 +10048,7 @@ class GeneratedClient:
             "/api/v1/auth/sessions",
         )
 
-    def list_parts(self, *, scope: str = 'watched', only: str = '', q: str = '', limit: int = 100, offset: int = 0, project_id: str = '', vendor: str = '', sort: str = '') -> dict[str, Any]:
+    def list_parts(self, *, scope: str = 'watched', only: str = '', q: str = '', limit: int = 100, offset: int = 0, project_id: str = '', vendor: str = '', sort: str = '') -> SupplyPartsPage:
         """List Parts"""
         return self._request(
             "GET",
@@ -6837,7 +10085,7 @@ class GeneratedClient:
             "/api/v1/projects/",
         )
 
-    def list_providers(self) -> list[dict[str, Any]]:
+    def list_providers(self) -> Items_SupplyProvider_:
         """List Providers"""
         return self._request(
             "GET",
@@ -6875,7 +10123,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def list_supply_connectors(self) -> list[dict[str, Any]]:
+    def list_supply_connectors(self) -> Items_SupplyConnector_:
         """List Supply Connectors"""
         return self._request(
             "GET",
@@ -6888,6 +10136,15 @@ class GeneratedClient:
             "GET",
             "/api/v1/agent/tokens",
             query={"all_users": all_users},
+        )
+
+    def list_unmatched_parts(self, source_id: str, *, q: str = '', limit: int | None = None, offset: int = 0, group: str = '') -> list[UnmatchedPart]:
+        """List Unmatched Parts"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/inventory-sources/{source_id}/unmatched",
+            path_params={"source_id": source_id},
+            query={"q": q, "limit": limit, "offset": offset, "group": group},
         )
 
     def list_vendor_profiles(self, project_id: str) -> VendorProfileList:
@@ -6913,6 +10170,14 @@ class GeneratedClient:
             "/api/v1/settings/webhooks",
         )
 
+    def list_work_items(self, *, state: str = 'live', subject_kind: str = '', subject_id: str = '') -> Items_SupplyWorkItem_:
+        """List Work Items"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/work-items",
+            query={"state": state, "subject_kind": subject_kind, "subject_id": subject_id},
+        )
+
     def live(self) -> dict[str, Any]:
         """Live"""
         return self._request(
@@ -6920,7 +10185,7 @@ class GeneratedClient:
             "/api/v1/health/live",
         )
 
-    def load_svhc_list(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def load_svhc_list(self, *, body: dict[str, Any] | None = None) -> SupplySvhcList:
         """Load Svhc List"""
         return self._request(
             "POST",
@@ -6951,7 +10216,7 @@ class GeneratedClient:
             "/api/v1/auth/logout",
         )
 
-    def lookup(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def lookup(self, *, body: dict[str, Any] | None = None) -> SupplyBomLookup:
         """Lookup"""
         return self._request(
             "POST",
@@ -6959,26 +10224,12 @@ class GeneratedClient:
             body=body,
         )
 
-    def market_history(self, *, metric: str) -> dict[str, Any]:
+    def market_history(self, *, metric: str) -> SupplyMarketHistory:
         """Market History"""
         return self._request(
             "GET",
             "/api/v1/supply/market/history",
             query={"metric": metric},
-        )
-
-    def market_overview(self) -> dict[str, Any]:
-        """Market Overview"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/market",
-        )
-
-    def mcp(self) -> dict[str, Any]:
-        """Mcp"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/mcp",
         )
 
     def metadata_batch_report(self, batch_id: str) -> Any:
@@ -7101,7 +10352,7 @@ class GeneratedClient:
             "/api/v1/ops/status",
         )
 
-    def options(self, part_id: str, connector_id: str) -> dict[str, Any]:
+    def options(self, part_id: str, connector_id: str) -> PackagingOptions:
         """Options"""
         return self._request(
             "GET",
@@ -7109,7 +10360,7 @@ class GeneratedClient:
             path_params={"part_id": part_id, "connector_id": connector_id},
         )
 
-    def other_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def other_maker(self, part_id: str, *, body: dict[str, Any] | None = None) -> ListingsRejected:
         """Other Maker"""
         return self._request(
             "POST",
@@ -7118,14 +10369,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def overview(self) -> dict[str, Any]:
-        """Overview"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/tracking",
-        )
-
-    def part_compliance(self, part_id: str) -> dict[str, Any]:
+    def part_compliance(self, part_id: str) -> SupplyCompliance:
         """Part Compliance"""
         return self._request(
             "GET",
@@ -7133,7 +10377,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def part_forecast(self, part_id: str, *, quantity: int | None = None) -> dict[str, Any]:
+    def part_forecast(self, part_id: str, *, quantity: int | None = None) -> PartForecast:
         """Part Forecast"""
         return self._request(
             "GET",
@@ -7142,7 +10386,7 @@ class GeneratedClient:
             query={"quantity": quantity},
         )
 
-    def part_groups(self, *, scope: str = 'watched', only: str = '', q: str = '', vendor: str = '') -> dict[str, Any]:
+    def part_groups(self, *, scope: str = 'watched', only: str = '', q: str = '', vendor: str = '') -> SupplyPartGroups:
         """Part Groups"""
         return self._request(
             "GET",
@@ -7150,7 +10394,7 @@ class GeneratedClient:
             query={"scope": scope, "only": only, "q": q, "vendor": vendor},
         )
 
-    def part_notices(self, part_id: str) -> dict[str, Any]:
+    def part_notices(self, part_id: str) -> Items_SupplyNotice_:
         """Part Notices"""
         return self._request(
             "GET",
@@ -7158,7 +10402,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def part_state(self, part_id: str) -> dict[str, Any]:
+    def part_state(self, part_id: str) -> PartTrackingState:
         """Part State"""
         return self._request(
             "GET",
@@ -7183,7 +10427,7 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def pause_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def pause_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Pause Supply Connector"""
         return self._request(
             "POST",
@@ -7192,7 +10436,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def pick(self, part_id: str, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def pick(self, part_id: str, connector_id: str, *, body: dict[str, Any] | None = None) -> PackagingPicked:
         """Pick"""
         return self._request(
             "PUT",
@@ -7256,7 +10500,7 @@ class GeneratedClient:
             "/api/v1/catalog/metadata/import-csv/preview",
         )
 
-    def preview_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def preview_part(self, part_id: str, *, body: dict[str, Any] | None = None) -> TrackingPreview:
         """Preview Part"""
         return self._request(
             "POST",
@@ -7265,7 +10509,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def preview_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def preview_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectTrackingPreview:
         """Preview Project"""
         return self._request(
             "POST",
@@ -7274,7 +10518,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def preview_watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def preview_watch(self, *, body: dict[str, Any] | None = None) -> BomWatchPreview:
         """Preview Watch"""
         return self._request(
             "POST",
@@ -7282,7 +10526,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def progress(self, request_id: str) -> dict[str, Any]:
+    def progress(self, request_id: str) -> CheckProgress:
         """Progress"""
         return self._request(
             "GET",
@@ -7290,7 +10534,7 @@ class GeneratedClient:
             path_params={"request_id": request_id},
         )
 
-    def project_open(self, project_id: str) -> dict[str, Any]:
+    def project_open(self, project_id: str) -> ProjectOpen:
         """Project Open"""
         return self._request(
             "GET",
@@ -7298,7 +10542,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def project_overview(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '') -> dict[str, Any]:
+    def project_overview(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '') -> ProjectSupply:
         """Project Overview"""
         return self._request(
             "GET",
@@ -7307,7 +10551,16 @@ class GeneratedClient:
             query={"build_quantity": build_quantity, "variant": variant, "spares": spares},
         )
 
-    def project_progress(self, project_id: str) -> dict[str, Any]:
+    def project_parts_page(self, project_id: str, *, build_quantity: int | None = None, variant: str = '', spares: str = '', chip: str = '', q: str = '', only: str = '', vendor: str = '', sort: str = '', offset: int = 0, limit: int = 100) -> ProjectPartsPage:
+        """Project Parts Page"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/projects/{project_id}/parts",
+            path_params={"project_id": project_id},
+            query={"build_quantity": build_quantity, "variant": variant, "spares": spares, "chip": chip, "q": q, "only": only, "vendor": vendor, "sort": sort, "offset": offset, "limit": limit},
+        )
+
+    def project_progress(self, project_id: str) -> TrackProgress:
         """Project Progress"""
         return self._request(
             "GET",
@@ -7315,7 +10568,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def project_state(self, project_id: str) -> dict[str, Any]:
+    def project_state(self, project_id: str) -> ProjectTrackingState:
         """Project State"""
         return self._request(
             "GET",
@@ -7339,7 +10592,16 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def propose_waiver(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, str]:
+    def propose_alternate(self, component_id: str, *, body: dict[str, Any] | None = None) -> ComponentParts:
+        """Propose Alternate"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/components/{component_id}/alternates",
+            path_params={"component_id": component_id},
+            body=body,
+        )
+
+    def propose_waiver(self, part_id: str, *, body: dict[str, Any] | None = None) -> WaiverProposed:
         """Propose Waiver"""
         return self._request(
             "POST",
@@ -7348,7 +10610,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def proposed(self, part_id: str) -> dict[str, Any]:
+    def proposed(self, part_id: str) -> PackagingProposals:
         """Proposed"""
         return self._request(
             "GET",
@@ -7373,7 +10635,25 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def put_alert_rules(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def push_connector_offers(self, connector_id: str, *, body: dict[str, Any] | None = None) -> PushOffersResult:
+        """Push Connector Offers"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/connectors/{connector_id}/offers",
+            path_params={"connector_id": connector_id},
+            body=body,
+        )
+
+    def push_inventory_levels(self, source_id: str, *, body: dict[str, Any] | None = None) -> PushLevelsResult:
+        """Push Inventory Levels"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/levels",
+            path_params={"source_id": source_id},
+            body=body,
+        )
+
+    def put_alert_rules(self, part_id: str, *, body: dict[str, Any] | None = None) -> AlertRules:
         """Put Alert Rules"""
         return self._request(
             "PUT",
@@ -7382,7 +10662,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def put_assessment_settings(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def put_assessment_settings(self, *, body: dict[str, Any] | None = None) -> AssessmentSettingsView:
         """Put Assessment Settings"""
         return self._request(
             "PUT",
@@ -7398,7 +10678,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def put_schedule(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def put_schedule(self, *, body: dict[str, Any] | None = None) -> ScheduleSettings:
         """Put Schedule"""
         return self._request(
             "PUT",
@@ -7421,7 +10701,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "setup_id": setup_id},
         )
 
-    def read_part_now(self, part_id: str) -> dict[str, Any]:
+    def read_part_now(self, part_id: str) -> SupplyReadNow:
         """Read Part Now"""
         return self._request(
             "POST",
@@ -7429,7 +10709,15 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def read_project_bom(self, project_id: str) -> dict[str, str]:
+    def read_part_on_view(self, part_id: str) -> PartReadOnView:
+        """Read Part On View"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/parts/{part_id}/view-read",
+            path_params={"part_id": part_id},
+        )
+
+    def read_project_bom(self, project_id: str) -> BomRead:
         """Read Project Bom"""
         return self._request(
             "POST",
@@ -7437,7 +10725,7 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def read_release_bom(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def read_release_bom(self, project_id: str, build_id: str) -> ReleaseBomKept:
         """Read Release Bom"""
         return self._request(
             "POST",
@@ -7493,6 +10781,14 @@ class GeneratedClient:
             path_params={"project_id": project_id, "setup_id": setup_id},
         )
 
+    def read_sheet(self, *, body: dict[str, Any] | None = None) -> SheetRows:
+        """Read Sheet"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/bom/sheet",
+            body=body,
+        )
+
     def ready(self) -> dict[str, Any]:
         """Ready"""
         return self._request(
@@ -7509,7 +10805,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def refresh_rates(self) -> dict[str, Any]:
+    def refresh_rates(self) -> SupplyFxRatesSaved:
         """Refresh Rates"""
         return self._request(
             "POST",
@@ -7524,7 +10820,7 @@ class GeneratedClient:
             path_params={"part_id": part_id},
         )
 
-    def refresh_usage(self) -> dict[str, int]:
+    def refresh_usage(self) -> UsageRefreshed:
         """Refresh Usage"""
         return self._request(
             "POST",
@@ -7572,7 +10868,7 @@ class GeneratedClient:
             path_params={"listing_id": listing_id},
         )
 
-    def reject_listings(self, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def reject_listings(self, *, body: dict[str, Any] | None = None) -> ListingsRejected:
         """Reject Listings"""
         return self._request(
             "POST",
@@ -7596,7 +10892,7 @@ class GeneratedClient:
             path_params={"waiver_id": waiver_id},
         )
 
-    def release_check_for(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def release_check_for(self, project_id: str, build_id: str) -> ReleaseCheckResult | ReleaseCheckUnavailable:
         """Release Check For"""
         return self._request(
             "GET",
@@ -7604,7 +10900,7 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def release_compliance(self, project_id: str, build_id: str, *, format: str = 'json') -> Any:
+    def release_compliance(self, project_id: str, build_id: str, *, format: str = 'json') -> ReleaseCompliance:
         """Release Compliance"""
         return self._request(
             "GET",
@@ -7621,7 +10917,7 @@ class GeneratedClient:
             query={"q": q, "workflow_stage": workflow_stage, "page": page, "page_size": page_size},
         )
 
-    def release_snapshot(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def release_snapshot(self, project_id: str, build_id: str) -> ReleaseSnapshot:
         """Release Snapshot"""
         return self._request(
             "GET",
@@ -7629,12 +10925,20 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def release_snapshot_status(self, project_id: str, build_id: str) -> dict[str, Any]:
+    def release_snapshot_status(self, project_id: str, build_id: str) -> JobProgress:
         """Release Snapshot Status"""
         return self._request(
             "GET",
             "/api/v1/supply/projects/{project_id}/releases/{build_id}/supply-status",
             path_params={"project_id": project_id, "build_id": build_id},
+        )
+
+    def remove_alternate(self, component_id: str, part_id: str) -> None:
+        """Remove Alternate"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/components/{component_id}/alternates/{part_id}",
+            path_params={"component_id": component_id, "part_id": part_id},
         )
 
     def remove_comment(self, project_id: str, comment_id: str) -> None:
@@ -7652,14 +10956,6 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
             path_params={"project_id": project_id, "comment_id": comment_id, "reaction": reaction},
             query={"replyId": replyId},
-        )
-
-    def remove_component_watch(self, component_id: str) -> None:
-        """Remove Component Watch"""
-        return self._request(
-            "DELETE",
-            "/api/v1/supply/components/{component_id}/watch",
-            path_params={"component_id": component_id},
         )
 
     def remove_exemption(self, part_id: str, code: str) -> None:
@@ -7692,14 +10988,6 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/supply/settings/number-endings/{key}",
             path_params={"key": key},
-        )
-
-    def remove_watch(self, watch_id: str) -> None:
-        """Remove Watch"""
-        return self._request(
-            "DELETE",
-            "/api/v1/supply/watches/{watch_id}",
-            path_params={"watch_id": watch_id},
         )
 
     def render_png(self, project_id: str, render_id: str) -> Any:
@@ -7751,7 +11039,7 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def resume_supply_connector(self, connector_id: str) -> dict[str, Any]:
+    def resume_supply_connector(self, connector_id: str) -> SupplyConnector:
         """Resume Supply Connector"""
         return self._request(
             "POST",
@@ -7790,6 +11078,22 @@ class GeneratedClient:
             "POST",
             "/api/v1/admin/trackers/connectors/{connector_id}/revoke",
             path_params={"connector_id": connector_id},
+        )
+
+    def revoke_connector_push_token(self, target_id: str) -> None:
+        """Revoke Connector Push Token"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/connectors/{target_id}/push-token",
+            path_params={"target_id": target_id},
+        )
+
+    def revoke_inventory_source_push_token(self, target_id: str) -> None:
+        """Revoke Inventory Source Push Token"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/inventory-sources/{target_id}/push-token",
+            path_params={"target_id": target_id},
         )
 
     def revoke_mcp_client(self, grant_id: str) -> None:
@@ -7905,7 +11209,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def search(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def search(self, *, body: dict[str, Any] | None = None) -> FillSearchResult:
         """Search"""
         return self._request(
             "POST",
@@ -7954,30 +11258,12 @@ class GeneratedClient:
             query={"q": q, "limit": limit},
         )
 
-    def set_component_watch(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Set Component Watch"""
-        return self._request(
-            "PUT",
-            "/api/v1/supply/components/{component_id}/watch",
-            path_params={"component_id": component_id},
-            body=body,
-        )
-
-    def set_connector_credentials(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def set_connector_credentials(self, connector_id: str, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Set Connector Credentials"""
         return self._request(
             "PUT",
             "/api/v1/supply/connectors/{connector_id}/credentials",
             path_params={"connector_id": connector_id},
-            body=body,
-        )
-
-    def set_datasheet_url(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
-        """Set Datasheet Url"""
-        return self._request(
-            "PUT",
-            "/api/v1/supply/parts/{part_id}/datasheet-url",
-            path_params={"part_id": part_id},
             body=body,
         )
 
@@ -7990,15 +11276,6 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_part_tier(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Set Part Tier"""
-        return self._request(
-            "PUT",
-            "/api/v1/supply/tracking/parts/{part_id}",
-            path_params={"part_id": part_id},
-            body=body,
-        )
-
     def set_preferred(self, part_id: str, *, body: dict[str, Any] | None = None) -> None:
         """Set Preferred"""
         return self._request(
@@ -8008,7 +11285,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_price_quantity(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def set_price_quantity(self, part_id: str, *, body: dict[str, Any] | None = None) -> PriceQuantity:
         """Set Price Quantity"""
         return self._request(
             "PUT",
@@ -8017,7 +11294,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_restriction(self, component_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def set_restriction(self, component_id: str, *, body: dict[str, Any] | None = None) -> ComponentRestriction:
         """Set Restriction"""
         return self._request(
             "PUT",
@@ -8053,7 +11330,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def several(self) -> dict[str, Any]:
+    def several(self) -> Items_PackagingSeveral_:
         """Several"""
         return self._request(
             "GET",
@@ -8068,14 +11345,6 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
-    def signin_status(self, connector_id: str) -> dict[str, Any]:
-        """Signin Status"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/connectors/{connector_id}/signin",
-            path_params={"connector_id": connector_id},
-        )
-
     def snooze_alert(self, alert_id: int, *, body: dict[str, Any] | None = None) -> None:
         """Snooze Alert"""
         return self._request(
@@ -8085,7 +11354,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def start(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def start(self, *, body: dict[str, Any] | None = None) -> CheckStarted:
         """Start"""
         return self._request(
             "POST",
@@ -8118,12 +11387,20 @@ class GeneratedClient:
             body=body,
         )
 
-    def start_signin(self, connector_id: str) -> dict[str, str]:
+    def start_signin(self, connector_id: str) -> SigninStarted:
         """Start Signin"""
         return self._request(
             "POST",
             "/api/v1/supply/connectors/{connector_id}/signin",
             path_params={"connector_id": connector_id},
+        )
+
+    def stop_following_component(self, component_id: str) -> None:
+        """Stop Following Component"""
+        return self._request(
+            "DELETE",
+            "/api/v1/supply/tracking/components/{component_id}",
+            path_params={"component_id": component_id},
         )
 
     def stop_tracking_part(self, part_id: str) -> None:
@@ -8143,18 +11420,26 @@ class GeneratedClient:
             body=body,
         )
 
-    def supply_health(self) -> dict[str, Any]:
+    def supply_health(self) -> SupplyHealth:
         """Supply Health"""
         return self._request(
             "GET",
             "/api/v1/supply/health",
         )
 
-    def svhc_list_info(self) -> dict[str, Any]:
+    def svhc_list_info(self) -> SupplySvhcList:
         """Svhc List Info"""
         return self._request(
             "GET",
             "/api/v1/supply/compliance/svhc",
+        )
+
+    def sync_inventory_source(self, source_id: str) -> SyncResult:
+        """Sync Inventory Source"""
+        return self._request(
+            "POST",
+            "/api/v1/supply/inventory-sources/{source_id}/sync",
+            path_params={"source_id": source_id},
         )
 
     def sync_project_endpoint(self, project_id: str) -> SyncQueued:
@@ -8173,7 +11458,7 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def test_connector_connection(self, connector_id: str) -> dict[str, Any]:
+    def test_connector_connection(self, connector_id: str) -> SupplyConnectorCheck:
         """Test Connector Connection"""
         return self._request(
             "POST",
@@ -8220,20 +11505,13 @@ class GeneratedClient:
             path_params={"request_id": request_id},
         )
 
-    def track_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def track_project(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectTrackingPreview:
         """Track Project"""
         return self._request(
             "PUT",
             "/api/v1/supply/tracking/projects/{project_id}",
             path_params={"project_id": project_id},
             body=body,
-        )
-
-    def track_record(self) -> dict[str, Any]:
-        """Track Record"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/forecasts/track-record",
         )
 
     def tracker_webhook(self, provider: str, connector_id: str) -> WebhookAccepted:
@@ -8244,7 +11522,7 @@ class GeneratedClient:
             path_params={"provider": provider, "connector_id": connector_id},
         )
 
-    def tracking_room(self) -> dict[str, Any]:
+    def tracking_room(self) -> TrackingRoom:
         """Tracking Room"""
         return self._request(
             "GET",
@@ -8285,7 +11563,7 @@ class GeneratedClient:
             path_params={"part_id": part_id, "cas": cas},
         )
 
-    def undo_alias(self, alias_key: str) -> dict[str, int]:
+    def undo_alias(self, alias_key: str) -> AliasUndone:
         """Undo Alias"""
         return self._request(
             "POST",
@@ -8293,7 +11571,7 @@ class GeneratedClient:
             path_params={"alias_key": alias_key},
         )
 
-    def undo_settled(self, part_id: str) -> dict[str, bool]:
+    def undo_settled(self, part_id: str) -> SettleUndone:
         """Undo Settled"""
         return self._request(
             "POST",
@@ -8370,6 +11648,15 @@ class GeneratedClient:
             body=body,
         )
 
+    def update_inventory_source(self, source_id: str, *, body: dict[str, Any] | None = None) -> InventorySource:
+        """Update Inventory Source"""
+        return self._request(
+            "PATCH",
+            "/api/v1/supply/inventory-sources/{source_id}",
+            path_params={"source_id": source_id},
+            body=body,
+        )
+
     def update_metadata_field(self, field_id: str, *, body: dict[str, Any] | None = None) -> MetadataField:
         """Update a metadata field"""
         return self._request(
@@ -8424,21 +11711,12 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def update_supply_connector(self, connector_id: str, *, body: dict[str, Any] | None = None) -> SupplyConnector:
         """Update Supply Connector"""
         return self._request(
             "PATCH",
             "/api/v1/supply/connectors/{connector_id}",
             path_params={"connector_id": connector_id},
-            body=body,
-        )
-
-    def update_watch(self, watch_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Update Watch"""
-        return self._request(
-            "PATCH",
-            "/api/v1/supply/watches/{watch_id}",
-            path_params={"watch_id": watch_id},
             body=body,
         )
 
@@ -8448,6 +11726,15 @@ class GeneratedClient:
             "PATCH",
             "/api/v1/settings/webhooks/{webhook_id}",
             path_params={"webhook_id": webhook_id},
+            body=body,
+        )
+
+    def update_work_item(self, item_id: str, *, body: dict[str, Any] | None = None) -> SupplyWorkItem:
+        """Update Work Item"""
+        return self._request(
+            "PATCH",
+            "/api/v1/supply/work-items/{item_id}",
+            path_params={"item_id": item_id},
             body=body,
         )
 
@@ -8467,7 +11754,7 @@ class GeneratedClient:
             path_params={"snapshot_id": snapshot_id},
         )
 
-    def upload_offers_csv(self, connector_id: str, *, filename: str = '') -> dict[str, Any]:
+    def upload_offers_csv(self, connector_id: str, *, filename: str = '') -> SupplyCsvResult:
         """Upload Offers Csv"""
         return self._request(
             "POST",
@@ -8493,7 +11780,7 @@ class GeneratedClient:
             body=body,
         )
 
-    def use_numbers(self, part_id: str, *, body: dict[str, Any] | None = None) -> dict[str, int]:
+    def use_numbers(self, part_id: str, *, body: dict[str, Any] | None = None) -> NumbersCounted:
         """Use Numbers"""
         return self._request(
             "POST",
@@ -8533,14 +11820,7 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
-    def waiting(self) -> dict[str, Any]:
-        """Waiting"""
-        return self._request(
-            "GET",
-            "/api/v1/supply/packaging/waiting",
-        )
-
-    def watch(self, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def watch(self, *, body: dict[str, Any] | None = None) -> BomWatched:
         """Watch"""
         return self._request(
             "POST",
@@ -8555,6 +11835,14 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals/withdraw",
             path_params={"project_id": project_id, "build_id": build_id},
             body=body,
+        )
+
+    def work_item_history(self, item_id: str) -> Items_WorkItemEvent_:
+        """Work Item History"""
+        return self._request(
+            "GET",
+            "/api/v1/supply/work-items/{item_id}/history",
+            path_params={"item_id": item_id},
         )
 
     def workflow_summary(self) -> WorkflowSummary:

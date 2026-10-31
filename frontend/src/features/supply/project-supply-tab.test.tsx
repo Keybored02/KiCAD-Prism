@@ -2,35 +2,36 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectSupply, SupplyBomRollup } from "@/types/supply";
+import type { ProjectSupply, ProjectSupplyPart } from "@/types/supply";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getProjectSupply: vi.fn(),
-  listSupplyParts: vi.fn(),
+  getProjectParts: vi.fn(),
   listSupplyConnectors: vi.fn(),
 }));
-vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn() }));
+vi.mock("./tracking-api", () => ({ keepUsualBuild: vi.fn(), readProjectBom: vi.fn() }));
 vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div role="dialog">Sheet of {partId}</div> : null) }));
 vi.mock("./track-project-dialog", () => ({ TrackProjectButton: () => <button type="button">Track this project</button> }));
 
 import { ProjectSupplyTab } from "./project-supply-tab";
 import * as api from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
+import { bomRollupFixture, projectLineFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 
-const rollup: SupplyBomRollup = {
+const rollup = bomRollupFixture({
   lines: 3, tracked: 2, not_tracked: 1, watched: 2, at_risk: 1, short: 1, priced: 2, lines_priced: 2, parts: 2,
   currency: "EUR", cost_build: "12.50", cost_per_board: "12.50", can_build: 400, limited_by: "k1", without_stock_data: 0,
   health: 7.4, health_status: "warning",
-};
+});
 
 const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
   available: true, variant: "", variants: [], rollup,
   parts: [
-    { key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", short: false, unit_price: "0.1", notes: 0, need: 200 },
-    { key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", short: true, unit_price: "1.2", notes: 2, need: 100 },
+    projectLineFixture({ key: "k2", manufacturer: "Acme", mpn: "GOOD-1", quantity: 2, references: "R1 R2", part_id: "p2", state: "tracked", status: "ok", stock: 5000, lifecycle: "active", short: false, unit_price: "0.1", notes: 0, need: 200 }),
+    projectLineFixture({ key: "k1", manufacturer: "Acme", mpn: "FLAKY-1", quantity: 1, references: "U1", part_id: "p1", state: "tracked", status: "error", stock: 0, lifecycle: "obsolete", short: true, unit_price: "1.2", notes: 2, need: 100 }),
   ],
   releases: [{
     build_id: "b1", tag: "v1.0", created_at: "2026-09-01T00:00:00Z", health: 9, status: "ok", parts: 2, needing_a_look: 0,
@@ -43,16 +44,26 @@ const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
 const renderTab = (role: "designer" | "viewer" = "designer") =>
   render(<MemoryRouter><ProjectSupplyTab projectId="prj" user={{ name: role, email: `${role}@example.com`, role }} /></MemoryRouter>);
 
-/** The parts list the way the server gives it: a row for each part of the BOM. */
-const listed = (...ids: string[]) => ({
-  items: ids.map((id) => ({
-    id, mpn: id === "p1" ? "FLAKY-1" : "GOOD-1", manufacturer: "Acme", status: id === "p1" ? "error" : "ok", problem: null, stock: id === "p1" ? 0 : 5000, listings: 1,
-    lifecycle: id === "p1" ? "obsolete" : "active", dropped: false, unit_price: "0.1", price_quantity: 100, currency: "EUR", fetched_at: null, tier: id === "p1" ? 1 : 2,
-    used_in: 1, watch: null, flags: id === "p1" ? ["waiting"] : [], distributors: [],
-  })),
-  total: ids.length, limit: 200, offset: 0, next_offset: null,
-  forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
-});
+/** The parts list the way the server gives it: a row for each part of the BOM with its line, a chip keeping its parts. */
+function serve(lines: ProjectSupplyPart[]) {
+  const keeps: Record<string, (line: ProjectSupplyPart) => boolean> = {
+    out: (line) => line.part_id !== null && line.stock === 0, unchecked: (line) => line.state !== "tracked",
+  };
+  mocked.getProjectParts.mockImplementation(async (_project, asked) => {
+    const kept = lines.filter((line) => !asked.chip || keeps[asked.chip](line));
+    const items = kept.flatMap((line) => (line.part_id ? [{
+      id: line.part_id, mpn: line.mpn, manufacturer: "Acme", status: line.status, problem: null, stock: line.stock, listings: 1,
+      lifecycle: line.lifecycle, dropped: false, unit_price: "0.1", price_quantity: 100, currency: "EUR", fetched_at: null, tier: 1,
+      used_in: 1, watch: null, flags: line.part_id === "p1" ? ["waiting"] : [], distributors: [], line,
+    }] : []));
+    return {
+      items, total: items.length, limit: 100, offset: 0, next_offset: null,
+      unmatched: !asked.chip || asked.chip === "unchecked" ? kept.filter((line) => !line.part_id) : [],
+      chips: Object.entries(keeps).flatMap(([key, keep]) => (lines.some(keep) ? [{ key, count: lines.filter(keep).length }] : [])),
+      forecast_state: { runout: "shown", out_4w: "shown", can_buy_4w: "shown", can_buy_8w: "shown" },
+    } as never;
+  });
+}
 
 /** The boards are set from the pencil on the Build tile. */
 async function boardsTo(count: number) {
@@ -66,7 +77,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.getProjectSupply.mockResolvedValue(supply());
   mocked.listSupplyConnectors.mockResolvedValue([]);
-  mocked.listSupplyParts.mockResolvedValue(listed("p1", "p2") as never);
+  serve(supply().parts ?? []);
 });
 afterEach(cleanup);
 
@@ -79,7 +90,7 @@ describe("the project Supply tab", () => {
     const flaky = rows.find((row) => within(row).queryByText("FLAKY-1"))!;
     fireEvent.click(within(flaky).getByRole("button", { name: "FLAKY-1" }));
     expect(screen.getByRole("dialog").textContent).toBe("Sheet of p1");
-    expect(within(flaky).getByRole("img", { name: "Waiting for room to be read" })).toBeTruthy();
+    expect(within(flaky).getByRole("img", { name: "Queued for calls" })).toBeTruthy();
     expect(within(flaky).getByText("U1")).toBeTruthy();
     expect(screen.getByText("7.4 of 10")).toBeTruthy();
   });
@@ -97,7 +108,7 @@ describe("the project Supply tab", () => {
 
   it("follows the cost of a board over time and names what rounding wastes", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({
-      rollup: { ...rollup, waste_cost: "3.20" },
+      rollup: bomRollupFixture({ ...rollup, waste_cost: "3.20" }),
       cost_history: [
         { day: "2026-09-01", cost_per_board: "12.0000", currency: "EUR", boards: 100 },
         { day: "2026-10-01", cost_per_board: "13.5000", currency: "EUR", boards: 100 },
@@ -139,26 +150,21 @@ describe("the project Supply tab", () => {
     const parts = await screen.findByRole("region", { name: "Parts" });
     await within(parts).findByText("FLAKY-1");
     fireEvent.click(within(parts).getByRole("button", { name: "Sort by Price" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "", "price:desc"));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ sort: "price:desc" }), expect.anything()));
     fireEvent.click(within(parts).getByRole("button", { name: "Runs out first" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "", "runout"));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ sort: "runout" }), expect.anything()));
     expect(within(parts).getByRole("button", { name: "Runs out first" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("sorts by the columns only the project has where the list is, and searches the project's parts", async () => {
+  it("asks the server to sort by the columns only the project has, over the whole project, and searches the project's parts", async () => {
     renderTab();
     const parts = await screen.findByRole("region", { name: "Parts" });
     await within(parts).findByText("FLAKY-1");
-    const names = () => within(parts).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0]?.textContent);
-    expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
     fireEvent.click(within(parts).getByRole("button", { name: "Sort by Need" }));
-    expect(names()).toEqual(["GOOD-1", "FLAKY-1"]);
-    fireEvent.click(within(parts).getByRole("button", { name: "Sort by Need" }));
-    expect(names()).toEqual(["FLAKY-1", "GOOD-1"]);
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), "", 0, 200, "prj", "");
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ sort: "need:desc", offset: 0 }), expect.anything()));
     fireEvent.change(within(parts).getByLabelText("Search parts"), { target: { value: "flaky" } });
     fireEvent.click(within(parts).getByRole("button", { name: "Search" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "flaky", expect.anything(), "", 0, 200, "prj", ""));
+    await waitFor(() => expect(mocked.getProjectParts).toHaveBeenLastCalledWith("prj", expect.objectContaining({ q: "flaky" }), expect.anything()));
   });
 
   it("sends the boards to the costing, and the file follows them", async () => {
@@ -170,21 +176,23 @@ describe("the project Supply tab", () => {
 
   it("answers whether the boards can be built and what stops it, and a chip filters the parts", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({
-      rollup: { ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 },
+      rollup: bomRollupFixture({ ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 }),
     }));
     renderTab();
-    expect(await screen.findByText("0 of 100 boards")).toBeTruthy();
+    // One of the three lines is not tracked, so the answer stays open.
+    expect(await screen.findByText("Unconfirmed")).toBeTruthy();
+    expect(screen.getByText("0 of 100 boards · 1 unchecked")).toBeTruthy();
     expect(within(screen.getByLabelText("Headline")).getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
     expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Not priced/ })).toBeNull();
     const parts = screen.getByRole("region", { name: "Parts" });
     await within(parts).findByText("GOOD-1");
     expect(within(parts).getAllByRole("row")).toHaveLength(3);
-    fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
-    expect(within(parts).getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(await screen.findByRole("button", { name: /Out of stock/ }));
+    await waitFor(() => expect(within(parts).getAllByRole("row")).toHaveLength(2));
     expect(within(parts).getByText("FLAKY-1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
-    expect(within(parts).getAllByRole("row")).toHaveLength(3);
+    await waitFor(() => expect(within(parts).getAllByRole("row")).toHaveLength(3));
   });
 
   it("opens at the project's usual build and offers to keep another size as the usual one", async () => {
@@ -204,6 +212,33 @@ describe("the project Supply tab", () => {
     expect(await screen.findByText("Stock coverage")).toBeTruthy();
     expect(screen.getByText("50%")).toBeTruthy();
     expect(screen.getByText(/1 of 2 lines in stock for 100 boards, 1 short/)).toBeTruthy();
+  });
+
+  it("prices each line at the quantity the build buys, and shows what the line cost is made of", async () => {
+    const base = supply();
+    const parts = (base.parts ?? []).map((part) => (part.key === "k2" ? { ...part, unit_price: "0.93", buy_quantity: 20, line_cost: "18.60" } : part));
+    mocked.getProjectSupply.mockResolvedValue(supply({ parts }));
+    serve(parts);
+    renderTab();
+    const table = await screen.findByRole("region", { name: "Parts" });
+    await within(table).findByText("GOOD-1");
+    expect(within(table).getAllByText(/× 20/).length).toBeGreaterThan(0);
+    expect(within(table).getByText(/20 × €0\.93/)).toBeTruthy();
+  });
+
+  it("counts a line without a part number as not covered, and lists it under Unchecked", async () => {
+    const noMpn = projectLineFixture({ key: "none:796638-2|TB", manufacturer: "", mpn: "", quantity: 1, references: "J2", part_id: null, state: "no_mpn", status: null, stock: null, lifecycle: null, short: false, unit_price: null, notes: 0, need: 1 });
+    const base = supply();
+    mocked.getProjectSupply.mockResolvedValue(supply({ parts: [...(base.parts ?? []), noMpn] }));
+    serve([...(base.parts ?? []), noMpn]);
+    renderTab();
+    expect(await screen.findByText("33%")).toBeTruthy();
+    expect(screen.getByText(/1 of 3 lines in stock for 100 boards, 1 short/)).toBeTruthy();
+    const parts = screen.getByRole("region", { name: "Parts" });
+    await within(parts).findByText("GOOD-1");
+    fireEvent.click(await screen.findByRole("button", { name: /Unchecked/ }));
+    expect(await within(parts).findByText("No MPN")).toBeTruthy();
+    await waitFor(() => expect(within(parts).queryByText("GOOD-1")).toBeNull());
     expect(screen.queryByText("In 8 weeks")).toBeNull();
   });
 
@@ -221,10 +256,11 @@ describe("the project Supply tab", () => {
     expect(screen.getByRole("link", { name: "Download the costing for 250 boards as a zip" }).getAttribute("href")).toBe("/api/supply/projects/prj/costing.zip?build_quantity=250");
   });
 
-  it("says when the BOM has not been read, and still offers tracking", async () => {
+  it("says when the BOM has not been read, offers to read it now, and still offers tracking", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ available: false, parts: undefined, rollup: undefined, releases: [], notes: [] }));
     renderTab();
-    expect(await screen.findByText(/has not been read yet/)).toBeTruthy();
+    expect(await screen.findByText("Not read")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Read now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Track this project" })).toBeTruthy();
   });
 

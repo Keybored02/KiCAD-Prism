@@ -6,7 +6,7 @@ the same credentials), since the provider sees one caller:
 * rate limited: hold off until the provider says (15 minutes when it does not), count the refusal, and slow the pacing
   for a day
 * blocked (a web page or challenge where data was expected): hold off for hours, count it, slow the pacing, and leave the
-  code on the connector for an administrator to see. A provider with no credentials (LCSC, JLCPCB) blocks on a stray burst and
+  code on the connector for an administrator to see. A provider with no credentials blocks on a stray burst and
   lets go soon after, so it rests 15 minutes, then 30, and so on up to 12 hours, and starts again from 15 after a call that worked
 * credentials rejected: pause the connector so it stops spending anything
 * anything else: note the error code, stop the run, and wait before the connector is tried again, longer with each
@@ -71,7 +71,8 @@ def react(
     with store.connection() as conn:
         account = accounts.resolve(conn, connector_id)
         row = conn.execute(
-            "SELECT provider, account_key, error_streak, block_streak FROM connectors WHERE id = %s", (connector_id,)
+            "SELECT c.provider, a.account_key, c.error_streak, c.block_streak FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id "
+            "WHERE c.id = %s", (connector_id,)
         ).fetchone()
     slow = False
     if isinstance(error, Blocked):
@@ -80,7 +81,7 @@ def react(
             streak = int(row["block_streak"]) + 1
             wait = block_rest(streak, rng())
             with store.connection() as conn:
-                conn.execute("UPDATE connectors SET block_streak = %s WHERE id = %s", (streak, connector_id))
+                conn.execute("UPDATE supply_connectors SET block_streak = %s WHERE id = %s", (streak, connector_id))
     elif isinstance(error, RateLimited):
         wait = min(timedelta(seconds=error.retry_after_seconds), MAX_COOLDOWN) if error.retry_after_seconds else RATE_LIMIT_DEFAULT
         reason, slow = RATE_LIMITED, True
@@ -92,7 +93,7 @@ def react(
             limits.note_refused(store, connector_id, now)
         pacing.slow_down(accounts.pace_key(row["account_key"], row["provider"]))
     with store.connection() as conn:
-        conn.execute("UPDATE connectors SET cooldown_until = %s WHERE id = ANY(%s)", (now + wait, list(account.members)))
+        conn.execute("UPDATE supply_connectors SET cooldown_until = %s WHERE id = ANY(%s)", (now + wait, list(account.members)))
     return reason
 
 
@@ -101,7 +102,7 @@ def stopped_text(store: SupplyStore, connector_id: str, name: str, stopped: str 
 
     if stopped in ("cooling_down", BLOCKED):
         with store.connection() as conn:
-            row = conn.execute("SELECT cooldown_until, last_error_code FROM connectors WHERE id = %s", (connector_id,)).fetchone()
+            row = conn.execute("SELECT cooldown_until, last_error_code FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()
         if row and row["last_error_code"] == BLOCKED and row["cooldown_until"] and row["cooldown_until"] > now:
             minutes = max(1, -(-int((row["cooldown_until"] - now).total_seconds()) // 60))
             wait = f"{minutes} minutes" if minutes < 120 else f"{-(-minutes // 60)} hours"
@@ -111,5 +112,5 @@ def stopped_text(store: SupplyStore, connector_id: str, name: str, stopped: str 
 
 def cooling_down(store: SupplyStore, connector_id: str, now: datetime) -> bool:
     with store.connection() as conn:
-        until = conn.execute("SELECT cooldown_until FROM connectors WHERE id = %s", (connector_id,)).fetchone()["cooldown_until"]
+        until = conn.execute("SELECT cooldown_until FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()["cooldown_until"]
     return until is not None and until > now

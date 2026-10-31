@@ -115,19 +115,19 @@ def replace(conn, part_id: str, provider: str, pairs: Iterable[tuple[str, str]],
     stored = {
         row["name"]: row
         for row in conn.execute(
-            "SELECT name, value, observed_at FROM part_facts WHERE part_id = %s AND provider = %s", (part_id, provider)
+            "SELECT name, value, observed_at FROM supply_part_facts WHERE part_id = %s AND provider = %s", (part_id, provider)
         ).fetchall()
     }
     gone = [name for name in stored if name not in kept and name not in SEPARATE]
     if gone:
-        conn.execute("DELETE FROM part_facts WHERE part_id = %s AND provider = %s AND name = ANY(%s)", (part_id, provider, gone))
+        conn.execute("DELETE FROM supply_part_facts WHERE part_id = %s AND provider = %s AND name = ANY(%s)", (part_id, provider, gone))
     for name, value in kept.items():
         current = stored.get(name)
         if current is not None and current["value"] == value and current["observed_at"] > now - OBSERVED_REFRESH:
             continue
         conn.execute(
             """
-            INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (part_id, provider, name) DO UPDATE SET value = EXCLUDED.value, observed_at = EXCLUDED.observed_at
             """,
             (part_id, provider, name, value, now),
@@ -139,11 +139,11 @@ def set_one(conn, part_id: str, provider: str, name: str, value: str, now: datet
 
     kept = clean([(name, value)])
     if not kept:
-        conn.execute("DELETE FROM part_facts WHERE part_id = %s AND provider = %s AND name = %s", (part_id, provider, name))
+        conn.execute("DELETE FROM supply_part_facts WHERE part_id = %s AND provider = %s AND name = %s", (part_id, provider, name))
         return
     conn.execute(
         """
-        INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (part_id, provider, name) DO UPDATE SET value = EXCLUDED.value, observed_at = EXCLUDED.observed_at
         """,
         (part_id, provider, name, kept[name], now),
@@ -165,7 +165,7 @@ def for_part(conn, part_id: str, *, hide: frozenset[str] = frozenset()) -> list[
     """One entry per fact name: its label and what each provider says, in a fixed order. Disagreement is flagged."""
 
     rows = conn.execute(
-        "SELECT provider, name, value, observed_at FROM part_facts WHERE part_id = %s ORDER BY provider", (part_id,)
+        "SELECT provider, name, value, observed_at FROM supply_part_facts WHERE part_id = %s ORDER BY provider", (part_id,)
     ).fetchall()
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -201,7 +201,7 @@ def summary(conn, part_ids: Sequence[str]) -> dict[str, dict[str, str]]:
     if not part_ids:
         return {}
     rows = conn.execute(
-        "SELECT part_id, name, value, provider FROM part_facts "
+        "SELECT part_id, name, value, provider FROM supply_part_facts "
         "WHERE part_id = ANY(%s) AND name IN ('rohs_status', 'reach_status', 'reach_svhc') ORDER BY part_id, name, provider",
         (list(part_ids),),
     ).fetchall()
@@ -212,13 +212,26 @@ def summary(conn, part_ids: Sequence[str]) -> dict[str, dict[str, str]]:
     return {part_id: {key: "; ".join(values) for key, values in kinds.items()} for part_id, kinds in found.items()}
 
 
+def rohs_stated(conn, part_ids: Sequence[str]) -> dict[str, list[str]]:
+    """Per part, the ``rohs_class`` of each RoHS status a provider states."""
+
+    if not part_ids:
+        return {}
+    found: dict[str, list[str]] = {}
+    for row in conn.execute(
+        "SELECT part_id, value FROM supply_part_facts WHERE name = 'rohs_status' AND part_id = ANY(%s) ORDER BY part_id, provider", (list(part_ids),)
+    ).fetchall():
+        found.setdefault(row["part_id"], []).append(rohs_class(row["value"]))
+    return found
+
+
 def jlc_classes(conn, part_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
     """Per part JLCPCB lists, its class (``Basic`` or ``Extended``) and whether it is preferred. Parts JLCPCB has not answered for are left out."""
 
     if not part_ids:
         return {}
     rows = conn.execute(
-        "SELECT part_id, name, value FROM part_facts WHERE part_id = ANY(%s) AND name IN ('jlc_library', 'jlc_preferred')",
+        "SELECT part_id, name, value FROM supply_part_facts WHERE part_id = ANY(%s) AND name IN ('jlc_library', 'jlc_preferred')",
         (list(part_ids),),
     ).fetchall()
     found: dict[str, dict[str, Any]] = {}

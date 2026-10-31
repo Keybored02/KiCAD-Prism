@@ -89,17 +89,17 @@ class SchedulerSimulationTests(unittest.TestCase):
                 sku = f"FAKE-{mpn}-CT"
                 sku_of[record.part_id] = sku
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, %s, %s, %s, %s, 'Acme', 'exact')", (f"l{index}", connector, sku, record.part_id, mpn))
                 conn.execute(
-                    "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
+                    "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
                     (record.part_id, connector, searched))
             self.admission.sync(conn, START)
             states = {
                 row["part_id"]: row["state"]
-                for row in conn.execute("SELECT part_id, state FROM admissions WHERE connector_id = %s", (connector,)).fetchall()
+                for row in conn.execute("SELECT part_id, state FROM supply_admissions WHERE connector_id = %s", (connector,)).fetchall()
             }
-            tiers = {row["part_id"]: int(row["tier"]) for row in conn.execute("SELECT part_id, tier FROM part_tiers").fetchall()}
+            tiers = {row["part_id"]: int(row["tier"]) for row in conn.execute("SELECT part_id, tier FROM supply_part_tiers").fetchall()}
         admitted = {sku_of[p] for p, s in states.items() if s == "admitted"}
         waiting = {sku_of[p] for p, s in states.items() if s == "waiting"}
         admitted_one = {sku_of[p] for p, s in states.items() if s == "admitted" and tiers[p] == 1}
@@ -123,16 +123,16 @@ class SchedulerSimulationTests(unittest.TestCase):
 
         with self.store.connection() as conn:
             ledger = conn.execute(
-                "SELECT day, spent, interactive_spent, spare_spent FROM quota_ledger WHERE connector_id = %s ORDER BY day", (connector,)
+                "SELECT day, spent, interactive_spent, spare_spent FROM supply_quota_ledger WHERE account_id = %s ORDER BY day", (connector,)
             ).fetchall()
             by_purpose = {
                 (row["day"], row["purpose"]): int(row["n"])
                 for row in conn.execute(
-                    "SELECT day, purpose, SUM(calls) AS n FROM call_counts WHERE connector_id = %s AND kind <> 'refused' GROUP BY day, purpose",
+                    "SELECT day, purpose, SUM(calls) AS n FROM supply_call_counts WHERE connector_id = %s AND kind <> 'refused' GROUP BY day, purpose",
                     (connector,),
                 ).fetchall()
             }
-            counted = conn.execute("SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE kind <> 'refused'").fetchone()["n"]
+            counted = conn.execute("SELECT COALESCE(SUM(calls), 0) AS n FROM supply_call_counts WHERE kind <> 'refused'").fetchone()["n"]
 
         committed_share = BUDGET - (-(-BUDGET * RESERVE_PCT // 100))
         for row in ledger:
@@ -179,7 +179,7 @@ class SchedulerSimulationTests(unittest.TestCase):
                 return super().get_offers(skus)
 
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
         connector = self.connectors.create(
             actor=ACTOR, provider="sim_batch", currency="EUR", interactive_reserve_pct=RESERVE_PCT, daily_budget=1000,
@@ -189,10 +189,10 @@ class SchedulerSimulationTests(unittest.TestCase):
                 mpn = f"EARLY-{index}"
                 record, _created = self.watches.add_watch(conn, "Acme", mpn, ACTOR, tier=2, rate="weekly")
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, %s, %s, %s, %s, 'Acme', 'exact')", (f"e{index}", connector, f"FAKE-{mpn}-CT", record.part_id, mpn))
                 conn.execute(
-                    "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
+                    "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
                     (record.part_id, connector, now["t"]))
             self.admission.sync(conn, now["t"])
 

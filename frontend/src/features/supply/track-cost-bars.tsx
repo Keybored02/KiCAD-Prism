@@ -5,7 +5,7 @@ import { VendorName } from "./vendor-name";
 /** What tracking would add to each distributor's committed calls, as a bar: today's share, then what this adds. */
 export function TrackCostBars({ connectors, onRaise }: { connectors: readonly BudgetShare[]; onRaise?: (connectorId: string) => void }) {
   return (
-    <ul className="space-y-2" aria-label="Call budget">
+    <ul className="space-y-2" aria-label="Daily call limit">
       {connectors.map((item) => {
         const capacity = Math.max(item.capacity, 1);
         const today = Math.min(100, Math.round((Math.max(item.committed - (item.adds_calls ?? 0), 0) / capacity) * 100));

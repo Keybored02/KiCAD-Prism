@@ -1,8 +1,9 @@
 """A rule-based lifecycle outlook: what the signals Prism holds say about whether a part is heading for its end.
 
-This is not a forecast of years. It lists the signals found, each with where it came from, and puts the
-part in one of five bands. Absence of signals is never read as a long life: the best band is *no signs of an
-end of life*. Every signal is shown, so a person can disagree with the band.
+This is not a forecast of years, and its bands claim none: *ended*, *ending* (an end is announced or every
+distributor has dropped it), *warning signs*, *no signs of an end* and *not enough to say*. Each signal is listed
+with where it came from and any date it gives, so a person can disagree with the band. Absence of signals is never
+read as a long life.
 """
 
 from __future__ import annotations
@@ -13,21 +14,21 @@ from typing import Any, Mapping, Sequence
 from app.services.supply.vocabulary import Lifecycle
 
 ENDED = "ended"
-UNDER_TWO = "under_2_years"
-TWO_TO_FIVE = "2_to_5_years"
+ENDING = "ending"
+WARNING_SIGNS = "warning_signs"
 NO_SIGNS = "no_signs"
 UNKNOWN = "unknown"
 
-# How many soft signals together move a part from "no signs" to "two to five years".
+# How many soft signals together move a part from "no signs" to "warning signs".
 SOFT_SIGNALS_FOR_WATCH = 2
 ZERO_STOCK_DAYS = 30
 PRICE_RISE_PERCENT = 20
 
 LABELS = {
     ENDED: "Ended",
-    UNDER_TWO: "Under 2 years",
-    TWO_TO_FIVE: "2 to 5 years",
-    NO_SIGNS: "No signs of an end of life",
+    ENDING: "Ending",
+    WARNING_SIGNS: "Warning signs",
+    NO_SIGNS: "No signs of an end",
     UNKNOWN: "Not enough to say",
 }
 
@@ -36,7 +37,7 @@ LABELS = {
 class Signal:
     text: str
     source: str
-    # "hard" decides the band by itself; "watch" points to two to five years; "soft" only counts together.
+    # "hard" decides the band by itself (ending); "watch" points to warning signs; "soft" only counts together.
     weight: str
 
 
@@ -82,9 +83,9 @@ def band(lifecycle: Lifecycle, found: Sequence[Signal], *, has_data: bool) -> st
     if lifecycle is Lifecycle.OBSOLETE:
         return ENDED
     if any(item.weight == "hard" for item in found):
-        return UNDER_TWO
+        return ENDING
     if any(item.weight == "watch" for item in found) or sum(1 for item in found if item.weight == "soft") >= SOFT_SIGNALS_FOR_WATCH:
-        return TWO_TO_FIVE
+        return WARNING_SIGNS
     if lifecycle is Lifecycle.UNKNOWN and not has_data:
         return UNKNOWN
     return NO_SIGNS

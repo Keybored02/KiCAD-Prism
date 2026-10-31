@@ -7,7 +7,7 @@ vi.mock("./tracking-api", () => ({ getSchedule: vi.fn(), saveSchedule: vi.fn() }
 import { ScheduleSettings } from "./schedule-settings";
 import * as api from "./tracking-api";
 
-const settings = { spare: { waiting: true, tier2_early: true, notices: true } };
+const settings = { spare: { waiting: true, tier2_early: true, notices: true, library: true } };
 
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getSchedule).mockResolvedValue(settings); });
 afterEach(cleanup);
@@ -18,7 +18,7 @@ describe("spare work", () => {
     render(<ScheduleSettings />);
     fireEvent.click(await screen.findByLabelText("Change notices of untracked parts"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.saveSchedule).toHaveBeenCalledWith({ ...settings, spare: { waiting: true, tier2_early: true, notices: false } }));
+    await waitFor(() => expect(api.saveSchedule).toHaveBeenCalledWith({ ...settings, spare: { waiting: true, tier2_early: true, notices: false, library: true } }));
   });
 
   it("does not offer a working week, which spare budget no longer follows", async () => {

@@ -1,33 +1,21 @@
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 
-import type { TrackProgress, TrackingPreview } from "@/types/supply";
+import type { ProjectTrackingPreview } from "@/types/supply";
 import { getTrackProgress } from "./tracking-api";
+import { isRunning, useLoaded } from "./use-loaded";
 
 const POLL_MS = 3000;
 
 /** The first searches of the project's parts, a bar per distributor, and what tracking did. Closing leaves the work running. */
-export function TrackProgressStep({ projectId, result, onFinished }: { projectId: string; result: TrackingPreview | null; onFinished: () => void }) {
-  const [progress, setProgress] = useState<TrackProgress | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    let stopped = false;
-    const look = () => {
-      getTrackProgress(projectId, controller.signal)
-        .then((next) => {
-          if (stopped) return;
-          setProgress(next);
-          if (next.finished) { stopped = true; clearInterval(timer); onFinished(); }
-        })
-        .catch(() => undefined);
-    };
-    const timer = setInterval(look, POLL_MS);
-    look();
-    return () => { stopped = true; controller.abort(); clearInterval(timer); };
-  }, [projectId, onFinished]);
+export function TrackProgressStep({ projectId, result, onFinished }: { projectId: string; result: ProjectTrackingPreview | null; onFinished: () => void }) {
+  const fetcher = useCallback((signal: AbortSignal) => getTrackProgress(projectId, signal), [projectId]);
+  const progress = useLoaded(`projects/${projectId}/progress`, fetcher, "Could not read the progress", {
+    refreshEvery: POLL_MS, refreshWhile: isRunning, onData: (next) => { if (next.state === "done") onFinished(); },
+  }).data;
+  const finished = progress?.state === "done";
 
   const waiting = (result?.connectors ?? []).reduce((count, item) => count + Math.max(item.waiting_new ?? 0, 0), 0);
-  const finished = progress?.finished === true;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2 text-xs">
@@ -37,12 +25,12 @@ export function TrackProgressStep({ projectId, result, onFinished }: { projectId
       </div>
       <ul className="space-y-2" aria-label="First searches">
         {(progress?.connectors ?? []).map((item) => {
-          const share = item.parts > 0 ? Math.min(100, Math.round((item.searched / item.parts) * 100)) : 100;
+          const share = item.total > 0 ? Math.min(100, Math.round((item.done / item.total) * 100)) : 100;
           return (
             <li key={item.connector_id} className="space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="font-medium">{item.name}</span>
-                <span className="tabular-nums text-muted-foreground">{item.searched} of {item.parts}</span>
+                <span className="tabular-nums text-muted-foreground">{item.done} of {item.total}</span>
               </div>
               <div role="progressbar" aria-label={`${item.name} searched`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={share} className="h-2 overflow-hidden bg-secondary">
                 <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${share}%` }} />

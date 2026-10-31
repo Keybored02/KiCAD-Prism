@@ -114,7 +114,7 @@ export interface PanelSupply {
   /** Detail only, from here down. */
   offers?: PanelDistributorOffer[];
   health?: { score: number; status: PanelSupplySummary["status"] };
-  /** One phrase, rule-based: "No signs of an end of life", "2 to 5 years"... */
+  /** One phrase, rule-based: "No signs of an end", "Warning signs", "Ending"... */
   outlook?: string;
   risks?: string[];
   /** One line on the chance it stays in stock, once Prism's forecasts have earned a place. */

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -31,18 +32,39 @@ class ReleaseBomTests(unittest.TestCase):
         read = release_bom.lines_from_csv("Reference,Qty,MPN,Manufacturer\nR1,2,R-1,Acme\nR9,3,R-1,Acme\n")
         self.assertEqual([(line.mpn, line.quantity, line.references) for line in read.lines], [("R-1", 5, "R1 R9")])
 
-    def test_the_catalog_identity_wins_for_a_row_with_a_prism_id(self) -> None:
+    def test_the_shipped_part_wins_over_what_the_library_names_today(self) -> None:
+        # Built with OLD-MPN; the library has since moved component C1 to NEW-MPN. The release is still the part it shipped with,
+        # and C1's alternates (approved for NEW-MPN) no longer apply to it.
         read = release_bom.lines_from_csv(
-            "Reference,Qty,MPN,Manufacturer,Prism ID\nR1,1,wrong,Nobody,cmp-1\n",
-            lambda ids: {"cmp-1": ("Acme", "RIGHT-1")},
+            "Reference,Qty,MPN,Manufacturer,Prism ID\nR1,1,OLD-MPN,Acme,C1\nR2,1,SAME-1,Acme,C2\nJ1,1,,,C3\n",
+            lambda ids: {"C1": ("Acme", "NEW-MPN"), "C2": ("Acme Corp", "SAME-1"), "C3": ("Molex", "J-100")},
         )
-        self.assertEqual([(line.manufacturer, line.mpn) for line in read.lines], [("Acme", "RIGHT-1")])
+        got = {line.references: (line.manufacturer, line.mpn, line.prism_id) for line in read.lines}
+        self.assertEqual(got, {
+            "R1": ("Acme", "OLD-MPN", ""),
+            "R2": ("Acme", "SAME-1", "C2"),
+            "J1": ("Molex", "J-100", "C3"),
+        })
+        self.assertEqual(read.without_number, 0, "a row with no number takes its component's")
 
     def test_a_file_with_no_rows_or_too_large_is_refused(self) -> None:
         with self.assertRaises(release_bom.BomReadError):
             release_bom.lines_from_csv("Reference,MPN\n")
         with self.assertRaises(release_bom.BomReadError):
             release_bom.lines_from_csv("a,b\n" + "x" * (release_bom.MAX_BYTES + 1))
+
+    def test_more_data_rows_than_the_limit_is_refused_not_cut(self) -> None:
+        text = "Reference,MPN\n" + "".join(f"R{index},P{index}\n" for index in range(6))
+        with mock.patch.object(release_bom, "MAX_ROWS", 5), self.assertRaises(release_bom.BomReadError) as caught:
+            release_bom.lines_from_csv(text)
+        self.assertIn("more than 5 rows", str(caught.exception))
+
+    def test_exactly_the_limit_reads_every_row(self) -> None:
+        text = "Reference,MPN\n" + "".join(f"R{index},P{index}\n" for index in range(5))
+        with mock.patch.object(release_bom, "MAX_ROWS", 5):
+            read = release_bom.lines_from_csv(text)
+        self.assertEqual([line.mpn for line in read.lines], [f"P{index}" for index in range(5)])
+        self.assertEqual(read.rows, 5)
 
 
 if __name__ == "__main__":

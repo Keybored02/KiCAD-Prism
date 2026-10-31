@@ -11,15 +11,20 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   findSupplyPart: vi.fn(),
   getSupplyPart: vi.fn(),
-  addSupplyWatch: vi.fn(),
-  getComponentWatch: vi.fn(),
   getSupplyAssessment: vi.fn(),
+}));
+vi.mock("./tracking-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./tracking-api")>()),
+  followNumber: vi.fn(),
+  getComponentFollow: vi.fn(),
 }));
 
 import SourcingPanel from "./sourcing-panel";
 import * as api from "./supply-api";
+import * as trackingApi from "./tracking-api";
 
 const mocked = vi.mocked(api);
+const tracking = vi.mocked(trackingApi);
 
 function userWith(role: UserRole): User {
   return { name: role, email: `${role}@example.com`, role };
@@ -37,7 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.findSupplyPart.mockResolvedValue("p1");
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
-  mocked.getComponentWatch.mockResolvedValue(null);
+  tracking.getComponentFollow.mockResolvedValue(null);
 });
 afterEach(cleanup);
 
@@ -47,35 +52,33 @@ describe("the Supply tab", () => {
     expect(await screen.findByRole("region", { name: "Stock" })).toBeTruthy();
     expect(mocked.findSupplyPart).toHaveBeenCalledWith("Texas Instruments", "LM358D", expect.anything());
     expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything());
-    const link = screen.getByRole("link", { name: "Open in Supply" });
-    expect(link.getAttribute("href")).toBe("/?section=supply&supplyView=parts&part=p1");
+    const link = screen.getByRole("link", { name: "Open in Supply Tracking" });
+    expect(link.getAttribute("href")).toBe("/?section=supply&supplyView=tracking&part=p1");
   });
 
-  it("offers to watch the component's part only while nobody follows it", async () => {
+  it("keeps the component's own watch in reach whether or not something else already follows its part", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: null }));
     renderPanel();
     expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
     cleanup();
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: { tier: 1, rate: "daily" } }));
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ tracking: { tier: 1, rate: "daily", reasons: [] } }));
     renderPanel();
-    await screen.findByRole("region", { name: "Stock" });
-    expect(screen.queryByLabelText("Watch this component")).toBeNull();
+    expect(await screen.findByLabelText("Watch this component")).toBeTruthy();
   });
 
   it("offers to watch a part Prism does not know yet, then shows it", async () => {
     mocked.findSupplyPart.mockResolvedValueOnce(null);
-    mocked.addSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "Texas Instruments", mpn: "LM358D", threshold: null, pinned: false, owner: "x", packaging: "any" });
+    tracking.followNumber.mockResolvedValue({ part_id: "p1", manufacturer: "Texas Instruments", mpn: "LM358D", tier: 2, rate: "weekly", threshold: null, pinned: false, owner: "x", packaging: "any" });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: "Watch this part" }));
-    await waitFor(() => expect(mocked.addSupplyWatch).toHaveBeenCalledWith({ manufacturer: "Texas Instruments", mpn: "LM358D" }));
+    await waitFor(() => expect(tracking.followNumber).toHaveBeenCalledWith({ manufacturer: "Texas Instruments", mpn: "LM358D" }));
     expect(await screen.findByRole("region", { name: "Stock" })).toBeTruthy();
   });
 
-  it("does not offer to watch without the right role", async () => {
+  it("offers QA to watch a part, as everyone who reads supply", async () => {
     mocked.findSupplyPart.mockResolvedValueOnce(null);
     renderPanel("qa");
-    expect(await screen.findByText(/needs the Designer or Admin role/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Watch this part" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "Watch this part" })).toBeTruthy();
   });
 
   it("asks for a part number before it looks anything up", () => {

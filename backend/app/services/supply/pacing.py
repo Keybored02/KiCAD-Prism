@@ -15,8 +15,10 @@ from __future__ import annotations
 import random
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
+
+from app.services.supply import clock
 
 JITTER_LOW = 0.75
 JITTER_HIGH = 1.5
@@ -41,7 +43,7 @@ class Pacer:
         sleep: Callable[[float], None] = time.sleep,
         rng: Callable[[], float] = random.random,
         key: str = "",
-        wall: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        wall: Callable[[], datetime] = clock.now,
     ) -> None:
         if target_seconds < 0:
             raise ValueError("the target gap must not be negative")
@@ -74,12 +76,12 @@ class Pacer:
 
         now = self._wall()
         with _store.connection() as conn:
-            conn.execute("INSERT INTO pace_state (pace_key, next_at) VALUES (%s, %s) ON CONFLICT DO NOTHING", (self.key, now))
-            row = conn.execute("SELECT next_at, slow_until FROM pace_state WHERE pace_key = %s FOR UPDATE", (self.key,)).fetchone()
+            conn.execute("INSERT INTO supply_pace_state (pace_key, next_at) VALUES (%s, %s) ON CONFLICT DO NOTHING", (self.key, now))
+            row = conn.execute("SELECT next_at, slow_until FROM supply_pace_state WHERE pace_key = %s FOR UPDATE", (self.key,)).fetchone()
             start = max(now, row["next_at"])
             slowed = row["slow_until"] is not None and row["slow_until"] > now
             gap = self.target * (SLOW_FACTOR if slowed else 1.0) * (JITTER_LOW + (JITTER_HIGH - JITTER_LOW) * self._rng())
-            conn.execute("UPDATE pace_state SET next_at = %s WHERE pace_key = %s", (start + timedelta(seconds=gap), self.key))
+            conn.execute("UPDATE supply_pace_state SET next_at = %s WHERE pace_key = %s", (start + timedelta(seconds=gap), self.key))
         return (start - now).total_seconds()
 
     def wait(self) -> None:
@@ -133,12 +135,12 @@ def slow_down(account: str) -> None:
         pacer.slow_down()
     if _store is not None and account:
         try:
-            now = pacer._wall() if pacer is not None else datetime.now(timezone.utc)
+            now = pacer._wall() if pacer is not None else clock.now()
             until = now + timedelta(seconds=SLOW_FOR_SECONDS)
             with _store.connection() as conn:
                 conn.execute(
-                    "INSERT INTO pace_state (pace_key, next_at, slow_until) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (pace_key) DO UPDATE SET slow_until = GREATEST(pace_state.slow_until, EXCLUDED.slow_until)",
+                    "INSERT INTO supply_pace_state (pace_key, next_at, slow_until) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (pace_key) DO UPDATE SET slow_until = GREATEST(supply_pace_state.slow_until, EXCLUDED.slow_until)",
                     (account, now, until),
                 )
         except Exception:  # noqa: BLE001 - the process's own slowdown above still holds

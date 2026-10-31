@@ -18,6 +18,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from app.services.supply.fx import Rates
 from app.services.supply.providers import packaging_hints
 from app.services.supply.vocabulary import Packaging
 
@@ -26,11 +27,11 @@ def packaging_of(offer: dict[str, Any]) -> dict[str, Any]:
     """The packaging as stated, or a guess from the number and the order terms (marked as one) where the distributor says nothing."""
 
     stated = offer["packaging"] or Packaging.UNKNOWN.value
-    if offer["provider"] in packaging_hints.STANDARD_PACKAGING and stated == Packaging.TAPE_REEL.value:
+    if packaging_hints.standard(offer["provider"]) and stated == Packaging.TAPE_REEL.value:
         first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
         sold, reel, worked_out = packaging_hints.sold_as(Packaging.TAPE_REEL, offer["reel_size"], first)
         return {"packaging": sold.value, "reel_size": reel, "packaging_inferred": worked_out or bool(offer["packaging_inferred"])}
-    if stated != Packaging.UNKNOWN.value or offer["provider"] in packaging_hints.NO_GUESS:
+    if stated != Packaging.UNKNOWN.value or not packaging_hints.guesses(offer["provider"]):
         return {"packaging": stated, "reel_size": offer["reel_size"], "packaging_inferred": bool(offer["packaging_inferred"])}
     first = int(offer["price_breaks"][0][0]) if offer["price_breaks"] else None
     guess = packaging_hints.infer(str(offer["sku"]), int(offer["moq"] or 0), int(offer["order_multiple"] or 0), first)
@@ -77,3 +78,21 @@ def offer_lines(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     lines = [part for line in _lines(offers) for part in _split_reel(line)]
     # By distributor; in each, the followed listing first, then the smallest order, then the lowest price at it.
     return sorted(lines, key=lambda line: (line["name"].lower(), not line["followed"], line["moq"], _first_price(line), line["sku"]))
+
+
+PLACES = Decimal("0.0001")
+
+
+def in_base(lines: list[dict[str, Any]], base: str, rates: Rates) -> list[dict[str, Any]]:
+    """The lines with their prices in the workspace currency too (``base_price_breaks``), so the detailed list reads in one
+    currency like the summary row. A line whose currency has no rate keeps ``None`` and shows its own prices."""
+
+    out = []
+    for line in lines:
+        converted = [rates.convert(Decimal(price), line["currency"], base) for _quantity, price in line["price_breaks"]] if line["currency"] else []
+        known = bool(converted) and all(value is not None for value in converted)
+        out.append({
+            **line, "base_currency": base,
+            "base_price_breaks": [[quantity, str(value.quantize(PLACES))] for (quantity, _price), value in zip(line["price_breaks"], converted)] if known else None,
+        })
+    return out

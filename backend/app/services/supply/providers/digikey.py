@@ -18,7 +18,7 @@ It has run against the live service; the answers for LM358DR (2026-10-14) are re
   packaging of a part (cut tape, tape and reel, Digi-Reel each have their own), so a part has one listing per
   packaging. But one answer lists every packaging of its product in ``ProductVariations``, so the listings of
   a part are read together (``groups_by_part``): ``get_offers`` serves a number found in an answer it already
-  has from that answer, and says how many calls it made in ``last_batch_calls``.
+  has from that answer; the calls it made are counted in ``calls``.
 
 Stock. ``QuantityAvailableforPackageType`` is the stock of one packaging. DigiKey shares one pool of
 stock between some packagings, so the provider is declared pooled: a part's stock here is the largest
@@ -45,16 +45,12 @@ Limits. The description gives none. DigiKey's published defaults for this API (1
 from __future__ import annotations
 
 import re
-import time
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from typing import Any, Callable, Mapping, Sequence
+from datetime import date, datetime
+from typing import Any, Mapping, Sequence
 from urllib.parse import quote
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import keep_family, match_key
-from app.services.supply.models import Alternate, ChangeNotice, Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import Alternate, ChangeNotice, Offer, PartData, PartMatch
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
     CAP_OFFERS,
@@ -68,7 +64,9 @@ from app.services.supply.providers.base import (
     ProviderError,
     ProviderSpec,
 )
-from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.providers import normalise
+from app.services.supply.providers.http import ClientCredentials, HttpProvider
+from app.services.supply.providers.text_values import parse_count
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -83,6 +81,8 @@ TOKEN_MARGIN_SECONDS = 30
 # roughly 108 a minute, 90% of the limit.
 PACE_SECONDS = 0.5
 MAX_MATCHES = 10
+# A search asks for further pages while the answer says more exist (``ProductsCount``), up to this many pages (each a call).
+MAX_PAGES = 5
 
 # DigiKey sites that sell in a currency of their own. A wrong one is corrected by the server, which
 # reports the locale it used.
@@ -101,56 +101,19 @@ _LIFECYCLE = {
 _DISTRIBUTOR_WORDING = frozenset({"discontinued at digi-key", "discontinued"})
 _HARMLESS_STATUS = frozenset({"preliminary", "new product"})
 
-_PACKAGING = {
-    "cut tape (ct)": Packaging.CUT_TAPE,
-    "digi-reel": Packaging.CUSTOM_REEL,
-    "digi-reel®": Packaging.CUSTOM_REEL,
-    "tape & reel (tr)": Packaging.TAPE_REEL,
-    "tray": Packaging.TRAY,
-    "tube": Packaging.TUBE,
-    "bulk": Packaging.BULK,
-}
-
-
-class DigiKeyProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class DigiKeyProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         self._client_id = config.credentials.get("client_id", "")
-        self._client_secret = config.credentials.get("client_secret", "")
+        client_secret = config.credentials.get("client_secret", "")
         self._site = config.storefront
         self._currency = config.currency
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._access_token = ""
-        self._expires_at = 0.0
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
-        self.last_batch_calls = 0
+        self._token = ClientCredentials(
+            TOKEN_URL, form={"client_id": self._client_id, "client_secret": client_secret}, label="DigiKey", margin=TOKEN_MARGIN_SECONDS,
+            missing="" if self._client_id and client_secret else "DigiKey needs a client ID and a client secret",
+        )
 
     # --- calls --------------------------------------------------------------
-
-    def _token(self, *, renew: bool = False) -> str:
-        if not self._client_id or not self._client_secret:
-            raise AuthError("DigiKey needs a client ID and a client secret")
-        if renew or not self._access_token or self._monotonic() >= self._expires_at:
-            answer = self._client.request_json(
-                "POST", TOKEN_URL,
-                form={"client_id": self._client_id, "client_secret": self._client_secret, "grant_type": "client_credentials"},
-            )
-            token = answer.get("access_token") if isinstance(answer, dict) else None
-            if not token:
-                raise AuthError("DigiKey did not issue an access token")
-            self._access_token = str(token)
-            self._expires_at = self._monotonic() + max(float(answer.get("expires_in") or 600) - TOKEN_MARGIN_SECONDS, 1)
-        return self._access_token
 
     def _headers(self, token: str) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {token}", "X-DIGIKEY-Client-Id": self._client_id}
@@ -161,13 +124,7 @@ class DigiKeyProvider:
         return headers
 
     def _call(self, method: str, path: str, **kwargs: Any) -> Any:
-        self._pacer.wait()
-        url = f"{API_URL}{path}"
-        try:
-            answer = self._client.request_json(method, url, headers=self._headers(self._token()), **kwargs)
-        except AuthError:
-            # The token may have lapsed between the check and the call: renew once.
-            answer = self._client.request_json(method, url, headers=self._headers(self._token(renew=True)), **kwargs)
+        answer = self.authorised(self._token, method, f"{API_URL}{path}", self._headers, **kwargs)
         if not isinstance(answer, dict):
             raise ProviderError("DigiKey answered with something other than an object")
         return answer
@@ -178,9 +135,16 @@ class DigiKeyProvider:
         wanted = match_key(mpn)
         if not wanted:
             return []
-        answer = self._call("POST", "/search/keyword", json={"Keywords": mpn.strip()[:250], "Limit": MAX_MATCHES, "Offset": 0})
-        exact = [p for p in answer.get("ExactMatches") or [] if isinstance(p, dict)]
-        listed = [p for p in answer.get("Products") or [] if isinstance(p, dict)]
+        exact: list[dict[str, Any]] = []
+        listed: list[dict[str, Any]] = []
+        for page in range(MAX_PAGES):
+            answer = self._call("POST", "/search/keyword", json={"Keywords": mpn.strip()[:250], "Limit": MAX_MATCHES, "Offset": page * MAX_MATCHES})
+            if page == 0:
+                exact = [p for p in answer.get("ExactMatches") or [] if isinstance(p, dict)]
+            products = [p for p in answer.get("Products") or [] if isinstance(p, dict)]
+            listed += products
+            if len(products) < MAX_MATCHES or len(listed) >= (parse_count(answer.get("ProductsCount")) or 0):
+                break
         products = exact + [
             p for p in keep_family(listed, wanted, lambda p: str(p.get("ManufacturerProductNumber") or ""))
             if p not in exact
@@ -198,17 +162,14 @@ class DigiKeyProvider:
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         """Offers for DigiKey product numbers. One answer lists every packaging of its product, so a number found
-        in an answer already read is served from it: a part with three packagings costs one call, not three.
-        ``last_batch_calls`` says how many calls this took."""
+        in an answer already read is served from it: a part with three packagings costs one call, not three."""
 
         wanted = set(skus)
         answers: dict[str, Mapping[str, Any]] = {}
         offers: list[Offer] = []
-        self.last_batch_calls = 0
         for sku in skus:
             if sku not in answers:
                 try:
-                    self.last_batch_calls += 1
                     answer = self._call("GET", f"/search/{_quote(sku)}/productdetails")
                 except NotFound:
                     continue  # a number DigiKey no longer knows: left out, as the contract says
@@ -247,9 +208,8 @@ class DigiKeyProvider:
 
         if not user_token:
             raise AuthError("DigiKey change notices need a person's sign-in")
-        self._pacer.wait()
         try:
-            answer = self._client.request_json("GET", PCN_URL.format(_quote(sku)), headers=self._headers(user_token))
+            answer = self.request("GET", PCN_URL.format(_quote(sku)), headers=self._headers(user_token))
         except ProviderError as exc:
             if exc.code == "not_found":
                 return []  # DigiKey answers 404 for a product without notices
@@ -274,7 +234,7 @@ class DigiKeyProvider:
         return PartData(
             match=match,
             description=str((product.get("Description") or {}).get("ProductDescription") or ""),
-            datasheet_url=str(product.get("DatasheetUrl") or ""),
+            datasheet_url=normalise.link(product.get("DatasheetUrl")),
             category=str((product.get("Category") or {}).get("Name") or ""),
             package_name=str((variation.get("PackageType") or {}).get("Name") or ""),
             parameters=parameters,
@@ -293,7 +253,7 @@ def _match(product: Mapping[str, Any], sku: str) -> PartMatch:
         manufacturer=str((product.get("Manufacturer") or {}).get("Name") or ""),
         description=str((product.get("Description") or {}).get("ProductDescription") or ""),
         product_url=str(product.get("ProductUrl") or ""),
-        datasheet_url=str(product.get("DatasheetUrl") or ""),
+        datasheet_url=normalise.link(product.get("DatasheetUrl")),
         parameters=tuple(
             (str(item.get("ParameterText") or ""), str(item.get("ValueText") or ""))
             for item in product.get("Parameters") or []
@@ -314,15 +274,6 @@ def _lifecycle(product: Mapping[str, Any]) -> tuple[Lifecycle, bool]:
     if product.get("EndOfLife"):
         return Lifecycle.OBSOLETE, dropped
     return Lifecycle.UNKNOWN, dropped
-
-
-def _rohs(text: object) -> bool | None:
-    value = str(text or "").lower()
-    if not value:
-        return None
-    if "non" in value or "not compliant" in value:
-        return False
-    return True if "compliant" in value else None
 
 
 def _reach(text: object) -> bool | None:
@@ -414,17 +365,6 @@ def _facts(product: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     return tuple((name, str(value).strip()) for name, value in pairs if value is not None and str(value).strip())
 
 
-def _price_breaks(variation: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
-    tiers: dict[int, Decimal] = {}
-    for tier in variation.get("StandardPricing") or []:
-        if not isinstance(tier, dict):
-            continue
-        quantity, price = parse_count(tier.get("BreakQuantity")), parse_decimal(tier.get("UnitPrice"))
-        if quantity and price is not None and price >= 0:
-            tiers.setdefault(quantity, price)
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
-
-
 def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
     product = answer.get("Product") or {}
     variation = next((v for v in product.get("ProductVariations") or [] if isinstance(v, dict) and str(v.get("DigiKeyProductNumber")) == sku), None)
@@ -434,14 +374,14 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
     if stock is None:
         note(KEY, "answer without QuantityAvailableforPackageType", sku)
         return None
-    breaks = _price_breaks(variation)
+    breaks = normalise.price_breaks((tier.get("BreakQuantity"), tier.get("UnitPrice")) for tier in variation.get("StandardPricing") or [] if isinstance(tier, dict))
     currency = str((answer.get("SearchLocaleUsed") or {}).get("Currency") or "").upper()
     if len(currency) != 3:
         breaks, currency = (), ""
     moq = max(parse_count(variation.get("MinimumOrderQuantity")) or 1, 1)
     lifecycle, dropped = _lifecycle(product)
     weeks = parse_count(product.get("ManufacturerLeadWeeks"))
-    packaging = _PACKAGING.get(str((variation.get("PackageType") or {}).get("Name") or "").strip().lower(), Packaging.UNKNOWN)
+    packaging = normalise.packaging_word((variation.get("PackageType") or {}).get("Name"))
     return Offer(
         provider=KEY,
         sku=sku,
@@ -459,17 +399,19 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         lead_time_days=weeks * 7 if weeks is not None and stock < moq else None,
         lifecycle=lifecycle,
         discontinued=dropped,
-        rohs=_rohs((product.get("Classifications") or {}).get("RohsStatus")),
+        rohs=normalise.rohs_word((product.get("Classifications") or {}).get("RohsStatus")),
         reach_affected=_reach((product.get("Classifications") or {}).get("ReachStatus")),
         marketplace=bool(variation.get("MarketPlace")),
         product_url=str(product.get("ProductUrl") or ""),
-        datasheet_url=str(product.get("DatasheetUrl") or ""),
+        datasheet_url=normalise.link(product.get("DatasheetUrl")),
         facts=_facts(product),
     )
 
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
+    limits_storage=True,
     label="DigiKey",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_PCN, CAP_SUBSTITUTES}),
     max_batch=1,

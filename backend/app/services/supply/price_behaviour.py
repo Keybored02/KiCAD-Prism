@@ -19,6 +19,9 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
+from app.services.supply import price_breaks, pricing
+from app.services.supply.history import days_sql
+
 MIN_MOVE = Decimal("0.005")
 FOLLOW_DAYS = 14
 MIN_CHANGES = 3
@@ -132,29 +135,33 @@ def restock_order(by_name: Mapping[str, Sequence[tuple[date, int]]], window_days
 
 
 def load(conn, part_id: str, now: datetime, base: str = "EUR") -> dict[str, Any]:
-    """Everything above for one part, from its counted listings' samples."""
+    """Everything above for one part, from its counted listings' daily readings."""
 
     since = now - timedelta(days=HISTORY_DAYS)
     rows = conn.execute(
-        """
-        SELECT l.id, c.display_name, s.currency, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.unit_price, s.stock
-        FROM samples s JOIN listings l ON l.id = s.listing_id JOIN connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND s.sampled_at >= %s ORDER BY s.sampled_at
+        f"""
+        SELECT l.id, c.display_name, d.day, d.stock
+        FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND supply_counted(match_state)", "%(since)s")} d
+        JOIN supply_listings l ON l.id = d.listing_id JOIN supply_connectors c ON c.id = l.connector_id
+        ORDER BY d.day
         """,
-        (part_id, since),
+        {"part": part_id, "since": since.date()},
     ).fetchall()
     prices: dict[str, dict[date, Decimal]] = defaultdict(dict)
     stocks: dict[str, dict[date, int]] = defaultdict(dict)
     currency: dict[str, str] = {}
+    # Each distributor's price on the days it was read, at 100 pieces, from the breaks in force then (``price_breaks``).
+    kept = price_breaks.load(conn, sorted({row["id"] for row in rows}))
     for row in rows:
         name = row["display_name"]
-        if row["unit_price"] is not None:
-            prices[name][row["day"]] = Decimal(row["unit_price"])
-            currency[name] = row["currency"]
+        price, code, _moq = price_breaks.price_on(kept.get(row["id"], []), row["day"], pricing.REFERENCE_QUANTITY)
+        if price is not None:
+            prices[name][row["day"]] = price
+            currency[name] = code
         stocks[name][row["day"]] = row["stock"]
     price_series = {name: sorted(items.items()) for name, items in prices.items()}
     stock_series = {name: sorted(items.items()) for name, items in stocks.items()}
-    rate_rows = conn.execute("SELECT day, currency, per_eur FROM fx_rates WHERE day >= %s", (since.date(),)).fetchall()
+    rate_rows = conn.execute("SELECT day, currency, per_eur FROM supply_fx_rates WHERE day >= %s", (since.date(),)).fetchall()
     per_eur: dict[str, dict[date, Decimal]] = defaultdict(dict)
     for rate in rate_rows:
         per_eur[rate["currency"]][rate["day"]] = Decimal(rate["per_eur"])

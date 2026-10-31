@@ -1,16 +1,19 @@
-"""Alternatives for a part, graded by how close they are, from what Prism already holds.
+"""Alternatives for a part, graded by what Prism can tell from what distributors list, from what Prism already holds.
 
-A candidate is another part in the same distributor category whose parameters match. Three grades:
+A candidate is another part in the same distributor category with the same value. Four grades, best first, none of them a claim
+that the parts are interchangeable:
 
-* ``direct``: the same package, the same value, and every other parameter both parts list is the same, or better where more is
-  better (voltage, power, current) or tighter where less is better (tolerance).
-* ``form_fit_function``: the same package and the same value, but a parameter differs or is not listed for one of them.
-* ``functional``: the same value in another package. It does the job; the board has to change.
+* ``ratings_met``: the same package, and every rating the part lists is listed for the candidate and met: the same, more where
+  more is better (voltage, power, current), tighter where less is better (tolerance).
+* ``similar``: the same value and package as far as is listed, but some of the part's ratings (or the package) are not listed for
+  the candidate, so they can't be judged. The grade says how many.
+* ``other_package``: the same value in another package. The board has to change.
+* ``fails``: a rating the candidate lists is worse (a lower voltage, a looser tolerance). Listed last, with what fails.
 
 The manufacturer's own suggestion (a fact distributors give, such as Mouser's ``SuggestedReplacement``) is listed as it was
-written, beside the graded ones. This compares what distributors say, nothing about the footprint or pins: a person checks
-those before an alternate is approved. A candidate is proposed as an alternate of a catalog component the usual way, and
-approving it stays with QA.
+written, beside the graded ones. This compares what distributors say, nothing about the footprint, pins or operating conditions:
+a person checks those before an alternate is approved. A candidate is proposed as an alternate of a catalog component the usual
+way, and approving it stays with QA.
 """
 
 from __future__ import annotations
@@ -32,8 +35,8 @@ AT_LEAST = ("voltage_rating", "power_rating", "input_voltage_max", "output_curre
 AT_MOST = ("tolerance",)
 TEXT = ("dielectric", "regulator_type", "mounting")
 IGNORED = ("temperature_range", "supply_voltage")
-GRADES = ("direct", "form_fit_function", "functional")
-GRADE_LABEL = {"direct": "Direct replacement", "form_fit_function": "Same form, fit and function", "functional": "Same function, other package"}
+GRADES = ("ratings_met", "similar", "other_package", "fails")
+GRADE_LABEL = {"ratings_met": "Ratings met", "similar": "Similar", "other_package": "Same value, other package", "fails": "Fails a rating"}
 _CODE = re.compile(r"(?<!\d)(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)(?!\d)")
 
 
@@ -63,8 +66,13 @@ def grade(base: Mapping[str, Mapping[str, Any]], other: Mapping[str, Mapping[str
             return None
     same: list[str] = [key for key in core]
     differs: list[str] = []
+    # A rating the part lists and the candidate doesn't can't be judged: it is never counted as met.
+    unknown: list[str] = []
     for key in (*AT_LEAST, *AT_MOST, *TEXT):
-        if key not in base or key not in other:
+        if key not in base:
+            continue
+        if key not in other:
+            unknown.append(key)
             continue
         mine, theirs = base[key].get("value"), other[key].get("value")
         if key in TEXT or mine is None or theirs is None:
@@ -74,26 +82,42 @@ def grade(base: Mapping[str, Mapping[str, Any]], other: Mapping[str, Mapping[str
         else:
             ok = theirs >= mine or _same(mine, theirs)
         (same if ok else differs).append(key)
-    package_known = "package" in base and "package" in other
-    package_same = package_known and package_key(base["package"]["raw"]) == package_key(other["package"]["raw"])
-    if package_known and not package_same:
-        return {"grade": "functional", "same": same, "differs": [*differs, "package"]}
-    if package_same and not differs and len(same) + 1 >= 3:
-        return {"grade": "direct", "same": [*same, "package"], "differs": []}
-    return {"grade": "form_fit_function", "same": [*same, *(["package"] if package_same else [])], "differs": differs}
+    package_same = "package" in base and "package" in other and package_key(base["package"]["raw"]) == package_key(other["package"]["raw"])
+    if "package" in base and "package" not in other:
+        unknown.append("package")
+    if differs:
+        found = "fails"
+    elif "package" in base and "package" in other and not package_same:
+        found = "other_package"
+        differs = ["package"]
+    elif unknown or not package_same or len(same) < len(core) + 1:
+        # Nothing beyond the value itself was compared, or something could not be: similar, not met.
+        found = "similar"
+    else:
+        found = "ratings_met"
+    return {"grade": found, "same": [*same, *(["package"] if package_same else [])], "differs": differs, "unknown": unknown}
 
 
-def _signature(conn, part_id: str) -> dict[str, dict[str, Any]]:
+def grade_label(verdict: Mapping[str, Any]) -> str:
+    """The grade in words, with how many ratings could not be judged."""
+
+    if verdict["grade"] == "similar" and verdict["unknown"]:
+        count = len(verdict["unknown"])
+        return f"Similar · {count} {'rating' if count == 1 else 'ratings'} unknown"
+    return GRADE_LABEL[verdict["grade"]]
+
+
+def _signature(parameters: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {
         item["key"]: {"value": Decimal(item["value"]) if item["value"] is not None else None, "raw": item["raw"]}
-        for item in parts_view.parameters_of(conn, part_id) if item["key"]
+        for item in parameters if item["key"]
     }
 
 
 def _categories(conn, part_id: str) -> list[str]:
     return [
         row["value"].strip().lower() for row in conn.execute(
-            "SELECT value FROM part_facts WHERE part_id = %s AND name = 'category'", (part_id,)
+            "SELECT value FROM supply_part_facts WHERE part_id = %s AND name = 'category'", (part_id,)
         ).fetchall() if row["value"].strip()
     ]
 
@@ -101,7 +125,7 @@ def _categories(conn, part_id: str) -> list[str]:
 def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any]:
     """Graded alternatives to a part, and the manufacturer's own suggestion if a distributor gave one."""
 
-    base = _signature(conn, part_id)
+    base = _signature(parts_view.parameters_of(conn, part_id))
     suggested = [
         source["value"] for fact in facts.for_part(conn, part_id) if fact["name"] == "suggested_replacement" for source in fact["sources"]
     ]
@@ -110,21 +134,26 @@ def candidates(conn, part_id: str, limit: int = MAX_CANDIDATES) -> dict[str, Any
     if categories and any(key in base for key in CORE):
         pool = conn.execute(
             """
-            SELECT DISTINCT p.id FROM parts p JOIN part_facts f ON f.part_id = p.id
+            SELECT DISTINCT p.id FROM supply_parts p JOIN supply_part_facts f ON f.part_id = p.id
             WHERE f.name = 'category' AND lower(trim(f.value)) = ANY(%s) AND p.id <> %s LIMIT %s
             """,
             (categories, part_id, MAX_POOL),
         ).fetchall()
-        standing = {item["id"]: item for item in parts_view.summaries_for(conn, [row["id"] for row in pool])}
+        pool_ids = [row["id"] for row in pool]
+        standing = {item["id"]: item for item in parts_view.summaries_for(conn, pool_ids)}
+        signatures = {
+            candidate_id: _signature(items) for candidate_id, items in parts_view.parameters_of_parts(conn, pool_ids, with_facts=False).items()
+        }
         for row in pool:
-            verdict = grade(base, _signature(conn, row["id"]))
+            verdict = grade(base, signatures.get(row["id"], {}))
             if verdict is None:
                 continue
             item = standing[row["id"]]
             found.append({
                 "part_id": row["id"], "manufacturer": item["manufacturer"], "mpn": item["mpn"], "grade": verdict["grade"],
-                "grade_label": GRADE_LABEL[verdict["grade"]], "same": verdict["same"], "differs": verdict["differs"],
-                "stock": item["stock"], "status": item["status"], "lifecycle": item["lifecycle"],
+                "grade_label": grade_label(verdict), "same": verdict["same"], "differs": verdict["differs"], "unknown": verdict["unknown"],
+                "stock": item["stock"], "status": item["status"], "lifecycle": item["lifecycle"], "problem": item["problem"],
+                "fetched_at": item["fetched_at"],
             })
     found.sort(key=lambda entry: (GRADES.index(entry["grade"]), -(entry["stock"] or 0), entry["mpn"]))
     return {

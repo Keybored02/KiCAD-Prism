@@ -1,6 +1,7 @@
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { useSimStudioAvailable } from "@/components/sim-studio/use-sim-studio-available";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -29,7 +30,6 @@ import { projectLastUpdated } from "@/lib/project-dates";
 import { HelpMenu } from "@/features/bug-report/help-menu";
 import { LibraryUsageButton } from "@/features/library-usage/library-usage-button";
 import { SupplyNavIcon } from "@/features/supply/supply-nav-icon";
-import { ProjectSupplyTab } from "@/features/supply/project-supply-tab";
 import { canOpenSupply } from "@/lib/roles";
 
 const AssetsPortal = lazy(() =>
@@ -57,6 +57,9 @@ const Visualizer = lazy(() =>
 );
 const MarkdownContent = lazy(() =>
     import("@/components/markdown-content").then((module) => ({ default: module.MarkdownContent }))
+);
+const ProjectSupplyTab = lazy(() =>
+    import("@/features/supply/project-supply-tab").then((module) => ({ default: module.ProjectSupplyTab }))
 );
 
 interface Project {
@@ -884,7 +887,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     <h2 className="text-2xl font-bold">Supply</h2>
                                     <div ref={setSupplyActions} className="flex flex-wrap items-center gap-2" />
                                 </div>
-                                {projectId && <ProjectSupplyTab projectId={projectId} user={user} actionsSlot={supplyActions} />}
+                                {projectId && (
+                                    <Suspense fallback={<Skeleton className="h-48 w-full" aria-label="Loading the project's supply" />}>
+                                        <ProjectSupplyTab projectId={projectId} user={user} actionsSlot={supplyActions} />
+                                    </Suspense>
+                                )}
                             </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}

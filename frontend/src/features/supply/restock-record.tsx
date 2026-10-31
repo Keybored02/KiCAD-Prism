@@ -2,12 +2,13 @@ import { Clock } from "lucide-react";
 
 import type { RestockRecord } from "@/types/supply";
 import { restockItems } from "./restock-items";
+import { formatLeadTime } from "./supply-format";
 import { VendorName } from "./vendor-name";
 
 function promise(item: NonNullable<RestockRecord["open"]>): string {
   const said = item.kind === "dated"
     ? `${item.quantity?.toLocaleString() ?? ""} due ${item.expected}`.trim()
-    : `back by ${item.expected}${item.quoted_lead_days ? ` (quoted ${item.quoted_lead_days} days)` : ""}`;
+    : `back by ${item.expected}${item.quoted_lead_days ? ` (quoted ${formatLeadTime(item.quoted_lead_days)})` : ""}`;
   return item.late ? `${said}, past that day` : said;
 }
 

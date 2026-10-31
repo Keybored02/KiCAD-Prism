@@ -2,32 +2,43 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("./supply-api", () => ({ getCrossReference: vi.fn(), addComponentSource: vi.fn(), askSubstitutes: vi.fn(), addSupplyWatch: vi.fn() }));
+vi.mock("./supply-api", () => ({ getCrossReference: vi.fn(), addComponentSource: vi.fn(), askSubstitutes: vi.fn(), listSupplyConnectors: vi.fn() }));
+vi.mock("./tracking-api", () => ({ followNumber: vi.fn() }));
 
 import { CrossReferenceSection } from "./cross-reference-section";
 import * as api from "./supply-api";
+import * as trackingApi from "./tracking-api";
 
 const result = {
   candidates: [
-    { part_id: "p2", manufacturer: "Globex", mpn: "G-10K", grade: "direct" as const, grade_label: "Direct replacement", same: ["resistance", "package"], differs: [], stock: 500, status: "ok" as const, lifecycle: "active" as const },
-    { part_id: "p3", manufacturer: "Globex", mpn: "G-10K-0805", grade: "functional" as const, grade_label: "Same function, other package", same: ["resistance"], differs: ["package"], stock: null, status: "unknown" as const, lifecycle: "unknown" as const },
+    { part_id: "p2", manufacturer: "Globex", mpn: "G-10K", grade: "ratings_met" as const, grade_label: "Ratings met", same: ["resistance", "package"], differs: [], unknown: [], stock: 500, status: "ok" as const, lifecycle: "active" as const, problem: null, fetched_at: null },
+    { part_id: "p3", manufacturer: "Globex", mpn: "G-10K-0805", grade: "other_package" as const, grade_label: "Same value, other package", same: ["resistance"], differs: ["package"], unknown: [], stock: null, status: "unknown" as const, lifecycle: "unknown" as const, problem: null, fetched_at: null },
   ],
-  suggested_by_distributors: ["R-10K-NEW"], judged_on: ["resistance", "package"],
+  suggested_by_distributors: ["R-10K-NEW"], judged_on: ["resistance", "package"], suggestions: [],
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getCrossReference).mockResolvedValue(result);
+  vi.mocked(api.listSupplyConnectors).mockResolvedValue([{ provider: "digikey", enabled: true }] as never);
 });
 afterEach(cleanup);
 
 describe("alternatives to a part", () => {
+  it("offers to ask DigiKey only while a DigiKey connector is on", async () => {
+    vi.mocked(api.listSupplyConnectors).mockResolvedValue([{ provider: "fake", enabled: true }, { provider: "digikey", enabled: false }] as never);
+    render(<CrossReferenceSection partId="p1" canEdit />);
+    await waitFor(() => expect(api.listSupplyConnectors).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Find alternatives" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ask DigiKey for substitutes" })).toBeNull();
+  });
+
   it("looks only when asked or opened and grades each", async () => {
     render(<CrossReferenceSection partId="p1" canEdit />);
     expect(api.getCrossReference).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Find alternatives" }));
-    expect(await screen.findByText("Direct replacement")).toBeTruthy();
-    expect(screen.getByText("Same function, other package")).toBeTruthy();
+    expect(await screen.findByText("Ratings met")).toBeTruthy();
+    expect(screen.getByText("Same value, other package")).toBeTruthy();
     expect(screen.getByText(/Distributors suggest: R-10K-NEW/)).toBeTruthy();
     expect(screen.getByText(/Differs: package/)).toBeTruthy();
   });
@@ -37,7 +48,7 @@ describe("alternatives to a part", () => {
     render(<CrossReferenceSection partId="p1" canEdit />);
     expect(api.getCrossReference).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("heading", { name: "Alternatives" }));
-    expect(await screen.findByText("Direct replacement")).toBeTruthy();
+    expect(await screen.findByText("Ratings met")).toBeTruthy();
     expect(api.getCrossReference).toHaveBeenCalledTimes(1);
     expect(api.askSubstitutes).not.toHaveBeenCalled();
   });
@@ -61,20 +72,20 @@ describe("alternatives to a part", () => {
 
   it("tracks a suggested part and proposes it, but offers neither for a distributor number or an already tracked part", async () => {
     vi.mocked(api.getCrossReference).mockResolvedValue({ ...result, suggestions });
-    vi.mocked(api.addSupplyWatch).mockResolvedValue({} as never);
+    vi.mocked(trackingApi.followNumber).mockResolvedValue({} as never);
     render(<CrossReferenceSection partId="p1" canEdit />);
     fireEvent.click(screen.getByRole("button", { name: "Find alternatives" }));
     await screen.findByText("Suggested by distributors");
     expect(screen.getAllByRole("button", { name: "Track" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Track" }));
-    await waitFor(() => expect(api.addSupplyWatch).toHaveBeenCalledWith({ manufacturer: "Globex", mpn: "G-10K-NEW" }));
+    await waitFor(() => expect(trackingApi.followNumber).toHaveBeenCalledWith({ manufacturer: "Globex", mpn: "G-10K-NEW" }));
   });
 
   it("asks DigiKey for substitutes and shows what it names, or why it could not", async () => {
     vi.mocked(api.getCrossReference).mockResolvedValue({ ...result, suggestions });
-    vi.mocked(api.askSubstitutes).mockResolvedValue({ asked: 1, found: 3, problems: [] });
+    vi.mocked(api.askSubstitutes).mockResolvedValue({ asked: 1, found: 3, resolved: 0, problems: [] });
     render(<CrossReferenceSection partId="p1" canEdit />);
-    fireEvent.click(screen.getByRole("button", { name: "Ask DigiKey for substitutes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ask DigiKey for substitutes" }));
     await waitFor(() => expect(api.askSubstitutes).toHaveBeenCalledWith("p1"));
     expect(await screen.findByText("Suggested by distributors")).toBeTruthy();
   });

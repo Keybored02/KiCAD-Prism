@@ -8,7 +8,6 @@ vi.mock("./supply-api", () => ({
   listSupplyParts: vi.fn(),
   getSupplyPart: vi.fn(),
   listSupplyManufacturers: vi.fn(),
-  getSupplyOverview: vi.fn(),
   listSupplyAlerts: vi.fn(),
 }));
 
@@ -20,7 +19,7 @@ const mocked = vi.mocked(api);
 afterEach(cleanup);
 
 function page(mpn: string): SupplyPartsPage {
-  return { items: [partRowFixture({ id: mpn, mpn })], total: 1, limit: 100 };
+  return { items: [partRowFixture({ id: mpn, mpn })], total: 1, limit: 100, offset: 0, next_offset: null, forecast_state: {} };
 }
 
 function deferred<T>() {

@@ -1,4 +1,4 @@
-import { ExternalLink, Eye, Star } from "lucide-react";
+import { ExternalLink, Eye, LibraryBig, Star } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,9 @@ import { BomForecastLine } from "./bom-forecast-line";
 import { BomLineComments } from "./bom-line-comments";
 import { untrackedLabel, type BomLineDetail } from "./bom-supply";
 import { StatusDot } from "./status-dot";
-import { formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
+import { formatLeadTime, formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
 import { VendorName } from "./vendor-name";
+import { StoresCell } from "./stores-cell";
 
 interface BomRowDrawerProps {
   /** The parts on the row that was opened; null keeps the drawer closed. */
@@ -22,16 +23,18 @@ interface BomRowDrawerProps {
   onClose: () => void;
   onWatch: (line: BomLineDetail) => void;
   onOpenPart: (partId: string) => void;
+  /** Starts a catalog component for a line no component has; omitted when the user cannot write the catalog. */
+  onAddToLibrary?: (line: BomLineDetail) => void;
   /** With a project and a user, each part has its comments. */
   projectId?: string;
   user?: User | null;
 }
 
 /** Every part on one BOM row, with what is known about it and what can be done next. */
-export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart, projectId = "", user = null }: BomRowDrawerProps) {
+export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart, onAddToLibrary, projectId = "", user = null }: BomRowDrawerProps) {
   return (
     <Sheet open={lines !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent side="right" className="w-full themed-scrollbar overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{lines && lines.length === 1 ? "Part details" : `${lines?.length ?? 0} parts on this row`}</SheetTitle>
           <SheetDescription>Stock and price are for the build size set above the table.</SheetDescription>
@@ -46,6 +49,7 @@ export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWat
               busy={busyKey === line.key}
               onWatch={onWatch}
               onOpenPart={onOpenPart}
+              onAddToLibrary={onAddToLibrary}
               projectId={projectId}
               user={user}
             />
@@ -56,7 +60,7 @@ export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWat
   );
 }
 
-function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId, user }: {
+function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, onAddToLibrary, projectId, user }: {
   projectId: string;
   user: User | null;
   line: BomLineDetail;
@@ -65,9 +69,11 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId
   busy: boolean;
   onWatch: (line: BomLineDetail) => void;
   onOpenPart: (partId: string) => void;
+  onAddToLibrary?: (line: BomLineDetail) => void;
 }) {
   const references = line.references.join(" ");
-  const canWatchThis = canWatch && !!line.manufacturer && !!line.mpn;
+  const notInLibrary = result?.in_library === false;
+  const canWatchThis = canWatch && !!line.manufacturer && !!line.mpn && !notInLibrary;
   return (
     <li className="space-y-2 rounded-lg border p-3 text-sm">
       <div>
@@ -87,6 +93,9 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId
         {result && (result.state === "unknown" || (result.state === "tracked" && !result.watched)) && canWatchThis ? (
           <Button size="sm" disabled={busy} onClick={() => onWatch(line)}><Eye className="h-4 w-4" />Watch this part</Button>
         ) : null}
+        {notInLibrary && onAddToLibrary ? (
+          <Button size="sm" onClick={() => onAddToLibrary(line)}><LibraryBig className="h-4 w-4" />Add to Component Database</Button>
+        ) : null}
       </div>
       {projectId ? <BomLineComments projectId={projectId} lineKey={line.key} user={user} /> : null}
     </li>
@@ -95,6 +104,7 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId
 
 function reasonFor(result: SupplyBomLineResult | undefined): string {
   if (!result) return "Looking this up...";
+  if (result.in_library === false && result.state !== "tracked") return "Not in the Component Database.";
   if (result.state === "unknown") return "Prism does not know this part yet. Watch it and it is read within a few minutes.";
   if (result.state === "no_mpn") return "This symbol has no part number, so Prism cannot track it.";
   if (result.state === "ambiguous") return "Several makers have this number. Name the maker on the symbol, or choose it in Review.";
@@ -112,11 +122,16 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
         {result.lifecycle && result.lifecycle !== "unknown" ? <Badge variant="outline">{LIFECYCLE_LABEL[result.lifecycle]}</Badge> : null}
         {result.watched ? null : <Badge variant="outline">Not watched</Badge>}
       </div>
-      <p className={result.short ? "text-destructive" : undefined}>
-        {result.stock === null || result.stock === undefined
-          ? "No stock reading yet."
-          : `${formatStock(result.stock)} in stock, ${need} needed${result.short ? ". Not enough." : "."}`}
-      </p>
+      <dl className="flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums">
+        <div className="flex gap-1.5"><dt className="text-muted-foreground">Distributors</dt><dd>{result.stock === null || result.stock === undefined ? "Not read" : formatStock(result.stock)}</dd></div>
+        <div className="flex gap-1.5"><dt className="text-muted-foreground">Stores</dt><dd><StoresCell stores={result.stores} /></dd></div>
+        <div className="flex gap-1.5"><dt className="text-muted-foreground">Need</dt><dd className={result.short ? "text-destructive" : undefined}>{need}</dd></div>
+      </dl>
+      {result.alternates?.length ? (
+        <p className="text-xs text-muted-foreground">
+          Alternates counted: {result.alternates.map((alternate) => `${alternate.mpn} (${alternate.stock === null ? "not read" : formatStock(alternate.stock)})`).join(", ")}
+        </p>
+      ) : null}
       {result.part_need !== undefined && result.part_need !== result.need ? (
         <p className="text-xs text-muted-foreground">This part is on more than one line; the need counts all of them.</p>
       ) : null}
@@ -127,7 +142,7 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
           Found by part number alone: {result.manufacturer_match === "missing" ? "this symbol names no manufacturer." : "Prism does not know this manufacturer spelling."}
         </p>
       ) : null}
-      {result.lead_time_days !== null && result.lead_time_days !== undefined ? <p className="text-xs text-muted-foreground">Lead time {result.lead_time_days} days.</p> : null}
+      {result.lead_time_days !== null && result.lead_time_days !== undefined ? <p className="text-xs text-muted-foreground">Lead time {formatLeadTime(result.lead_time_days)}.</p> : null}
       {result.bought_with ? <p className="text-xs text-muted-foreground">Bought together with another line of this part.</p> : null}
       {result.part_id ? <BomForecastLine partId={result.part_id} need={result.part_need ?? result.need} /> : null}
       {result.preferred ? (

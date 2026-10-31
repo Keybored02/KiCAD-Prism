@@ -6,10 +6,11 @@ of them, so housekeeping keeps one row per tracked part (``part_insights``) and 
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from app.services.supply import insights, price_behaviour, prices, promises
+from app.services.supply import clock, freshness, insights, offer_rules, price_behaviour, prices, promises
 
 SPARK_DAYS = 30
 PRICE_MOVE_PERCENT = 5
@@ -18,8 +19,8 @@ OFTEN_OUT_SHARE = 0.2
 # The groups the Insights lists and the Dashboard bars count, each a test on one part's facts. ``runs_out_*`` are buckets of
 # the projected days until zero stock; the others are findings.
 # Parts nothing will refill: no limit on how far ahead their drain is shown.
-ENDING_BANDS = ("ended", "under_2_years")
-OUTLOOK_BANDS = ("ended", "under_2_years", "2_to_5_years", "no_signs", "unknown")
+ENDING_BANDS = ("ended", "ending")
+OUTLOOK_BANDS = ("ended", "ending", "warning_signs", "no_signs", "unknown")
 # The shortest quoted lead time in buckets of weeks.
 LEAD_BUCKETS = (("under_2w", 14), ("2_to_8w", 56), ("8_to_16w", 112), ("16_to_26w", 182))
 
@@ -49,16 +50,31 @@ KINDS: dict[str, Callable[[dict[str, Any]], bool]] = {
     **{f"outlook_{band}": (lambda d, band=band: (d.get("outlook_band") or "unknown") == band) for band in OUTLOOK_BANDS},
     **{f"lead_{bucket}": (lambda d, bucket=bucket: lead_bucket(d.get("lead_days")) == bucket) for bucket in (*(name for name, _ in LEAD_BUCKETS), "over_26w", "none")},
 }
-LIKELY = 0.5
+def out_chance(facts: dict[str, Any] | None, key: str = "p_out_4w") -> float | None:
+    """The forecast's chance of being out everywhere (within 4 weeks, or 8 with ``p_out_8w``) of a part that has stock; None without one."""
+
+    forecast = (facts or {}).get("forecast") or {}
+    if not forecast.get("available") or forecast.get("out_now") or forecast.get(key) is None:
+        return None
+    return float(forecast[key])
 
 
 def _likely_out(facts: dict[str, Any], key: str) -> bool:
-    forecast = facts.get("forecast") or {}
-    return bool(forecast.get("available")) and not forecast.get("out_now") and (forecast.get(key) or 0) >= LIKELY
+    """Likely out: the forecast's chance at least the one kept with the facts, the workspace's or the part's own (the
+    ``likely_out`` check's threshold too)."""
+
+    chance = out_chance(facts, key)
+    return chance is not None and chance >= facts.get("likely_at", DEFAULT_LIKELY_AT)
 
 
+# Kept facts are renewed when a mark says what they are made from changed (``freshness``), and at least this often, since their
+# trends move with the clock. A run renews as many as it can in ``RENEW_SECONDS`` (one part takes about 90 ms): missing first,
+# then marked, then the oldest.
+# The chance that is "likely out" until the workspace's setting is kept with the facts (``settings.Alerts.likely_out_percent``).
+DEFAULT_LIKELY_AT = 0.7
 RENEW_AFTER = timedelta(hours=20)
-RENEW_PER_RUN = 40
+RENEW_SECONDS = 60.0
+_RENEW_BATCH = 100
 
 
 def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
@@ -67,11 +83,10 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     from app.services.supply import parts_view  # parts_view lists with these facts, so it is imported here
 
     days = parts_view.history(conn, part_id, now)
-    watch = conn.execute("SELECT threshold FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    watch = conn.execute("SELECT threshold FROM supply_watches WHERE part_id = %s", (part_id,)).fetchone()
     insight = parts_view.insight_from(days, watch["threshold"] if watch else None, now)
     offers = parts_view.offers_by_part(conn, [part_id]).get(part_id, [])
-    leads = [offer["lead_time_days"] for offer in offers if offer.get("lead_time_days")]
-    lead = min(leads) if leads else None
+    lead = offer_rules.lead_time_of(offers)
     price = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
     last = days[-1] if days else None
     band = _outlook_band(conn, part_id, offers, days, (price["trend"] or {}).get("change_percent"))
@@ -100,6 +115,8 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
         "lead_gap_days": insights.lead_gap_days(insight, lead),
         "lead_time_trend": parts_view.lead_time_trend(conn, part_id, now),
         "price_change_percent": (price["trend"] or {}).get("change_percent"),
+        "price_trend": price["trend"],
+        "likely_at": _likely_at(conn, part_id),
         "forecast": forecast,
         "stock": last["stock"] if last else None,
         "holders": last["sources"] if last else None,
@@ -113,10 +130,20 @@ def compute(conn, part_id: str, now: datetime) -> dict[str, Any]:
     }
 
 
+def _likely_at(conn, part_id: str) -> float:
+    """The chance that makes the part likely out: its own rule's, else the workspace's (``alert_rules``, assessment settings)."""
+
+    from app.services.supply import alert_rules
+    from app.services.supply import settings as supply_settings
+
+    own = alert_rules.for_parts(conn, [part_id]).get(part_id)
+    return ((own.likely_out_percent if own else None) or supply_settings.load(conn).alerts.likely_out_percent) / 100
+
+
 def _forecast(conn, part_id: str, now: datetime) -> dict[str, Any]:
     """Make and keep the part's forecasts and return the little a list shows. A failure leaves the rest of the insights as they are."""
 
-    from app.services.supply import forecast_run
+    from app.services.supply.forecast import run as forecast_run
 
     try:
         with conn.transaction():
@@ -132,8 +159,7 @@ def _outlook_band(conn, part_id: str, offers: list[dict[str, Any]], days: list[d
     """Where the part stands on the way to its end of life (see ``outlook``), kept so Insights can count the bands."""
 
     from app.services.supply import facts, outlook, pcn
-    from app.services.supply.part_status import worst_lifecycle
-    from app.services.supply.vocabulary import Lifecycle
+    from app.services.supply.vocabulary import Lifecycle, worst_lifecycle
 
     lifecycle = worst_lifecycle(Lifecycle(offer["lifecycle"]) for offer in offers)
     found = outlook.outlook(
@@ -150,28 +176,41 @@ def _outlook_band(conn, part_id: str, offers: list[dict[str, Any]], days: list[d
 def refresh(conn, part_id: str, now: datetime) -> None:
     import json
 
+    seen, snap = freshness.seen(conn)
     data = compute(conn, part_id, now)
     conn.execute(
-        "INSERT INTO part_insights (part_id, computed_at, data) VALUES (%s, %s, %s::jsonb) "
-        "ON CONFLICT (part_id) DO UPDATE SET computed_at = EXCLUDED.computed_at, data = EXCLUDED.data",
-        (part_id, now, json.dumps(data)),
+        f"INSERT INTO supply_part_insights (part_id, computed_at, data, seen, snap, own) VALUES (%s, %s, %s::jsonb, %s, %s, {freshness.OWN_SQL}) "
+        "ON CONFLICT (part_id) DO UPDATE SET computed_at = EXCLUDED.computed_at, data = EXCLUDED.data, seen = EXCLUDED.seen, "
+        "snap = EXCLUDED.snap, own = EXCLUDED.own",
+        (part_id, now, json.dumps(data), seen, snap),
     )
 
 
-def renew(conn, now: datetime | None = None, limit: int = RENEW_PER_RUN) -> int:
-    """Work out the facts again for the tracked parts that have none or the oldest. Returns how many."""
+def renew(conn, now: datetime | None = None, seconds: float = RENEW_SECONDS) -> list[str]:
+    """Work out the facts again for the tracked parts that have none, that a mark made stale or that are older than ``RENEW_AFTER``,
+    in that order, until ``seconds`` have gone. Returns the parts renewed."""
 
-    now = now or datetime.now(timezone.utc)
-    rows = conn.execute(
-        """
-        SELECT pt.part_id FROM part_tiers pt LEFT JOIN part_insights i ON i.part_id = pt.part_id
-        WHERE i.part_id IS NULL OR i.computed_at < %s ORDER BY COALESCE(i.computed_at, '-infinity'::timestamptz), pt.part_id LIMIT %s
-        """,
-        (now - RENEW_AFTER, limit),
-    ).fetchall()
-    for row in rows:
-        refresh(conn, row["part_id"], now)
-    return len(rows)
+    now = now or clock.now()
+    stop, done, tried = time.monotonic() + seconds, [], set()
+    while time.monotonic() < stop:
+        rows = conn.execute(
+            f"""
+            SELECT pt.part_id FROM supply_part_tiers pt LEFT JOIN supply_part_insights i ON i.part_id = pt.part_id
+            CROSS JOIN LATERAL (SELECT i.part_id IS NOT NULL AND {freshness.stale_sql("insight", "ARRAY[i.part_id]", "i")} AS marked) m
+            WHERE (i.part_id IS NULL OR m.marked OR i.computed_at < %s) AND pt.part_id <> ALL(%s)
+            ORDER BY i.part_id IS NOT NULL, NOT m.marked, i.computed_at, pt.part_id LIMIT {_RENEW_BATCH}
+            """,
+            (now - RENEW_AFTER, list(tried)),
+        ).fetchall()
+        if not rows:
+            break
+        for row in rows:
+            if time.monotonic() >= stop:
+                break
+            refresh(conn, row["part_id"], now)
+            tried.add(row["part_id"])
+            done.append(row["part_id"])
+    return done
 
 
 def read_all(conn) -> list[dict[str, Any]]:
@@ -180,8 +219,8 @@ def read_all(conn) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT i.part_id, i.computed_at, i.data, p.mpn, m.name AS manufacturer, pt.tier
-        FROM part_insights i JOIN part_tiers pt ON pt.part_id = i.part_id JOIN parts p ON p.id = i.part_id
-        JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_part_insights i JOIN supply_part_tiers pt ON pt.part_id = i.part_id JOIN supply_parts p ON p.id = i.part_id
+        JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         """
     ).fetchall()
     return [
@@ -200,5 +239,5 @@ def matching(conn, kind: str) -> set[str]:
 def of_parts(conn, part_ids: list[str]) -> dict[str, dict[str, Any]]:
     """The facts kept for these parts, by part id (parts without any are left out)."""
 
-    rows = conn.execute("SELECT part_id, data FROM part_insights WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+    rows = conn.execute("SELECT part_id, data FROM supply_part_insights WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
     return {row["part_id"]: row["data"] for row in rows}

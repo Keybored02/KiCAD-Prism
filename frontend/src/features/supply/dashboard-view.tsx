@@ -10,6 +10,7 @@ import type { User } from "@/types/auth";
 import type { PartsFilter, SupplyDashboard } from "@/types/supply";
 import { AdminStrip } from "./admin-strip";
 import { AlertList } from "./dashboard-alerts";
+import { EndingNotifications } from "./ending-notifications";
 import { RunwayCard } from "./dashboard-charts";
 import { ComingUpCard, likelyOutTile } from "./dashboard-forecast";
 import { DeadlinesCard, ProjectsTableCard, RiskGridCard } from "./dashboard-risk-cards";
@@ -19,28 +20,31 @@ import { getSupplyDashboard } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 import { OpenPartSheet } from "./open-part-sheet";
 import { useSupplyNavigation } from "./use-supply-navigation";
-import { useSupplyOverview } from "./use-supply-parts";
 
 const RUNWAY_FILTER: Record<keyof SupplyDashboard["runway"], PartsFilter> = {
   out_now: "out_of_stock", runs_out_2w: "runs_out_2w", runs_out_8w: "runs_out_8w", runs_out_later: "runs_out_later", steady: "steady", few_readings: "few_readings",
 };
 
-function showAlerts() {
-  const section = document.getElementById("dashboard-alerts");
+/** Opens one of the Dashboard's folded lists and brings it into view. */
+function showDetails(id: string) {
+  const section = document.getElementById(id);
   if (section instanceof HTMLDetailsElement) section.open = true;
   section?.scrollIntoView?.();
 }
 
+function showAlerts() {
+  showDetails("dashboard-alerts");
+}
+
 /** What across the workspace needs a person: counts with their trend, charts that open the parts behind them, then the alerts. */
-export function DashboardView({ user, active = true }: { user: User | null; active?: boolean }) {
-  const overview = useSupplyOverview();
+export function DashboardView({ user }: { user: User | null }) {
   const dashboardFetcher = useCallback((signal: AbortSignal) => getSupplyDashboard(signal), []);
-  const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard", "supply");
+  const dashboard = useLoaded<SupplyDashboard>("dashboard", dashboardFetcher, "Could not load the dashboard");
   const { go, openPart } = useSupplyNavigation();
   const navigate = useNavigate();
   const [alertKind, setAlertKind] = useState("");
   const data = dashboard.data;
-  const parts = (only: PartsFilter, scope?: string) => () => go("parts", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
+  const parts = (only: PartsFilter, scope?: string) => () => go("tracking", { ...(only ? { partsOnly: only } : {}), ...(scope ? { partsScope: scope } : {}) });
   const history = (name: string) => data?.figure_history[name];
   const likely = likelyOutTile(data?.forecast);
   const tiles: Tile[] = [
@@ -49,13 +53,11 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
     { label: "Out of stock", value: data?.figures.out_of_stock, icon: PackageX, bad: true, history: history("out_of_stock"), onClick: parts("out_of_stock") },
     { label: "End of life", value: data?.figures.lifecycle, icon: Ban, bad: true, history: history("lifecycle"), onClick: parts("lifecycle") },
     { label: "Open alerts", value: data?.figures.open_alerts, icon: BellRing, bad: true, history: history("open_alerts"), onClick: showAlerts },
-    { label: "Waiting for room", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
+    { label: "Queued for calls", value: data?.figures.waiting, icon: Hourglass, history: history("waiting"), onClick: parts("", "waiting") },
     ...(likely ? [{ ...likely, icon: Hourglass, bad: true, onClick: parts("likely_out_4w") }] : []),
-    ...(canOpenLibraryManager(user?.role) && data?.ending_components
-      ? [{ label: "Ending in library", value: data.ending_components, icon: Hourglass, bad: true, onClick: () => navigate("/?section=library-manager&libraryView=ending") }]
-      : []),
   ];
-
+  const openComponent = (componentId: string) =>
+    navigate(`/?section=library-manager&libraryView=catalog&component=${encodeURIComponent(componentId)}&componentTab=sourcing`);
   return (
     <div className="themed-scrollbar relative h-full overflow-y-auto px-4 pb-4 pt-2">
       <div className="space-y-4">
@@ -74,6 +76,7 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
               {tiles.filter((tile) => tile.value !== undefined).map((tile) => <TileButton key={tile.label} tile={tile} />)}
             </div>
+            {canOpenLibraryManager(user?.role) ? <EndingNotifications role={user?.role} onOpenComponent={openComponent} /> : null}
             <div className="grid gap-3 lg:grid-cols-2">
               <RiskGridCard grid={data.risk_grid} onOpen={(filter) => parts(filter)()} />
               <DeadlinesCard deadlines={data.deadlines} onOpenPart={openPart} />
@@ -86,16 +89,16 @@ export function DashboardView({ user, active = true }: { user: User | null; acti
           </>
         ) : null}
         <div className="grid items-start gap-3 lg:grid-cols-2">
-          <AlertList user={user} overview={overview.data} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
-          {overview.data && overview.data.recent_changes.length > 0 ? (
+          <AlertList user={user} dashboard={data} feedsFailing={(data?.failing_feeds?.length ?? 0) > 0} kind={alertKind} onKind={setAlertKind} onOpenPart={openPart} />
+          {data && data.recent_changes.length > 0 ? (
             <details open>
               <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent changes</summary>
-              <div className="mt-2"><RecentChanges changes={overview.data.recent_changes} onOpenPart={openPart} /></div>
+              <div className="mt-2"><RecentChanges changes={data.recent_changes} onOpenPart={openPart} /></div>
             </details>
           ) : null}
         </div>
       </div>
-      <OpenPartSheet user={user} active={active} onChanged={() => void overview.refresh()} />
+      <OpenPartSheet user={user} />
     </div>
   );
 }

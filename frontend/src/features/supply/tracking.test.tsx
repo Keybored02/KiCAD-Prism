@@ -2,12 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SupplyConnector, TrackingPreview } from "@/types/supply";
+import type { ProjectTrackingPreview, SupplyConnector } from "@/types/supply";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("./tracking-api", () => ({
   getProjectTracking: vi.fn(), readProjectBom: vi.fn(), previewTrackProject: vi.fn(), trackProject: vi.fn(), untrackProject: vi.fn(),
-  getPartTracking: vi.fn(), previewPartTier: vi.fn(), setPartTier: vi.fn(), stopTrackingPart: vi.fn(),
+  getPartTracking: vi.fn(), previewFollow: vi.fn(), followPart: vi.fn(), stopTrackingPart: vi.fn(),
   chooseTrackLine: vi.fn(), getTrackProgress: vi.fn(),
 }));
 vi.mock("./supply-api", () => ({ listSupplyConnectors: vi.fn(), updateSupplyConnector: vi.fn(), getAssessmentSettings: vi.fn() }));
@@ -22,9 +22,13 @@ const tracking = vi.mocked(api);
 const connector = (id: string, name: string, extra: Partial<SupplyConnector> = {}) =>
   ({ id, display_name: name, enabled: true, metered: true, assembly_only: false, daily_budget: 1000, ...extra }) as SupplyConnector;
 
-const preview = (extra: Partial<TrackingPreview> = {}): TrackingPreview => ({
+const preview = (extra: Partial<ProjectTrackingPreview> = {}): ProjectTrackingPreview => ({
   fits_nowhere: false,
-  connectors: [{ connector_id: "c1", name: "DigiKey", capacity: 900, committed: 100, free: 800, admitted: 10, waiting: 0, adds_calls: 120, admitted_new: 100, waiting_new: 4 }],
+  connectors: [{
+    connector_id: "c1", name: "DigiKey", account: "a1", capacity: 900, committed: 100, free: 800, by_tier: {}, admitted: 10, waiting: 0,
+    adds_calls: 120, admitted_new: 100, waiting_new: 4,
+  }],
+  tracked: { project_id: "prj_1", variants: [""], parts_created: 0, skipped: [] },
   ...extra,
 });
 
@@ -52,7 +56,10 @@ describe("the distributors in the track dialog", () => {
 describe("the track button of a tracked project", () => {
   it("shows a Tracked chip and a settings button instead of asking to track again", async () => {
     tracking.getProjectTracking.mockResolvedValue({
-      tracked: { project_id: "prj_1", variants: [""], all_variants: false, connector_ids: null, tracked_by: "a", tracked_at: "2026-10-01" },
+      tracked: {
+        project_id: "prj_1", variants: [""], all_variants: false, packaging: "cut_tape", build_quantity: 100, spares: null, connector_ids: null,
+        tracked_by: "a", tracked_at: "2026-10-01",
+      },
       has_usage: true, variants: [],
     });
     render(<MemoryRouter><TrackProjectButton projectId="prj_1" /></MemoryRouter>);
@@ -64,7 +71,7 @@ describe("the track button of a tracked project", () => {
 
 describe("tracking a project", () => {
   beforeEach(() => {
-    tracking.getTrackProgress.mockResolvedValue({ parts: 100, finished: false, connectors: [{ connector_id: "c1", name: "DigiKey", parts: 100, searched: 40 }] });
+    tracking.getTrackProgress.mockResolvedValue({ state: "running", done: 40, total: 100, failed: 0, reason: "", parts: 100, connectors: [{ connector_id: "c1", name: "DigiKey", total: 100, done: 40 }] });
   });
 
   async function open() {
@@ -154,7 +161,7 @@ describe("tracking a project", () => {
   it("settles lines several makers share before tracking, one click each", async () => {
     tracking.getProjectTracking.mockResolvedValue({ tracked: null, has_usage: true, variants: [] });
     tracking.previewTrackProject.mockResolvedValueOnce(preview({
-      tracked: { parts_created: 0, skipped: [{ mpn: "LM358D", reason: "needs_choice", manufacturer: "Some Name", candidates: [{ part_id: "p1", manufacturer: "Texas Instruments" }, { part_id: "p2", manufacturer: "Onsemi" }] }] },
+      tracked: { project_id: "prj_1", variants: [""], parts_created: 0, skipped: [{ mpn: "LM358D", reason: "needs_choice", manufacturer: "Some Name", candidates: [{ part_id: "p1", manufacturer: "Texas Instruments" }, { part_id: "p2", manufacturer: "Onsemi" }] }] },
     }));
     tracking.previewTrackProject.mockResolvedValue(preview());
     tracking.chooseTrackLine.mockResolvedValue(undefined);
@@ -167,11 +174,11 @@ describe("tracking a project", () => {
   });
 
   it("reads the BOM itself when Prism has not, then goes on", async () => {
+    // The button and the dialog share one read of the project's tracking.
     tracking.getProjectTracking
-      .mockResolvedValueOnce({ tracked: null, has_usage: true, variants: [] }) // the button's own look
       .mockResolvedValueOnce({ tracked: null, has_usage: false, variants: [] })
       .mockResolvedValue({ tracked: null, has_usage: true, variants: ["Lite"] });
-    tracking.readProjectBom.mockResolvedValue({ status: "updated" });
+    tracking.readProjectBom.mockResolvedValue({ state: "done", done: 1, total: 1, failed: 0, reason: "", changed: true });
     tracking.previewTrackProject.mockResolvedValue(preview());
     await open();
     expect(await screen.findByRole("progressbar", { name: "Reading the BOM" })).toBeTruthy();
@@ -182,24 +189,24 @@ describe("tracking a project", () => {
 
 describe("a part's tracking", () => {
   it("says how and why, previews a change and applies it", async () => {
-    tracking.getPartTracking.mockResolvedValue({ tier: { tier: 2, rate: "weekly", reasons: [{ kind: "legacy", ref: "w1" }] }, waiting_at: [] });
-    tracking.previewPartTier.mockResolvedValue(preview());
-    tracking.setPartTier.mockResolvedValue({ ...preview(), tier: null });
+    tracking.getPartTracking.mockResolvedValue({ tier: { tier: 2, rate: "weekly", reasons: [{ kind: "legacy", ref: "w1" }] }, waiting_at: [], watch: null });
+    tracking.previewFollow.mockResolvedValue(preview());
+    tracking.followPart.mockResolvedValue({ ...preview(), tier: null, watch: null });
     const changed = vi.fn().mockResolvedValue(undefined);
     render(<TrackingControl partId="p1" canEdit onChanged={changed} />);
     expect(await screen.findByText(/Read weekly \(tier 2\), because of a watch from before tiers/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Tier"), { target: { value: "1" } });
-    expect(await screen.findByLabelText("Call budget")).toBeTruthy();
+    expect(await screen.findByLabelText("Daily call limit")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-    await waitFor(() => expect(tracking.setPartTier).toHaveBeenCalledWith("p1", { tier: 1, rate: "weekly" }));
+    await waitFor(() => expect(tracking.followPart).toHaveBeenCalledWith("p1", { tier: 1, rate: "weekly" }));
     await waitFor(() => expect(changed).toHaveBeenCalled());
   });
 
   it("only reads for someone who may not change it", async () => {
-    tracking.getPartTracking.mockResolvedValue({ tier: null, waiting_at: ["c1"] });
+    tracking.getPartTracking.mockResolvedValue({ tier: null, waiting_at: ["c1"], watch: null });
     render(<TrackingControl partId="p1" canEdit={false} onChanged={vi.fn()} />);
     expect(await screen.findByText(/Not followed/)).toBeTruthy();
-    expect(screen.getByText(/Waiting for room at 1 distributor/)).toBeTruthy();
+    expect(screen.getByText(/Queued for calls at 1 distributor/)).toBeTruthy();
     expect(screen.queryByLabelText("Tier")).toBeNull();
   });
 });

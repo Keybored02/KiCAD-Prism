@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
-import type { SupplyOverview } from "@/types/supply";
+import type { SupplyDashboard } from "@/types/supply";
 import { AlertRow } from "./alert-row";
 import { ALERT_KIND_LABEL } from "./alert-kinds";
 import { acknowledgeSupplyAlert, snoozeSupplyAlert } from "./supply-api";
@@ -24,29 +24,33 @@ function useAlertList(user: User | null) {
 }
 
 /** The alerts, worst first, with a chip a kind to narrow them. */
-export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
+export function AlertList({ user, dashboard, feedsFailing = false, kind, onKind, onOpenPart }: {
   user: User | null;
-  overview: SupplyOverview | null | undefined;
+  dashboard: SupplyDashboard | null | undefined;
+  /** A feed is failing: an empty list then never says "Nothing needs you". */
+  feedsFailing?: boolean;
   kind: string;
   onKind: (kind: string) => void;
   onOpenPart: (id: string) => void;
 }) {
   const { status, data, error, retry, showCleared, setShowCleared, busy, actionError, act, canAct } = useAlertList(user);
+  // The Open alerts tile counts the open ones, so that is the list; Show cleared adds the acknowledged, snoozed and resolved.
+  const listed = useMemo(() => (data ?? []).filter((alert) => showCleared || alert.state === "open"), [data, showCleared]);
   const kinds = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const alert of data ?? []) counts.set(alert.kind, (counts.get(alert.kind) ?? 0) + 1);
+    for (const alert of listed) counts.set(alert.kind, (counts.get(alert.kind) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [data]);
-  const shown = (data ?? []).filter((alert) => !kind || alert.kind === kind);
+  }, [listed]);
+  const shown = listed.filter((alert) => !kind || alert.kind === kind);
   return (
-    <details id="dashboard-alerts" open>
+    <details id="dashboard-alerts">
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted-foreground">Alerts</summary>
       <section aria-label="Alerts" className="mt-2 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div role="group" aria-label="Kind of alert" className="flex flex-wrap items-center gap-1">
           {kinds.length > 1 ? (
             <>
-              <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => onKind("")}>All {data?.length}</Button>
+              <Button size="sm" variant={kind === "" ? "secondary" : "ghost"} aria-pressed={kind === ""} onClick={() => onKind("")}>All {listed.length}</Button>
               {kinds.map(([name, count]) => (
                 <Button key={name} size="sm" variant={kind === name ? "secondary" : "ghost"} aria-pressed={kind === name} onClick={() => onKind(name)}>
                   {ALERT_KIND_LABEL[name as keyof typeof ALERT_KIND_LABEL] ?? name} {count}
@@ -72,7 +76,7 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
       {actionError ? <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert> : null}
       {status === "ready" && data ? (
         shown.length === 0 ? (
-          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(overview, showCleared)}</div>
+          <div className="border border-dashed p-6 text-sm text-muted-foreground">{emptyText(dashboard, showCleared, feedsFailing)}</div>
         ) : (
           <ul className={cn("border")}>
             {shown.map((alert) => (
@@ -94,11 +98,12 @@ export function AlertList({ user, overview, kind, onKind, onOpenPart }: {
   );
 }
 
-function emptyText(overview: SupplyOverview | null | undefined, showCleared: boolean): string {
+function emptyText(dashboard: SupplyDashboard | null | undefined, showCleared: boolean, feedsFailing: boolean): string {
   if (showCleared) return "Nothing here yet.";
-  if (!overview) return "Nothing needs you.";
-  if (overview.connectors === 0) return "No distributor is connected. Add one under Connectors, and Prism can start reading stock.";
-  if (overview.figures.watched === 0) return "No parts are tracked yet. Track a part in Parts and it is read regularly.";
-  if (overview.figures.no_data === overview.figures.watched) return "Tracked parts are waiting for their first read.";
+  if (feedsFailing) return "No open alerts.";
+  if (!dashboard) return "Nothing needs you.";
+  if (dashboard.connectors === 0) return "No distributor is connected. Add one under Connectors, and Prism can start reading stock.";
+  if (dashboard.figures.watched === 0) return "No parts are tracked yet. Track a part in Parts and it is read regularly.";
+  if (dashboard.no_data === dashboard.figures.watched) return "Tracked parts are waiting for their first read.";
   return "Nothing needs you. Alerts appear here after a part has been read twice.";
 }

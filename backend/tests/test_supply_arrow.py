@@ -225,7 +225,7 @@ class ArrowTests(unittest.TestCase):
         reader = provider(client)
         offers = reader.get_offers(["BAV99|A", "BAV99|B"])
         self.assertEqual(sorted(o.sku for o in offers), ["BAV99|A", "BAV99|B"])
-        self.assertEqual((len(client.calls), reader.last_batch_calls), (1, 1))
+        self.assertEqual((len(client.calls), reader.calls), (1, 1))
 
     def test_a_line_that_is_gone_is_left_out(self) -> None:
         client = FakeClient({PATH: [answer(item())]})

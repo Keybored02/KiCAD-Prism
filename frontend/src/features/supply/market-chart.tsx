@@ -3,7 +3,7 @@ import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import type { SupplyMarketHistory } from "@/types/supply";
-import { formatDay } from "./chart-format";
+import { formatDay } from "./supply-format";
 import { marketRows, type MarketColumn } from "./market-model";
 
 const COLOURS = ["hsl(var(--primary))", "#0070bb", "#4eb661", "#ff2100", "#a855f7", "#f59e0b"];
@@ -18,7 +18,7 @@ export default function MarketChart({ series, column, dots = false }: { series: 
       <ChartContainer config={config} className="aspect-auto h-52 w-full">
         <LineChart data={marketRows(series)} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickMargin={6} tickFormatter={formatDay} />
+          <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={36} tickMargin={6} tickFormatter={(value) => formatDay(String(value))} />
           <YAxis width={44} tickLine={false} axisLine={false} domain={share ? [0, 1] : column.kind === "index" ? ["auto", "auto"] : [0, "auto"]} tickFormatter={show} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={(label) => formatDay(String(label))} valueFormatter={(value) => show(Number(value))} />} />
           {series.map((line, index) => (

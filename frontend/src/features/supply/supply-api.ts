@@ -1,10 +1,9 @@
 /** Typed client for `/api/supply`. Errors are `ApiHttpError` with the server's code. */
 
-import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { ApiHttpError, apiErrorFrom, fetchApi, fetchJson, fetchText, readApiError } from "@/lib/api";
 import type {
   ForecastInsights,
   PartForecast,
-  AddWatchInput,
   BomLineInput,
   ConfirmAliasInput,
   CreateSupplyConnectorInput,
@@ -18,15 +17,14 @@ import type {
   SupplyAlert,
   SupplyAssessment,
   CrossReference,
+  ProjectPartsPage,
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
-  SupplyCapacity,
   SupplyConnectorCheck,
   SupplyManufacturer,
   SupplyDashboard,
   SupplyInsightsPage,
-  SupplyOverview,
   SupplyPartGroups,
   PartHistory,
   SupplyPartDetail,
@@ -34,21 +32,16 @@ import type {
   SupplyProvider,
   SupplyMakerGroup,
   SupplyReviewQueue,
-  SupplyBomRollup,
   SupplyCompliance,
   SupplyBomComment,
-  SupplyComponentWatch,
-  SupplyMarket,
   SupplyMarketHistory,
   SupplyNotice,
   SupplyNoticeKind,
-  SupplySignin,
   SupplySvhcList,
-  SupplyWatch,
   UpdateSupplyConnectorInput,
-  UpdateWatchInput,
-  WatchPackaging,
 } from "@/types/supply";
+import type { AliasConfirmed, AliasUndone, Items, ListingsRejected, MakerChosen, NumbersCounted, SettleUndone, SubstitutesAsked, SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding, UsageBuild, UsageRefreshed } from "@/types/supply.generated";
+import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply";
 
@@ -61,18 +54,18 @@ function post<T>(url: string, body: unknown, fallback: string): Promise<T> {
 }
 
 export function listSupplyProviders(signal?: AbortSignal): Promise<SupplyProvider[]> {
-  return fetchJson<SupplyProvider[]>(`${BASE}/providers`, { signal }, "Could not load providers");
+  return fetchJson<Items<SupplyProvider>>(`${BASE}/providers`, { signal }, "Could not load providers").then((list) => list.items);
 }
 
 export function listSupplyConnectors(signal?: AbortSignal): Promise<SupplyConnector[]> {
-  return fetchJson<SupplyConnector[]>(`${BASE}/connectors`, { signal }, "Could not load connectors");
+  return fetchJson<Items<SupplyConnector>>(`${BASE}/connectors`, { signal }, "Could not load connectors").then((list) => list.items);
 }
 
-export function createSupplyConnector(input: CreateSupplyConnectorInput): Promise<SupplyConnector> {
+function createSupplyConnectorRequest(input: CreateSupplyConnectorInput): Promise<SupplyConnector> {
   return post(`${BASE}/connectors`, input, "Could not create the connector");
 }
 
-export function updateSupplyConnector(id: string, changes: UpdateSupplyConnectorInput): Promise<SupplyConnector> {
+function updateSupplyConnectorRequest(id: string, changes: UpdateSupplyConnectorInput): Promise<SupplyConnector> {
   return fetchJson<SupplyConnector>(
     connectorPath(id),
     { method: "PATCH", body: JSON.stringify(changes) },
@@ -80,7 +73,7 @@ export function updateSupplyConnector(id: string, changes: UpdateSupplyConnector
   );
 }
 
-export function setSupplyConnectorCredentials(id: string, credentials: Record<string, string>): Promise<SupplyConnector> {
+function setSupplyConnectorCredentialsRequest(id: string, credentials: Record<string, string>): Promise<SupplyConnector> {
   return fetchJson<SupplyConnector>(
     connectorPath(id, "credentials"),
     { method: "PUT", body: JSON.stringify({ credentials }) },
@@ -88,75 +81,63 @@ export function setSupplyConnectorCredentials(id: string, credentials: Record<st
   );
 }
 
-export function pauseSupplyConnector(id: string, reason: string): Promise<SupplyConnector> {
+function pauseSupplyConnectorRequest(id: string, reason: string): Promise<SupplyConnector> {
   return post(connectorPath(id, "pause"), { reason }, "Could not pause the connector");
 }
 
-export function resumeSupplyConnector(id: string): Promise<SupplyConnector> {
+function resumeSupplyConnectorRequest(id: string): Promise<SupplyConnector> {
   return post(connectorPath(id, "resume"), undefined, "Could not resume the connector");
 }
 
-export interface SupplyUsageRefresh {
-  updated: number;
-  unchanged: number;
-  without_index: number;
-  removed: number;
-}
+export type SupplyUsageRefresh = UsageRefreshed;
 
 /** Read where parts are used from the projects' existing indexes. Cheap: it builds none. */
-export function refreshSupplyUsage(): Promise<SupplyUsageRefresh> {
+function refreshSupplyUsageRequest(): Promise<SupplyUsageRefresh> {
   return post(`${BASE}/bom/usage/refresh`, undefined, "Could not read where parts are used");
 }
 
-export interface SupplyIndexBuild {
-  projects: number;
-  missing: number;
-  queued: number;
-}
+export type SupplyIndexBuild = UsageBuild;
 
 /** Queue the BOM reading of projects that have none yet. The worker does them in the background. */
-export function buildSupplyUsageIndexes(): Promise<SupplyIndexBuild> {
+function buildSupplyUsageIndexesRequest(): Promise<SupplyIndexBuild> {
   return post(`${BASE}/bom/usage/build`, undefined, "Could not queue the project BOMs");
 }
 
+/**
+ * Stock, price and status of a BOM's lines for a build. Left out, the build and spares are the project's usual ones (one board and
+ * the workspace's spares without a tracked project); the answer says which it priced for.
+ */
 export function lookupSupplyBom(
   lines: BomLineInput[],
-  buildQuantity: number,
-  options: { signal?: AbortSignal; attritionPercent?: number | null } = {},
+  options: { signal?: AbortSignal; buildQuantity?: number; attritionPercent?: number | null; projectId?: string } = {},
 ): Promise<SupplyBomLookup> {
+  const body = {
+    lines,
+    ...(options.projectId ? { project_id: options.projectId } : {}),
+    ...(options.buildQuantity === undefined ? {} : { build_quantity: options.buildQuantity }),
+    ...(options.attritionPercent === undefined ? {} : { attrition_percent: options.attritionPercent }),
+  };
   return fetchJson<SupplyBomLookup>(
     `${BASE}/bom/lookup`,
-    {
-      method: "POST",
-      body: JSON.stringify({ build_quantity: buildQuantity, attrition_percent: options.attritionPercent === undefined ? 0 : options.attritionPercent, lines }),
-      signal: options.signal,
-    },
+    { method: "POST", body: JSON.stringify(body), signal: options.signal },
     "Could not look the BOM up",
   );
 }
 
-export function watchSupplyBomLines(lines: BomLineInput[]): Promise<SupplyBomWatchResult> {
+function watchSupplyBomLinesRequest(lines: BomLineInput[]): Promise<SupplyBomWatchResult> {
   return post(`${BASE}/bom/watch`, { lines }, "Could not watch the BOM's parts");
 }
 
-export function testSupplyConnector(id: string): Promise<SupplyConnectorCheck> {
+function testSupplyConnectorRequest(id: string): Promise<SupplyConnectorCheck> {
   return post(connectorPath(id, "test"), undefined, "Could not test the connector");
 }
 
-export function listSupplyCapacity(signal?: AbortSignal): Promise<SupplyCapacity[]> {
-  return fetchJson<SupplyCapacity[]>(`${BASE}/capacity`, { signal }, "Could not load capacity");
-}
 
-
-export async function deleteSupplyConnector(id: string): Promise<void> {
+async function deleteSupplyConnectorRequest(id: string): Promise<void> {
   const response = await fetchApi(connectorPath(id), { method: "DELETE" });
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not delete the connector"));
   }
-}
-
-export function getSupplySignin(id: string, signal?: AbortSignal): Promise<SupplySignin> {
-  return fetchJson<SupplySignin>(connectorPath(id, "signin"), { signal }, "Could not load the sign-in");
 }
 
 /** Where to send the browser to sign in at DigiKey. */
@@ -164,7 +145,7 @@ export async function startSupplySignin(id: string): Promise<string> {
   return (await post<{ url: string }>(connectorPath(id, "signin"), undefined, "Could not start the sign-in")).url;
 }
 
-export async function forgetSupplySignin(id: string): Promise<void> {
+async function forgetSupplySigninRequest(id: string): Promise<void> {
   const response = await fetchApi(connectorPath(id, "signin"), { method: "DELETE" });
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not sign out"));
@@ -186,7 +167,7 @@ export class CsvRejectedError extends ApiHttpError {
   }
 }
 
-export async function uploadSupplyCsv(id: string, file: File): Promise<SupplyCsvResult> {
+async function uploadSupplyCsvRequest(id: string, file: File): Promise<SupplyCsvResult> {
   const query = new URLSearchParams({ filename: file.name });
   const response = await fetchApi(`${connectorPath(id, "csv")}?${query}`, {
     method: "POST",
@@ -195,21 +176,15 @@ export async function uploadSupplyCsv(id: string, file: File): Promise<SupplyCsv
   });
   if (response.ok) return (await response.json()) as SupplyCsvResult;
   if (response.status === 413) throw new ApiHttpError(413, "The file is larger than 5 MB.");
-  const payload = (await response.clone().json().catch(() => null)) as { detail?: unknown } | null;
-  const detail = payload?.detail;
-  if (detail && typeof detail === "object" && (detail as { code?: string }).code === "csv_rejected") {
-    const rejected = detail as { message?: string; errors?: SupplyCsvRowError[]; error_count?: number };
-    throw new CsvRejectedError(
-      rejected.message ?? "The file was not imported.",
-      rejected.errors ?? [],
-      rejected.error_count ?? rejected.errors?.length ?? 0,
-    );
+  const error = await apiErrorFrom(response, "Could not upload the file");
+  if (error.code === "csv_rejected") {
+    const { errors, error_count: errorCount } = error.payload as { errors?: SupplyCsvRowError[]; error_count?: number };
+    throw new CsvRejectedError(error.message, errors ?? [], errorCount ?? errors?.length ?? 0);
   }
-  const said = detail && typeof detail === "object" ? (detail as { message?: unknown }).message : undefined;
-  throw new ApiHttpError(response.status, typeof said === "string" && said ? said : await readApiError(response, "Could not upload the file"));
+  throw error;
 }
 
-export async function clearSupplyCsv(id: string): Promise<void> {
+async function clearSupplyCsvRequest(id: string): Promise<void> {
   const response = await fetchApi(connectorPath(id, "csv"), { method: "DELETE" });
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not remove the data"));
@@ -220,7 +195,7 @@ export function getSupplyReviewQueue(signal?: AbortSignal): Promise<SupplyReview
   return fetchJson<SupplyReviewQueue>(`${BASE}/review`, { signal }, "Could not load the review queue");
 }
 
-export function confirmSupplyAlias(input: ConfirmAliasInput): Promise<{ listings_updated: number }> {
+function confirmSupplyAliasRequest(input: ConfirmAliasInput): Promise<AliasConfirmed> {
   return post(`${BASE}/review/aliases/confirm`, input, "Could not map the spelling");
 }
 
@@ -231,7 +206,7 @@ async function decide(listingId: string, decision: "pin" | "reject", fallback: s
   }
 }
 
-export async function pinSupplyListing(listingId: string, addNumber = false): Promise<void> {
+async function pinSupplyListingRequest(listingId: string, addNumber = false): Promise<void> {
   const response = await fetchApi(`${BASE}/review/listings/${encodeURIComponent(listingId)}/pin`, {
     method: "POST",
     body: JSON.stringify({ add_number: addNumber }),
@@ -239,80 +214,69 @@ export async function pinSupplyListing(listingId: string, addNumber = false): Pr
   if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, "Could not confirm the listing"));
 }
 
-export function rejectSupplyListing(listingId: string): Promise<void> {
+function rejectSupplyListingRequest(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
 }
 
-export function markPartNumbers(partId: string, keys: string[]): Promise<{ counted: number }> {
+function markPartNumbersRequest(partId: string, keys: string[]): Promise<NumbersCounted> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/numbers`, { keys }, "Could not record the numbers");
 }
 
-export function chooseSupplyMaker(partId: string, key: string): Promise<{ result: string }> {
+function chooseSupplyMakerRequest(partId: string, key: string): Promise<MakerChosen> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/choose`, { key }, "Could not record the choice");
 }
 
-export function otherSupplyMaker(partId: string, key: string): Promise<{ rejected: number }> {
+function otherSupplyMakerRequest(partId: string, key: string): Promise<ListingsRejected> {
   return post(`${BASE}/review/choices/${encodeURIComponent(partId)}/other`, { key }, "Could not record the choice");
 }
 
-export interface SupplyFxRates {
-  day: string | null;
-  currencies: string[];
-  stale: boolean;
-}
+export type { SupplyFxRates, SupplyFxRatesSaved, SupplyNoticeCheck, SupplyNumberEnding };
 
 export function getFxRates(signal?: AbortSignal): Promise<SupplyFxRates> {
   return fetchJson(`${BASE}/fx`, { signal }, "Could not load the exchange rates");
 }
 
-export function refreshFxRates(): Promise<SupplyFxRates> {
+function refreshFxRatesRequest(): Promise<SupplyFxRatesSaved> {
   return post(`${BASE}/fx/refresh`, undefined, "Could not fetch the exchange rates");
 }
 
-export function enterFxRates(day: string, rates: Record<string, number>): Promise<SupplyFxRates> {
+function enterFxRatesRequest(day: string, rates: Record<string, number>): Promise<SupplyFxRatesSaved> {
   return post(`${BASE}/fx/rates`, { day, rates }, "Could not save the exchange rates");
 }
 
-export interface SupplyNumberEnding {
-  suffix_key: string;
-  suffix_text: string;
-  kind: "packaging" | "grade";
-  source: string;
+export function listNumberEndings(signal?: AbortSignal): Promise<SupplyNumberEnding[]> {
+  return fetchJson<Items<SupplyNumberEnding>>(`${BASE}/settings/number-endings`, { signal }, "Could not load the endings").then((list) => list.items);
 }
 
-export function listNumberEndings(signal?: AbortSignal): Promise<{ endings: SupplyNumberEnding[] }> {
-  return fetchJson(`${BASE}/settings/number-endings`, { signal }, "Could not load the endings");
+function addNumberEndingRequest(ending: string, kind: SupplyNumberEnding["kind"]): Promise<SupplyNumberEnding[]> {
+  return post<Items<SupplyNumberEnding>>(`${BASE}/settings/number-endings`, { ending, kind }, "Could not add the ending").then((list) => list.items);
 }
 
-export function addNumberEnding(ending: string, kind: "packaging" | "grade"): Promise<{ endings: SupplyNumberEnding[] }> {
-  return post(`${BASE}/settings/number-endings`, { ending, kind }, "Could not add the ending");
-}
-
-export function removeNumberEnding(key: string): Promise<void> {
+function removeNumberEndingRequest(key: string): Promise<void> {
   return send(`${BASE}/settings/number-endings/${encodeURIComponent(key)}`, "DELETE", undefined, "Could not remove the ending");
 }
 
-export function listMakerSpellings(signal?: AbortSignal): Promise<{ groups: SupplyMakerGroup[] }> {
-  return fetchJson(`${BASE}/settings/makers`, { signal }, "Could not load the spellings");
+export function listMakerSpellings(signal?: AbortSignal): Promise<SupplyMakerGroup[]> {
+  return fetchJson<Items<SupplyMakerGroup>>(`${BASE}/settings/makers`, { signal }, "Could not load the spellings").then((list) => list.items);
 }
 
-export function addMakerSpelling(spelling: string, groupKey: string | null): Promise<{ groups: SupplyMakerGroup[] }> {
-  return post(`${BASE}/settings/makers`, { spelling, group_key: groupKey }, "Could not add the spelling");
+function addMakerSpellingRequest(spelling: string, groupKey: string | null): Promise<SupplyMakerGroup[]> {
+  return post<Items<SupplyMakerGroup>>(`${BASE}/settings/makers`, { spelling, group_key: groupKey }, "Could not add the spelling").then((list) => list.items);
 }
 
-export function removeMakerSpelling(key: string): Promise<void> {
+function removeMakerSpellingRequest(key: string): Promise<void> {
   return send(`${BASE}/settings/makers/${encodeURIComponent(key)}`, "DELETE", undefined, "Could not remove the spelling");
 }
 
-export function undoSettledPart(partId: string): Promise<{ undone: boolean }> {
+function undoSettledPartRequest(partId: string): Promise<SettleUndone> {
   return post(`${BASE}/review/parts/${encodeURIComponent(partId)}/undo`, {}, "Could not take the maker back");
 }
 
-export function undoLearnedAlias(key: string): Promise<{ listings: number }> {
+function undoLearnedAliasRequest(key: string): Promise<AliasUndone> {
   return post(`${BASE}/review/aliases/${encodeURIComponent(key)}/undo`, {}, "Could not undo the spelling");
 }
 
-export function rejectSupplyListings(listingIds: string[]): Promise<{ rejected: number }> {
+function rejectSupplyListingsRequest(listingIds: string[]): Promise<ListingsRejected> {
   return post(`${BASE}/review/listings/reject-many`, { listing_ids: listingIds }, "Could not take the listings off");
 }
 
@@ -359,9 +323,11 @@ export function getSupplyInsights(signal?: AbortSignal): Promise<SupplyInsightsP
   return fetchJson<SupplyInsightsPage>(`${BASE}/insights`, { signal }, "Could not load the insights");
 }
 
-export function getSupplyOverview(signal?: AbortSignal): Promise<SupplyOverview> {
-  return fetchJson<SupplyOverview>(`${BASE}/overview`, { signal }, "Could not load the overview");
+/** Every tracked part with its risk figures, as CSV. */
+export function getRiskCsv(): Promise<string> {
+  return fetchText(`${BASE}/insights/risk.csv`, undefined, "Could not export the risk by part");
 }
+
 
 export function listSupplyAlerts(includeResolved: boolean, signal?: AbortSignal): Promise<{ items: SupplyAlert[] }> {
   const query = includeResolved ? "?include_resolved=true" : "";
@@ -378,11 +344,11 @@ async function alertAction(alertId: number, action: string, body: unknown, fallb
   }
 }
 
-export function acknowledgeSupplyAlert(alertId: number): Promise<void> {
+function acknowledgeSupplyAlertRequest(alertId: number): Promise<void> {
   return alertAction(alertId, "acknowledge", undefined, "Could not acknowledge the alert");
 }
 
-export function snoozeSupplyAlert(alertId: number, hours: number): Promise<void> {
+function snoozeSupplyAlertRequest(alertId: number, hours: number): Promise<void> {
   return alertAction(alertId, "snooze", { hours }, "Could not snooze the alert");
 }
 
@@ -395,25 +361,25 @@ export function getSupplyPart(partId: string, signal?: AbortSignal): Promise<Sup
 }
 
 /** Make one distributor the part's preferred one: shown first. */
-export async function setPreferredDistributor(partId: string, connectorId: string): Promise<void> {
+async function setPreferredDistributorRequest(partId: string, connectorId: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preferred`, { method: "PUT", body: JSON.stringify({ connector_id: connectorId }) }, "Could not set the preferred distributor");
 }
 
-export async function clearPreferredDistributor(partId: string): Promise<void> {
+async function clearPreferredDistributorRequest(partId: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/preferred`, { method: "DELETE" }, "Could not clear the preferred distributor");
 }
 
 /** Price a part at its own quantity in lists and its price history; null goes back to the workspace default. */
-export async function setPriceQuantity(partId: string, quantity: number | null): Promise<void> {
+async function setPriceQuantityRequest(partId: string, quantity: number | null): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/price-quantity`, { method: "PUT", body: JSON.stringify({ quantity }) }, "Could not set the price quantity");
 }
 
 /** Mark a part export controlled (with its class) or not; it wins over what distributors state. */
-export async function setTradeMark(partId: string, control: "controlled" | "none", eccn: string): Promise<void> {
+async function setTradeMarkRequest(partId: string, control: "controlled" | "none", eccn: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/trade-mark`, { method: "PUT", body: JSON.stringify({ control, eccn }) }, "Could not set the export control");
 }
 
-export async function clearTradeMark(partId: string): Promise<void> {
+async function clearTradeMarkRequest(partId: string): Promise<void> {
   await fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/trade-mark`, { method: "DELETE" }, "Could not clear the export control");
 }
 
@@ -435,47 +401,13 @@ export async function findSupplyPart(manufacturer: string, mpn: string, signal?:
 }
 
 /** Ask DigiKey for parts it offers in place of this one. One call, from the interactive reserve; once an hour for a part. */
-export async function askSubstitutes(partId: string): Promise<{ asked: number; found: number; resolved?: number; problems: Array<{ connector: string; reason: string }> }> {
+export async function askSubstitutes(partId: string): Promise<SubstitutesAsked> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/ask-substitutes`, {}, "Could not ask for substitutes");
-}
-
-export function addSupplyWatch(input: AddWatchInput): Promise<SupplyWatch> {
-  return post(`${BASE}/watches`, input, "Could not watch the part");
-}
-
-export function updateSupplyWatch(watchId: string, changes: UpdateWatchInput): Promise<SupplyWatch> {
-  return fetchJson<SupplyWatch>(
-    `${BASE}/watches/${encodeURIComponent(watchId)}`,
-    { method: "PATCH", body: JSON.stringify(changes) },
-    "Could not save the watch",
-  );
-}
-
-export async function removeSupplyWatch(watchId: string): Promise<void> {
-  const response = await fetchApi(`${BASE}/watches/${encodeURIComponent(watchId)}`, { method: "DELETE" });
-  if (!response.ok) {
-    throw new ApiHttpError(response.status, await readApiError(response, "Could not stop watching the part"));
-  }
 }
 
 async function send(url: string, method: string, body: unknown, fallback: string): Promise<void> {
   const response = await fetchApi(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, fallback));
-}
-
-export async function getComponentWatch(componentId: string, signal?: AbortSignal): Promise<SupplyComponentWatch | null> {
-  const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
-  return (await fetchJson<{ watch: SupplyComponentWatch | null }>(url, { signal }, "Could not load the component watch")).watch;
-}
-
-export async function setComponentWatch(componentId: string, packaging: WatchPackaging): Promise<SupplyComponentWatch> {
-  const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
-  const body = JSON.stringify({ packaging });
-  return (await fetchJson<{ watch: SupplyComponentWatch }>(url, { method: "PUT", body }, "Could not watch the component")).watch;
-}
-
-export function removeComponentWatch(componentId: string): Promise<void> {
-  return send(`${BASE}/components/${encodeURIComponent(componentId)}/watch`, "DELETE", undefined, "Could not stop watching the component");
 }
 
 function commentsPath(projectId: string): string {
@@ -486,11 +418,11 @@ export async function listBomComments(projectId: string, signal?: AbortSignal): 
   return (await fetchJson<{ items: SupplyBomComment[] }>(commentsPath(projectId), { signal }, "Could not load the comments")).items;
 }
 
-export function addBomComment(projectId: string, lineKey: string, body: string): Promise<SupplyBomComment> {
+function addBomCommentRequest(projectId: string, lineKey: string, body: string): Promise<SupplyBomComment> {
   return post(commentsPath(projectId), { line_key: lineKey, body }, "Could not add the comment");
 }
 
-export function removeBomComment(projectId: string, commentId: string): Promise<void> {
+function removeBomCommentRequest(projectId: string, commentId: string): Promise<void> {
   return send(`${commentsPath(projectId)}/${encodeURIComponent(commentId)}`, "DELETE", undefined, "Could not remove the comment");
 }
 
@@ -504,15 +436,15 @@ export function getSupplyAssessment(partId: string, quantity?: number, signal?: 
   return fetchJson<SupplyAssessment>(`${BASE}/parts/${encodeURIComponent(partId)}/assessment${query}`, { signal }, "Could not load the assessment");
 }
 
-export function proposeWaiver(partId: string, check: string, reason: string): Promise<{ id: string; state: string }> {
+function proposeWaiverRequest(partId: string, check: string, reason: string): Promise<{ id: string; state: string }> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/waivers`, { check, reason }, "Could not propose the waiver");
 }
 
-export function decideWaiver(id: string, approve: boolean): Promise<void> {
+function decideWaiverRequest(id: string, approve: boolean): Promise<void> {
   return send(`${BASE}/waivers/${encodeURIComponent(id)}/${approve ? "approve" : "reject"}`, "POST", undefined, "Could not save the decision");
 }
 
-export function revokeWaiver(id: string): Promise<void> {
+function revokeWaiverRequest(id: string): Promise<void> {
   return send(`${BASE}/waivers/${encodeURIComponent(id)}`, "DELETE", undefined, "Could not revoke the waiver");
 }
 
@@ -520,7 +452,7 @@ export function getAssessmentSettings(signal?: AbortSignal): Promise<AssessmentS
   return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { signal }, "Could not load the settings");
 }
 
-export function saveAssessmentSettings(settings: AssessmentSettings): Promise<AssessmentSettingsView> {
+function saveAssessmentSettingsRequest(settings: AssessmentSettings): Promise<AssessmentSettingsView> {
   return fetchJson<AssessmentSettingsView>(
     `${BASE}/settings/assessment`,
     { method: "PUT", body: JSON.stringify(settings) },
@@ -529,6 +461,26 @@ export function saveAssessmentSettings(settings: AssessmentSettings): Promise<As
 }
 
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
+export interface ProjectPartsQuery {
+  variant?: string;
+  boards?: number;
+  chip?: string;
+  q?: string;
+  only?: string;
+  vendor?: string;
+  sort?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export function getProjectParts(projectId: string, asked: ProjectPartsQuery, signal?: AbortSignal): Promise<ProjectPartsPage> {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries({ ...asked, build_quantity: asked.boards, boards: undefined })) {
+    if (value !== undefined && value !== "") query.set(name, String(value));
+  }
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/parts?${query.toString()}`, { signal }, "Could not load the parts");
+}
+
 export function getProjectSupply(projectId: string, variant = "", boards?: number, spares = "", signal?: AbortSignal): Promise<ProjectSupply> {
   const query = new URLSearchParams();
   if (boards !== undefined) query.set("build_quantity", String(boards));
@@ -537,46 +489,27 @@ export function getProjectSupply(projectId: string, variant = "", boards?: numbe
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply?${query.toString()}`, { signal }, "Could not load the project's supply");
 }
 
-export function getProjectBomHealth(
-  projectId: string,
-  signal?: AbortSignal,
-  variant = "",
-): Promise<{ available: boolean; rollup?: SupplyBomRollup; variants?: string[] }> {
-  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
-  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health${query}`, { signal }, "Could not load the supply health");
-}
-
 export function getPartDatasheet(partId: string, signal?: AbortSignal): Promise<{ url: string }> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet`, { signal }, "Could not load the datasheet address");
-}
-
-export async function setDatasheetUrl(partId: string, url: string): Promise<void> {
-  const response = await fetchApi(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet-url`, {
-    method: "PUT",
-    body: JSON.stringify({ url }),
-  });
-  if (!response.ok) {
-    throw new ApiHttpError(response.status, await readApiError(response, "Could not save the datasheet address"));
-  }
 }
 
 export function getPartCompliance(partId: string, signal?: AbortSignal): Promise<SupplyCompliance> {
   return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/compliance`, { signal }, "Could not load the compliance");
 }
 
-export function declareSubstance(partId: string, cas: string, note: string): Promise<void> {
+function declareSubstanceRequest(partId: string, cas: string, note: string): Promise<void> {
   return send(`${BASE}/parts/${encodeURIComponent(partId)}/substances`, "POST", { cas, note }, "Could not declare the substance");
 }
 
-export function addRohsExemption(partId: string, code: string, note: string): Promise<void> {
+function addRohsExemptionRequest(partId: string, code: string, note: string): Promise<void> {
   return send(`${BASE}/parts/${encodeURIComponent(partId)}/exemptions`, "POST", { code, note }, "Could not record the exemption");
 }
 
-export function removeRohsExemption(partId: string, code: string): Promise<void> {
+function removeRohsExemptionRequest(partId: string, code: string): Promise<void> {
   return send(`${BASE}/parts/${encodeURIComponent(partId)}/exemptions/${encodeURIComponent(code)}`, "DELETE", undefined, "Could not remove the exemption");
 }
 
-export function undeclareSubstance(partId: string, cas: string): Promise<void> {
+function undeclareSubstanceRequest(partId: string, cas: string): Promise<void> {
   return send(`${BASE}/parts/${encodeURIComponent(partId)}/substances/${encodeURIComponent(cas)}`, "DELETE", undefined, "Could not remove the substance");
 }
 
@@ -584,17 +517,19 @@ export function getSvhcList(signal?: AbortSignal): Promise<SupplySvhcList> {
   return fetchJson(`${BASE}/compliance/svhc`, { signal }, "Could not load the Candidate List");
 }
 
-export function loadSvhcList(csv: string, sourceName: string): Promise<SupplySvhcList> {
+function loadSvhcListRequest(csv: string, sourceName: string): Promise<SupplySvhcList> {
   return post(`${BASE}/compliance/svhc`, { csv, source_name: sourceName }, "Could not load the Candidate List");
 }
 
 /** The same list as an Excel file, sent as base64. */
-export function loadSvhcListXlsx(xlsxBase64: string, sourceName: string): Promise<SupplySvhcList> {
+function loadSvhcListXlsxRequest(xlsxBase64: string, sourceName: string): Promise<SupplySvhcList> {
   return post(`${BASE}/compliance/svhc`, { xlsx_base64: xlsxBase64, source_name: sourceName }, "Could not load the Candidate List");
 }
 
-export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
-  return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
+/** The first sheet of an Excel BOM as rows of text, read by the server. */
+export async function readBomSheet(xlsxBase64: string): Promise<string[][]> {
+  const sheet = await post<{ rows: string[][] }>(`${BASE}/bom/sheet`, { xlsx_base64: xlsxBase64 }, "Could not read the spreadsheet");
+  return sheet.rows;
 }
 
 export function getSupplyMarketHistory(metric: string, signal?: AbortSignal): Promise<SupplyMarketHistory> {
@@ -606,7 +541,7 @@ export async function listPartNotices(partId: string, signal?: AbortSignal): Pro
   return (await fetchJson<{ items: SupplyNotice[] }>(url, { signal }, "Could not load the notices")).items;
 }
 
-export function addNotice(notice: {
+function addNoticeRequest(notice: {
   title: string;
   kind: SupplyNoticeKind;
   parts: Array<{ manufacturer: string; mpn: string }>;
@@ -618,10 +553,6 @@ export function addNotice(notice: {
   return post(`${BASE}/notices`, notice, "Could not add the notice");
 }
 
-export function closeNotice(noticeId: string): Promise<void> {
-  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
-}
-
 export interface SupplyReadNow {
   read: number;
   connectors: number;
@@ -630,18 +561,67 @@ export interface SupplyReadNow {
 
 /** Read one part from its distributors now. Spends the interactive reserve; once per 15 minutes per person and part. */
 /** What reading a part's notices now found. */
-export interface SupplyNoticeCheck {
-  read: number;
-  new: number;
-  connectors: number;
-  problems: Array<{ connector: string; reason: string }>;
-}
-
 /** Read this part's change notices from the distributors that list them, now. Once an hour per person and part. */
-export function checkPartNotices(partId: string): Promise<SupplyNoticeCheck> {
+function checkPartNoticesRequest(partId: string): Promise<SupplyNoticeCheck> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/check-notices`, undefined, "Could not check the notices");
 }
 
-export function readSupplyPartNow(partId: string): Promise<SupplyReadNow> {
+/** Read a part someone opened when nothing follows it and its prices are older than the read window; the server decides. */
+export function readSupplyPartOnView(partId: string): Promise<{ read: number }> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/view-read`, undefined, "Could not read the part");
+}
+
+function readSupplyPartNowRequest(partId: string): Promise<SupplyReadNow> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/refresh`, undefined, "Could not read the part");
 }
+
+export const createSupplyConnector = changesSupply(createSupplyConnectorRequest);
+export const updateSupplyConnector = changesSupply(updateSupplyConnectorRequest);
+export const setSupplyConnectorCredentials = changesSupply(setSupplyConnectorCredentialsRequest);
+export const pauseSupplyConnector = changesSupply(pauseSupplyConnectorRequest);
+export const resumeSupplyConnector = changesSupply(resumeSupplyConnectorRequest);
+export const refreshSupplyUsage = changesSupply(refreshSupplyUsageRequest);
+export const buildSupplyUsageIndexes = changesSupply(buildSupplyUsageIndexesRequest);
+export const watchSupplyBomLines = changesSupply(watchSupplyBomLinesRequest);
+export const testSupplyConnector = changesSupply(testSupplyConnectorRequest);
+export const deleteSupplyConnector = changesSupply(deleteSupplyConnectorRequest);
+export const forgetSupplySignin = changesSupply(forgetSupplySigninRequest);
+export const uploadSupplyCsv = changesSupply(uploadSupplyCsvRequest);
+export const clearSupplyCsv = changesSupply(clearSupplyCsvRequest);
+export const confirmSupplyAlias = changesSupply(confirmSupplyAliasRequest);
+export const pinSupplyListing = changesSupply(pinSupplyListingRequest);
+export const rejectSupplyListing = changesSupply(rejectSupplyListingRequest);
+export const markPartNumbers = changesSupply(markPartNumbersRequest);
+export const chooseSupplyMaker = changesSupply(chooseSupplyMakerRequest);
+export const otherSupplyMaker = changesSupply(otherSupplyMakerRequest);
+export const refreshFxRates = changesSupply(refreshFxRatesRequest);
+export const enterFxRates = changesSupply(enterFxRatesRequest);
+export const addNumberEnding = changesSupply(addNumberEndingRequest);
+export const removeNumberEnding = changesSupply(removeNumberEndingRequest);
+export const addMakerSpelling = changesSupply(addMakerSpellingRequest);
+export const removeMakerSpelling = changesSupply(removeMakerSpellingRequest);
+export const undoSettledPart = changesSupply(undoSettledPartRequest);
+export const undoLearnedAlias = changesSupply(undoLearnedAliasRequest);
+export const rejectSupplyListings = changesSupply(rejectSupplyListingsRequest);
+export const acknowledgeSupplyAlert = changesSupply(acknowledgeSupplyAlertRequest);
+export const snoozeSupplyAlert = changesSupply(snoozeSupplyAlertRequest);
+export const setPreferredDistributor = changesSupply(setPreferredDistributorRequest);
+export const clearPreferredDistributor = changesSupply(clearPreferredDistributorRequest);
+export const setPriceQuantity = changesSupply(setPriceQuantityRequest);
+export const setTradeMark = changesSupply(setTradeMarkRequest);
+export const clearTradeMark = changesSupply(clearTradeMarkRequest);
+export const addBomComment = changesSupply(addBomCommentRequest);
+export const removeBomComment = changesSupply(removeBomCommentRequest);
+export const proposeWaiver = changesSupply(proposeWaiverRequest);
+export const decideWaiver = changesSupply(decideWaiverRequest);
+export const revokeWaiver = changesSupply(revokeWaiverRequest);
+export const saveAssessmentSettings = changesSupply(saveAssessmentSettingsRequest);
+export const declareSubstance = changesSupply(declareSubstanceRequest);
+export const addRohsExemption = changesSupply(addRohsExemptionRequest);
+export const removeRohsExemption = changesSupply(removeRohsExemptionRequest);
+export const undeclareSubstance = changesSupply(undeclareSubstanceRequest);
+export const loadSvhcList = changesSupply(loadSvhcListRequest);
+export const loadSvhcListXlsx = changesSupply(loadSvhcListXlsxRequest);
+export const addNotice = changesSupply(addNoticeRequest);
+export const checkPartNotices = changesSupply(checkPartNoticesRequest);
+export const readSupplyPartNow = changesSupply(readSupplyPartNowRequest);

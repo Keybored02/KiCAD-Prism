@@ -26,7 +26,7 @@ const SUPPLIER_FIELDS: ReadonlyArray<readonly [string, string]> = [["supplier", 
 const LCSC_NUMBER = /^C\d{1,12}$/;
 
 /** The columns the supply data adds to the BOM table, in the order they appear. */
-export const BOM_SUPPLY_COLUMNS = ["Supply", "Stock", "Unit price", "Extended", "Lead time"] as const;
+export const BOM_SUPPLY_COLUMNS = ["Supply", "Stock", "Stores", "Unit price", "Extended", "Distributor", "Lead time"] as const;
 
 export function isSupplyColumn(column: string): boolean {
   return (BOM_SUPPLY_COLUMNS as readonly string[]).includes(column);
@@ -150,7 +150,7 @@ export function untrackedLabel(result: SupplyBomLineResult): string {
     case "ambiguous":
       return "Several parts match";
     case "unknown":
-      return "Not watched yet";
+      return result.in_library === false ? "Not in library" : "Not watched yet";
     default:
       return "";
   }

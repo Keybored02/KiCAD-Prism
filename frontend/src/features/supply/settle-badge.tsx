@@ -11,7 +11,7 @@ import { useLoaded } from "./use-loaded";
 /** A project's open questions as a badge; it opens the same answers as Review, for this project only. Nothing shows when none. */
 export function SettleBadge({ projectId, onChanged }: { projectId: string; onChanged?: () => void }) {
   const fetcher = useCallback((signal: AbortSignal) => getProjectOpen(projectId, signal), [projectId]);
-  const loaded = useLoaded("project-open:" + projectId, fetcher, "Could not read what is open");
+  const loaded = useLoaded(`projects/${projectId}/open`, fetcher, "Could not read what is open");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const data = loaded.data;
@@ -30,7 +30,7 @@ export function SettleBadge({ projectId, onChanged }: { projectId: string; onCha
               <DialogTitle>Settle</DialogTitle>
               <DialogDescription>{count} {count === 1 ? "question" : "questions"} for this project.</DialogDescription>
             </DialogHeader>
-            <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+            <div className="max-h-[60vh] space-y-3 themed-scrollbar overflow-y-auto">
               {data.lines.length > 0 ? (
                 <TrackLinesStep
                   lines={data.lines} busy={busy}

@@ -3,7 +3,8 @@ type Variant = "outline" | "warning" | "destructive";
 const BADGES: Record<string, { label: string; variant: Variant }> = {
   compliant: { label: "Compliant", variant: "outline" },
   clear: { label: "Not affected", variant: "outline" },
-  noncompliant: { label: "Not compliant", variant: "destructive" },
+  not_compliant: { label: "Not compliant", variant: "destructive" },
+  not_applicable: { label: "Not applicable", variant: "outline" },
   affected: { label: "Affected", variant: "warning" },
   disputed: { label: "Disputed", variant: "warning" },
   unknown: { label: "Unknown", variant: "outline" },

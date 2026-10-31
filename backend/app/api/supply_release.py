@@ -6,23 +6,28 @@ cannot open is not found. The check reads existing semantic indexes and calls no
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.services.supply import clock
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
+from app.api.supply_call import run_supply
+from app.api.supply_models import JobProgress
+from app.api.supply_release_models import (
+    ProjectPartsPage, ProjectSupply, ReleaseBomKept, ReleaseCheck, ReleaseCompliance, ReleaseSnapshot,
+)
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import (
-    bom_lookup, catalog_read, compliance_draft, project_supply, release_bom, release_check, release_source, usage,
+    catalog_read, compliance_draft, project_parts, project_supply, release_bom, release_check, release_source, usage,
 )
 
 from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
-
-T = TypeVar("T")
+_run = partial(run_supply, invalid="invalid_request")
 
 
 def _store():
@@ -30,44 +35,7 @@ def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except release_check.SnapshotNotFound as exc:
-        raise HTTPException(status_code=404, detail="No supply snapshot for this build") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
-
-
-@router.get("/{project_id}/bom-health")
-async def bom_health(
-    project_id: str,
-    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
-    variant: str = Query(default="", max_length=120),
-    user: AuthenticatedUser = Depends(require_supply_reader),
-) -> dict[str, Any]:
-    """The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor.
-
-    ``variant`` names a design variant; empty is the base design. ``variants`` lists the names stored.
-    """
-
-    get_project_for_role_or_404(project_id, user.role)
-
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            rows = usage.project_rows(conn, project_id, variant)
-            if not rows:
-                return {"available": False}
-            lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-            return {
-                "available": True, "build_quantity": build_quantity, "variant": variant, "variants": usage.project_variants(conn, project_id),
-                "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"],
-            }
-
-    return await _run(read)
-
-
-@router.get("/{project_id}/supply")
+@router.get("/{project_id}/supply", response_model=ProjectSupply, response_model_exclude_unset=True)
 async def project_overview(
     project_id: str,
     build_quantity: int | None = Query(default=None, ge=1, le=1_000_000),
@@ -91,8 +59,43 @@ async def project_overview(
     return await _run(read)
 
 
+@router.get("/{project_id}/parts", response_model=ProjectPartsPage, response_model_exclude_unset=True)
+async def project_parts_page(
+    project_id: str,
+    build_quantity: int | None = Query(default=None, ge=1, le=1_000_000),
+    variant: str = Query(default="", max_length=120),
+    spares: str = Query(default="", max_length=12),
+    chip: str = Query(default="", max_length=20),
+    q: str = Query(default="", max_length=200),
+    only: str = Query(default="", max_length=60),
+    vendor: str = Query(default="", max_length=80),
+    sort: str = Query(default="", max_length=40),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """One page of the project's parts with their BOM lines for the build, the "needs a look" chips counted over the whole project
+    (``chip`` keeps one), and the lines no part matches. ``q`` that is a board reference finds the lines that carry it."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    try:
+        attrition = project_supply.attrition_of(spares)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return project_parts.page(
+                conn, project_id, variant=variant, build_quantity=build_quantity, attrition_percent=attrition, chip=chip, query=q,
+                only=only, vendor=vendor, sort=sort, offset=offset, limit=limit, role=user.role,
+            )
+
+    return await _run(read)
+
+
 @router.get(
     "/{project_id}/costing.zip",
+    response_class=Response,
     responses={200: {"description": "The costing, trade classification and compliance files as one zip.", "content": {"application/zip": {}}}},
 )
 async def costing_zip(
@@ -126,7 +129,7 @@ def _build_of_project(project_id: str, build_id: str) -> None:
         raise HTTPException(status_code=404, detail="Build not found")
 
 
-@router.get("/{project_id}/release-builds/{build_id}/check")
+@router.get("/{project_id}/release-builds/{build_id}/check", response_model=ReleaseCheck)
 async def release_check_for(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
@@ -146,7 +149,7 @@ async def release_check_for(
     return await _run(read)
 
 
-@router.post("/{project_id}/release-builds/{build_id}/read-bom")
+@router.post("/{project_id}/release-builds/{build_id}/read-bom", response_model=ReleaseBomKept)
 async def read_release_bom(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_tracker),
 ) -> dict[str, Any]:
@@ -157,7 +160,6 @@ async def read_release_bom(
     _build_of_project(project_id, build_id)
 
     def run() -> dict[str, Any]:
-        from datetime import datetime, timezone
 
         try:
             read_bom = release_bom.lines_from_csv(release_source.build_bom_text(build_id), catalog_read.identities)
@@ -166,14 +168,18 @@ async def read_release_bom(
         with _store().connection() as conn:
             stored = usage.store_project(
                 conn, project_id, project.name or project_id, f"release:{build_id}|u{usage.USAGE_VERSION}", read_bom.lines,
-                datetime.now(timezone.utc),
+                clock.now(),
             )
         return {"stored": stored, "parts": len(read_bom.lines), "without_number": read_bom.without_number}
 
     return await _run(run)
 
 
-@router.get("/{project_id}/releases/{build_id}/compliance")
+@router.get(
+    "/{project_id}/releases/{build_id}/compliance",
+    response_model=ReleaseCompliance,
+    responses={200: {"content": {"text/csv": {}}, "description": "The draft as JSON, or as CSV with format=csv."}},
+)
 async def release_compliance(
     project_id: str,
     build_id: str,
@@ -201,7 +207,7 @@ async def release_compliance(
     return {"tag": snapshot["tag"], "created_at": snapshot["created_at"], "draft": snapshot["compliance"]}
 
 
-@router.get("/{project_id}/releases/{build_id}/supply")
+@router.get("/{project_id}/releases/{build_id}/supply", response_model=ReleaseSnapshot)
 async def release_snapshot(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader)
 ) -> dict[str, Any]:
@@ -214,7 +220,7 @@ async def release_snapshot(
     return await _run(read)
 
 
-@router.get("/{project_id}/releases/{build_id}/supply-status")
+@router.get("/{project_id}/releases/{build_id}/supply-status", response_model=JobProgress)
 async def release_snapshot_status(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader)
 ) -> dict[str, Any]:

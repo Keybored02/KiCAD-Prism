@@ -7,10 +7,10 @@ import type { UserRole } from "@/types/auth";
 
 const SUPPLY_VIEWS = [
   { view: "dashboard", label: "Dashboard" },
-  { view: "parts", label: "Parts" },
+  { view: "tracking", label: "Tracking" },
   { view: "review", label: "Review" },
   { view: "insights", label: "Insights" },
-  { view: "connectors", label: "Connectors" },
+  { view: "sources", label: "Sources" },
 ] as const;
 
 /** What people type to find a group of parts, and the Parts view that shows it. */
@@ -41,9 +41,9 @@ export function supplyCommands(role: UserRole | null | undefined, goToWorkspace:
     group: "Go to",
     icon: PackageSearch,
     keywords: entry.keywords,
-    run: goToWorkspace(`?section=supply&supplyView=parts&${entry.params}`),
+    run: goToWorkspace(`?section=supply&supplyView=tracking&${entry.params}`),
   }));
-  const tool = { id: "go:supply:bom-file", label: "Supply: Check a BOM file", group: "Go to", icon: PackageSearch, keywords: "csv spreadsheet upload bom price stock", run: goToWorkspace("?section=supply&supplyView=parts&tool=bom-file") };
+  const tool = { id: "go:supply:bom-file", label: "Supply: Check a BOM file", group: "Go to", icon: PackageSearch, keywords: "csv spreadsheet upload bom price stock", run: goToWorkspace("?section=supply&supplyView=tracking&tool=bom-file") };
   return [...views, ...findings, tool];
 }
 

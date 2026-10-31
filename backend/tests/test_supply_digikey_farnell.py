@@ -221,6 +221,19 @@ class FarnellTests(unittest.TestCase):
     def setUp(self) -> None:
         unrecognised._seen.clear()
 
+    def test_a_search_pages_while_the_answer_says_there_are_more_and_stops_at_its_limit(self) -> None:
+        def page(start, count, total):
+            products = [fa_product(sku=str(start + i)) for i in range(count)]
+            return {"manufacturerPartNumberSearchReturn": {"numberOfResults": total, "products": products}}
+
+        client = FakeClient({"/catalog/products": [page(0, 10, 23), page(10, 10, 23), page(20, 3, 23)]})
+        provider = fa_provider(client)
+        self.assertEqual(len(provider.lookup_mpn("LM339ADT")), 23)
+        self.assertEqual([call["params"]["resultsSettings.offset"] for call in client.calls], ["0", "10", "20"])
+        self.assertEqual(provider.calls, 3, "each page is a call")
+        many = FakeClient({"/catalog/products": [page(start, 10, 500) for start in range(0, 100, 10)]})
+        self.assertEqual(len(fa_provider(many).lookup_mpn("LM339ADT")), 10 * farnell.MAX_PAGES, "no more than the page limit")
+
     def test_the_spec(self) -> None:
         spec = registry.get_spec("farnell")
         self.assertEqual((spec.max_batch, spec.required_credentials), (10, ("api_key",)))
@@ -292,6 +305,9 @@ class FarnellTests(unittest.TestCase):
         client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
         (uk,) = fa_provider(client, store="uk.farnell.com", currency="").get_offers(["1278613"])
         self.assertEqual(uk.currency, "GBP")
+        client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
+        (india,) = fa_provider(client, store="in.element14.com", currency="").get_offers(["1278613"])
+        self.assertEqual((len(india.price_breaks), india.currency), (3, "INR"), "element14 India prices in rupees")
 
     def test_a_product_link_is_the_stores_search_for_the_sku_unless_the_service_gives_one(self) -> None:
         from app.services.supply.providers import farnell
@@ -364,6 +380,21 @@ class MouserFamilyTests(unittest.TestCase):
         provider = mouser.MouserProvider(config, client=client, clock=lambda: NOW, monotonic=lambda: 0.0, sleep=lambda _s: None)
         self.assertEqual([m.mpn for m in provider.lookup_family("74AHC1G09GV")], ["74AHC1G09GV,125", "74AHC1G09GV-Q100H"])
         self.assertEqual(client.calls[0]["json"]["SearchByPartRequest"]["partSearchOptions"], "None")
+
+
+class DigiKeyPagingTests(unittest.TestCase):
+    def test_a_search_pages_while_the_answer_says_there_are_more(self) -> None:
+        def product(n):
+            return dk_product([variation(sku=f"{n}-ND")])
+
+        def page(start, count, total):
+            return {"ExactMatches": [], "Products": [product(start + i) for i in range(count)], "ProductsCount": total}
+
+        client = FakeClient({"/v1/oauth2/token": [TOKEN], "/products/v4/search/keyword": [page(0, 10, 13), page(10, 3, 13)]})
+        provider = dk_provider(client)
+        self.assertEqual(len(provider.lookup_mpn("LM358DR")), 13)
+        self.assertEqual([call["json"]["Offset"] for call in client.calls if call["path"].endswith("keyword")], [0, 10])
+        self.assertEqual(provider.calls, 3, "the token and two pages")
 
 
 class DigiKeySubstitutesTests(unittest.TestCase):

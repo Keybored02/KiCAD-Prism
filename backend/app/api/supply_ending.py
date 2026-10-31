@@ -6,28 +6,21 @@ and administrators. Retiring itself is the catalog's own archive transition; thi
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Literal, TypeVar
+from functools import partial
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, Response
 
 from app.api import supply_connectors
+from app.api.supply_access import is_approver, require_supply_editor
+from app.api.supply_call import run_supply
+from app.api.supply_ending_models import ComponentRestriction, DismissIn, EndingParts, RestrictionIn
+from app.api.supply_models import DecisionState
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
 from app.services.supply import ending_parts
 
 router = APIRouter(prefix="/api/supply/ending", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class RestrictionIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    level: Literal["not_for_new_designs", "retired"]
-    reason: str = Field(default="", max_length=ending_parts.MAX_REASON)
-    # The component that takes its place, when there is one.
-    replacement_component_id: str = Field(default="", max_length=100)
+_run = partial(run_supply, invalid="invalid_restriction", missing=True)
 
 
 def _store():
@@ -35,14 +28,7 @@ def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_restriction", "message": str(exc)}) from exc
-
-
-@router.get("")
+@router.get("", response_model=EndingParts)
 async def list_ending(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -51,7 +37,7 @@ async def list_ending(user: AuthenticatedUser = Depends(require_supply_reader)) 
     return await _run(read)
 
 
-@router.put("/{component_id}/restriction")
+@router.put("/{component_id}/restriction", response_model=ComponentRestriction)
 async def set_restriction(component_id: str, body: RestrictionIn, user: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -65,6 +51,28 @@ async def clear_restriction(component_id: str, user: AuthenticatedUser = Depends
     def run() -> None:
         with _store().connection() as conn:
             ending_parts.clear_restriction(conn, component_id, user.email)
+
+    await _run(run)
+    return Response(status_code=204)
+
+
+@router.put("/{component_id}/dismissal", response_model=DecisionState)
+async def dismiss_ending(component_id: str, body: DismissIn, user: AuthenticatedUser = Depends(require_supply_editor)) -> dict[str, str]:
+    """Nothing to do about this component for now. It comes back when its part gains a new reason. An approver's dismissal stands;
+    anyone else's waits in To approve."""
+
+    def run() -> dict[str, str]:
+        with _store().connection() as conn:
+            return ending_parts.dismiss(conn, component_id, body.reasons, user.email, approver=is_approver(user))
+
+    return await _run(run)
+
+
+@router.post("/dismissals/{decision_id}/{verdict}", status_code=204)
+async def decide_dismissal(decision_id: str, verdict: Literal["approve", "reject"], user: AuthenticatedUser = Depends(require_supply_approver)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            ending_parts.decide_dismissal(conn, decision_id, user.email, approve=verdict == "approve")
 
     await _run(run)
     return Response(status_code=204)

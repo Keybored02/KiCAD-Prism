@@ -13,15 +13,16 @@ carry are recorded as searched, so they are not searched on every scan.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from app.services.supply import admission, budget, ledger, parts, trouble
+from app.services.supply import clock as supply_clock
+from app.services.supply import admission, budget, ledger, library_match, parts, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import DiscoveryService
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
+from app.services.supply.providers.base import CAP_SEARCH, BatchSearch, CallCounting, FamilySearch, ProviderError, SupplyProvider, calls_made
 from app.services.supply.store import SupplyStore, supply_store
 
 # How long after a search a part is searched again, by tracking tier: where it was found, and where nothing was (``budget.py`` has the days).
@@ -33,7 +34,6 @@ STOPPED_INACTIVE = "inactive"
 STOPPED_COOLING_DOWN = "cooling_down"
 STOPPED_UNSUPPORTED = "unsupported"
 STOPPED_BUDGET = "budget"
-POOL_KEPT_FOR_PEOPLE_PCT = ledger.POOL_KEPT_FOR_PEOPLE_PCT
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,9 +77,9 @@ def pending_waiting(conn, connector_id: str, now: datetime, limit: int) -> list[
 
     rows = conn.execute(
         """
-        SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first FROM part_tiers pt
-        JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = %(connector)s AND a.state = 'waiting'
-        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = a.connector_id
+        SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first FROM supply_part_tiers pt
+        JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = %(connector)s AND a.state = 'waiting'
+        LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = a.connector_id
         WHERE d.part_id IS NULL OR d.last_run_at <= CASE
             WHEN d.found = 0 AND pt.tier = 1 THEN %(missing1)s::timestamptz
             WHEN d.found = 0 THEN %(missing2)s::timestamptz
@@ -97,10 +97,10 @@ def pending_parts(conn, connector_id: str, now: datetime, limit: int) -> list[Pe
     rows = conn.execute(
         f"""
         SELECT pt.part_id, pt.tier, (d.part_id IS NULL) AS first
-        FROM part_tiers pt
-        JOIN connectors c ON c.id = %(connector)s
-        LEFT JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
-        LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
+        FROM supply_part_tiers pt
+        JOIN supply_connectors c ON c.id = %(connector)s
+        LEFT JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
+        LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
         WHERE {DUE_SEARCH}
         ORDER BY (d.part_id IS NULL) DESC, pt.tier, COALESCE(d.last_run_at, '-infinity'::timestamptz), pt.part_id
         LIMIT %(limit)s
@@ -142,10 +142,11 @@ class Discoverer:
         self._connectors = connectors
         self._store = store
         self._provider_for = provider_for or connectors.load_provider
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
 
-    def run(self, connector_id: str, *, limit: int = MAX_PER_RUN, waiting: bool = False) -> DiscoverySummary:
-        """Search for the parts due one. With ``waiting``, search for the parts that wait for room, from spare budget only."""
+    def run(self, connector_id: str, *, limit: int = MAX_PER_RUN, waiting: bool = False, library: bool = False) -> DiscoverySummary:
+        """Search for the parts due one. With ``waiting``, search for the parts that wait for room; with ``library``, the library
+        parts nothing follows (``library_match``). Both from spare budget only."""
 
         now = self._clock()
         connector = self._connectors.get(connector_id)
@@ -158,10 +159,13 @@ class Discoverer:
             return DiscoverySummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         group_size = max(spec.search_batch, 1)
         with self._store.connection() as conn:
-            pending = (
-                pending_waiting(conn, connector_id, now, limit * group_size) if waiting
-                else pending_parts(conn, connector_id, now, limit * group_size)
-            )
+            if library:
+                # Searched at the slowest tier's terms; spare budget pays, so the tier only names the work.
+                pending = [PendingPart(part_id, 2, True) for part_id in library_match.pending(conn, connector_id, spec.key, now, limit * group_size)]
+            elif waiting:
+                pending = pending_waiting(conn, connector_id, now, limit * group_size)
+            else:
+                pending = pending_parts(conn, connector_id, now, limit * group_size)
         if not pending:
             return DiscoverySummary(connector_id)
 
@@ -180,7 +184,7 @@ class Discoverer:
             for group in groups:
                 paid = (ledger.PURPOSE_ONE_OFF, True)
                 if spec.metered:
-                    paid = self._spend(connector, first, min(item.tier for item in group), reads_due=reads_due, spare_only=waiting)
+                    paid = self._spend(connector, first, min(item.tier for item in group), reads_due=reads_due, spare_only=waiting or library)
                     if paid is None:
                         stopped = STOPPED_BUDGET
                         break
@@ -198,12 +202,12 @@ class Discoverer:
                     listings += result.total
                     with self._store.connection() as conn:
                         conn.execute(
-                            "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
+                            "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
                             "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
                             (part_id, connector_id, now, result.total),
                         )
         searched_ids = [part_id for part_id in {item.part_id for item in pending} if part_id]
-        if hasattr(type(provider), "lookup_family") and searched_ids:
+        if isinstance(provider, FamilySearch) and searched_ids:
             self._follow_up(service, connector_id, searched_ids)
         if searched:
             # What the searches found replaces the estimate admission was made on.
@@ -227,7 +231,7 @@ class Discoverer:
             return 0, STOPPED_COOLING_DOWN
         with self._store.connection() as conn:
             done = {r["part_id"] for r in conn.execute(
-                "SELECT part_id FROM discovery_runs WHERE connector_id = %s AND part_id = ANY(%s)", (connector_id, part_ids)).fetchall()}
+                "SELECT part_id FROM supply_discovery_runs WHERE connector_id = %s AND part_id = ANY(%s)", (connector_id, part_ids)).fetchall()}
         todo = [part_id for part_id in part_ids if part_id not in done]
         provider = self._provider_for(connector_id)
         service = self._service(provider, connector_id, spec)
@@ -236,13 +240,7 @@ class Discoverer:
         with self._store.connection() as conn:
             groups = cut_groups(conn, todo, size)
         for group in groups:
-            if spec.metered and not (
-                ledger.spend_call(
-                    self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF,
-                    keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
-                )
-                or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF, spare=True)
-            ):
+            if spec.metered and ledger.fund(self._store, connector, ledger.ONE_OFF, now=now, kind=ledger.KIND_SEARCH) is None:
                 return searched, STOPPED_BUDGET
             try:
                 results = self._search(
@@ -255,7 +253,7 @@ class Discoverer:
                 searched += 1
                 with self._store.connection() as conn:
                     conn.execute(
-                        "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
+                        "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
                         "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
                         (part_id, connector_id, now, result.total),
                     )
@@ -264,7 +262,7 @@ class Discoverer:
     def _service(self, provider: SupplyProvider, connector_id: str, spec) -> DiscoveryService:
         """The search service. For a provider whose search answer is also a read, the offers it brings are recorded as that read."""
 
-        service = DiscoveryService(lambda _id: provider, self._store)
+        service = DiscoveryService(lambda _id: provider, self._store, self._clock)
         if spec.search_reads_offers:
             from app.services.supply import poller
 
@@ -283,23 +281,11 @@ class Discoverer:
         (counted as the tier's tracking), else from the pool (half of which stays for people), then from free calls; a repeat from the
         committed share. Returns what paid, as (purpose, from the pool), or None when nothing could."""
 
-        now = self._clock()
-        tracking = f"tier{tier}"
-        if spare_only:
-            paid = ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True)
-            return (ledger.PURPOSE_SPARE, False) if paid else None
-        if not first:
-            return (tracking, False) if ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=tracking) else None
-        if not reads_due and ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=tracking):
-            return tracking, False
-        if ledger.spend_call(
-            self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF,
-            keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT,
-        ):
-            return ledger.PURPOSE_ONE_OFF, True
-        if ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_SPARE, spare=True):
-            return ledger.PURPOSE_SPARE, False
-        return None
+        sources = (
+            (ledger.SPARE,) if spare_only else (ledger.committed(tier),) if not first else ledger.first_search(tier, reads_due=reads_due)
+        )
+        paid = ledger.fund(self._store, connector, sources, now=self._clock(), kind=ledger.KIND_SEARCH)
+        return None if paid is None else (paid.purpose, paid.interactive)
 
     def _charge_extra(self, connector_id: str, extra: int, purpose: str, *, interactive: bool) -> None:
         """Calls a search made beyond the one it paid for are counted, so the day's figure stays the provider's."""
@@ -315,23 +301,36 @@ class Discoverer:
         """One search call for ``group``; the result for each part, keyed by part id. A group that asks more numbers than one call
         takes (a part with several numbers, alone) makes more calls, which ``charge`` counts."""
 
+        before, paid = calls_made(provider), [1]
+
+        def spend() -> bool:
+            granted = self._spend_extra(connector_id)
+            paid[0] += granted
+            return granted
+
         if not batched:
             try:
-                return {group[0]: service.discover(group[0], connector_id, spend=lambda: self._spend_extra(connector_id))}
+                return {group[0]: service.discover(group[0], connector_id, spend=spend)}
             finally:
-                # A request the provider repeated (a retry after a refusal) is a call it counts too, answered or not.
-                repeated = getattr(provider, "extra_calls", 0)
-                repeated = repeated if isinstance(repeated, int) else 0
-                if charge and repeated > 0:
-                    charge(repeated)
+                # What the search made beyond what it paid for (a new token, a repeat after a refusal) is a call too, answered or not.
+                extra = calls_made(provider) - before - paid[0]
+                if charge and extra > 0:
+                    charge(extra)
         with self._store.connection() as conn:
             found = [parts.get_part(conn, part_id) for part_id in group]
             extra = {part.id: parts.searched_numbers(conn, part.id) for part in found}
         asked = list(dict.fromkeys([part.mpn for part in found] + [number for numbers in extra.values() for number in numbers]))
-        answers = provider.lookup_mpns(asked)  # type: ignore[attr-defined]
-        calls = -(-len(asked) // max(registry.get_spec(self._connectors.get(connector_id)["provider"]).search_batch, 1))
-        if charge and calls > 1:
-            charge(calls - 1)
+        if not isinstance(provider, BatchSearch):
+            raise ProviderError("this provider cannot search several numbers in one call")
+        try:
+            answers = provider.lookup_mpns(asked)
+        finally:
+            # More numbers than one call takes, a new token or a repeat: each call beyond the one paid for is charged.
+            calls = calls_made(provider) - before
+            if not isinstance(provider, CallCounting):
+                calls = -(-len(asked) // max(registry.get_spec(self._connectors.get(connector_id)["provider"]).search_batch, 1))
+            if charge and calls > 1:
+                charge(calls - 1)
         results = {}
         for part in found:
             matches = list(answers.get(match_key(part.mpn), []))
@@ -347,9 +346,9 @@ class Discoverer:
         with self._store.connection() as conn:
             due = [row["part_id"] for row in conn.execute(
                 """
-                SELECT d.part_id FROM discovery_runs d
+                SELECT d.part_id FROM supply_discovery_runs d
                 WHERE d.connector_id = %s AND d.part_id = ANY(%s) AND NOT d.family_done
-                  AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = d.part_id AND l.match_state IN ('exact', 'manual'))
+                  AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = d.part_id AND supply_counted(l.match_state))
                 """,
                 (connector_id, part_ids),
             ).fetchall()]
@@ -361,7 +360,7 @@ class Discoverer:
             except ProviderError:
                 return
             with self._store.connection() as conn:
-                conn.execute("UPDATE discovery_runs SET family_done = TRUE WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
+                conn.execute("UPDATE supply_discovery_runs SET family_done = TRUE WHERE part_id = %s AND connector_id = %s", (part_id, connector_id))
 
     def _spend_extra(self, connector_id: str) -> bool:
         """One more search call for a part's other number, from spare budget only: the cost model does not count it, so it never

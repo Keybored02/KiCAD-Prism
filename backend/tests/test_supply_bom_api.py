@@ -17,6 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -48,6 +49,8 @@ class BomLookupTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_bom.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -61,8 +64,12 @@ class BomLookupTests(unittest.TestCase):
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
+        # Summaries are assessed at the time the fixtures read at, so their reads are not late.
+        patcher = mock.patch("app.services.supply.parts_view._now", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=SEED, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
 
@@ -91,10 +98,10 @@ class BomLookupTests(unittest.TestCase):
         tiers = breaks if breaks is not None else [[1, price]]
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'x', 'exact')", (listing_id, self.cid, sku, part_id, ))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, moq, order_multiple, price_breaks, currency, lead_time_days, "
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, moq, order_multiple, price_breaks, currency, lead_time_days, "
                 "marketplace, lifecycle, product_url) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)",
                 (listing_id, NOW, stock, moq, multiple, json.dumps(tiers), currency, lead, marketplace, lifecycle, f"https://shop.example/{sku}"))
 
@@ -140,6 +147,27 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual(sorted(checked["blank"]["assessment"]["checks"]), ["manufacturer_missing", "not_in_library"])
         self.assertEqual(checked["named"]["assessment"]["checks"], [], "the library has Acme R-2")
 
+    def test_every_line_says_whether_the_library_has_it(self) -> None:
+        from app.services.supply import bom_lookup
+
+        lines = [
+            bom_lookup.BomLine("placed", "Wrong Co", "stale", 1, prism_id="c1"),
+            bom_lookup.BomLine("named", "Acme", "R-2", 1),
+            bom_lookup.BomLine("loose", "Nobody", "LOOSE-1", 1),
+            bom_lookup.BomLine("blank", "", "", 1),
+        ]
+        with self.store.connection() as conn:
+            plain = bom_lookup.lookup(conn, lines, 1)["lines"]
+            checked = bom_lookup.lookup(
+                conn, lines, 1, identities=lambda ids: {"c1": ("Texas Instruments", "LM358DR")},
+                in_library=lambda pairs: {("acme", "r-2")},
+            )["lines"]
+        self.assertEqual({key: line["in_library"] for key, line in plain.items()}, dict.fromkeys(plain), "unknown when the library was not asked")
+        self.assertEqual(
+            {key: line["in_library"] for key, line in checked.items()},
+            {"placed": True, "named": True, "loose": False, "blank": None},
+        )
+
     def test_a_value_or_footprint_that_disagrees_with_the_distributor_is_a_finding(self) -> None:
         from app.services.supply import bom_lookup, discovery
 
@@ -179,11 +207,11 @@ class BomLookupTests(unittest.TestCase):
         from app.services.supply.assessment import service
 
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM connectors")
+            conn.execute("DELETE FROM supply_connectors")
             for index, (provider, store, enabled) in enumerate((
                 ("tme", "IT", True), ("tme", "DE", True), ("mouser", "", True), ("csv", "", True), ("fake", "", True), ("digikey", "", False),
             )):
-                conn.execute("INSERT INTO connectors (id, provider, storefront, enabled) VALUES (%s, %s, %s, %s)", (f"x{index}", provider, store, enabled))
+                conn.execute("INSERT INTO supply_connectors (id, provider, storefront, enabled) VALUES (%s, %s, %s, %s)", (f"x{index}", provider, store, enabled))
             self.assertEqual(service.distributor_count(conn), 2)
 
     def test_the_catalog_table_asks_where_components_stand_and_untracked_ones_are_left_out(self) -> None:
@@ -196,15 +224,20 @@ class BomLookupTests(unittest.TestCase):
         ]}
         response = self.call("/api/supply/bom/components-status", body)
         self.assertEqual(response.status, 200, response.text)
-        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True, "restriction": None}})
+        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True, "unit_price": "0.5", "currency": "EUR", "test_data": True, "restriction": None}})
         self.assertEqual(self.call("/api/supply/bom/components-status", body, role="viewer").status, 403)
         with self.store.connection() as conn:
             from app.services.supply import ending_parts
 
             ending_parts.set_restriction(conn, "cmp-2", "not_for_new_designs", "", "", "qa@example.com")
-        self.addCleanup(lambda: self.store.connection().__enter__().execute("DELETE FROM component_restrictions"))
+
+        def unmark() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_component_restrictions")
+
+        self.addCleanup(unmark)
         marked = self.call("/api/supply/bom/components-status", body).json["items"]
-        self.assertEqual(marked["cmp-2"], {"status": "unknown", "stock": None, "watched": False, "restriction": "not_for_new_designs"},
+        self.assertEqual(marked["cmp-2"], {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": "not_for_new_designs"},
                          "a marked component shows its mark though Prism does not track its part")
         self.assertEqual(self.call("/api/supply/bom/components-status", {"components": []}).json, {"items": {}})
 
@@ -265,12 +298,12 @@ class BomLookupTests(unittest.TestCase):
         self.offer(part_id, "REEL", stock=50000, price="0.01", moq=1)
         self.offer(part_id, "CUT", stock=500, price="0.05")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET packaging = 'tape_reel' WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'REEL')")
-            conn.execute("UPDATE offers SET packaging = 'cut_tape' WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'CUT')")
+            conn.execute("UPDATE supply_offers SET packaging = 'tape_reel' WHERE listing_id IN (SELECT id FROM supply_listings WHERE sku = 'REEL')")
+            conn.execute("UPDATE supply_offers SET packaging = 'cut_tape' WHERE listing_id IN (SELECT id FROM supply_listings WHERE sku = 'CUT')")
         line = [{"key": "r", "manufacturer": "Acme", "mpn": "TAPED", "quantity": 1}]
         self.assertEqual(self.lookup(line, build=100)["lines"]["r"]["buy"]["sku"], "REEL", "any packaging: the cheapest that covers")
         with self.store.connection() as conn:
-            conn.execute("UPDATE watches SET packaging = 'cut_tape'")
+            conn.execute("UPDATE supply_watches SET packaging = 'cut_tape'")
         entry = self.lookup(line, build=100)["lines"]["r"]
         self.assertEqual((entry["buy"]["sku"], entry["stock"]), ("CUT", 500), "cut tape only: the reel is not suggested")
         self.assertEqual(self.lookup(line, build=1000)["lines"]["r"]["short"], True, "and its stock is what is checked")
@@ -366,13 +399,11 @@ class BomLookupTests(unittest.TestCase):
         self.offer(part_id, "PICKED-OUT", stock=500, price="4.00")
         self.offer(part_id, "REEL", stock=5000, price="3.00", moq=1500)
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT id, sku FROM listings WHERE part_id = %s", (part_id,)).fetchall()
+            rows = conn.execute("SELECT id, sku FROM supply_listings WHERE part_id = %s", (part_id,)).fetchall()
             ids = {row["sku"]: row["id"] for row in rows}
             for sku, price, moq in (("CT", "5.00", 1), ("PICKED-OUT", "4.00", 1), ("REEL", "3.00", 1500)):
-                conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency, moq) VALUES (%s, %s, 10, %s, 'EUR', %s)",
-                    (ids[sku], NOW, price, moq))
-            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part_id, self.cid, ids["CT"]))
+                _reading(conn, ids[sku], NOW, 10, price=price, moq=moq)
+            conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'person')", (part_id, self.cid, ids["CT"]))
             history = prices.daily_cheapest(conn, part_id, NOW)
         self.assertEqual([float(price) for _, price, _ in history], [5.0], "the picked cut tape, not the reel or the other pack")
 
@@ -384,13 +415,12 @@ class BomLookupTests(unittest.TestCase):
         other = self.connectors.create(actor=SEED, provider="lcsc", display_name="Other", daily_budget=1000)["id"]
         listing = uuid.uuid4().hex
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'B', %s, 'x', 'x', 'exact')",
+            conn.execute("INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'B', %s, 'x', 'x', 'exact')",
                          (listing, other, part_id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, 10, 'EUR', '[[1, \"0.70\"]]'::jsonb)", (listing, NOW))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, %s, 10, 'EUR', '[[1, \"0.70\"]]'::jsonb)", (listing, NOW))
             for moment, stock_a, stock_b in ((datetime(2026, 2, 27, 8, tzinfo=timezone.utc), 50, 12), (NOW, 40, 10)):
                 for sku_listing, amount, price in ((self.listing_of(conn, "A"), stock_a, "0.50"), (listing, stock_b, "0.70")):
-                    conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, %s, 'EUR')",
-                                 (sku_listing, moment, amount, price))
+                    _reading(conn, sku_listing, moment, amount, price=price)
             data = part_history.build(conn, part_id, NOW, 30)
         self.assertEqual(data["currency"], "EUR")
         names = [line["name"] for line in data["connectors"]]
@@ -410,36 +440,36 @@ class BomLookupTests(unittest.TestCase):
             listing = self.listing_of(conn, "M")
             for day, amount in ((27, 100), (28, 100), (1, 900)):
                 moment = datetime(2026, 2 if day > 1 else 3, day, 8, tzinfo=timezone.utc)
-                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, %s, 0.5, 'EUR')", (listing, moment, amount))
-            conn.execute("INSERT INTO pcns (id, title, kind, published_on, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", (datetime(2026, 2, 28).date(),))
-            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (part_id,))
+                _reading(conn, listing, moment, amount, price="0.5")
+            conn.execute("INSERT INTO supply_pcns (id, title, kind, published_on, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'x')", (datetime(2026, 2, 28).date(),))
+            conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (part_id,))
             events = part_history.build(conn, part_id, NOW, 30)["events"]
         self.assertEqual([(item["day"], item["kind"]) for item in events], [("2026-02-28", "notice"), ("2026-03-01", "restock")])
 
     def listing_of(self, conn, sku: str) -> str:
-        return conn.execute("SELECT id FROM listings WHERE sku = %s", (sku,)).fetchone()["id"]
+        return conn.execute("SELECT id FROM supply_listings WHERE sku = %s", (sku,)).fetchone()["id"]
 
     def test_the_preferred_distributor_prices_the_bom_only_when_the_option_is_on_and_it_holds_enough(self) -> None:
         from app.services.supply import preferences
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         part_id = self.part("Acme", "PREF")
         other = self.connectors.create(actor=SEED, provider="lcsc", display_name="Other", daily_budget=1000)["id"]
         self.offer(part_id, "CHEAP", stock=1000, price="0.10")
         listing = uuid.uuid4().hex
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'DEAR', %s, 'x', 'x', 'exact')", (listing, other, part_id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, moq, order_multiple, price_breaks, currency, product_url) VALUES (%s, %s, 500, 1, 1, '[[1, \"0.30\"]]'::jsonb, 'EUR', '')", (listing, NOW))
+            conn.execute("INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, 'DEAR', %s, 'x', 'x', 'exact')", (listing, other, part_id))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, moq, order_multiple, price_breaks, currency, product_url) VALUES (%s, %s, 500, 1, 1, '[[1, \"0.30\"]]'::jsonb, 'EUR', '')", (listing, NOW))
             preferences.set_preferred(conn, part_id, other, SEED)
         line = [{"key": "p", "manufacturer": "Acme", "mpn": "PREF", "quantity": 1}]
         self.assertEqual(self.lookup(line, build=10)["lines"]["p"]["buy"]["sku"], "CHEAP", "off by default: the cheapest")
         with self.store.connection() as conn:
-            settings_store.save(conn, {"prefer_distributors": True}, SEED)
+            supply_settings.save_form(conn, {"prefer_distributors": True}, SEED)
         self.assertEqual(self.lookup(line, build=10)["lines"]["p"]["buy"]["sku"], "DEAR", "the preferred one has enough stock")
         self.assertEqual(self.lookup(line, build=600)["lines"]["p"]["buy"]["sku"], "CHEAP", "not enough there for 600: the cheapest")
         with self.store.connection() as conn:
             preferences.clear(conn, part_id, SEED)
-            settings_store.save(conn, {"prefer_distributors": True, "distributor_order": [other]}, SEED)
+            supply_settings.save_form(conn, {"prefer_distributors": True, "distributor_order": [other]}, SEED)
         self.assertEqual(self.lookup(line, build=10)["lines"]["p"]["buy"]["sku"], "DEAR", "the workspace order applies without a part's own choice")
 
     def test_attrition_adds_spares_to_the_need_and_takes_them_off_what_can_be_built(self) -> None:
@@ -492,6 +522,20 @@ class BomLookupTests(unittest.TestCase):
         data = self.lookup(lines, build=10)
         self.assertEqual((data["lines"]["named"]["short"], data["lines"]["blank"]["short"], data["rollup"]["short"]), (True, True, 1))
 
+    def test_a_projects_bom_is_priced_for_its_usual_build_and_spares_unless_asked_otherwise(self) -> None:
+        part_id = self.part("Acme", "BUILD-1", watch=True)
+        self.offer(part_id, "B1", stock=5000)
+        line = [{"key": "k", "manufacturer": "Acme", "mpn": "BUILD-1", "quantity": 2}]
+        usual = {"build_quantity": 10, "spares": "5"}
+        with mock.patch("app.api.supply_bom.get_project_for_role_or_404"), \
+                mock.patch("app.services.supply.project_supply.tracking.tracked_project", return_value=usual):
+            found = self.call("/api/supply/bom/lookup", {"project_id": "prj_1", "lines": line}).json
+            asked = self.call("/api/supply/bom/lookup", {"project_id": "prj_1", "lines": line, "build_quantity": 3, "attrition_percent": 0}).json
+        self.assertEqual((found["build_quantity"], found["attrition_percent"]), (10, 5.0))
+        self.assertEqual((asked["build_quantity"], asked["attrition_percent"]), (3, 0))
+        alone = self.call("/api/supply/bom/lookup", {"lines": line}).json
+        self.assertEqual((alone["build_quantity"], alone["attrition_percent"]), (1, 0.0), "no project: one board, the workspace's spares")
+
     def test_requests_are_checked(self) -> None:
         for body in ({"lines": [], "build_quantity": 0}, {"lines": [{"key": "a", "quantity": 0}]},
                      {"lines": [{"key": "", "mpn": "x"}]}, {"lines": [{"key": "a", "owner": "mallory"}]}):
@@ -519,7 +563,7 @@ class BomLookupTests(unittest.TestCase):
         data = self.call("/api/supply/bom/watch", {"lines": lines}).json
         self.assertEqual((data["watched"], data["already_watched"]), (2, 1), "a line with no maker is watched too: its maker is settled later")
         self.assertEqual(data["skipped"], [{"key": "5", "reason": "no_mpn"}])
-        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM watches")[0]["n"], 3)
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM supply_watches")[0]["n"], 3)
         again = self.call("/api/supply/bom/watch", {"lines": lines}).json
         self.assertEqual((again["watched"], again["already_watched"]), (0, 3))
 
@@ -530,7 +574,7 @@ class BomLookupTests(unittest.TestCase):
             {"key": "1", "manufacturer": "Texas Instruments", "mpn": "LM358DR", "lcsc": "C5423"},
         ]}).json
         self.assertEqual((data["watched"], data["lcsc_linked"]), (1, 1))
-        (listing,) = self.rows("SELECT connector_id, sku, match_state, matched_by FROM listings")
+        (listing,) = self.rows("SELECT connector_id, sku, match_state, matched_by FROM supply_listings")
         self.assertEqual(dict(listing), {"connector_id": lcsc, "sku": "C5423", "match_state": "manual", "matched_by": "bom"})
         again = self.call("/api/supply/bom/watch", {"lines": [{"key": "1", "manufacturer": "Texas Instruments", "mpn": "LM358DR", "lcsc": "C5423"}]}).json
         self.assertEqual(again["lcsc_linked"], 0, "a number already linked is left alone")
@@ -556,7 +600,7 @@ class BomLookupTests(unittest.TestCase):
         lines = [{"key": "1", "manufacturer": "Brand New Maker", "mpn": "BN-1"}]
         done = self.call("/api/supply/bom/watch", {"lines": lines}, role="designer").json
         self.assertEqual((done["watched"], done["skipped"]), (1, []))
-        self.assertEqual(self.rows("SELECT provisional FROM manufacturers WHERE name = 'Brand New Maker'"), [{"provisional": True}])
+        self.assertEqual(self.rows("SELECT provisional FROM supply_manufacturers WHERE name = 'Brand New Maker'"), [{"provisional": True}])
         again = self.call("/api/supply/bom/watch", {"lines": [{"key": "1", "manufacturer": "brand new maker", "mpn": "BN-1"},
                                                               {"key": "2", "manufacturer": "Brand New Maker", "mpn": "BN-2"}]}, role="designer").json
         self.assertEqual((again["watched"], again["already_watched"]), (1, 1))
@@ -572,10 +616,10 @@ class BomLookupTests(unittest.TestCase):
         preview = self.call("/api/supply/bom/watch/preview", {"lines": lines, "tier": 1})
         self.assertEqual(preview.status, 200, preview.text)
         self.assertEqual(preview.json["watched"]["watched"], 1)
-        self.assertEqual(self.rows("SELECT 1 FROM watches"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_watches"), [])
         done = self.call("/api/supply/bom/watch", {"lines": lines, "tier": 1})
         self.assertEqual((done.status, done.json["watched"]), (200, 1))
-        self.assertEqual([(r["tier"], r["rate"]) for r in self.rows("SELECT tier, rate FROM watches")], [(1, "daily")])
+        self.assertEqual([(r["tier"], r["rate"]) for r in self.rows("SELECT tier, rate FROM supply_watches")], [(1, "daily")])
         self.assertEqual(self.call("/api/supply/bom/watch", {"lines": lines, "tier": 3}).status, 422)
         self.assertEqual(self.call("/api/supply/bom/watch", {"lines": lines, "tier": 2, "rate": "daily"}).status, 422)
 

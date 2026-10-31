@@ -2,15 +2,9 @@ import { ExternalLink } from "lucide-react";
 
 import type { PanelSupply, PanelSupplySummary } from "@/panel/lib/panel-api";
 import { compactCount, price, summaryText } from "@/panel/lib/supply-summary";
+import { STATUS_FILL as DOT } from "@/features/supply/supply-format";
 import { vendorColor } from "@/features/supply/vendor-colors";
-
-const DOT: Record<PanelSupplySummary["status"], string> = {
-  ok: "bg-emerald-500",
-  warning: "bg-amber-500",
-  error: "bg-red-500",
-  fatal: "bg-red-700",
-  unknown: "bg-muted-foreground/40",
-};
+import { OutsideLink } from "@/panel/components/OutsideLink";
 
 /** The status dot a search row shows for a component Prism tracks. */
 export function SupplyDot({ summary }: { summary: PanelSupplySummary }) {
@@ -39,7 +33,8 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
           ))}
         </div>
         {supply.links ? (
-          <a href={supply.links.supply} target="_blank" rel="noopener noreferrer" aria-label="Open in Prism" title="Open in Prism" className="inline-flex shrink-0 text-muted-foreground hover:text-primary">
+          // Opens in the panel: inside KiCad the web app shows this part alone, and closing it comes back here.
+          <a href={supply.links.supply} aria-label="Open in Prism" title="Open in Prism" className="inline-flex shrink-0 text-muted-foreground hover:text-primary">
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         ) : null}
@@ -58,9 +53,9 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
               <span className="tabular-nums">{compactCount(offer.stock)}</span>
               <span className="w-16 text-right tabular-nums text-muted-foreground">{price(offer.unit_price, offer.currency)}</span>
               {offer.product_url ? (
-                <a href={offer.product_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${offer.connector} product page`} className="text-muted-foreground hover:text-primary">
+                <OutsideLink href={offer.product_url} label={`Open ${offer.connector} product page`} className="text-muted-foreground hover:text-primary">
                   <ExternalLink className="h-3 w-3" />
-                </a>
+                </OutsideLink>
               ) : <span className="w-3" />}
             </li>
           ))}

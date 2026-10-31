@@ -10,8 +10,8 @@ import { useLoaded } from "./use-loaded";
 
 /** The spellings Prism knows for large makers: one row a maker, each spelling removable, and a way to add one to a maker. */
 export function MakerSpellings({ readOnly = false }: { readOnly?: boolean }) {
-  const fetcher = useCallback(async (signal: AbortSignal) => (await listMakerSpellings(signal)).groups, []);
-  const loaded = useLoaded("maker-spellings", fetcher, "Could not load the spellings");
+  const fetcher = useCallback((signal: AbortSignal) => listMakerSpellings(signal), []);
+  const loaded = useLoaded("settings/maker-spellings", fetcher, "Could not load the spellings");
   const { busy, error, run } = useConnectorSubmit();
   const [spelling, setSpelling] = useState("");
   const [group, setGroup] = useState("");
@@ -24,7 +24,7 @@ export function MakerSpellings({ readOnly = false }: { readOnly?: boolean }) {
   return (
     <section aria-label="Known spellings" className="space-y-2">
       <CollapsibleSection id="settings-maker-spellings" title="Known spellings of makers" count={groups.length} startOpen={false}>
-        <ul className="max-h-64 divide-y overflow-y-auto">
+        <ul className="max-h-64 divide-y themed-scrollbar overflow-y-auto">
           {groups.map((item) => (
             <li key={item.group_key} className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-xs" aria-label={item.name}>
               <span className="mr-1 text-sm font-medium">{item.name}</span>

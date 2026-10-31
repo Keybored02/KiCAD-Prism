@@ -6,36 +6,21 @@ administrator loads the Candidate List.
 
 from __future__ import annotations
 
-import asyncio
 import base64
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
+from app.api.supply_compliance_models import Declaration, LoadList, SupplyCompliance, SupplySvhcList
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_writer
 from app.services.supply import compliance, facts, parts
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class LoadList(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_name: str = Field(default="", max_length=200)
-    # Either the CSV text, or an Excel file as base64.
-    csv: str = Field(default="", max_length=compliance.MAX_LIST_BYTES)
-    xlsx_base64: str = Field(default="", max_length=compliance.MAX_LIST_BYTES * 4 // 3 + 16)
-
-
-class Declaration(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    cas: str = Field(min_length=1, max_length=20)
-    note: str = Field(default="", max_length=200)
+_run = partial(run_supply, invalid="invalid_compliance")
 
 
 def _store():
@@ -43,26 +28,7 @@ def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except parts.PartNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_compliance", "message": str(exc)}) from exc
-
-
-def _rohs_state(flags: list[bool]) -> dict[str, str]:
-    if not flags:
-        return {"state": "unknown", "reason": "No distributor says either way."}
-    if all(flags):
-        return {"state": "compliant", "reason": "Distributors list the part as RoHS compliant."}
-    if not any(flags):
-        return {"state": "noncompliant", "reason": "Distributors list the part as not RoHS compliant."}
-    return {"state": "disputed", "reason": "Distributors disagree."}
-
-
-@router.get("/compliance/svhc")
+@router.get("/compliance/svhc", response_model=SupplySvhcList)
 async def svhc_list_info(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -71,7 +37,7 @@ async def svhc_list_info(_user: AuthenticatedUser = Depends(require_supply_reade
     return await _run(read)
 
 
-@router.post("/compliance/svhc")
+@router.post("/compliance/svhc", response_model=SupplySvhcList)
 async def load_svhc_list(body: LoadList, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         if bool(body.csv) == bool(body.xlsx_base64):
@@ -89,21 +55,17 @@ async def load_svhc_list(body: LoadList, admin: AuthenticatedUser = Depends(requ
     return await _run(run)
 
 
-@router.get("/parts/{part_id}/compliance")
+@router.get("/parts/{part_id}/compliance", response_model=SupplyCompliance)
 async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             part = parts.get_part(conn, part_id)
-            offers = conn.execute(
-                "SELECT o.rohs, o.reach_affected FROM offers o JOIN listings l ON l.id = o.listing_id "
-                "WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual')",
-                (part.id,),
-            ).fetchall()
+            offers = compliance.rohs_flags(conn, [part.id])[part.id]
             substances = compliance.declared(conn, part.id)
             listed = [item["listed_as"] for item in substances if item["listed_as"]]
             return {
-                "rohs": _rohs_state([row["rohs"] for row in offers if row["rohs"] is not None]),
-                "reach": compliance.standing([dict(row) for row in offers], listed),
+                "rohs": compliance.rohs_standing(offers, facts.rohs_stated(conn, [part.id]).get(part.id, [])),
+                "reach": compliance.standing(offers, listed),
                 "substances": substances,
                 "exemptions": compliance.exemptions(conn, [part.id]).get(part.id, []),
                 "list": compliance.list_info(conn),

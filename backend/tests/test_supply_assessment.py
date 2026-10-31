@@ -67,6 +67,11 @@ class LineCheckTests(unittest.TestCase):
 
 
 class CheckTests(unittest.TestCase):
+    def test_a_stated_rohs_status_and_declared_substances_stand_with_no_offer(self) -> None:
+        found = ids(checks.evaluate(facts([], rohs_stated=["not_compliant"], svhc_listed=["lead"]), DEFAULTS))
+        self.assertIn("rohs_noncompliant", found)
+        self.assertIn("reach_svhc", found)
+
     def test_a_healthy_part_has_no_findings(self) -> None:
         self.assertEqual(checks.evaluate(facts(), DEFAULTS), [])
 
@@ -102,11 +107,19 @@ class CheckTests(unittest.TestCase):
         one = [offer(discontinued=True), offer(connector_id="c2")]
         self.assertNotIn("distributor_discontinued", ids(checks.evaluate(facts(one), DEFAULTS)))
 
+    def test_old_stock_behind_a_fresh_zero_is_late_and_one_account_is_one_holder(self) -> None:
+        stale = [offer(fetched_at=NOW - timedelta(days=180)), offer(connector_id="c2", stock=0, fetched_at=NOW - timedelta(hours=1))]
+        self.assertIn("data_stale", ids(checks.evaluate(facts(stale), DEFAULTS)))
+        shared = [offer(pool="acct"), offer(connector_id="c2", pool="acct")]
+        self.assertIn("single_source", ids(checks.evaluate(facts(shared, distributors=2), DEFAULTS)), "two storefronts, one account")
+
     def test_lead_time_rohs_and_age(self) -> None:
         self.assertEqual(ids(checks.evaluate(facts([offer(lead_time_days=120)]), DEFAULTS)), ["lead_time_over_threshold"])
         self.assertEqual(checks.evaluate(facts([offer(lead_time_days=84)]), DEFAULTS), [])
         self.assertEqual(ids(checks.evaluate(facts([offer(rohs=False)]), DEFAULTS)), ["rohs_noncompliant"])
-        self.assertEqual(checks.evaluate(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)]), DEFAULTS), [])
+        (disputed,) = checks.evaluate(facts([offer(rohs=False), offer(connector_id="c2", rohs=True)]), DEFAULTS)
+        self.assertEqual((disputed.check, disputed.text), ("rohs_disputed", "Distributors disagree on RoHS: c2 says compliant; c1 says not."))
+        self.assertEqual(risk.compliance({disputed.check}).score, 3, "not the best score")
         self.assertEqual(ids(checks.evaluate(facts([offer(fetched_at=NOW - timedelta(hours=100))]), DEFAULTS)), ["data_stale"])
 
     def test_a_read_is_late_by_the_parts_own_schedule(self) -> None:
@@ -130,7 +143,8 @@ class CheckTests(unittest.TestCase):
 
 class RiskTests(unittest.TestCase):
     def scores(self, *args, **kwargs):
-        return {s.name: s.score for s in risk.sub_scores(facts(*args, **kwargs))}
+        found = facts(*args, **kwargs)
+        return {s.name: s.score for s in risk.sub_scores(found, checks.evaluate(found, DEFAULTS))}
 
     def test_a_good_part_scores_one_everywhere(self) -> None:
         two = [offer(), offer(connector_id="c2"), offer(connector_id="c3")]
@@ -140,6 +154,7 @@ class RiskTests(unittest.TestCase):
         self.assertEqual(self.scores([offer()])["sourcing"], 3)
         self.assertEqual(self.scores([offer(), offer(connector_id="c2")])["sourcing"], 2)
         self.assertEqual(self.scores([offer(stock=0)])["sourcing"], 5)
+        self.assertEqual(self.scores([offer(pool="acct"), offer(connector_id="c2", pool="acct")])["sourcing"], 3, "two storefronts of one account are one holder")
 
     def test_inventory_follows_cover(self) -> None:
         for need, score in ((100, 1), (500, 2), (900, 3), (2000, 4)):
@@ -152,15 +167,15 @@ class RiskTests(unittest.TestCase):
 
     def test_lifecycle_rises_with_the_outlook(self) -> None:
         self.assertEqual(self.scores(outlook="no_signs")["lifecycle"], 1)
-        self.assertEqual(self.scores(outlook="2_to_5_years")["lifecycle"], 2)
-        self.assertEqual(self.scores(outlook="under_2_years")["lifecycle"], 4)
+        self.assertEqual(self.scores(outlook="warning_signs")["lifecycle"], 2)
+        self.assertEqual(self.scores(outlook="ending")["lifecycle"], 4)
         self.assertEqual(self.scores(outlook="ended")["lifecycle"], 5)
-        self.assertEqual(self.scores(lifecycle=Lifecycle.LAST_TIME_BUY, outlook="2_to_5_years")["lifecycle"], 4, "the outlook never lowers the score")
+        self.assertEqual(self.scores(lifecycle=Lifecycle.LAST_TIME_BUY, outlook="warning_signs")["lifecycle"], 4, "the outlook never lowers the score")
 
     def test_dropped_everywhere_counts_once_when_the_outlook_came_from_it(self) -> None:
         gone = [offer(discontinued=True)]
-        self.assertEqual(self.scores(gone, outlook="under_2_years")["lifecycle"], 4)
-        self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY, outlook="under_2_years")["lifecycle"], 5)
+        self.assertEqual(self.scores(gone, outlook="ending")["lifecycle"], 4)
+        self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY, outlook="ending")["lifecycle"], 5)
         self.assertEqual(self.scores(gone, lifecycle=Lifecycle.LAST_TIME_BUY)["lifecycle"], 5)
 
     def test_market_follows_lead_time(self) -> None:
@@ -170,23 +185,24 @@ class RiskTests(unittest.TestCase):
 
 class OutlookFindingTests(unittest.TestCase):
     def test_a_part_ending_within_two_years_is_a_warning(self) -> None:
-        soon = [f for f in checks.evaluate(facts(outlook="under_2_years"), DEFAULTS) if f.check == "ending_within_2_years"]
+        soon = [f for f in checks.evaluate(facts(outlook="ending"), DEFAULTS) if f.check == "ending_within_2_years"]
         self.assertEqual([f.severity for f in soon], [Status.WARNING])
-        for quiet in ("", "no_signs", "2_to_5_years", "unknown"):
+        for quiet in ("", "no_signs", "warning_signs", "unknown"):
             self.assertFalse({"ending_within_2_years"} & set(ids(checks.evaluate(facts(outlook=quiet), DEFAULTS))), quiet)
 
     def test_it_is_not_said_twice_when_the_lifecycle_or_the_distributors_already_say_it(self) -> None:
         found = ids(checks.evaluate(facts(lifecycle=Lifecycle.OBSOLETE, outlook="ended"), DEFAULTS))
         self.assertIn("obsolete", found)
         self.assertNotIn("ending_within_2_years", found)
-        dropped = ids(checks.evaluate(facts([offer(discontinued=True)], outlook="under_2_years"), DEFAULTS))
+        dropped = ids(checks.evaluate(facts([offer(discontinued=True)], outlook="ending"), DEFAULTS))
         self.assertNotIn("ending_within_2_years", dropped)
 
     def test_a_part_with_a_last_date_to_buy_no_longer_scores_near_ten(self) -> None:
-        sub_scores = risk.sub_scores(facts(outlook="under_2_years"))
-        found = checks.evaluate(facts(outlook="under_2_years"), DEFAULTS)
+        found = checks.evaluate(facts(outlook="ending"), DEFAULTS)
+        sub_scores = risk.sub_scores(facts(outlook="ending"), found)
         result = health.health(found, sub_scores, DEFAULTS, has_data=True)
-        quiet = health.health(checks.evaluate(facts(), DEFAULTS), risk.sub_scores(facts()), DEFAULTS, has_data=True)
+        calm = checks.evaluate(facts(), DEFAULTS)
+        quiet = health.health(calm, risk.sub_scores(facts(), calm), DEFAULTS, has_data=True)
         self.assertLess(result.score, quiet.score - 1)
         self.assertEqual(result.status, Status.WARNING)
 
@@ -206,7 +222,7 @@ class LastBuyDateTests(unittest.TestCase):
     def test_a_passed_date_is_only_an_error_while_a_distributor_still_has_stock_and_the_text_says_which(self) -> None:
         passed = NOW.date() - timedelta(days=30)
         self.assertEqual(self.severity(passed, stock=500)["last_time_buy"], Status.ERROR)
-        self.assertEqual(self.severity(passed, stock=500, lifecycle=Lifecycle.ACTIVE, outlook="under_2_years")["ending_within_2_years"], Status.ERROR)
+        self.assertEqual(self.severity(passed, stock=500, lifecycle=Lifecycle.ACTIVE, outlook="ending")["ending_within_2_years"], Status.ERROR)
         with_stock = {f.check: f.text for f in checks.evaluate(facts([offer(stock=500)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=passed), DEFAULTS)}
         self.assertTrue(with_stock["last_time_buy"].endswith("The last date to buy has passed; distributors still have 500."))
         none = {f.check: f.text for f in checks.evaluate(facts([offer(stock=0)], lifecycle=Lifecycle.LAST_TIME_BUY, last_buy=passed), DEFAULTS)}
@@ -229,7 +245,7 @@ class LastBuyDateTests(unittest.TestCase):
         self.assertEqual(self.severity(NOW.date() - timedelta(days=30), settings=quiet)["last_time_buy"], Status.OK)
 
     def test_the_same_rule_applies_to_an_ending_part_whose_outlook_came_from_a_date(self) -> None:
-        found = self.severity(NOW.date() + timedelta(days=90), lifecycle=Lifecycle.ACTIVE, outlook="under_2_years")
+        found = self.severity(NOW.date() + timedelta(days=90), lifecycle=Lifecycle.ACTIVE, outlook="ending")
         self.assertEqual(found["ending_within_2_years"], Status.ERROR)
 
     def test_the_dates_a_distributor_or_an_open_notice_gives_are_read_for_all_parts_at_once(self) -> None:
@@ -243,7 +259,7 @@ class LastBuyDateTests(unittest.TestCase):
 class HealthTests(unittest.TestCase):
     def assess(self, f):
         found = checks.evaluate(f, DEFAULTS)
-        return found, health.health(found, risk.sub_scores(f), DEFAULTS, has_data=bool(f.offers))
+        return found, health.health(found, risk.sub_scores(f, found), DEFAULTS, has_data=bool(f.offers))
 
     def test_a_part_with_nothing_wrong_is_ok_and_not_ten_when_one_distributor_holds_it(self) -> None:
         _, result = self.assess(facts())
@@ -255,7 +271,7 @@ class HealthTests(unittest.TestCase):
         found, result = self.assess(facts(lifecycle=Lifecycle.OBSOLETE))
         self.assertEqual((result.score, result.status), (0.0, Status.FATAL))
         waived = waivers.apply(found, [{"id": "w", "check_id": "obsolete", "scope": "obsolete", "reason": "x", "state": "approved", "proposed_by": "a", "decided_by": "b"}])
-        again = health.health(waived, risk.sub_scores(facts(lifecycle=Lifecycle.OBSOLETE)), DEFAULTS, has_data=True)
+        again = health.health(waived, risk.sub_scores(facts(lifecycle=Lifecycle.OBSOLETE), waived), DEFAULTS, has_data=True)
         self.assertNotEqual(again.status, Status.FATAL)
         self.assertGreater(again.score, 0)
 

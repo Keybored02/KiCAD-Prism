@@ -12,12 +12,13 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import BomWhereUsed from "./bom-where-used";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 
 const uses = [
-  { project_id: "prj_1", project_name: "Imported board", quantity: 2, references: "R1 R2" },
-  { project_id: "prj_2", project_name: "BOM only board", quantity: 44, references: "C1" },
+  { project_id: "prj_1", project_name: "Imported board", quantity: 2, references: "R1 R2", only_in_variants: [] },
+  { project_id: "prj_2", project_name: "BOM only board", quantity: 44, references: "C1", only_in_variants: [] },
 ];
 
 function renderIt(manufacturer = "TI", mpn = "LM358D", known = new Set(["prj_1"])) {
@@ -49,6 +50,7 @@ describe("Also in project BOMs", () => {
     await waitFor(() => expect(mocked.getSupplyPart).toHaveBeenCalled());
     expect(screen.queryByRole("region", { name: "In project BOMs" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     mocked.findSupplyPart.mockResolvedValue(null);
     renderIt();
     await waitFor(() => expect(mocked.findSupplyPart).toHaveBeenCalledTimes(2));

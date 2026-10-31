@@ -39,7 +39,7 @@ class DigiKeyGroupTests(unittest.TestCase):
         provider = dk_provider(client)
         offers = provider.get_offers(skus)
         self.assertEqual([(o.sku, o.stock) for o in offers], [(skus[0], 5000), (skus[1], 2500), (skus[2], 5000)])
-        self.assertEqual(provider.last_batch_calls, 1)
+        self.assertEqual(provider.calls, 2, "the token and one product")
         self.assertEqual(len([call for call in client.calls if call["path"].endswith("productdetails")]), 1)
 
     def test_a_number_the_answer_does_not_list_gets_a_call_of_its_own(self) -> None:
@@ -52,7 +52,7 @@ class DigiKeyGroupTests(unittest.TestCase):
         provider = dk_provider(client)
         offers = provider.get_offers(["296-1395-1-ND", "999-1-ND", "296-1395-2-ND"])
         self.assertEqual([o.sku for o in offers], ["296-1395-1-ND", "999-1-ND", "296-1395-2-ND"])
-        self.assertEqual(provider.last_batch_calls, 2)
+        self.assertEqual(provider.calls, 3, "the token and two products")
 
     def test_the_spec_says_listings_are_read_by_part(self) -> None:
         self.assertTrue(digikey.SPEC.groups_by_part)
@@ -171,7 +171,7 @@ class SchedulingTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "quota_ledger", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_quota_ledger", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.clock = Clock()
         self.cid = self.connectors.create(actor="a@example.com", provider="demo_grouped", currency="EUR", interactive_reserve_pct=10)["id"]
@@ -188,31 +188,34 @@ class SchedulingTests(unittest.TestCase):
     def listing(self, part_id, sku):
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (uuid.uuid4().hex, self.cid, sku, part_id))
 
     def spent(self):
-        return sum(r["spent"] for r in self.rows("SELECT spent FROM quota_ledger WHERE connector_id = %s", self.cid))
+        return sum(r["spent"] for r in self.rows("SELECT spent FROM supply_quota_ledger WHERE account_id = %s", self.cid))
 
     def provider(self, calls_per_group=1):
         outer = self
 
         class Stub:
-            last_batch_calls = 1
+            # Counts its requests as ``HttpProvider`` does.
+            calls = 0
 
             def get_offers(self, skus):
                 outer.asked.append(list(skus))
-                self.last_batch_calls = calls_per_group
+                self.calls += calls_per_group
                 return [outer.Offer(provider="demo_grouped", sku=s, mpn="x", manufacturer="Acme", stock=10, fetched_at=outer.clock.now) for s in skus]
 
             def lookup_mpns(self, mpns):
                 outer.asked.append(list(mpns))
+                self.calls += -(-len(mpns) // 3)  # three numbers a call, as the spec says
                 from app.services.supply.identity import match_key
                 return {match_key(m): ([] if m.startswith("NONE") else
                         [outer.PartMatch(provider="demo_grouped", sku=f"S-{m}", mpn=m, manufacturer="Acme")]) for m in mpns}
 
             def lookup_mpn(self, mpn, manufacturer=None):
                 outer.asked.append([mpn])
+                self.calls += 1
                 return []
 
         return Stub()
@@ -228,7 +231,7 @@ class SchedulingTests(unittest.TestCase):
         summary = self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).poll_connector(self.cid)
         self.assertEqual(sorted(sorted(group) for group in self.asked), [["A-1", "A-2", "A-3"], ["B-1", "B-2"]])
         self.assertEqual((summary.calls, summary.polled, self.spent()), (2, 5, 2))
-        self.assertEqual(len(self.rows("SELECT 1 FROM poll_state")), 5)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_poll_state")), 5)
 
     def test_a_listing_not_yet_due_is_read_with_its_due_sibling(self) -> None:
         a = self.watch("AAA")
@@ -237,7 +240,7 @@ class SchedulingTests(unittest.TestCase):
         poller = self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)
         poller.poll_connector(self.cid)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s WHERE listing_id = (SELECT id FROM listings WHERE sku = 'A-1')", (self.clock.now - timedelta(hours=1),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s WHERE listing_id = (SELECT id FROM supply_listings WHERE sku = 'A-1')", (self.clock.now - timedelta(hours=1),))
         self.asked.clear()
         poller.poll_connector(self.cid)
         self.assertEqual([sorted(group) for group in self.asked], [["A-1", "A-2"]], "the sibling is not left for a call of its own")
@@ -271,24 +274,13 @@ class SchedulingTests(unittest.TestCase):
         summary = self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(calls_per_group=2), clock=self.clock).poll_connector(self.cid)
         self.assertEqual((summary.calls, self.spent()), (2, 2))
 
-    def test_capacity_counts_a_grouped_provider_in_parts(self) -> None:
-        from app.services.supply import capacity
-
-        a = self.watch("AAA")
-        for sku in ("A-1", "A-2", "A-3"):
-            self.listing(a.part_id, sku)
-        with self.store.connection() as conn:
-            (row,) = [item for item in capacity.connector_capacity(conn) if item["connector_id"] == self.cid]
-        self.assertEqual(row["listings"], 3)
-        self.assertAlmostEqual(row["calls_per_day"], 1.0, places=3, msg="one call a day reads all of a part's listings")
-
     def test_a_connector_is_said_to_search_and_price_only_the_parts_it_reads(self) -> None:
-        from app.services.supply import capacity
+        from app.services.supply import budget_view
 
         records = [self.watch(mpn) for mpn in ("AAA", "BBB", "CCC")]
         with self.store.connection() as conn:
-            conn.execute("UPDATE admissions SET state = 'waiting' WHERE part_id = %s", (records[2].part_id,))
-            (row,) = [item for item in capacity.connector_capacity(conn) if item["connector_id"] == self.cid]
+            conn.execute("UPDATE supply_admissions SET state = 'waiting' WHERE part_id = %s", (records[2].part_id,))
+            (row,) = [item for item in budget_view.view(conn, self.clock.now) if item["connector_id"] == self.cid]
         self.assertEqual(row["searches_pending"], 2, "the part that waits for room is not counted as unsearched")
         self.assertEqual(row["quotes"]["of"], 2, "nor as a part this connector should price")
 
@@ -301,8 +293,8 @@ class SchedulingTests(unittest.TestCase):
         summary = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).run(self.cid)
         self.assertEqual(len(self.asked), 2, "five parts in groups of three")
         self.assertEqual((summary.searched, summary.listings, self.spent()), (5, 4, 2))
-        self.assertEqual(len(self.rows("SELECT 1 FROM discovery_runs")), 5)
-        self.assertEqual(len(self.rows("SELECT 1 FROM listings WHERE match_state = 'exact'")), 4)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_discovery_runs")), 5)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_listings WHERE match_state = 'exact'")), 4)
 
     def test_groups_are_cut_by_numbers_asked_and_a_call_over_the_batch_is_still_charged(self) -> None:
         from app.services.supply import parts
@@ -343,8 +335,8 @@ class SchedulingTests(unittest.TestCase):
             jobs.refresh_scheduled(conn, self.cid, self.clock.now)  # the extra search is spare work: it needs free calls
         discoverer.run(self.cid)
         self.assertEqual(asked_family, ["NONE-1"], "AAA was found, so it needs no second search")
-        self.assertEqual(self.rows("SELECT part_id IS NOT NULL AS has FROM listings WHERE sku = 'F-NONE-1'"), [{"has": True}])
-        self.assertTrue(all(row["family_done"] for row in self.rows("SELECT family_done FROM discovery_runs d JOIN parts p ON p.id = d.part_id WHERE p.mpn = 'NONE-1'")))
+        self.assertEqual(self.rows("SELECT part_id IS NOT NULL AS has FROM supply_listings WHERE sku = 'F-NONE-1'"), [{"has": True}])
+        self.assertTrue(all(row["family_done"] for row in self.rows("SELECT family_done FROM supply_discovery_runs d JOIN supply_parts p ON p.id = d.part_id WHERE p.mpn = 'NONE-1'")))
         self.clock.now += timedelta(days=15)
         discoverer.run(self.cid)
         self.assertEqual(asked_family, ["NONE-1"], "once")
@@ -352,18 +344,18 @@ class SchedulingTests(unittest.TestCase):
     def test_a_part_waiting_for_room_is_searched_again_on_the_same_cadences(self) -> None:
         record = self.watch("AAA")
         with self.store.connection() as conn:
-            conn.execute("UPDATE admissions SET state = 'waiting'")
+            conn.execute("UPDATE supply_admissions SET state = 'waiting'")
             self.assertEqual([p.first for p in self.discoverer.pending_waiting(conn, self.cid, self.clock.now, 10)], [True], "never searched")
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
             self.assertEqual(self.discoverer.pending_waiting(conn, self.cid, self.clock.now, 10), [])
-            conn.execute("UPDATE discovery_runs SET last_run_at = %s", (self.clock.now - timedelta(days=31),))
+            conn.execute("UPDATE supply_discovery_runs SET last_run_at = %s", (self.clock.now - timedelta(days=31),))
             self.assertEqual([p.first for p in self.discoverer.pending_waiting(conn, self.cid, self.clock.now, 10)], [False], "found, tier 1: a month")
 
     def test_the_budget_is_charged_per_group(self) -> None:
         for mpn in ("AAA", "BBB", "CCC", "DDD"):
             self.watch(mpn)
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET daily_budget = 1")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 1")
         summary = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).run(self.cid)
         self.assertEqual((summary.searched, summary.stopped), (3, "budget"))
 
@@ -373,19 +365,19 @@ class SchedulingTests(unittest.TestCase):
             self.listing(record.part_id, sku)
         with self.store.connection() as conn:
             for record in reads:
-                conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
-            conn.execute("UPDATE connectors SET daily_budget = 10")
+                conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (record.part_id, self.cid, self.clock.now))
+            conn.execute("UPDATE supply_accounts SET daily_budget = 10")
         for index in range(30):
             self.watch(f"NEW-{index}")
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)
         connector = self.connectors.get(self.cid)
         self.assertEqual(discoverer._spend(connector, True, 1, reads_due=True), ("oneoff", True), "reads are due: the pool pays, the committed share is kept for them")  # noqa: SLF001
         self.poller.Poller(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).poll_connector(self.cid)
-        self.assertEqual(len(self.rows("SELECT 1 FROM poll_state")), 2, "every due listing was read")
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_poll_state")), 2, "every due listing was read")
         self.assertEqual(discoverer._spend(connector, True, 1, reads_due=False), ("tier1", False), "nothing due: the background allowance pays")  # noqa: SLF001
         summary = discoverer.run(self.cid)
         self.assertGreater(summary.searched, 0)
-        got = {row["purpose"]: int(row["n"]) for row in self.rows("SELECT purpose, SUM(calls) AS n FROM call_counts WHERE kind = 'search' GROUP BY purpose")}
+        got = {row["purpose"]: int(row["n"]) for row in self.rows("SELECT purpose, SUM(calls) AS n FROM supply_call_counts WHERE kind = 'search' GROUP BY purpose")}
         self.assertIn("tier1", got, "searches paid from the committed share are counted as tracking")
         self.assertEqual(got.get("oneoff"), 1, "only the pool call made above; the run itself left the pool alone")
 

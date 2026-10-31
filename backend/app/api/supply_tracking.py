@@ -1,4 +1,5 @@
-"""Tracking: which projects and parts Prism follows, at what tier, and what that costs the call budget.
+"""Tracking: which projects, parts and library components Prism follows, at what tier, and what that costs the call budget. The one
+way to follow something: a project, a part (by id, or by manufacturer and number when Prism has no part for it yet), or a component.
 
 Anyone who reads supply data sees it, and the same people (administrators, designers and QA) change it. Every change can be previewed first:
 a preview does exactly what the change would and rolls it back, so the figures shown are the figures that follow.
@@ -6,67 +7,33 @@ a preview does exactly what the change would and rolls it back, so the figures s
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
-from typing import Any, Callable, Literal, TypeVar
+from functools import partial
+from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, Response
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
-from app.services.supply import admission, budget_view, parts, project_bom, room, schedule_settings, tracking, usage, watches
+from app.api.supply_access import is_approver
+from app.api.supply_call import run_supply
+from app.api.supply_models import Items
+from app.api.supply_tracking_models import (
+    BomRead, BudgetConnector, BuildIn, ComponentFollow, ComponentFollowIn, FollowIn, FollowNumberIn, LineChoiceIn, NumberFollowed, PartFollowed,
+    PartTrackingState, ProjectIn, ProjectOpen, ProjectTrackingPreview, ProjectTrackingState, ScheduleIn, ScheduleSettings, TrackingPreview,
+    TrackingRoom, TrackProgress, UsualBuild,
+)
+from app.services.supply import admission, budget_view, clock, component_watches, parts, project_bom, room, tracking, usage, watches
+from app.services.supply import settings as supply_settings
+from app.services.supply.progress import job_progress
 
 router = APIRouter(prefix="/api/supply/tracking", tags=["supply"])
+_run = partial(run_supply, invalid="invalid_request")
 budget_router = APIRouter(prefix="/api/supply", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class ProjectIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # The designs to follow: '' is the base design, the rest are named variants.
-    variants: list[str] = Field(default_factory=lambda: [""], max_length=usage.MAX_VARIANTS + 1)
-    # The distributors the project is bought from; empty (null) means all but the assembly-only ones.
-    connector_ids: list[str] | None = Field(default=None, max_length=50)
-    # Follow every design the project has, also those it gets later (variants is then ignored).
-    all_variants: bool = False
-    # The packaging the project prefers: decides which listing is followed at each distributor.
-    packaging: Literal["cut_tape", "custom_reel", "tape_reel", "tube_tray", "smallest"] = "cut_tape"
-    # The usual build, in boards: the project's cost is worked out for it each day. Null keeps the one it has (100 for a new project).
-    build_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
-    # What the project's cost is worked out with: "" the workspace's setting, "auto" by package, or a percent. Null keeps the one it has.
-    spares: str | None = Field(default=None, max_length=12)
-
-
-class BuildIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    build_quantity: int = Field(ge=1, le=1_000_000)
-
-
-class PartIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    tier: int
-    rate: str = "weekly"
 
 
 def _store():
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except admission.NoRoom as exc:
-        raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
-    except parts.PartNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except (tracking.TrackingError, schedule_settings.ScheduleError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
 def _read_project_bom(conn, project_id: str) -> str:
@@ -82,7 +49,7 @@ def _read_project_bom(conn, project_id: str) -> str:
     visible = [role for role in usage.ALL_ROLES if workspace._is_folder_visible(row, role)]
     return usage.refresh_one(
         conn, project_service._workspace_row_to_project(row), project_bom.existing_index,
-        datetime.now(timezone.utc), visible, catalog_read.identities,
+        clock.now(), visible, catalog_read.identities,
     )
 
 
@@ -94,14 +61,7 @@ def _track(project_id: str, body: ProjectIn, actor: str) -> Callable[[Any], Any]
     return change
 
 
-class LineChoiceIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    part_id: str = Field(min_length=1, max_length=64)
-    manufacturer: str = Field(min_length=1, max_length=200)
-
-
-@router.get("/projects/{project_id}/open")
+@router.get("/projects/{project_id}/open", response_model=ProjectOpen)
 async def project_open(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """What the project waits on a person for."""
 
@@ -114,7 +74,7 @@ async def project_open(project_id: str, user: AuthenticatedUser = Depends(requir
     return await _run(read)
 
 
-@router.get("/projects/{project_id}/progress")
+@router.get("/projects/{project_id}/progress", response_model=TrackProgress)
 async def project_progress(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """How far the first searches of the project's parts have got, per distributor."""
 
@@ -140,29 +100,14 @@ async def choose_line(project_id: str, body: LineChoiceIn, user: AuthenticatedUs
     await _run(run)
 
 
-@router.get("")
-async def overview(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            return {
-                "counts": tracking.counts(conn),
-                "projects": [
-                    {**item, "tracked_at": item["tracked_at"].isoformat()} for item in tracking.list_tracked_projects(conn)
-                ],
-                "budget": admission.status(conn),
-            }
-
-    return await _run(read)
-
-
-@router.get("/projects/{project_id}")
+@router.get("/projects/{project_id}", response_model=ProjectTrackingState)
 async def project_state(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             tracked = tracking.tracked_project(conn, project_id)
-            has_usage = conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone() is not None
+            has_usage = conn.execute("SELECT 1 FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone() is not None
             return {
                 "tracked": {**tracked, "tracked_at": tracked["tracked_at"].isoformat()} if tracked else None,
                 "has_usage": has_usage,
@@ -172,24 +117,28 @@ async def project_state(project_id: str, user: AuthenticatedUser = Depends(requi
     return await _run(read)
 
 
-@router.post("/projects/{project_id}/read")
-async def read_project_bom(project_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, str]:
-    """Read the project's BOM now; when its newest revision has no index yet, queue one (``reading``) and read it later."""
+@router.post("/projects/{project_id}/read", response_model=BomRead, response_model_exclude_unset=True)
+async def read_project_bom(project_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Read the project's BOM now, as a job's progress: ``running`` while its newest revision has no index yet (one is
+    queued and read later), else ``done`` with ``changed`` when the parts differ."""
 
     get_project_for_role_or_404(project_id, user.role)
 
-    def run() -> dict[str, str]:
+    def run() -> dict[str, Any]:
         found = project_bom._workspace_projects([project_id])  # noqa: SLF001 - the same lookup the poll job uses
         if not found:
             raise ValueError("This project does not exist.")
         project, roles = found[0]
         with _store().connection() as conn:
-            return {"status": project_bom.read(conn, project, roles, datetime.now(timezone.utc))}
+            status = project_bom.read(conn, project, roles, clock.now())
+        if status == "reading":
+            return job_progress("running", total=1)
+        return job_progress("done", done=1, total=1, changed=status == "updated")
 
     return await _run(run)
 
 
-@router.put("/projects/{project_id}/build")
+@router.put("/projects/{project_id}/build", response_model=UsualBuild)
 async def keep_usual_build(project_id: str, body: BuildIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """Keep a build size as the tracked project's usual build."""
 
@@ -202,7 +151,7 @@ async def keep_usual_build(project_id: str, body: BuildIn, user: AuthenticatedUs
     return await _run(run)
 
 
-@router.post("/projects/{project_id}/preview")
+@router.post("/projects/{project_id}/preview", response_model=ProjectTrackingPreview, response_model_exclude_unset=True)
 async def preview_project(project_id: str, body: ProjectIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 
@@ -214,7 +163,7 @@ async def preview_project(project_id: str, body: ProjectIn, user: AuthenticatedU
     return await _run(run)
 
 
-@router.put("/projects/{project_id}")
+@router.put("/projects/{project_id}", response_model=ProjectTrackingPreview, response_model_exclude_unset=True)
 async def track_project(project_id: str, body: ProjectIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 
@@ -237,37 +186,72 @@ async def untrack_project(project_id: str, user: AuthenticatedUser = Depends(req
     await _run(run)
 
 
-@router.get("/parts/{part_id}")
+def _watch_dto(record: watches.WatchRecord | None) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {
+        "part_id": record.part_id, "manufacturer": record.manufacturer_name, "mpn": record.mpn, "tier": record.tier, "rate": record.rate,
+        "threshold": record.threshold, "pinned": record.pinned, "packaging": record.packaging, "owner": record.owner,
+    }
+
+
+@router.get("/parts/{part_id}", response_model=PartTrackingState)
 async def part_state(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             parts.get_part(conn, part_id)
             waiting = [
                 row["connector_id"] for row in conn.execute(
-                    "SELECT connector_id FROM admissions WHERE part_id = %s AND state = 'waiting' ORDER BY connector_id", (part_id,)
+                    "SELECT connector_id FROM supply_admissions WHERE part_id = %s AND state = 'waiting' ORDER BY connector_id", (part_id,)
                 ).fetchall()
             ]
-            return {"tier": tracking.tier_of(conn, part_id), "waiting_at": waiting}
+            return {"tier": tracking.tier_of(conn, part_id), "waiting_at": waiting, "watch": _watch_dto(watches.watch_of(conn, part_id))}
 
     return await _run(read)
 
 
-@router.post("/parts/{part_id}/preview")
-async def preview_part(part_id: str, body: PartIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+@router.post("/parts", response_model=NumberFollowed)
+async def follow_number(body: FollowNumberIn, response: Response, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Follow a library part by its manufacturer and number, for a number Prism has no part for yet. Following one already followed
+    keeps that and applies what was sent on top; a tier sent here only raises. 201 when the part was not followed."""
+
+    changes = body.changes()
+
+    def run() -> tuple[dict[str, Any], bool]:
+        with _store().connection() as conn:
+            record, created = watches.add_watch(
+                conn, body.manufacturer, body.mpn, user.email, threshold=changes.get("threshold"), pinned=bool(changes.get("pinned", False)),
+                packaging=changes.get("packaging", "any"), tier=changes.get("tier"), rate=changes.get("rate"),
+                may_create_manufacturer=is_approver(user),
+            )
+            return {"watch": _watch_dto(record), "tier": tracking.tier_of(conn, record.part_id)}, created
+
+    result, created = await _run(run)
+    response.status_code = 201 if created else 200
+    return result
+
+
+@router.post("/parts/{part_id}/preview", response_model=TrackingPreview, response_model_exclude_unset=True)
+async def preview_part(part_id: str, body: FollowIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.preview(conn, lambda c: watches.set_tier(c, part_id, body.tier, body.rate, user.email))
+            report = admission.preview(conn, lambda c: watches.follow(c, part_id, user.email, **body.changes()))
         return {key: value for key, value in report.items() if key != "result"}
 
     return await _run(run)
 
 
-@router.put("/parts/{part_id}")
-async def set_part_tier(part_id: str, body: PartIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+@router.put("/parts/{part_id}", response_model=PartFollowed, response_model_exclude_unset=True)
+async def follow_part(part_id: str, body: FollowIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Follow a part, or change how: its tier and rate, stock threshold, pin and packaging. Only the fields sent change."""
+
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.apply(conn, lambda c: watches.set_tier(c, part_id, body.tier, body.rate, user.email))
-            return {**{key: value for key, value in report.items() if key != "result"}, "tier": tracking.tier_of(conn, part_id)}
+            report = admission.apply(conn, lambda c: watches.follow(c, part_id, user.email, **body.changes()))
+            return {
+                **{key: value for key, value in report.items() if key != "result"},
+                "tier": tracking.tier_of(conn, part_id), "watch": _watch_dto(watches.watch_of(conn, part_id)),
+            }
 
     return await _run(run)
 
@@ -282,49 +266,78 @@ async def stop_tracking_part(part_id: str, user: AuthenticatedUser = Depends(req
     await _run(run)
 
 
-@budget_router.get("/budget")
-async def budget(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    """Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it."""
+@router.get("/components/{component_id}", response_model=ComponentFollow)
+async def component_state(component_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Whether a library component is followed: Prism then follows whichever part is its main part."""
 
-    def read() -> list[dict[str, Any]]:
+    def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return budget_view.view(conn, datetime.now(timezone.utc))
+            return {"watch": component_watches.get(conn, component_id)}
 
     return await _run(read)
 
 
-@budget_router.get("/room")
+@router.put("/components/{component_id}", response_model=ComponentFollow)
+async def follow_component(component_id: str, body: ComponentFollowIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Follow a library component's main part, now and after its revision names another. Sending it again changes the options."""
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"watch": component_watches.set_watch(conn, component_id, user.email, packaging=body.packaging, tier=body.tier, rate=body.rate)}
+
+    return await _run(run)
+
+
+@router.delete("/components/{component_id}", status_code=204)
+async def stop_following_component(component_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            component_watches.remove_watch(conn, component_id, user.email)
+
+    await _run(run)
+    return Response(status_code=204)
+
+
+@budget_router.get("/budget", response_model=Items[BudgetConnector])
+async def budget(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it;
+    projects the caller may not see are not named."""
+
+    visible = await _run(lambda: usage.visible_project_ids(user.role))
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"items": budget_view.view(conn, clock.now(), visible)}
+
+    return await _run(read)
+
+
+@budget_router.get("/room", response_model=TrackingRoom)
 async def tracking_room(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """How many more typical parts tracking has room for, per distributor and overall (``room.py``)."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return room.view(conn, datetime.now(timezone.utc))
+            return room.view(conn, clock.now())
 
     return await _run(read)
 
 
-class ScheduleIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    spare: dict[str, bool]
-
-
-@budget_router.get("/schedule")
+@budget_router.get("/schedule", response_model=ScheduleSettings)
 async def get_schedule(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Which spare work is on. Spare budget is the calls nothing else needs, at any hour."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return schedule_settings.load(conn)
+            return supply_settings.to_dto(supply_settings.load(conn), ("schedule",))
 
     return await _run(read)
 
 
-@budget_router.put("/schedule")
+@budget_router.put("/schedule", response_model=ScheduleSettings)
 async def put_schedule(body: ScheduleIn, user: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return schedule_settings.save(conn, body.model_dump(), user.email)
+            return supply_settings.to_dto(supply_settings.save(conn, {"schedule": body.model_dump()}, user.email), ("schedule",))
 
     return await _run(run)

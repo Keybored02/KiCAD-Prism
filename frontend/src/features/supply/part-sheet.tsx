@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply } from "@/lib/roles";
+import { canEditSupply, canFollowSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
@@ -43,7 +43,7 @@ export function PartSheet({ partId, user, onClose, onWatchChanged }: PartSheetPr
   }, [partId, onClose]);
   return (
     <Sheet open={partId !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent side="right" data-part-sheet className="w-full overflow-y-auto sm:max-w-[43rem]">
+      <SheetContent side="right" data-part-sheet className="w-full themed-scrollbar overflow-y-auto sm:max-w-[43rem]">
         {partId ? <PartBody key={partId} partId={partId} user={user} onWatchChanged={onWatchChanged} /> : null}
       </SheetContent>
     </Sheet>
@@ -97,7 +97,7 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
             <UsedInLinks uses={detail.used_in} />
           </div>
           <span className="flex shrink-0 items-center gap-1">
-            <PartActions detail={detail} canEdit={canEdit} onChanged={onChanged} />
+            <PartActions detail={detail} canEdit={canEdit} canFollow={canFollowSupply(role)} onChanged={onChanged} />
             <LibraryComponentLink partId={detail.part.id} />
           </span>
         </div>

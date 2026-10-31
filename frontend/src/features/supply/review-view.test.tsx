@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiHttpError } from "@/lib/api";
@@ -15,6 +16,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import { ReviewView } from "./review-view";
 import * as api from "./supply-api";
+import { reviewListingFixture, reviewQueueFixture, toApproveFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 const qa: User = { name: "Quinn", email: "quinn@example.com", role: "qa" };
@@ -23,24 +25,24 @@ const designer: User = { name: "Dee", email: "dee@example.com", role: "designer"
 const TI = { id: "m1", name: "Texas Instruments", part_count: 3 };
 
 function queue(overrides: Partial<SupplyReviewQueue> = {}): SupplyReviewQueue {
-  return {
+  return reviewQueueFixture({
     aliases: [{ alias_key: "ti", alias_text: "TI", seen_at_provider: "mouser", first_seen_at: "2026-03-01T10:00:00Z", waiting_listings: 2 }],
     listings: [
-      {
+      reviewListingFixture({
         id: "l1", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358", raw_mpn: "LM358D", raw_manufacturer: "TI",
         match_state: "manufacturer_unresolved", match_reason: "manufacturer spelling not confirmed",
         first_seen_at: "2026-03-01T10:00:00Z", part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
-      },
-      {
+      }),
+      reviewListingFixture({
         id: "l2", connector_id: "c1", connector_name: "Mouser EU", sku: "595-LM358DR", raw_mpn: "LM358DR", raw_manufacturer: "Texas Instruments",
         match_state: "near", match_reason: "different part number",
         first_seen_at: "2026-03-01T09:00:00Z", part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
-      },
+      }),
     ],
     counts: { aliases: 1, unresolved: 1, near: 1 },
     manufacturers: [TI],
     ...overrides,
-  };
+  });
 }
 
 beforeEach(() => {
@@ -79,9 +81,19 @@ describe("the review queue", () => {
   });
 
   it("says there is nothing to review when the server sends an empty to-approve list", async () => {
-    mocked.getSupplyReviewQueue.mockResolvedValue(queue({ aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 }, to_approve: { waivers: [] } }));
+    mocked.getSupplyReviewQueue.mockResolvedValue(queue({ aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 }, to_approve: toApproveFixture() }));
     render(<ReviewView user={qa} />);
     expect(await screen.findByText("Nothing to review")).toBeTruthy();
+  });
+
+  it("does not say nothing to review when only an alternate waits", async () => {
+    mocked.getSupplyReviewQueue.mockResolvedValue(queue({
+      aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 },
+      to_approve: toApproveFixture({ alternates: [{ component_id: "cmp-1", component_name: "R 10k 0603", component_mpn: "RC0603", part_id: "p9", mpn: "ERJ-3EKF1002V", manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-20T10:00:00Z", main_part_id: "", main_mpn: "" }] }),
+    }));
+    render(<MemoryRouter><ReviewView user={qa} /></MemoryRouter>);
+    expect(await screen.findByText(/ERJ-3EKF1002V/)).toBeTruthy();
+    expect(screen.queryByText("Nothing to review")).toBeNull();
   });
 
   it("reports a load failure and retries", async () => {

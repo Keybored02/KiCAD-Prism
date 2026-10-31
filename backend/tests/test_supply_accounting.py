@@ -233,7 +233,7 @@ class AccountingTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("quota_ledger", "call_counts", "connectors"):
+            for table in ("supply_quota_ledger", "supply_call_counts", "supply_connectors", "supply_accounts"):
                 conn.execute(f"DELETE FROM {table}")
         self.clock["now"] = START
 
@@ -244,13 +244,13 @@ class AccountingTests(unittest.TestCase):
 
     def spent(self, ledger_id: str) -> int:
         with self.store.connection() as conn:
-            row = conn.execute("SELECT COALESCE(SUM(spent), 0) AS n FROM quota_ledger WHERE connector_id = %s", (ledger_id,)).fetchone()
+            row = conn.execute("SELECT COALESCE(SUM(spent), 0) AS n FROM supply_quota_ledger WHERE account_id = %s", (ledger_id,)).fetchone()
         return int(row["n"])
 
     def counted(self, *, exclude_refused: bool = True) -> int:
         with self.store.connection() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE (%s = FALSE OR kind <> 'refused')", (exclude_refused,)
+                "SELECT COALESCE(SUM(calls), 0) AS n FROM supply_call_counts WHERE (%s = FALSE OR kind <> 'refused')", (exclude_refused,)
             ).fetchone()
         return int(row["n"])
 
@@ -264,6 +264,43 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual((account.ledger_id, set(account.members)), (uk, {uk, de}))
         self.assertTrue(account.shared)
 
+    def test_deleting_the_accounts_oldest_connector_keeps_todays_spend(self) -> None:
+        uk, de = self.make("uk"), self.make("de")
+        self.assertTrue(self.spend(de, units=3))
+        self.assertEqual(self.spent(uk), 3, "the account took the first connector's id and holds the ledger")
+        self.connectors.delete(uk, actor=ACTOR)
+        with self.store.connection() as conn:
+            self.assertEqual(self.accounts.resolve(conn, de).ledger_id, uk, "the account stays with its ledger")
+        self.assertEqual(self.spent(uk), 3, "the calls spent today still count")
+        self.connectors.delete(de, actor=ACTOR)
+        self.assertEqual(self.rows_of("supply_accounts"), 0, "the last connector takes the account along")
+
+    def test_a_budget_set_on_any_connector_is_the_accounts(self) -> None:
+        uk, de = self.make("uk"), self.make("de")
+        self.connectors.update(de, actor=ACTOR, daily_budget=40, reset_tz="Europe/Berlin")
+        self.assertEqual((self.connectors.get(uk)["daily_budget"], self.connectors.get(uk)["reset_tz"]), (40, "Europe/Berlin"))
+        self.connectors.delete(de, actor=ACTOR)
+        de = self.make("de", key="KEY-2", daily_budget=999)
+        self.connectors.set_credentials(de, actor=ACTOR, credentials={"api_key": "KEY-1"})
+        self.assertEqual(self.connectors.get(de)["daily_budget"], 40, "a connector joining an account takes its settings")
+
+    def test_new_credentials_leave_a_shared_account_and_keep_its_settings(self) -> None:
+        uk, de = self.make("uk"), self.make("de")
+        self.connectors.update(uk, actor=ACTOR, daily_budget=40)
+        self.connectors.set_credentials(de, actor=ACTOR, credentials={"api_key": "KEY-2"})
+        with self.store.connection() as conn:
+            self.assertFalse(self.accounts.resolve(conn, uk).shared)
+            self.assertNotEqual(self.accounts.resolve(conn, de).ledger_id, uk)
+        self.assertEqual(self.connectors.get(de)["daily_budget"], 40)
+        self.connectors.set_credentials(de, actor=ACTOR, credentials={"api_key": "KEY-1"})
+        with self.store.connection() as conn:
+            self.assertEqual(set(self.accounts.resolve(conn, uk).members), {uk, de}, "back on the first key, back on its account")
+        self.assertEqual(self.rows_of("supply_accounts"), 1, "the account it left alone is gone")
+
+    def rows_of(self, table: str) -> int:
+        with self.store.connection() as conn:
+            return int(conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"])
+
     def test_a_different_key_is_a_different_account(self) -> None:
         a = self.make("uk", key="KEY-1")
         b = self.make("de", key="KEY-2")
@@ -274,12 +311,12 @@ class AccountingTests(unittest.TestCase):
     def test_the_key_is_not_the_credential_and_changes_with_it(self) -> None:
         cid = self.make("uk")
         with self.store.connection() as conn:
-            before = conn.execute("SELECT account_key FROM connectors WHERE id = %s", (cid,)).fetchone()["account_key"]
+            before = conn.execute("SELECT account_key FROM supply_accounts WHERE id = %s", (cid,)).fetchone()["account_key"]
         self.assertTrue(before)
         self.assertNotIn("KEY-1", before)
         self.connectors.set_credentials(cid, actor=ACTOR, credentials={"api_key": "KEY-9"})
         with self.store.connection() as conn:
-            after = conn.execute("SELECT account_key FROM connectors WHERE id = %s", (cid,)).fetchone()["account_key"]
+            after = conn.execute("SELECT account_key FROM supply_accounts WHERE id = %s", (cid,)).fetchone()["account_key"]
         self.assertNotEqual(before, after)
 
     def test_a_rotated_keyring_does_not_split_an_account(self) -> None:
@@ -291,7 +328,8 @@ class AccountingTests(unittest.TestCase):
         later = ConnectorService(self.store, keyring_factory=lambda: rotated, allow_dev=lambda: True, clock=lambda: self.clock["now"])
         new = later.create(actor=ACTOR, provider="acct_demo", storefront="de", credentials={"api_key": "KEY-1"}, interactive_reserve_pct=10)["id"]
         with self.store.connection() as conn:
-            keys = {row["id"]: row["account_key"] for row in conn.execute("SELECT id, account_key FROM connectors").fetchall()}
+            keys = {row["id"]: row["account_key"] for row in conn.execute(
+                "SELECT c.id, a.account_key FROM supply_connectors c JOIN supply_accounts a ON a.id = c.account_id").fetchall()}
         self.assertNotEqual(keys[old], keys[new], "the key changed with the keyring")
         self.assertEqual(later.refresh_account_keys(), 1)
         self.assertEqual(later.refresh_account_keys(), 0)
@@ -319,7 +357,7 @@ class AccountingTests(unittest.TestCase):
         self.ledger.record_calls(self.store, cid, 2, now=self.clock["now"], kind=self.ledger.KIND_OFFERS)
         self.assertEqual(self.counted(), self.spent(cid))
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT kind, purpose, SUM(calls) AS n FROM call_counts GROUP BY kind, purpose").fetchall()
+            rows = conn.execute("SELECT kind, purpose, SUM(calls) AS n FROM supply_call_counts GROUP BY kind, purpose").fetchall()
         got = {(row["kind"], row["purpose"]): int(row["n"]) for row in rows}
         self.assertEqual(got[("test", "interactive")], 1)
         self.assertEqual(got[("offers", "committed")], 3)
@@ -341,7 +379,7 @@ class AccountingTests(unittest.TestCase):
         self.clock["now"] = START.replace(hour=12, minute=1)
         self.assertTrue(self.spend(cid, interactive=True))
         with self.store.connection() as conn:
-            days = [row["day"].isoformat() for row in conn.execute("SELECT day FROM quota_ledger ORDER BY day").fetchall()]
+            days = [row["day"].isoformat() for row in conn.execute("SELECT day FROM supply_quota_ledger ORDER BY day").fetchall()]
         self.assertEqual(days, ["2026-02-28", "2026-03-01"], "11:59 still belongs to the day that began yesterday at noon")
 
     def test_the_reset_is_checked(self) -> None:
@@ -380,7 +418,7 @@ class AccountingTests(unittest.TestCase):
         def rest() -> timedelta:
             self.trouble.react(self.connectors, self.store, cid, Blocked("403"), START, rng=lambda: 0.0)
             with self.store.connection() as conn:
-                return conn.execute("SELECT cooldown_until FROM connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START
+                return conn.execute("SELECT cooldown_until FROM supply_connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START
 
         first, second = rest(), rest()
         self.connectors.record_result(cid)
@@ -455,12 +493,12 @@ class AccountingTests(unittest.TestCase):
         for _ in range(3):
             self.trouble.react(self.connectors, self.store, cid, Unavailable("down"), START, rng=lambda: 0.0)
             with self.store.connection() as conn:
-                waits.append(conn.execute("SELECT cooldown_until FROM connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START)
+                waits.append(conn.execute("SELECT cooldown_until FROM supply_connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START)
         self.assertEqual(waits, [timedelta(minutes=5), timedelta(minutes=10), timedelta(minutes=20)])
         self.connectors.record_result(cid)
         self.trouble.react(self.connectors, self.store, cid, Unavailable("down"), START, rng=lambda: 0.0)
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT cooldown_until FROM connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START, timedelta(minutes=5))
+            self.assertEqual(conn.execute("SELECT cooldown_until FROM supply_connectors WHERE id = %s", (cid,)).fetchone()["cooldown_until"] - START, timedelta(minutes=5))
 
 
 if __name__ == "__main__":

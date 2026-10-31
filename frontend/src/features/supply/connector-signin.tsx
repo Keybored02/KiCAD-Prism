@@ -1,12 +1,9 @@
-import { useCallback } from "react";
-
 import { Button } from "@/components/ui/button";
 import type { BudgetNotices, SupplySignin } from "@/types/supply";
 import { NoticeBar } from "./connector-card-parts";
-import { formatWhen } from "./connector-status";
-import { forgetSupplySignin, getSupplySignin, startSupplySignin } from "./supply-api";
+import { forgetSupplySignin, startSupplySignin } from "./supply-api";
+import { formatDateTime } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { useLoaded } from "./use-loaded";
 
 const STATE_TEXT: Record<SupplySignin["state"], string> = {
   none: "Nobody is signed in, so change notices are not read.",
@@ -16,11 +13,8 @@ const STATE_TEXT: Record<SupplySignin["state"], string> = {
 };
 
 /** DigiKey change notices need a person's sign-in at DigiKey. Administrators start it and see who did it and until when. */
-export function ConnectorSignin({ connectorId, notices }: { connectorId: string; notices?: BudgetNotices | null }) {
-  const fetcher = useCallback((signal: AbortSignal) => getSupplySignin(connectorId, signal), [connectorId]);
-  const loaded = useLoaded<SupplySignin>(`${connectorId}:signin`, fetcher, "Could not load the sign-in");
+export function ConnectorSignin({ connectorId, status, notices }: { connectorId: string; status: SupplySignin | undefined; notices?: BudgetNotices | null }) {
   const { busy, error, run } = useConnectorSubmit();
-  const status = loaded.data;
   if (!status) return null;
 
   return (
@@ -29,7 +23,7 @@ export function ConnectorSignin({ connectorId, notices }: { connectorId: string;
       {notices ? <NoticeBar notices={notices} /> : null}
       <p className="text-muted-foreground">
         {status.signed_in
-          ? `Signed in by ${status.granted_by}${status.expires_at ? ` until ${formatWhen(status.expires_at)}` : ""}.`
+          ? `Signed in by ${status.granted_by}${status.expires_at ? ` until ${formatDateTime(status.expires_at)}` : ""}.`
           : STATE_TEXT[status.state]}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -39,7 +33,7 @@ export function ConnectorSignin({ connectorId, notices }: { connectorId: string;
         </Button>
         {status.state !== "none" ? (
           <Button size="sm" variant="ghost" disabled={busy}
-            onClick={() => void run(async () => { await forgetSupplySignin(connectorId); await loaded.refresh(); })}>
+            onClick={() => void run(async () => { await forgetSupplySignin(connectorId); })}>
             Sign out
           </Button>
         ) : null}

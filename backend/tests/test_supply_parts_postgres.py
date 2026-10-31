@@ -100,12 +100,12 @@ class PartsAndDiscoveryTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            conn.execute("DELETE FROM listings")
-            conn.execute("DELETE FROM parts")
-            conn.execute("DELETE FROM manufacturer_aliases")
-            conn.execute("DELETE FROM manufacturers")
-            conn.execute("DELETE FROM connectors")
-            conn.execute("DELETE FROM audit_events")
+            conn.execute("DELETE FROM supply_listings")
+            conn.execute("DELETE FROM supply_parts")
+            conn.execute("DELETE FROM supply_manufacturer_aliases")
+            conn.execute("DELETE FROM supply_manufacturers")
+            conn.execute("DELETE FROM supply_connectors")
+            conn.execute("DELETE FROM supply_audit_events")
         self.connector_id = self.connectors.create(actor=ACTOR, provider="fake")["id"]
 
     # --- helpers ----------------------------------------------------------
@@ -120,21 +120,21 @@ class PartsAndDiscoveryTests(unittest.TestCase):
 
     def listings(self) -> dict[str, dict]:
         with self.store.connection() as conn:
-            rows = conn.execute("SELECT * FROM listings ORDER BY sku").fetchall()
+            rows = conn.execute("SELECT * FROM supply_listings ORDER BY sku").fetchall()
         return {row["sku"]: dict(row) for row in rows}
 
     def wait_on_spelling(self, key: str) -> None:
         """The state the listings of an earlier version were left in: waiting on a spelling nobody had mapped."""
 
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'manufacturer_unresolved' WHERE lower(raw_manufacturer) = %s", (key,))
+            conn.execute("UPDATE supply_listings SET match_state = 'manufacturer_unresolved' WHERE lower(raw_manufacturer) = %s", (key,))
             conn.execute(
-                "INSERT INTO manufacturer_aliases (alias_key, alias_text, status) VALUES (%s, %s, 'pending') ON CONFLICT DO NOTHING", (key, key.upper())
+                "INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, status) VALUES (%s, %s, 'pending') ON CONFLICT DO NOTHING", (key, key.upper())
             )
 
     def audit(self, action: str) -> int:
         with self.store.connection() as conn:
-            return conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = %s", (action,)).fetchone()["n"]
+            return conn.execute("SELECT COUNT(*) AS n FROM supply_audit_events WHERE action = %s", (action,)).fetchone()["n"]
 
     # --- parts ------------------------------------------------------------
 
@@ -144,7 +144,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(first.mpn, "LM358-D", "the first spelling is kept for display")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturers").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_manufacturers").fetchone()["n"], 1)
         self.assertEqual(self.audit("part.create"), 1)
 
     def test_the_same_number_from_two_known_manufacturers_is_two_parts(self) -> None:
@@ -214,15 +214,13 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         result = self.discover(part, match("S1", "LM358D", "UMW"))
         self.assertEqual((result.exact, result.near), (0, 1))
         self.assertEqual(self.listings()["S1"]["match_state"], "near")
-        with self.store.connection() as conn:
-            self.assertEqual(self.discovery.counted_listings(conn, part.id), [], "it does not count")
 
     def test_a_spelling_of_the_same_maker_counts_at_once_and_the_part_remembers_it(self) -> None:
         part = self.part()
         result = self.discover(part, match("S1", "LM358D", "TI"), match("S2", "LM358D", "ti"))
         self.assertEqual((result.exact, result.near), (2, 0))
+        self.assertEqual({sku: row["match_state"] for sku, row in self.listings().items()}, {"S1": "exact", "S2": "exact"})
         with self.store.connection() as conn:
-            self.assertEqual([c["sku"] for c in self.discovery.counted_listings(conn, part.id)], ["S1", "S2"])
             self.assertIn("ti", self.parts.part_spelling_keys(conn, part.id))
 
     def test_confirming_the_spelling_promotes_waiting_listings(self) -> None:
@@ -231,10 +229,9 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         self.wait_on_spelling("umw")
         with self.store.connection() as conn:
             moved = self.parts.confirm_alias(conn, "umw", part.manufacturer_id, "ben@example.com")
-            counted = self.discovery.counted_listings(conn, part.id)
             self.assertEqual(self.parts.pending_aliases(conn), [])
         self.assertEqual(moved, 2)
-        self.assertEqual([c["sku"] for c in counted], ["S1", "S2"])
+        self.assertEqual({sku: row["match_state"] for sku, row in self.listings().items()}, {"S1": "exact", "S2": "exact"}, "both count now")
         self.assertEqual(self.listings()["S1"]["matched_by"], "ben@example.com")
         self.assertEqual(self.audit("alias.confirm"), 1)
 
@@ -267,8 +264,6 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         found = self.listings()
         self.assertEqual(found["S1"]["match_reason"], "longer number")
         self.assertEqual(found["S2"]["match_reason"], "same part number, different manufacturer")
-        with self.store.connection() as conn:
-            self.assertEqual(self.discovery.counted_listings(conn, part.id), [])
 
     def test_rediscovery_is_idempotent_and_upgrades_waiting_listings(self) -> None:
         part = self.part()
@@ -295,7 +290,7 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         part = self.part()
         self.discover(part, match("S1", "LM358D", "Texas Instruments"))
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'gone' WHERE sku = 'S1'")
+            conn.execute("UPDATE supply_listings SET match_state = 'gone' WHERE sku = 'S1'")
         self.discover(part, match("S1", "LM358D", "Texas Instruments"))
         self.assertEqual(self.listings()["S1"]["match_state"], "exact")
 
@@ -307,8 +302,6 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         listing_id = self.listings()["S1"]["id"]
         with self.store.connection() as conn:
             self.discovery.pin_listing(conn, listing_id, part.id, "ben@example.com")
-            counted = self.discovery.counted_listings(conn, part.id)
-        self.assertEqual([c["match_state"] for c in counted], ["manual"])
         self.discover(part, match("S1", "LM358DR", "Texas Instruments"))
         self.assertEqual(self.listings()["S1"]["match_state"], "manual")
         self.assertEqual(self.audit("listing.pin"), 1)
@@ -321,8 +314,6 @@ class PartsAndDiscoveryTests(unittest.TestCase):
         self.discover(part, match("S1", "LM358D", "Texas Instruments"))
         listing = self.listings()["S1"]
         self.assertEqual((listing["match_state"], listing["matched_by"]), ("rejected", "ben@example.com"))
-        with self.store.connection() as conn:
-            self.assertEqual(self.discovery.counted_listings(conn, part.id), [])
 
     def test_review_actions_check_their_targets(self) -> None:
         part = self.part()

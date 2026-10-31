@@ -47,7 +47,7 @@ class SettleTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.shops = [self.connectors.create(actor=ACTOR, provider=provider)["id"] for provider in ("fake", "csv", "lcsc")]
 
@@ -65,7 +65,7 @@ class SettleTests(unittest.TestCase):
 
     def states(self) -> dict[str, str]:
         with self.store.connection() as conn:
-            return {row["sku"]: row["match_state"] for row in conn.execute("SELECT sku, match_state FROM listings").fetchall()}
+            return {row["sku"]: row["match_state"] for row in conn.execute("SELECT sku, match_state FROM supply_listings").fetchall()}
 
     def test_the_written_name_is_confirmed_by_a_distributor_that_agrees(self) -> None:
         part = self.part("Brand New Maker", "BN-1")
@@ -81,7 +81,7 @@ class SettleTests(unittest.TestCase):
         self.assertEqual((now.manufacturer_name, now.provisional), ("Zeta Works", False))
         self.assertEqual(self.states(), {"S0-0": "exact"})
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturers WHERE name_key = %s", (self.parts.UNKNOWN_KEY,)).fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_manufacturers WHERE name_key = %s", (self.parts.UNKNOWN_KEY,)).fetchone()["n"], 0)
 
     def test_the_maker_most_distributors_list_wins_over_a_clone(self) -> None:
         part = self.part("", "FDN308P")
@@ -143,7 +143,7 @@ class SettleTests(unittest.TestCase):
                 self.parts.record_spelling(conn, part.id, "ACME Co Ltd Taiwan", "learned")
                 self.settle.learn_aliases(conn)
         with self.store.connection() as conn:
-            row = conn.execute("SELECT source FROM manufacturer_aliases WHERE alias_key = 'acme co ltd taiwan'").fetchone()
+            row = conn.execute("SELECT source FROM supply_manufacturer_aliases WHERE alias_key = 'acme co ltd taiwan'").fetchone()
         self.assertEqual(row["source"], "learned")
 
     def test_a_settled_maker_can_be_taken_back_and_the_part_is_asked_about_again(self) -> None:
@@ -165,7 +165,7 @@ class SettleTests(unittest.TestCase):
         self.search(part, 0, ("LM358DR", "Texas Instruments"), ("LM358DR", "TI"))
         self.assertEqual(self.states(), {"S0-0": "exact", "S0-1": "exact"})
         with self.store.connection() as conn:
-            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM part_numbers WHERE part_id = %s ORDER BY mpn", (part.id,)).fetchall()], ["LM358DR"])
+            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM supply_part_numbers WHERE part_id = %s ORDER BY mpn", (part.id,)).fetchall()], ["LM358DR"])
             self.assertEqual(self.settle.needs_choice(conn), [])
 
     def test_a_clone_with_the_exact_number_does_not_hide_the_makers_packing_code_and_grade(self) -> None:
@@ -179,7 +179,7 @@ class SettleTests(unittest.TestCase):
         )
         self.assertEqual(self.states(), {"S0-0": "near", "S0-1": "exact", "S0-2": "near"})
         with self.store.connection() as conn:
-            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM part_numbers WHERE part_id = %s ORDER BY mpn", (part.id,)).fetchall()], ["74AHC1G09GV,125"])
+            self.assertEqual([row["mpn"] for row in conn.execute("SELECT mpn FROM supply_part_numbers WHERE part_id = %s ORDER BY mpn", (part.id,)).fetchall()], ["74AHC1G09GV,125"])
             self.assertEqual([q for q in self.settle.needs_choice(conn) if q["kind"] == "unlisted"], [], "one unrelated maker is a second source")
             self.assertEqual(self.settle.use_numbers(conn, part.id, ["74AHC1G09GVQ100H"], ACTOR), 1)
 
@@ -216,13 +216,13 @@ class SettleTests(unittest.TestCase):
         part = self.part("Texas Instruments", "LM358D")
         with self.store.connection() as conn:
             self.parts.add_number(conn, part.id, "LM358DR", ACTOR)
-            conn.execute("INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES ('p1', 'Board', 'r1', 1, NOW())")
+            conn.execute("INSERT INTO supply_bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at) VALUES ('p1', 'Board', 'r1', 1, NOW())")
             conn.execute(
-                "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES ('p1', 'k', '', 'LM358DR', '', 'LM358DR', 2)"
+                "INSERT INTO supply_bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity) VALUES ('p1', 'k', '', 'LM358DR', '', 'LM358DR', 2)"
             )
             found = usage.used_in(conn, part.id)
             self.assertEqual([row["project_id"] for row in found], ["p1"])
-            conn.execute("DELETE FROM part_numbers WHERE part_id = %s AND match_key = 'LM358DR'", (part.id,))
+            conn.execute("DELETE FROM supply_part_numbers WHERE part_id = %s AND match_key = 'LM358DR'", (part.id,))
             self.assertEqual(usage.used_in(conn, part.id), [])
 
     def test_a_listing_is_settled_the_same_after_the_migration_sorts_old_waiting_ones(self) -> None:
@@ -231,10 +231,10 @@ class SettleTests(unittest.TestCase):
         part = self.part("Texas Instruments", "LM358D")
         self.search(part, 0, ("LM358D", "TI"))
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'manufacturer_unresolved'")
-            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, status) VALUES ('ti', 'TI', 'pending')")
+            conn.execute("UPDATE supply_listings SET match_state = 'manufacturer_unresolved'")
+            conn.execute("INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, status) VALUES ('ti', 'TI', 'pending')")
             done = maker_backfill.run(conn)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturer_aliases WHERE status = 'pending'").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_manufacturer_aliases WHERE status = 'pending'").fetchone()["n"], 0)
         self.assertEqual(done["listings"], 1)
         self.assertEqual(self.states(), {"S0-0": "exact"})
 

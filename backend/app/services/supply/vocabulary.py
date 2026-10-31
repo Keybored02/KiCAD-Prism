@@ -8,7 +8,6 @@ provider text.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Iterable
 
 
 class Status(StrEnum):
@@ -31,6 +30,21 @@ class Lifecycle(StrEnum):
     UNKNOWN = "unknown"
 
 
+# A manufacturer lifecycle that says the part is going: not for new designs, a last date to buy, or gone. As values, so it serves
+# Python tests and SQL parameters alike.
+ENDING_LIFECYCLES: tuple[str, ...] = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
+
+# Most urgent first, for putting the parts that need a look at the top of a list.
+STATUS_ORDER = (Status.FATAL, Status.ERROR, Status.WARNING, Status.UNKNOWN, Status.OK)
+# Most severe first: the one lifecycle shown for a part whose offers give several.
+_LIFECYCLE_SEVERITY = (Lifecycle.OBSOLETE, Lifecycle.LAST_TIME_BUY, Lifecycle.NRND, Lifecycle.ACTIVE, Lifecycle.UNKNOWN)
+
+
+def worst_lifecycle(lifecycles) -> Lifecycle:
+    seen = set(lifecycles)
+    return next((lifecycle for lifecycle in _LIFECYCLE_SEVERITY if lifecycle in seen), Lifecycle.UNKNOWN)
+
+
 class Packaging(StrEnum):
     CUT_TAPE = "cut_tape"
     # A reel cut to the quantity asked, with a reeling fee (DigiKey Digi-Reel, Mouser MouseReel).
@@ -43,24 +57,3 @@ class Packaging(StrEnum):
     # One listing sold as several packagings together (Mouser's usual case).
     SEVERAL = "several"
     UNKNOWN = "unknown"
-
-
-# Severity order, worst first. UNKNOWN is the absence of a finding, so it only
-# wins when nothing else is present.
-_STATUS_SEVERITY = {
-    Status.FATAL: 4,
-    Status.ERROR: 3,
-    Status.WARNING: 2,
-    Status.OK: 1,
-    Status.UNKNOWN: 0,
-}
-
-
-def worst_status(statuses: Iterable[Status]) -> Status:
-    """Return the most severe status, or ``UNKNOWN`` for an empty input."""
-
-    worst = Status.UNKNOWN
-    for status in statuses:
-        if _STATUS_SEVERITY[status] > _STATUS_SEVERITY[worst]:
-            worst = status
-    return worst

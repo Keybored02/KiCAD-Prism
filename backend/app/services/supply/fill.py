@@ -10,9 +10,10 @@ through the normal metadata edit, which makes a new revision.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
+from app.services.supply import clock as supply_clock
 from app.services.supply import ledger, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.identity import match_key
@@ -20,12 +21,15 @@ from app.services.supply.makers import same_maker
 from app.services.supply.models import PartMatch
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
+from app.services.supply.errors import Refused
 
 MAX_CANDIDATES_PER_CONNECTOR = 5
 
 
-class FillError(ValueError):
+class FillError(Refused):
     """The request cannot be served. The message is safe to show."""
+
+    code = "fill_error"
 
 
 def _unusable(connector: dict[str, Any], now: datetime, service: ConnectorService) -> str | None:
@@ -54,7 +58,7 @@ class FillService:
     ) -> None:
         self._connectors = connectors
         self._provider_for = provider_for or connectors.load_provider
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
 
     def search(self, mpn: str, manufacturer: str = "") -> dict[str, Any]:
         mpn = mpn.strip()

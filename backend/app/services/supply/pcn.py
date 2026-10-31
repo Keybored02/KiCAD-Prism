@@ -14,11 +14,12 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts
+from app.services.supply import clock, parts
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Missing, Refused
 
 KINDS = ("end_of_life", "nrnd", "last_time_buy", "change")
 KIND_LABEL = {
@@ -48,12 +49,14 @@ _KIND_WORDS = (
 )
 
 
-class NoticeNotFound(KeyError):
+class NoticeNotFound(Missing):
     """No notice with this id."""
 
 
-class NoticeError(ValueError):
+class NoticeError(Refused):
     """The notice does not apply. The message is safe to show."""
+
+    code = "invalid_notice"
 
 
 def add(
@@ -88,13 +91,13 @@ def add(
     notice_id = uuid.uuid4().hex
     conn.execute(
         """
-        INSERT INTO pcns (id, title, kind, notice_url, last_time_buy, last_time_ship, notes, state, created_by)
+        INSERT INTO supply_pcns (id, title, kind, notice_url, last_time_buy, last_time_ship, notes, state, created_by)
         VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s)
         """,
         (notice_id, title, kind, notice_url, last_time_buy, last_time_ship, notes, actor),
     )
     for part_id in unique:
-        conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES (%s, %s)", (notice_id, part_id))
+        conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES (%s, %s)", (notice_id, part_id))
     write_audit(conn, actor, "pcn.add", notice_id, {"kind": kind, "parts": len(unique), "title": title}, subject_kind="pcn")
     return {"id": notice_id}
 
@@ -135,7 +138,7 @@ def record_external(
     url = notice_url.strip() if notice_url.strip().lower().startswith("https://") else ""
     created = conn.execute(
         """
-        INSERT INTO pcns (id, title, kind, notice_url, notes, state, created_by, source, external_key, published_on)
+        INSERT INTO supply_pcns (id, title, kind, notice_url, notes, state, created_by, source, external_key, published_on)
         VALUES (%s, %s, %s, %s, %s, 'open', %s, %s, %s, %s)
         ON CONFLICT (source, external_key) WHERE external_key <> '' DO NOTHING
         RETURNING id
@@ -145,53 +148,61 @@ def record_external(
     if created:
         notice_id = created["id"]
     else:
-        notice_id = conn.execute("SELECT id FROM pcns WHERE source = %s AND external_key = %s", (source, key)).fetchone()["id"]
+        notice_id = conn.execute("SELECT id FROM supply_pcns WHERE source = %s AND external_key = %s", (source, key)).fetchone()["id"]
         # The distributor's latest reading of the date wins, so a reading corrected later fixes a notice kept before.
-        conn.execute("UPDATE pcns SET published_on = %s WHERE id = %s AND published_on IS DISTINCT FROM %s", (published_on, notice_id, published_on))
+        conn.execute("UPDATE supply_pcns SET published_on = %s WHERE id = %s AND published_on IS DISTINCT FROM %s", (published_on, notice_id, published_on))
     tied = conn.execute(
-        "INSERT INTO pcn_parts (pcn_id, part_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING pcn_id", (notice_id, part_id)
+        "INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING pcn_id", (notice_id, part_id)
     ).fetchone()
     return created is not None or tied is not None
 
 
 def close(conn, notice_id: str, actor: str) -> None:
     actor = actor_text(actor)
-    row = conn.execute("SELECT state FROM pcns WHERE id = %s FOR UPDATE", (notice_id,)).fetchone()
+    row = conn.execute("SELECT state FROM supply_pcns WHERE id = %s FOR UPDATE", (notice_id,)).fetchone()
     if row is None:
         raise NoticeNotFound(notice_id)
     if row["state"] == "closed":
         return
-    conn.execute("UPDATE pcns SET state = 'closed', closed_by = %s, closed_at = NOW() WHERE id = %s", (actor, notice_id))
+    conn.execute("UPDATE supply_pcns SET state = 'closed', closed_by = %s, closed_at = %s WHERE id = %s", (actor, clock.now(), notice_id))
     write_audit(conn, actor, "pcn.close", notice_id, {}, subject_kind="pcn")
 
 
 def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[str, Any]]:
     """A part's notices, the soonest last-time-buy first."""
 
+    return for_parts(conn, [part_id], include_closed=include_closed).get(part_id, [])
+
+
+def for_parts(conn, part_ids: Sequence[str], *, include_closed: bool = False) -> dict[str, list[dict[str, Any]]]:
+    """Each part's notices, the soonest last-time-buy first; parts with none are left out."""
+
+    if not part_ids:
+        return {}
     rows = conn.execute(
         """
-        SELECT n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
+        SELECT pp.part_id, n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
                n.source, n.published_on,
-               (SELECT COUNT(*) FROM pcn_parts x WHERE x.pcn_id = n.id) AS parts
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id
-        WHERE pp.part_id = %s AND (n.state = 'open' OR %s)
-        ORDER BY n.last_time_buy NULLS LAST, n.published_on DESC NULLS LAST, n.created_at DESC
+               (SELECT COUNT(*) FROM supply_pcn_parts x WHERE x.pcn_id = n.id) AS parts
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id
+        WHERE pp.part_id = ANY(%s) AND (n.state = 'open' OR %s)
+        ORDER BY pp.part_id, n.last_time_buy NULLS LAST, n.published_on DESC NULLS LAST, n.created_at DESC
         """,
-        (part_id, include_closed),
+        (list(part_ids), include_closed),
     ).fetchall()
 
     def day(value: date | None) -> str | None:
         return value.isoformat() if value else None
 
-    return [
-        {
+    found: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        found.setdefault(r["part_id"], []).append({
             "id": r["id"], "title": r["title"], "kind": r["kind"], "kind_label": KIND_LABEL[r["kind"]], "notice_url": r["notice_url"],
             "last_time_buy": day(r["last_time_buy"]), "last_time_ship": day(r["last_time_ship"]), "notes": r["notes"],
             "state": r["state"], "created_by": r["created_by"], "created_at": r["created_at"].isoformat(), "parts": int(r["parts"]),
             "source": r["source"], "source_label": SOURCE_LABEL.get(r["source"], r["source"]), "published_on": day(r["published_on"]),
-        }
-        for r in rows
-    ]
+        })
+    return found
 
 
 def _is_new(notice: Mapping[str, Any], today: date) -> bool:
@@ -224,5 +235,23 @@ def alert_detail(notices: Sequence[Mapping[str, Any]], today: date) -> dict[str,
     }
 
 
+def next_change(notices: Sequence[Mapping[str, Any]], today: date) -> date | None:
+    """The next day ``alert_detail`` can say something else by the clock alone: an ending notice's last time buy coming within
+    ``SOON_DAYS``, a new notice no longer new. None when nothing waits on the clock."""
+
+    days = []
+    for notice in notices:
+        if notice["state"] != "open":
+            continue
+        if notice["kind"] in ENDING and notice["last_time_buy"]:
+            days.append(date.fromisoformat(notice["last_time_buy"]) - timedelta(days=SOON_DAYS))
+        if notice.get("created_at"):
+            days.append(datetime.fromisoformat(notice["created_at"]).date() + timedelta(days=NEW_FOR_DAYS + 1))
+        if notice.get("published_on"):
+            days.append(date.fromisoformat(notice["published_on"]) + timedelta(days=RECENT_RELEASE_DAYS + 1))
+    later = [day for day in days if day > today]
+    return min(later) if later else None
+
+
 def today() -> date:
-    return datetime.now(timezone.utc).date()
+    return clock.now().date()

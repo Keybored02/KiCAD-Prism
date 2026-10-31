@@ -1,10 +1,10 @@
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { PartTracking, TrackingPreview } from "@/types/supply";
+import type { PartTracking, SupplyWatch, TrackingPreview } from "@/types/supply";
 import { BudgetPreview } from "./budget-preview";
 import { PackagingPickDialog } from "./packaging-pick-dialog";
-import { getPartTracking, previewPartTier, setPartTier, stopTrackingPart, type TierChoice } from "./tracking-api";
+import { followPart, getPartTracking, previewFollow, stopTrackingPart, type TierChoice } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 
 const CHOICES: ReadonlyArray<{ value: string; label: string; choice: TierChoice | null }> = [
@@ -31,7 +31,7 @@ export function TrackingControl({
   partId, canEdit, onChanged, needsPick = [],
 }: { partId: string; canEdit: boolean; onChanged: () => Promise<void> | void; needsPick?: ReadonlyArray<{ connector_id: string; connector: string; listings: number }> }) {
   const fetcher = useCallback((signal: AbortSignal) => getPartTracking(partId, signal), [partId]);
-  const loaded = useLoaded<{ tier: PartTracking | null; waiting_at: string[] }>(partId, fetcher, "Could not read the part's tracking");
+  const loaded = useLoaded<{ tier: PartTracking | null; waiting_at: string[]; watch: SupplyWatch | null }>(`parts/${partId}/tracking`, fetcher, "Could not read the part's tracking");
   const [pending, setPending] = useState<{ value: string; choice: TierChoice; preview: TrackingPreview } | null>(null);
   const [error, setError] = useState("");
   const [picking, setPicking] = useState("");
@@ -43,7 +43,7 @@ export function TrackingControl({
     const entry = CHOICES.find((item) => item.value === value);
     setError("");
     if (!entry?.choice) { setPending(null); return; }
-    previewPartTier(partId, entry.choice)
+    previewFollow(partId, entry.choice)
       .then((preview) => setPending({ value, choice: entry.choice as TierChoice, preview }))
       .catch((caught: Error) => setError(caught.message));
   };
@@ -57,7 +57,7 @@ export function TrackingControl({
         {tracking ? `Read ${tracking.rate}${tracking.tier === 1 ? " (tier 1)" : " (tier 2)"}` : "Not followed. Read only when someone asks."}
         {reasons.length > 0 ? `, because of ${reasons.join(" and ")}.` : ""}
       </p>
-      {loaded.data.waiting_at.length > 0 ? <p className="text-xs text-warning">Waiting for room at {loaded.data.waiting_at.length} distributor(s).</p> : null}
+      {loaded.data.waiting_at.length > 0 ? <p className="text-xs text-warning">Queued for calls at {loaded.data.waiting_at.length} distributor(s).</p> : null}
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -68,7 +68,7 @@ export function TrackingControl({
           >
             {CHOICES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
-          {pending ? <Button size="sm" onClick={() => finish(setPartTier(partId, pending.choice))}>Apply</Button> : null}
+          {pending ? <Button size="sm" onClick={() => finish(followPart(partId, pending.choice))}>Apply</Button> : null}
           {!pending && tracking && tracking.reasons.some((item) => item.kind !== "project") ? (
             <Button size="sm" variant="destructive" onClick={() => finish(stopTrackingPart(partId))}>Stop tracking</Button>
           ) : null}

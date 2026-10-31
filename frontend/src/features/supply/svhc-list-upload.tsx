@@ -2,21 +2,15 @@ import { useCallback, useRef } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { SupplySvhcList } from "@/types/supply";
+import { toBase64 } from "./file-base64";
 import { getSvhcList, loadSvhcList, loadSvhcListXlsx } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 
-/** An Excel file's bytes as base64, in slices so a large file does not overflow the call stack. */
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let start = 0; start < bytes.length; start += 0x8000) binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
-  return btoa(binary);
-}
-
 /** Which ECHA Candidate List is loaded, and for administrators a way to load a newer export, so substances declared for parts can be checked against it. */
 export function SvhcListUpload({ readOnly = false }: { readOnly?: boolean }) {
   const fetcher = useCallback((signal: AbortSignal) => getSvhcList(signal), []);
-  const loaded = useLoaded<SupplySvhcList>("svhc-list", fetcher, "Could not load the Candidate List");
+  const loaded = useLoaded<SupplySvhcList>("compliance/svhc-list", fetcher, "Could not load the Candidate List");
   const { busy, error, run } = useConnectorSubmit();
   const input = useRef<HTMLInputElement>(null);
   const info = loaded.data;

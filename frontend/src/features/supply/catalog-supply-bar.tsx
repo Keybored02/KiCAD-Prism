@@ -16,7 +16,7 @@ interface CatalogRow {
   mpn: string;
 }
 
-/** Tracked and At risk filters for the components on this page, and a button to track the ones shown at a tier. */
+/** Tracked, At risk and In local stock filters for the components on this page, and a button to track the ones shown at a tier. */
 export function CatalogSupplyBar({ filter, onFilter, rows, standing, role, onChanged, picked, onClearPicks }: {
   filter: CatalogSupplyFilter;
   onFilter: (next: CatalogSupplyFilter) => void;
@@ -57,7 +57,7 @@ export function CatalogSupplyBar({ filter, onFilter, rows, standing, role, onCha
 
   return (
     <div role="group" aria-label="Supply" className="flex items-center gap-1">
-      {([["watched", "Tracked"], ["at_risk", "At risk"]] as const).map(([value, label]) => (
+      {([["watched", "Tracked"], ["at_risk", "At risk"], ["local_stock", "In local stock"]] as const).map(([value, label]) => (
         <Button key={value} size="sm" variant={filter === value ? "secondary" : "ghost"} className="h-7" aria-pressed={filter === value}
           onClick={() => onFilter(filter === value ? "" : value)}>
           {label}

@@ -38,11 +38,11 @@ def tracked_parts(conn, connector_id: str) -> int:
     row = conn.execute(
         """
         SELECT COUNT(DISTINCT l.part_id) AS n
-        FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
-        WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
-          AND NOT EXISTS (SELECT 1 FROM offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete')
+        FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
+        WHERE l.connector_id = %s AND supply_counted(l.match_state)
+          AND NOT EXISTS (SELECT 1 FROM supply_offers o WHERE o.listing_id = l.id AND o.lifecycle = 'obsolete')
         """,
         (connector_id,),
     ).fetchone()
@@ -53,7 +53,7 @@ def used_today(conn, connector_id: str, now: datetime) -> int:
     account = accounts.resolve(conn, connector_id)
     day = quota.provider_day(now, account.reset_time, account.reset_tz)
     row = conn.execute(
-        "SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day = %s AND kind = %s",
+        "SELECT COALESCE(SUM(calls), 0) AS n FROM supply_call_counts WHERE connector_id = ANY(%s) AND day = %s AND kind = %s",
         (list(account.members), day, ledger.KIND_NOTICES),
     ).fetchone()
     return int(row["n"])

@@ -2,10 +2,11 @@ import type { ReactNode } from "react";
 
 import type { SupplyPartDetail } from "@/types/supply";
 
-import { leadText, daysSince } from "./price-text";
+import { daysSince } from "./price-text";
 import { HoverDetails } from "./hover-details";
 import { PriceQuantity } from "./price-quantity";
-import { formatPrice } from "./supply-format";
+import { formatLeadTime, formatPrice } from "./supply-format";
+import { TestDataChip } from "./test-data-chip";
 
 interface PriceTrendProps {
   price: SupplyPartDetail["price"];
@@ -22,7 +23,7 @@ interface PriceTrendProps {
 function kindLine(headline: NonNullable<SupplyPartDetail["price"]["headline"]>, now: number): string | null {
   switch (headline.price_kind) {
     case "backorder":
-      return `Nothing is in stock. This is the cheapest price with a lead time${headline.price_lead_days ? `, ${leadText(headline.price_lead_days)}` : ""}.`;
+      return `Nothing is in stock. This is the cheapest price with a lead time${headline.price_lead_days ? `, ${formatLeadTime(headline.price_lead_days)}` : ""}.`;
     case "last_seen":
       return headline.price_seen_day ? `Nothing is in stock. This is the price ${daysSince(headline.price_seen_day, now)} days ago, when it last was.` : "Nothing is in stock.";
     case "listed":
@@ -43,7 +44,6 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
   const hints = [
     "Cheapest unit price any distributor showed.",
     ...(change === null ? ["A move needs a week of readings."] : []),
-    ...(price.estimated_until ? [`Until ${price.estimated_until} the history is the price at 100 pieces, because the price breaks were not kept yet.`] : []),
   ];
   return (
     <section aria-label="Price" className="space-y-2">
@@ -56,6 +56,7 @@ export function PriceTrend({ price, partId, canEdit = false, onChanged, children
         </p>
         <div className="flex items-center gap-1.5 text-2xl font-semibold tabular-nums">
           {formatPrice(latest, currency)}
+          <TestDataChip show={headline?.price_test_data} />
           <HoverDetails label="Show what the price is">
             <p className="text-xs text-muted-foreground">{hints.join(" ")}</p>
             {details}

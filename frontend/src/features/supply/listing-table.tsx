@@ -3,10 +3,12 @@ import { Check, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SupplyListing } from "@/types/supply";
+import { failureWords } from "./connector-status";
 import { PackagingChip } from "./packaging-chip";
+import { TestDataChip } from "./test-data-chip";
 import { pinSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
-import { formatAgo, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
+import { formatAgo, formatLeadTime, formatPrice, formatStock, matchLabel, tierLabel } from "./supply-format";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
 export interface FollowChoice {
@@ -46,6 +48,7 @@ export function ListingTable({
                     {listing.sku}
                   </a>
                 ) : <span className="font-medium">{listing.sku}</span>}
+                <TestDataChip show={listing.test_data} />
                 {listing.packaging && listing.packaging !== "unknown" ? <Badge variant="outline"><PackagingChip packaging={listing.packaging} reelSize={listing.reel_size} inferred={listing.packaging_inferred} /></Badge> : null}
                 {follow?.followed === listing.id ? <Badge variant="default" role="img" aria-label="Followed" title="Followed"><Eye className="h-3 w-3" /></Badge> : null}
                 {follow?.followed && follow.followed !== listing.id && listing.counted && follow.canFollow ? (
@@ -70,7 +73,7 @@ export function ListingTable({
                 <Fact label="Stock" value={formatStock(offer.stock)} />
                 <Fact label={`Price at ${firstBreak?.[0] ?? 1}`} value={firstBreak ? formatPrice(firstBreak[1], offer.currency) : "None"} />
                 <Fact label="Order" value={`Min ${offer.moq.toLocaleString()}${offer.order_multiple > 1 ? `, multiples of ${offer.order_multiple.toLocaleString()}` : ""}`} />
-                <Fact label="Lead time" value={offer.lead_time_days === null ? (offer.stock > 0 ? "In stock" : "Not given") : `${offer.lead_time_days} days`} />
+                <Fact label="Lead time" value={offer.lead_time_days === null ? (offer.stock > 0 ? "In stock" : "Not given") : formatLeadTime(offer.lead_time_days)} />
                 <Fact label="Read" value={formatAgo(offer.fetched_at)} />
                 {offer.incoming.length > 0 ? (
                   <Fact label="On order" value={offer.incoming.map(([quantity, date]) => `${quantity.toLocaleString()}${date ? ` due ${date}` : ""}`).join(", ")} />
@@ -82,7 +85,7 @@ export function ListingTable({
             {listing.poll ? (
               <p className="mt-2 text-[11px] text-muted-foreground">
                 {tierLabel(listing.poll.tier)}.
-                {listing.poll.error_streak > 0 ? ` Last attempt failed (${listing.poll.last_error_code || "error"}).` : ""}
+                {listing.poll.error_streak > 0 ? ` Last read failed: ${failureWords(listing.poll.last_error_code, listing.connector_name)}.` : ""}
               </p>
             ) : null}
           </article>

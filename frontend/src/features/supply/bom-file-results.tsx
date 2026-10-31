@@ -7,7 +7,7 @@ import { formatPrice, formatStock } from "./supply-format";
 /** What the lookup found for each line of an uploaded BOM. */
 export function BomFileResults({ lines, lookup }: { lines: readonly FileLine[]; lookup: SupplyBomLookup }) {
   return (
-    <div className="overflow-x-auto border">
+    <div className="themed-scrollbar overflow-x-auto border">
       <table className="w-full text-sm">
         <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
           <tr>

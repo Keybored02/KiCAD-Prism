@@ -1,4 +1,4 @@
-"""Testing a connector, and the capacity planner.
+"""Testing a connector, and what the budget says it prices and has still to search.
 
 Needs ``PRISM_DATABASE_URL``. Requests go through the real router into a disposable schema.
 """
@@ -47,6 +47,8 @@ class ConnectorCheckTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_connectors.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -84,7 +86,7 @@ class ConnectorCheckTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         type(self).behaviour.update(error=None, calls=0)
 
@@ -113,11 +115,11 @@ class ConnectorCheckTests(unittest.TestCase):
         self.assertEqual((result.json["ok"], result.json["code"]), (True, "ok"))
         self.assertIsInstance(result.json["took_ms"], int)
         self.assertEqual(type(self).behaviour["calls"], 1)
-        (ledger,) = self.rows("SELECT spent, interactive_spent FROM quota_ledger WHERE connector_id = %s", cid)
+        (ledger,) = self.rows("SELECT spent, interactive_spent FROM supply_quota_ledger WHERE account_id = %s", cid)
         self.assertEqual((ledger["spent"], ledger["interactive_spent"]), (1, 1))
-        (connector,) = self.rows("SELECT last_ok_at, last_error_code FROM connectors WHERE id = %s", cid)
+        (connector,) = self.rows("SELECT last_ok_at, last_error_code FROM supply_connectors WHERE id = %s", cid)
         self.assertIsNotNone(connector["last_ok_at"])
-        (event,) = self.rows("SELECT actor, detail FROM audit_events WHERE action = 'connector.test'")
+        (event,) = self.rows("SELECT actor, detail FROM supply_audit_events WHERE action = 'connector.test'")
         self.assertEqual((event["actor"], event["detail"]), ("admin@example.com", {"ok": True, "code": "ok"}))
 
     def test_each_failure_has_its_own_safe_message_and_never_the_providers_text(self) -> None:
@@ -136,7 +138,7 @@ class ConnectorCheckTests(unittest.TestCase):
             self.assertIn(words, result["message"].lower(), code)
             self.assertNotIn("SECRET", result["message"])
             self.assertNotIn("10.0.0.5", result["message"])
-        (connector,) = self.rows("SELECT last_error_code, paused_reason FROM connectors WHERE id = %s", cid)
+        (connector,) = self.rows("SELECT last_error_code, paused_reason FROM supply_connectors WHERE id = %s", cid)
         self.assertEqual(connector["last_error_code"], "provider_error", "the last failure is recorded")
         self.assertEqual(connector["paused_reason"], "", "a test never pauses a connector")
 
@@ -146,7 +148,7 @@ class ConnectorCheckTests(unittest.TestCase):
         self.call("POST", f"/api/supply/connectors/{cid}/test")
         type(self).behaviour["error"] = None
         self.assertTrue(self.call("POST", f"/api/supply/connectors/{cid}/test").json["ok"])
-        self.assertEqual(self.rows("SELECT last_error_code FROM connectors WHERE id = %s", cid)[0]["last_error_code"], "")
+        self.assertEqual(self.rows("SELECT last_error_code FROM supply_connectors WHERE id = %s", cid)[0]["last_error_code"], "")
 
     def test_it_stops_when_the_interactive_reserve_is_used_up(self) -> None:
         cid = self.connector(daily_budget=2, interactive_reserve_pct=50)  # a reserve of one call
@@ -160,12 +162,12 @@ class ConnectorCheckTests(unittest.TestCase):
         self.connectors.pause(cid, actor=ACTOR, reason="maintenance")
         result = self.call("POST", f"/api/supply/connectors/{cid}/test").json
         self.assertEqual((result["ok"], result["code"]), (False, "inactive"))
-        self.assertEqual((type(self).behaviour["calls"], self.rows("SELECT 1 FROM quota_ledger")), (0, []))
+        self.assertEqual((type(self).behaviour["calls"], self.rows("SELECT 1 FROM supply_quota_ledger")), (0, []))
 
     def test_a_free_connector_is_tested_without_spending(self) -> None:
         cid = self.connector("demo_free")
         self.assertTrue(self.call("POST", f"/api/supply/connectors/{cid}/test").json["ok"])
-        self.assertEqual(self.rows("SELECT 1 FROM quota_ledger"), [])
+        self.assertEqual(self.rows("SELECT 1 FROM supply_quota_ledger"), [])
 
     def test_only_admins_test_and_a_missing_connector_is_a_404(self) -> None:
         cid = self.connector()
@@ -174,71 +176,52 @@ class ConnectorCheckTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/supply/connectors/missing/test").status, 404)
         self.assertEqual(type(self).behaviour["calls"], 0)
 
-    # --- capacity ---------------------------------------------------------
+    # --- coverage in the budget ---------------------------------------------
 
     def watch_with_listing(self, mpn: str, cid: str, tier: str | None) -> None:
         with self.store.connection() as conn:
             watch = self.watches.add_watch(conn, "Acme", mpn, ACTOR, tier=1)[0]
             listing_id = uuid.uuid4().hex
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')", (listing_id, cid, f"SKU-{mpn}", watch.part_id))
             if tier:
                 conn.execute(
-                    "INSERT INTO poll_state (listing_id, tier, next_poll_at) VALUES (%s, %s, NOW())", (listing_id, tier))
+                    "INSERT INTO supply_poll_state (listing_id, tier, next_poll_at) VALUES (%s, %s, NOW())", (listing_id, tier))
             conn.execute(
-                "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, NOW(), 1)",
+                "INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, NOW(), 1)",
                 (watch.part_id, cid))
 
-    def test_capacity_counts_calls_a_day_and_says_when_the_budget_will_not_keep_up(self) -> None:
-        cid = self.connector(daily_budget=100, interactive_reserve_pct=0)
-        for index in range(3):
-            self.watch_with_listing(f"DAILY{index}", cid, "daily")
-        for index in range(2):
-            self.watch_with_listing(f"WEEKLY{index}", cid, "weekly")
-        (row,) = self.call("GET", "/api/supply/capacity").json
-        # Batches of 2, two calls a batch: daily is 2 batches x 2 calls, weekly is 1 batch x 2 calls once in seven days.
-        self.assertEqual((row["listings"], row["calls_per_day"], row["usable_per_day"]), (5, 5, 100))
-        self.assertEqual((row["fits"], row["shortfall_pct"], row["searches_pending"]), (True, 0, 0))
+    def budget(self) -> list[dict]:
+        from app.services.supply import budget_view, clock
 
-        self.connectors.update(cid, actor=ACTOR, daily_budget=4)
-        (tight,) = self.call("GET", "/api/supply/capacity").json
-        self.assertEqual((tight["fits"], tight["usable_per_day"], tight["shortfall_pct"]), (False, 4, 20))
+        with self.store.connection() as conn:
+            return budget_view.view(conn, clock.now())
 
-    def test_capacity_holds_back_the_interactive_reserve_and_plans_unpolled_listings_daily(self) -> None:
-        cid = self.connector(daily_budget=100, interactive_reserve_pct=10)
-        self.watch_with_listing("NEW", cid, None)
-        (row,) = self.call("GET", "/api/supply/capacity").json
-        self.assertEqual((row["calls_per_day"], row["usable_per_day"]), (2, 90), "1 batch x 2 calls, once a day")
+    def coverage(self, cid: str) -> dict:
+        (row,) = [item for item in self.budget() if item["connector_id"] == cid]
+        return row
 
-    def test_capacity_says_how_many_tracked_parts_a_connector_quotes(self) -> None:
+    def test_the_budget_says_how_many_tracked_parts_a_connector_quotes(self) -> None:
         cid = self.connector()
         self.watch_with_listing("PRICED", cid, "daily")
         self.watch_with_listing("UNPRICED", cid, "daily")
         with self.store.connection() as conn:
-            listing = conn.execute("SELECT id FROM listings WHERE sku = 'SKU-PRICED'").fetchone()["id"]
+            listing = conn.execute("SELECT id FROM supply_listings WHERE sku = 'SKU-PRICED'").fetchone()["id"]
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, NOW(), 5, 'EUR', '[[1, \"0.5\"]]'::jsonb)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, NOW(), 5, 'EUR', '[[1, \"0.5\"]]'::jsonb)",
                 (listing,),
             )
-        (row,) = self.call("GET", "/api/supply/capacity").json
-        self.assertEqual(row["quotes"], {"parts": 1, "of": 2})
+        self.assertEqual(self.coverage(cid)["quotes"], {"parts": 1, "of": 2})
 
-    def test_capacity_reports_searches_still_to_do_and_leaves_out_free_and_disabled_connectors(self) -> None:
+    def test_the_budget_says_how_many_watched_parts_are_not_searched_yet(self) -> None:
         cid = self.connector()
         self.connector("csv")
         with self.store.connection() as conn:
             self.watches.add_watch(conn, "Acme", "UNSEARCHED", ACTOR)
-        rows = self.call("GET", "/api/supply/capacity").json
-        self.assertEqual([r["connector_id"] for r in rows], [cid], "a file connector has no budget to plan")
+        rows = self.budget()
+        self.assertEqual([r["connector_id"] for r in rows], [cid], "a file connector has no budget")
         self.assertEqual(rows[0]["searches_pending"], 1)
-        self.connectors.update(cid, actor=ACTOR, enabled=False)
-        self.assertEqual(self.call("GET", "/api/supply/capacity").json, [])
-
-    def test_capacity_is_for_readers(self) -> None:
-        for role in ("admin", "designer", "qa"):
-            self.assertEqual(self.call("GET", "/api/supply/capacity", role=role).status, 200, role)
-        self.assertEqual(self.call("GET", "/api/supply/capacity", role="viewer").status, 403)
 
 
 if __name__ == "__main__":

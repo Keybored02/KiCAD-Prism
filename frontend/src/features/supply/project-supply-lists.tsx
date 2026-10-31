@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
 
 import type { ProjectSupply } from "@/types/supply";
+import { partHref } from "./supply-views";
 import { releaseComplianceCsvUrl } from "./release-check-api";
 import { StatusDot } from "./status-dot";
-import { STATUS_LABEL } from "./supply-format";
+import { formatDay, STATUS_LABEL } from "./supply-format";
 
 /** A folded section with its count in the summary; an empty one has a summary and nothing to open. */
 const section = (title: string, children: React.ReactNode, count?: number) => (
@@ -25,7 +26,7 @@ export function ProjectSupplyReleases({ projectId, releases }: { projectId: stri
             <span className="font-medium">{release.tag}</span>
             <span className="text-xs text-muted-foreground">
               {release.health === null ? STATUS_LABEL[release.status] : `Health ${release.health.toFixed(1)} of 10`}, {release.parts} parts,{" "}
-              {release.needing_a_look} needed a look, {new Date(release.created_at).toLocaleDateString()}
+              {release.needing_a_look} needed a look, {formatDay(release.created_at)}
             </span>
             <a href={releaseComplianceCsvUrl(projectId, release.build_id)} className="ml-auto text-xs text-primary hover:underline">Compliance CSV</a>
           </div>
@@ -33,7 +34,7 @@ export function ProjectSupplyReleases({ projectId, releases }: { projectId: stri
             <p className="text-xs text-destructive">
               Since then:{" "}
               {release.changed_since.map((item, index) => (
-                <span key={item.part_id}>{index > 0 ? ", " : ""}<Link className="underline" to={`/?section=supply&supplyView=parts&part=${encodeURIComponent(item.part_id)}`}>{item.mpn}</Link> is now {STATUS_LABEL[item.now].toLowerCase()}</span>
+                <span key={item.part_id}>{index > 0 ? ", " : ""}<Link className="underline" to={partHref(item.part_id)}>{item.mpn}</Link> is now {STATUS_LABEL[item.now].toLowerCase()}</span>
               ))}
             </p>
           ) : null}
@@ -53,7 +54,7 @@ export function ProjectSupplyNotes({ supply }: { supply: ProjectSupply }) {
         <li key={note.id} className="p-2">
           <div className="flex flex-wrap items-baseline gap-2">
             <Link to="?section=visualizers" className="font-medium text-primary hover:underline">{names.get(note.line_key) ?? note.line_key}</Link>
-            <span className="text-xs text-muted-foreground">{note.author_name || note.author}, {new Date(note.created_at).toLocaleDateString()}</span>
+            <span className="text-xs text-muted-foreground">{note.author_name || note.author}, {formatDay(note.created_at)}</span>
           </div>
           <p className="whitespace-pre-wrap">{note.body}</p>
         </li>

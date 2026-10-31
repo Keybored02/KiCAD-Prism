@@ -8,8 +8,7 @@ echoed back.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -17,24 +16,25 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.supply_call import run_supply as _run
+from app.api.supply_connectors_models import SupplyConnector, SupplyConnectorCheck, SupplyCsvResult, SupplyProvider
+from app.api.supply_models import Items
 from app.core.config import settings
+from app.core.errors import BadRequest
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
-from app.services.supply import capacity, connector_check
-from app.services.supply.connectors import ConnectorError, ConnectorNotFound, ConnectorService
+from app.services.supply import connector_check, oauth
+from app.services.supply.connectors import ConnectorService
 from app.services.supply.csv_format import MAX_BYTES, TEMPLATE
 from app.services.supply.csv_import_service import CsvImportService, CsvRejected
 from app.services.supply.providers import registry
-from app.services.trackers.secrets import SecretStoreLocked
 
 _PREFIX = "/api/supply"
 
 router = APIRouter(prefix=_PREFIX, tags=["supply"])
 service = ConnectorService()
 
-T = TypeVar("T")
 
-
-class CreateConnectorRequest(BaseModel):
+class CreateSupplyConnectorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: str = Field(min_length=1, max_length=64)
@@ -46,7 +46,7 @@ class CreateConnectorRequest(BaseModel):
     interactive_reserve_pct: int = 10
 
 
-class UpdateConnectorRequest(BaseModel):
+class UpdateSupplyConnectorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: Optional[str] = Field(default=None, max_length=120)
@@ -59,9 +59,15 @@ class UpdateConnectorRequest(BaseModel):
     retention_days: Optional[int] = None
     # Days any history is kept, daily rows included. Null keeps it for good.
     keep_days: Optional[int] = None
+    # The administrator holds the distributor's written leave to keep prices and stock of parts not in use.
+    keep_unused: Optional[bool] = None
+    # Read the provider's published catalogue in place of an uploaded offers file.
+    catalogue: Optional[bool] = None
     # When the provider's day begins (HH:MM) and in which time zone; its budget resets then.
     reset_time: Optional[str] = Field(default=None, max_length=5)
     reset_tz: Optional[str] = Field(default=None, max_length=64)
+    # The reset time was taken from what the provider reported, so its own count of calls is trusted.
+    reset_from_provider: Optional[bool] = None
 
 
 class CredentialsRequest(BaseModel):
@@ -80,30 +86,6 @@ def _actor(user: AuthenticatedUser) -> str:
     return user.email
 
 
-def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, ConnectorNotFound):
-        return HTTPException(status_code=404, detail="Connector not found")
-    if isinstance(exc, SecretStoreLocked):
-        # "Not set" and "invalid" need different fixes, and neither message carries key material.
-        if "disabled" in str(exc):
-            return HTTPException(
-                status_code=503,
-                detail="Credential encryption is not set up: TRACKER_CREDENTIAL_ROOT_KEY is empty on the server",
-            )
-        return HTTPException(status_code=503, detail="Credential encryption is locked")
-    if isinstance(exc, ConnectorError):
-        status = 409 if exc.code == "duplicate" else 403 if exc.code == "provider_disabled" else 400
-        return HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)})
-    raise exc
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except Exception as exc:
-        raise _http_error(exc) from exc
-
-
 def _provider_dto(spec) -> dict[str, Any]:
     return {
         "key": spec.key,
@@ -118,6 +100,7 @@ def _provider_dto(spec) -> dict[str, Any]:
         "storefronts": list(spec.storefronts),
         "default_daily_budget": spec.default_daily_budget,
         "metered": spec.metered,
+        "csv_fed": spec.csv_fed,
     }
 
 
@@ -147,33 +130,46 @@ def register_validation_redaction(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, handler)
 
 
-@router.get("/providers")
-async def list_providers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+@router.get("/providers", response_model=Items[SupplyProvider])
+async def list_providers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     include_dev = bool(settings.SUPPLY_ENABLE_SIMULATED_PROVIDER)
-    return [_provider_dto(spec) for spec in registry.list_specs(include_dev=include_dev)]
+    return {"items": [_provider_dto(spec) for spec in registry.list_specs(include_dev=include_dev)]}
 
 
-@router.get("/connectors")
-async def list_supply_connectors(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    return await _run(service.list)
+@router.get("/connectors", response_model=Items[SupplyConnector], response_model_exclude_unset=True)
+async def list_supply_connectors(user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Every connector. An administrator also sees, on a connector whose change notices need a person's sign-in, that sign-in
+    (who, until when, and the callback address the distributor's app must list)."""
+
+    def read() -> list[dict[str, Any]]:
+        items = service.list()
+        if user.role != "admin":
+            return items
+        with service.store.connection() as conn:
+            return [
+                item | {"signin": oauth.status(conn, item["id"]) | {"redirect_uri": oauth.redirect_uri()}} if item["provider"] in oauth.SUPPORTED else item
+                for item in items
+            ]
+
+    return {"items": await _run(read)}
 
 
-@router.post("/connectors", status_code=201)
+@router.post("/connectors", status_code=201, response_model=SupplyConnector, response_model_exclude_unset=True)
 async def create_supply_connector(
-    body: CreateConnectorRequest, admin: AuthenticatedUser = Depends(require_admin)
+    body: CreateSupplyConnectorInput, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.create(actor=_actor(admin), **body.model_dump()))
 
 
-@router.patch("/connectors/{connector_id}")
+@router.patch("/connectors/{connector_id}", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def update_supply_connector(
-    connector_id: str, body: UpdateConnectorRequest, admin: AuthenticatedUser = Depends(require_admin)
+    connector_id: str, body: UpdateSupplyConnectorInput, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     changes = body.model_dump(exclude_unset=True)
     return await _run(lambda: service.update(connector_id, actor=_actor(admin), **changes))
 
 
-@router.put("/connectors/{connector_id}/credentials")
+@router.put("/connectors/{connector_id}/credentials", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def set_connector_credentials(
     connector_id: str, body: CredentialsRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
@@ -182,14 +178,14 @@ async def set_connector_credentials(
     )
 
 
-@router.post("/connectors/{connector_id}/pause")
+@router.post("/connectors/{connector_id}/pause", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def pause_supply_connector(
     connector_id: str, body: PauseRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.pause(connector_id, actor=_actor(admin), reason=body.reason))
 
 
-@router.post("/connectors/{connector_id}/test")
+@router.post("/connectors/{connector_id}/test", response_model=SupplyConnectorCheck)
 async def test_connector_connection(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
@@ -198,16 +194,9 @@ async def test_connector_connection(
     return await _run(lambda: connector_check.check_connector(service, connector_id, _actor(admin)))
 
 
-@router.get("/capacity")
-async def get_capacity(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
-    def read() -> list[dict[str, Any]]:
-        with service.store.connection() as conn:
-            return capacity.connector_capacity(conn)
-
-    return await _run(read)
 
 
-@router.post("/connectors/{connector_id}/resume")
+@router.post("/connectors/{connector_id}/resume", response_model=SupplyConnector, response_model_exclude_unset=True)
 async def resume_supply_connector(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
@@ -227,22 +216,20 @@ def _csv_service() -> CsvImportService:
     return CsvImportService(service, store=service.store)
 
 
-def _rejection(exc: CsvRejected) -> HTTPException:
+def _rejection(exc: CsvRejected) -> BadRequest:
     parsed = exc.parsed
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "csv_rejected",
-            "message": f"The file was not imported. {parsed.error_count} problem(s) found.",
-            "error_count": parsed.error_count,
-            "errors": [{"line": e.line, "column": e.column, "message": e.message} for e in parsed.errors],
-            "ignored_columns": list(parsed.ignored_columns),
-        },
+    return BadRequest(
+        f"The file was not imported. {parsed.error_count} problem(s) found.",
+        code="csv_rejected",
+        error_count=parsed.error_count,
+        errors=[{"line": e.line, "column": e.column, "message": e.message} for e in parsed.errors],
+        ignored_columns=list(parsed.ignored_columns),
     )
 
 
 @router.get(
     "/csv-template",
+    response_class=Response,
     responses={200: {"description": "The CSV template for an offers upload.", "content": {"text/csv": {}}}},
 )
 async def csv_template(_user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
@@ -253,7 +240,7 @@ async def csv_template(_user: AuthenticatedUser = Depends(require_supply_reader)
     )
 
 
-@router.post("/connectors/{connector_id}/csv")
+@router.post("/connectors/{connector_id}/csv", response_model=SupplyCsvResult)
 async def upload_offers_csv(
     connector_id: str,
     request: Request,
@@ -267,16 +254,14 @@ async def upload_offers_csv(
     if len(content) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="The file is too large")
 
-    def run() -> dict[str, Any]:
+    def load() -> dict[str, Any]:
         info, parsed = _csv_service().import_file(connector_id, content, actor=_actor(admin), filename=filename)
         return {**info.to_dto(), "ignored_columns": list(parsed.ignored_columns)}
 
     try:
-        return await asyncio.to_thread(run)
+        return await _run(load)
     except CsvRejected as exc:
         raise _rejection(exc) from exc
-    except Exception as exc:
-        raise _http_error(exc) from exc
 
 
 @router.delete("/connectors/{connector_id}/csv", status_code=204)

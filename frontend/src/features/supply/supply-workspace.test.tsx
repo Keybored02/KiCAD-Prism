@@ -7,9 +7,11 @@ import type { User, UserRole } from "@/types/auth";
 vi.mock("./dashboard-view", () => ({ DashboardView: () => <div>Dashboard content</div> }));
 vi.mock("./insights-view", () => ({ InsightsView: () => <div>Insights content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
-vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
-vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
+const getLibraryComponentOf = vi.fn();
+vi.mock("./supply-api", () => ({ getLibraryComponentOf: (id: string) => getLibraryComponentOf(id) }));
 vi.mock("./projects-view", () => ({ ProjectsView: () => <div>Projects content</div> }));
+vi.mock("./review-page", () => ({ ReviewPage: () => <div>Review content</div>, useReviewWaiting: () => 3 }));
+vi.mock("./sources-view", () => ({ SourcesView: () => <div>Sources content</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
 
@@ -37,9 +39,9 @@ describe("the Supply section", () => {
     expect(screen.getByRole("tab", { name: "Dashboard" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("has six tabs", async () => {
+  it("has six tabs, Review with what waits", async () => {
     renderAt("qa");
-    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Projects", "Review", "Insights", "Connectors"]);
+    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Tracking", "Projects", "Insights", "Review3", "Sources"]);
   });
 
   it("keeps old addresses working", async () => {
@@ -56,29 +58,37 @@ describe("the Supply section", () => {
     expect(await screen.findByText("Parts content")).toBeTruthy();
   });
 
-  it("has the Connectors tab, where a DigiKey sign-in returns and says how it went", async () => {
+  it("opens Sources for an old Connectors address, keeping a sign-in result", async () => {
     renderAt("admin", "/?section=supply&supplyView=connectors&signin=ok");
-    expect(await screen.findByText("Connectors content")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Connectors" }).getAttribute("aria-selected")).toBe("true");
-    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&supplyView=connectors"));
+    expect(await screen.findByText("Sources content")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Sources" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByLabelText("location").textContent).toContain("signin=ok");
   });
 
-  it("shows Review when asked for it", async () => {
+  it("opens Review", async () => {
     renderAt("qa", "/?section=supply&supplyView=review");
     expect(await screen.findByText("Review content")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("titles each tab and keeps the settings off the other tabs", async () => {
-    renderAt("admin", "/?section=supply&supplyView=connectors");
-    expect(await screen.findByRole("heading", { name: "Distributor Connectors" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
+  it("opens a linked part's component on its Supply tab, or the part on Tracking when the library has none", async () => {
+    getLibraryComponentOf.mockResolvedValueOnce({ component_id: "c1" });
+    renderAt("qa", "/?section=supply&supplyView=part&part=p1");
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=library-manager&libraryView=catalog&component=c1&componentTab=sourcing"));
+    cleanup();
+    getLibraryComponentOf.mockResolvedValueOnce({ component_id: null });
+    renderAt("qa", "/?section=supply&supplyView=part&part=p2");
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&supplyView=tracking&part=p2"));
+  });
+
+  it("titles each tab", async () => {
+    renderAt("admin", "/?section=supply&supplyView=parts");
+    expect(await screen.findByRole("heading", { name: "Tracking" })).toBeTruthy();
   });
 
   it("is closed to viewers and signed-out users, and says why", () => {
     renderAt("viewer");
     expect(screen.getByText("Supply data is not available to your role")).toBeTruthy();
-    expect(screen.queryByText("Review content")).toBeNull();
+    expect(screen.queryByText("Dashboard content")).toBeNull();
     cleanup();
     renderAt(null);
     expect(screen.getByText("Supply data is not available to your role")).toBeTruthy();
@@ -92,22 +102,21 @@ describe("the Supply section", () => {
   it("drops the open part but keeps the Parts search when another tab is chosen", async () => {
     renderAt("admin", "/?section=supply&part=p1&partsQ=lm&partsScope=all&other=1");
     // Radix tabs switch on mouse down, as a real press does.
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Review" }), { button: 0, ctrlKey: false });
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Insights" }), { button: 0, ctrlKey: false });
     const location = screen.getByLabelText("location").textContent ?? "";
-    expect(location).toContain("supplyView=review");
+    expect(location).toContain("supplyView=insights");
     expect(location).toContain("other=1");
     expect(location).not.toContain("part=p1");
     expect(location).toContain("partsQ=lm");
     expect(location).toContain("partsScope=all");
   });
 
-  it("keeps a tab it has opened, hidden, so coming back does not load it again", async () => {
+  it("mounts only the shown tab; the store keeps what a tab showed", async () => {
     renderAt("admin", "/?section=supply");
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Review" }), { button: 0, ctrlKey: false });
-    const review = await screen.findByText("Review content");
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Insights" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByText("Insights content")).toBeTruthy();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Dashboard" }), { button: 0, ctrlKey: false });
-    expect(screen.getByText("Review content")).toBe(review);
-    expect(review.closest("[hidden]")).not.toBeNull();
+    await waitFor(() => expect(screen.queryByText("Insights content")).toBeNull());
   });
 
   it("leaves the URL alone when the open tab is clicked again", async () => {

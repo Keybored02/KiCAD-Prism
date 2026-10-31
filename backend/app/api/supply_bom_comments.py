@@ -2,43 +2,28 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, Response
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
+from app.api.supply_bom_models import CommentIn, SupplyBomComment
+from app.api.supply_call import run_supply
+from app.api.supply_models import Items
 from app.core.security import AuthenticatedUser, require_supply_commenter, require_supply_reader
 from app.services.supply import bom_comments
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class CommentIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    line_key: str = Field(min_length=1, max_length=bom_comments.MAX_KEY)
-    body: str = Field(min_length=1, max_length=bom_comments.MAX_BODY)
+_run = partial(run_supply, invalid="invalid_comment")
 
 
 def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except bom_comments.CommentNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_comment", "message": str(exc)}) from exc
-
-
-@router.get("/{project_id}/bom-comments")
+@router.get("/{project_id}/bom-comments", response_model=Items[SupplyBomComment])
 async def list_comments(project_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 
@@ -49,7 +34,7 @@ async def list_comments(project_id: str, user: AuthenticatedUser = Depends(requi
     return await _run(read)
 
 
-@router.post("/{project_id}/bom-comments", status_code=201)
+@router.post("/{project_id}/bom-comments", status_code=201, response_model=SupplyBomComment)
 async def add_comment(project_id: str, body: CommentIn, user: AuthenticatedUser = Depends(require_supply_commenter)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 

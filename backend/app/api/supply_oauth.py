@@ -1,20 +1,21 @@
 """A person's sign-in at DigiKey, for change notices. Administrators only.
 
-``POST /api/supply/connectors/{id}/signin`` gives the DigiKey address to open; DigiKey sends the browser back to
-``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Connectors tab with a result code
+Who is signed in comes with an administrator's connector list. ``POST /api/supply/connectors/{id}/signin`` gives the DigiKey address to open; DigiKey sends the browser back to
+``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Sources tab with a result code
 in the address (``signin=ok`` or ``signin=failed&reason=<code>``). The page words the code itself. The callback needs the same administrator's session and the one-time state from the start.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 
 from app.api import supply_connectors
+from app.api.supply_connectors_models import SigninStarted
 from app.core.security import AuthenticatedUser, require_admin
 from app.services.supply import oauth
 from app.services.supply.connectors import ConnectorNotFound
@@ -22,30 +23,14 @@ from app.services.trackers.secrets import SecretStoreLocked
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
-RETURN_TO = "/?section=supply&supplyView=connectors"
+RETURN_TO = "/?section=supply&supplyView=sources"
 
 
 def _service():
     return supply_connectors.service
 
 
-@router.get("/connectors/{connector_id}/signin")
-async def signin_status(connector_id: str, _admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
-    """Whether someone is signed in for the connector, and the callback address the DigiKey app must list."""
-
-    def read() -> dict[str, Any]:
-        service = _service()
-        service.get(connector_id)
-        with service.store.connection() as conn:
-            return oauth.status(conn, connector_id) | {"redirect_uri": oauth.redirect_uri()}
-
-    try:
-        return await asyncio.to_thread(read)
-    except ConnectorNotFound as exc:
-        raise HTTPException(status_code=404, detail="Connector not found") from exc
-
-
-@router.post("/connectors/{connector_id}/signin")
+@router.post("/connectors/{connector_id}/signin", response_model=SigninStarted)
 async def start_signin(connector_id: str, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, str]:
     try:
         url = await asyncio.to_thread(oauth.start, _service(), connector_id, admin.email)

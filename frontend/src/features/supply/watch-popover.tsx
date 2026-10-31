@@ -15,7 +15,7 @@ export function WatchPopover({ detail, canEdit, onChanged }: { detail: SupplyPar
           <Clock className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="max-h-[28rem] w-[min(26rem,90vw)] gap-3 overflow-y-auto p-3">
+      <PopoverContent align="end" className="max-h-[28rem] w-[min(26rem,90vw)] gap-3 themed-scrollbar overflow-y-auto p-3">
         <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} needsPick={detail.packaging?.needs_pick} />
         <WatchSettings part={detail.part} watch={detail.watch} canEdit={canEdit} onChanged={onChanged} />
       </PopoverContent>

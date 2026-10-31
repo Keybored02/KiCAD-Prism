@@ -36,3 +36,25 @@ describe("the BOM line drawer and the preferred distributor", () => {
     expect(screen.queryByText(/Preferred:/)).toBeNull();
   });
 });
+
+describe("a BOM line no catalog component has", () => {
+  it("offers the Component Database instead of a watch", () => {
+    const onAddToLibrary = vi.fn();
+    render(
+      <BomRowDrawer lines={[line]} results={{ k: result({ state: "unknown", part_id: null, in_library: false }) }} canWatch busyKey={null}
+        onClose={vi.fn()} onWatch={vi.fn()} onOpenPart={vi.fn()} onAddToLibrary={onAddToLibrary} />,
+    );
+    expect(screen.getByText("Not in the Component Database.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Watch this part/ })).toBeNull();
+    screen.getByRole("button", { name: /Add to Component Database/ }).click();
+    expect(onAddToLibrary).toHaveBeenCalledWith(line);
+  });
+
+  it("offers nothing to a user who cannot write the catalog", () => {
+    render(
+      <BomRowDrawer lines={[line]} results={{ k: result({ state: "unknown", part_id: null, in_library: false }) }} canWatch busyKey={null}
+        onClose={vi.fn()} onWatch={vi.fn()} onOpenPart={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: /Add to Component Database|Watch this part/ })).toBeNull();
+  });
+});

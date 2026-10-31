@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import type { SupplyPartRow } from "@/types/supply";
+import { PriceAtQuantity } from "./price-at-quantity";
 import { formatPrice } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
 
@@ -13,7 +14,7 @@ function Tip({ icon: Icon, label, className }: { icon: LucideIcon; label: string
 }
 
 const FLAG: Record<string, { icon: LucideIcon; text: string }> = {
-  waiting: { icon: Hourglass, text: "Waiting for room to be read" },
+  waiting: { icon: Hourglass, text: "Queued for calls" },
   rohs: { icon: ShieldAlert, text: "A distributor says it is not RoHS compliant" },
   reach: { icon: ShieldAlert, text: "A distributor says REACH affects it" },
   ncnr: { icon: Ban, text: "Non-cancellable, non-returnable" },
@@ -50,7 +51,7 @@ function Square({ item, preferred }: { item: NonNullable<SupplyPartRow["distribu
       <PopoverContent side="top" className="w-48 gap-1 p-2" onOpenAutoFocus={(event) => event.preventDefault()} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
         <p className="flex items-center gap-1.5 font-medium"><span aria-hidden className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: color }} />{item.name}{preferred ? <Star className="h-3 w-3 fill-current text-primary" aria-label="Preferred" /> : null}</p>
         <p className="text-muted-foreground">{held ? `${item.stock.toLocaleString()} in stock` : "None in stock"}</p>
-        {item.price && item.currency ? <p className="text-muted-foreground">{formatPrice(item.price, item.currency)} at 100</p> : null}
+        {item.price && item.currency ? <p className="text-muted-foreground"><PriceAtQuantity price={formatPrice(item.price, item.currency)} quantity={100} /></p> : null}
       </PopoverContent>
     </Popover>
   );

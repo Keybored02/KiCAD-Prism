@@ -174,6 +174,11 @@ export function canEditSupply(role?: UserRole | null): boolean {
   return roleHasAuthority(role, "edit_supply");
 }
 
+/** Following parts, components and projects: anyone who opens Supply (the server's `supply_follow`). */
+export function canFollowSupply(role?: UserRole | null): boolean {
+  return canOpenSupply(role);
+}
+
 export function canReviewSupply(role?: UserRole | null): boolean {
   return roleHasAuthority(role, "review_supply");
 }

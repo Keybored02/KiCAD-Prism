@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { ReleaseCheck, ReleaseSnapshot } from "@/types/supply";
+import type { JobProgress, ReleaseBomKept, ReleaseCheck, ReleaseSnapshot } from "@/types/supply";
 
 // Apart from supply-api so Release Studio does not pull in the whole supply client.
 
@@ -14,7 +14,7 @@ export function getReleaseCheck(projectId: string, buildId: string, signal?: Abo
   );
 }
 
-export type ReleaseSnapshotState = { state: "taken" | "queued" | "failed" | "none"; reason: string };
+export type ReleaseSnapshotState = JobProgress;
 
 /** Whether a published release has its supply snapshot, is waiting for it, or could not have one. */
 export function getReleaseSnapshotState(projectId: string, buildId: string, signal?: AbortSignal): Promise<ReleaseSnapshotState> {
@@ -38,7 +38,7 @@ export const releaseComplianceCsvUrl = (projectId: string, buildId: string) =>
   `${base(projectId)}/releases/${encodeURIComponent(buildId)}/compliance?format=csv`;
 
 /** Keep the release's BOM lines as the project's usage. Asks no distributor and tracks nothing. */
-export function readReleaseBom(projectId: string, buildId: string): Promise<{ stored: boolean; parts: number; without_number: number }> {
+export function readReleaseBom(projectId: string, buildId: string): Promise<ReleaseBomKept> {
   return fetchJson(
     `${base(projectId)}/release-builds/${encodeURIComponent(buildId)}/read-bom`,
     { method: "POST" },

@@ -8,74 +8,42 @@ reported, not created.
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
-from typing import Any, Callable, TypeVar
+import base64
+from functools import partial
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends
 
 from app.api import supply_connectors
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api._helpers import get_project_for_role_or_404
+from app.api.supply_access import is_approver
+from app.api.supply_bom_models import (
+    SHEET_MAX_BYTES,
+    BomWatched,
+    BomWatchPreview,
+    ComponentStandings,
+    LineIn,
+    LookupRequest,
+    SheetRequest,
+    SheetRows,
+    StatusRequest,
+    SupplyBomLookup,
+    UsageBuild,
+    UsageRefreshed,
+    WatchRequest,
+)
+from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
-from app.services.supply import admission, bom_lookup, catalog_read, project_bom, usage
+from app.services.supply import admission, bom_lookup, catalog_read, clock, project_bom, project_supply, spreadsheet, usage
+from app.services.supply.inventory import levels
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class LineIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    key: str = Field(min_length=1, max_length=200)
-    manufacturer: str = Field(default="", max_length=200)
-    mpn: str = Field(default="", max_length=200)
-    # Fitted parts per board. A line with none fitted is not sent.
-    quantity: int = Field(default=1, ge=1, le=100_000)
-    # The catalog component placed on the symbol. When the catalog knows it, its manufacturer and part number win.
-    prism_id: str = Field(default="", max_length=100)
-    # The LCSC number on the symbol, such as C7950.
-    lcsc: str = Field(default="", max_length=14, pattern=r"^(C\d{1,12})?$")
-    # The symbol's value and the footprint's name, checked against the distributor's value and package.
-    value: str = Field(default="", max_length=60)
-    footprint: str = Field(default="", max_length=200)
-
-
-class LookupRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    build_quantity: int = Field(default=1, ge=1, le=1_000_000)
-    # Spares on top of what the boards use, as a percentage of the quantity.
-    # Null asks for spares by kind of part (small passives get some, the rest none).
-    attrition_percent: float | None = Field(default=0, ge=0, le=100)
-    lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
-
-
-MAX_STATUS_COMPONENTS = 200
-
-
-class WatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    lines: list[LineIn] = Field(max_length=bom_lookup.MAX_WATCH_LINES)
-    # Tier 1 is read daily; tier 2 weekly or monthly. A part already followed is only ever raised.
-    tier: int = Field(default=2, ge=1, le=2)
-    rate: str = Field(default="weekly", pattern="^(weekly|monthly)$")
+_run = partial(run_supply, invalid="invalid_request")
 
 
 def _store():
     # Resolved per call so a replaced connector service (tests) brings its own store.
     return supply_connectors.service.store
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except admission.NoRoom as exc:
-        raise HTTPException(status_code=409, detail={"code": "no_room", "message": str(exc)}) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
 def _lines(items: list[LineIn]) -> list[bom_lookup.BomLine]:
@@ -92,7 +60,7 @@ def _lcsc_connector() -> str | None:
     return found[0] if len(found) == 1 else None
 
 
-@router.post("/usage/refresh")
+@router.post("/usage/refresh", response_model=UsageRefreshed)
 async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, int]:
     """Read where parts are used from the projects' existing semantic indexes. Builds none, so it is cheap."""
 
@@ -110,7 +78,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
         }
         with _store().connection() as conn:
             return usage.refresh(
-                conn, projects, project_bom.existing_index, datetime.now(timezone.utc), visible, catalog_read.identities,
+                conn, projects, project_bom.existing_index, clock.now(), visible, catalog_read.identities,
             )
 
     return await _run(run)
@@ -120,7 +88,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
 MAX_BUILDS_PER_REQUEST = 25
 
 
-@router.post("/usage/build")
+@router.post("/usage/build", response_model=UsageBuild)
 async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, int]:
     """Queue the semantic index of projects that have none, so their BOMs can be read.
 
@@ -146,67 +114,92 @@ async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)
     return await _run(run)
 
 
-class StatusRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # Catalog components by id; the key of each line is the component id.
-    components: list[LineIn] = Field(max_length=MAX_STATUS_COMPONENTS)
-
-
-@router.post("/components-status")
+@router.post("/components-status", response_model=ComponentStandings, response_model_exclude_unset=True)
 async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """Where each catalog component stands, for the catalog table. Components Prism does not track are left out."""
+    """Where each catalog component stands, for the catalog table: distributor status, stock and price, and its stores state
+    (``stores``; ``local_available`` is its available figure). Without stores data, components with no distributor data are left out."""
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return {"items": bom_lookup.standing_of(conn, _lines(body.components))}
+            items = bom_lookup.standing_of(conn, _lines(body.components))
+            stores = levels.stores_state(conn, [line.key for line in body.components])
+        for key, state in stores.items():
+            items.setdefault(key, {"status": "unknown", "stock": None, "watched": False, "unit_price": None, "currency": "", "restriction": None})
+            items[key]["local_available"] = state["available"]
+            items[key]["stores"] = state
+        return {"items": items}
 
     return await _run(read)
 
 
-@router.post("/lookup")
-async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+@router.post("/lookup", response_model=SupplyBomLookup, response_model_exclude_unset=True)
+async def lookup(body: LookupRequest, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Stock, price and status of the BOM's lines for a build, with the build and spares it was priced for."""
+
+    if body.project_id:
+        get_project_for_role_or_404(body.project_id, user.role)
+    spares = body.attrition_percent if "attrition_percent" in body.model_fields_set else project_supply.DEFAULT
+
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return bom_lookup.lookup(
-                conn, _lines(body.lines), body.build_quantity, body.attrition_percent, identities=catalog_read.identities,
+            _tracked, build_quantity, attrition_percent = project_supply.build_of(conn, body.project_id, body.build_quantity, spares, fallback_build=1)
+            found = bom_lookup.lookup(
+                conn, _lines(body.lines), build_quantity, attrition_percent, identities=catalog_read.identities,
                 in_library=catalog_read.in_library,
             )
+        return {**found, "build_quantity": build_quantity, "attrition_percent": attrition_percent}
 
     return await _run(read)
 
 
-def _watching(body: WatchRequest, actor: str, role: str):
+def _watching(body: WatchRequest, actor: str, approver: bool):
     lcsc = _lcsc_connector() if any(line.lcsc for line in body.lines) else None
 
     def change(conn) -> dict[str, Any]:
         return bom_lookup.watch_lines(
-            conn, _lines(body.lines), actor, may_create_manufacturer=role in SUPPLY_APPROVE_ROLES,
+            conn, _lines(body.lines), actor, may_create_manufacturer=approver,
             identities=catalog_read.identities, lcsc_connector=lcsc, tier=body.tier, rate=body.rate,
         )
 
     return change
 
 
-@router.post("/watch/preview")
+@router.post("/watch/preview", response_model=BomWatchPreview, response_model_exclude_unset=True)
 async def preview_watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """What tracking these lines at a tier would cost each distributor's budget. Changes nothing."""
 
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.preview(conn, _watching(body, user.email, user.role))
+            report = admission.preview(conn, _watching(body, user.email, is_approver(user)))
         return {key: value for key, value in report.items() if key != "result"} | {"watched": report["result"]}
 
     return await _run(run)
 
 
-@router.post("/watch")
+@router.post("/watch", response_model=BomWatched, response_model_exclude_unset=True)
 async def watch(body: WatchRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """Track these lines where there is room. Refused when nothing fits at any distributor."""
 
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            report = admission.apply(conn, _watching(body, user.email, user.role))
+            report = admission.apply(conn, _watching(body, user.email, is_approver(user)))
         return {**report["result"], "connectors": report["connectors"], "fits_nowhere": report["fits_nowhere"]}
+
+    return await _run(run)
+
+
+SHEET_MAX_UNPACKED = 40 * 1024 * 1024
+
+
+@router.post("/sheet", response_model=SheetRows)
+async def read_sheet(body: SheetRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> SheetRows:
+    """The first sheet of an uploaded Excel BOM as rows of text. Nothing is stored."""
+
+    def run() -> SheetRows:
+        try:
+            data = base64.b64decode(body.xlsx_base64, validate=True)
+        except ValueError:
+            raise ValueError("The Excel file did not arrive intact.") from None
+        return SheetRows(rows=spreadsheet.first_sheet_rows(data, max_bytes=SHEET_MAX_BYTES, max_unpacked=SHEET_MAX_UNPACKED))
 
     return await _run(run)

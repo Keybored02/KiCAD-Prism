@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CheckCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,8 +16,9 @@ import { ListingRow } from "./listing-row";
 import { SeveralListings } from "./several-listings";
 import { useSupplyReview } from "./use-supply-review";
 
-/** Matches that need a person: manufacturer spellings and listings that are not proven. */
-export function ReviewView({ user }: { user: User | null }) {
+/** Matches that need a person: manufacturer spellings and listings that are not proven. `after` follows the supply sections;
+ * `othersWaiting` keeps the empty state away while it has items. */
+export function ReviewView({ user, after, othersWaiting = false }: { user: User | null; after?: ReactNode; othersWaiting?: boolean }) {
   const { status, queue, error, retry, refresh } = useSupplyReview();
   const canDecide = canReviewSupply(user?.role);
 
@@ -37,7 +39,7 @@ export function ReviewView({ user }: { user: User | null }) {
         {status === "ready" && queue ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {queue.aliases.length === 0 && queue.listings.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 && !(queue.to_approve?.waivers.length) ? (
+            {!othersWaiting && queue.aliases.length === 0 && queue.listings.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 && !(queue.to_approve?.waivers.length) && !(queue.to_approve?.alternates?.length) && !(queue.to_approve?.dismissals?.length) && !(queue.to_approve?.mutes?.length) ? (
               <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
                 <CheckCheck className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing to review</p>
@@ -84,6 +86,7 @@ export function ReviewView({ user }: { user: User | null }) {
             <MatchedByPrism matched={queue.matched} canDecide={canDecide} onDecided={refresh} />
           </>
         ) : null}
+        {status === "ready" ? after : null}
       </div>
     </div>
   );

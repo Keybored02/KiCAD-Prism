@@ -6,19 +6,19 @@ series (the project page's chart, its change figures, the Projects view and the 
 * a day that priced fewer lines than today does (the BOM was costed while some prices were missing, so it reads far too low);
 * a day whose figure is over ``OUTLIER_TIMES`` the series median (one price read wrong), which the page lists with its day.
 
-A changed usual build starts a new series (``SAME_SERIES``), as a currency change does for prices.
+A changed usual build or a changed currency starts a new series (``SAME_SERIES``): figures in two currencies are never compared.
 """
 
 from __future__ import annotations
 
 import statistics
 from datetime import timedelta
-from typing import Any
+from typing import Any, Sequence
 
 OUTLIER_TIMES = 5
-# The rows of the series a project is on now: the build size of its newest row. ``h`` is the history table.
+# The rows of the series a project is on now: the build size and currency of its newest row. ``h`` is the history table.
 SAME_SERIES = (
-    "h.build_quantity = (SELECT l.build_quantity FROM bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
+    "(h.build_quantity, h.currency) = (SELECT l.build_quantity, l.currency FROM supply_bom_cost_history l WHERE l.project_id = h.project_id AND l.variant = h.variant "
     "ORDER BY l.day DESC LIMIT 1)"
 )
 
@@ -41,16 +41,30 @@ def split(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[s
 def series(conn, project_id: str, variant: str, days: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """The kept days and the outlier days of a project's current series over the last ``days`` days, oldest first."""
 
-    rows = [dict(row) for row in conn.execute(
+    return series_of(conn, [(project_id, variant)], days).get((project_id, variant), ([], []))
+
+
+def series_of(conn, wanted: Sequence[tuple[str, str]], days: int) -> dict[tuple[str, str], tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    """``series`` for several (project, variant) pairs in one read. Pairs without history are left out."""
+
+    if not wanted:
+        return {}
+    rows = conn.execute(
         f"""
-        SELECT day, cost_per_board, currency, lines, lines_priced, build_quantity, rollup FROM bom_cost_history h
-        WHERE project_id = %s AND variant = %s AND {SAME_SERIES}
-          AND day >= (SELECT MAX(day) FROM bom_cost_history WHERE project_id = h.project_id AND variant = h.variant) - %s
-        ORDER BY day
+        SELECT h.project_id, h.variant, day, cost_per_board, currency, lines, lines_priced, build_quantity, rollup
+        FROM supply_bom_cost_history h JOIN unnest(%s::text[], %s::text[]) AS w(project_id, variant)
+          ON h.project_id = w.project_id AND h.variant = w.variant
+        WHERE {SAME_SERIES}
+          AND day >= (SELECT MAX(day) FROM supply_bom_cost_history WHERE project_id = h.project_id AND variant = h.variant) - %s
+        ORDER BY h.project_id, h.variant, day
         """,
-        (project_id, variant, timedelta(days=days)),
-    ).fetchall()]
-    return split(rows)
+        ([project_id for project_id, _ in wanted], [variant for _, variant in wanted], timedelta(days=days)),
+    ).fetchall()
+    found: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        mine = dict(row)
+        found.setdefault((mine.pop("project_id"), mine.pop("variant")), []).append(mine)
+    return {key: split(days_of) for key, days_of in found.items()}
 
 
 def change_percent(kept: list[dict[str, Any]], days: int = 30) -> float | None:

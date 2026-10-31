@@ -50,10 +50,11 @@ export function ProjectCostCards({ supply, boards, onOpenPart }: { supply: Proje
 /** The cost of a board over time, with the days left out because one price read wrong. */
 export function ProjectCostHistory({ supply }: { supply: ProjectSupply }) {
   const points = supply.cost_history ?? [];
-  const currency = supply.rollup?.currency;
-  if (points.length < 2 || !currency) return null;
+  if (points.length < 2) return null;
   const first = points[0];
   const last = points[points.length - 1];
+  // One series is in one currency (a currency change starts a new one): the points' own, not today's rollup's.
+  const currency = last.currency;
   const change = Number(last.cost_per_board) - Number(first.cost_per_board);
   const left = supply.cost_history_left_out ?? [];
   return (

@@ -26,7 +26,7 @@ export function HoverDetails({ label, children }: { label: string; children: Rea
         </button>
       </PopoverTrigger>
       <PopoverContent
-        align="start" className="max-h-96 w-[min(30rem,90vw)] gap-2 overflow-y-auto p-3"
+        align="start" className="max-h-96 w-[min(30rem,90vw)] gap-2 themed-scrollbar overflow-y-auto p-3"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       >

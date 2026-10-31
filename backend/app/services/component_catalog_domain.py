@@ -40,7 +40,7 @@ from app.services.catalog.metadata_schema import (
 )
 from app.services.catalog.normalization import utc_now_iso as _utc_now_iso
 from app.services.catalog.project_import_sessions import CatalogProjectImportSessions
-from app.services.catalog.component_identity import match_part_identities
+from app.services.catalog.component_identity import active_components_by_compact_number, match_part_identities
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
 from app.services.catalog.project_import_assets import CatalogProjectImportAssets
 from app.services.catalog.provider_tokens import CatalogProviderTokens
@@ -401,11 +401,7 @@ class ComponentCatalogDomainService:
         self.initialize()
         now = _utc_now_iso()
         with self._connect() as conn:
-            result = self._project_import_matching.index_project_component_usage(
-                conn,
-                proposals,
-                observed_at=now,
-            )
+            result = self._project_import_matching.index_project_component_usage(conn, proposals, observed_at=now)
             conn.commit()
         return result
 
@@ -414,6 +410,12 @@ class ComponentCatalogDomainService:
         self.initialize()
         with self._connect() as conn:
             return match_part_identities(conn, identities)
+
+    def components_by_compact_number(self, numbers: list[str]) -> list[dict[str, str]]:
+        """Active components whose part number, upper-cased without white space, underscores or dashes, is one of ``numbers``."""
+        self.initialize()
+        with self._connect() as conn:
+            return active_components_by_compact_number(conn, numbers)
 
     def accept_project_import_proposal(
         self,
@@ -565,12 +567,6 @@ class ComponentCatalogDomainService:
         runtime.category_cache = result
         runtime.category_cache_ts = now
         return result
-
-    def component_identities(self, component_ids: list[str]) -> dict[str, tuple[str, str]]:
-        """Manufacturer and MPN per active component id, without building any component payload."""
-        self.initialize()
-        with self._connect() as conn:
-            return self._component_read_models.identities(conn, component_ids)
 
     def get_component(
         self,

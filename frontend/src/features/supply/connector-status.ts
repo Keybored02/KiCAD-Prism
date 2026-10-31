@@ -1,4 +1,5 @@
-import { CSV_PROVIDER, type SupplyConnector } from "@/types/supply";
+import { type SupplyConnector } from "@/types/supply";
+import { clockTime } from "./supply-format";
 
 export type ConnectorTone = "success" | "warning" | "destructive" | "outline";
 
@@ -22,16 +23,6 @@ export function resting(connector: SupplyConnector, now: number = Date.now()): b
   return Boolean(connector.cooldown_until) && Date.parse(connector.cooldown_until as string) > now;
 }
 
-/** A time of day today, "14:20", or with the day when it is not today ("tomorrow 09:10", "Oct 24 09:10"). */
-export function clockTime(iso: string, now: number = Date.now()): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-  const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86_400_000);
-  if (days === 0) return time;
-  if (days === 1) return `tomorrow ${time}`;
-  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
-}
 
 /** "Calls slowed until tomorrow 09:10", or empty when they are not. */
 export function slowedText(connector: SupplyConnector, now: number = Date.now()): string {
@@ -46,7 +37,7 @@ export function connectorState(connector: SupplyConnector, now: number = Date.no
   if (connector.paused_reason) return { label: "Paused", tone: "warning" };
   if (!connector.enabled) return { label: "Disabled", tone: "outline" };
   if (hasUnsetCredentials(connector)) return { label: "Needs credentials", tone: "warning" };
-  if (connector.provider === CSV_PROVIDER && !connector.csv_import) return { label: "No file uploaded", tone: "warning" };
+  if (connector.csv_fed && !connector.csv_import) return { label: "No file uploaded", tone: "warning" };
   if (resting(connector, now)) return { label: `Resting until ${clockTime(connector.cooldown_until as string, now)}`, tone: "warning" };
   if (lastCallFailed(connector)) return { label: "Last call failed", tone: "destructive" };
   return { label: "Active", tone: "success" };
@@ -76,9 +67,20 @@ export function errorCodeLabel(code: string): string {
   }
 }
 
-/** A short local date and time for an ISO timestamp. */
-export function formatWhen(iso: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+/** A failure in words for anyone, about `server`: "Can't reach DigiKey EU". The code itself shows only on the Connectors page. */
+export function failureWords(code: string, server: string): string {
+  switch (code) {
+    case "auth_failed":
+      return `${server} refused the sign-in`;
+    case "rate_limited":
+    case "budget":
+      return `${server} is busy`;
+    case "unavailable":
+    case "blocked":
+    case "egress_denied":
+    case "host_denied":
+      return `Can't reach ${server}`;
+    default:
+      return `Can't read ${server}'s answer`;
+  }
 }

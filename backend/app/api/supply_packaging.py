@@ -1,65 +1,32 @@
 """Packaging picks: which listing of a part is followed at each distributor.
 
-Everyone who reads supply data sees the picks waiting; administrators, designers and QA make them.
+Everyone who reads supply data sees the picks; administrators, designers and QA make them.
 """
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, TypeVar
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends
 
 from app.api import supply_connectors
-from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api.supply_access import is_approver
+from app.api.supply_call import run_supply as _run
+from app.api.supply_models import Items
+from app.api.supply_packaging_models import (
+    PackagingOptions, PackagingPicked, PackagingProposals, PackagingSeveral, PickIn, PicksMade, SimilarIn,
+)
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import packaging_auto, packaging_picks, parts
 
 router = APIRouter(prefix="/api/supply/packaging", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class PickIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    listing_id: str = Field(min_length=1, max_length=64)
-
-
-class SimilarIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    connector_id: str = Field(min_length=1, max_length=64)
-    packaging: str = Field(min_length=1, max_length=32)
-    part_ids: list[str] = Field(max_length=packaging_picks.MAX_WAITING)
 
 
 def _store():
     return supply_connectors.service.store
 
 
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except parts.PartNotFound as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except packaging_picks.PickError as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_pick", "message": str(exc)}) from exc
-
-
-@router.get("/waiting")
-async def waiting(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    def read() -> dict[str, Any]:
-        with _store().connection() as conn:
-            # Review asks for a pick only where it saves calls (LCSC, JLCPCB); elsewhere Prism makes the pick and a person may change it.
-            items = [item for item in packaging_picks.waiting(conn) if item["saves_calls_a_day"] > 0]
-            return {"items": items, "saves_calls_a_day": round(sum(item["saves_calls_a_day"] for item in items), 3)}
-
-    return await _run(read)
-
-
-@router.get("/several")
+@router.get("/several", response_model=Items[PackagingSeveral])
 async def several(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """Every tracked part with several listings at a distributor, with the pick and what it saves, for Review."""
 
@@ -70,7 +37,7 @@ async def several(_user: AuthenticatedUser = Depends(require_supply_reader)) -> 
     return await _run(read)
 
 
-@router.get("/auto/{part_id}")
+@router.get("/auto/{part_id}", response_model=PackagingProposals)
 async def proposed(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     """The picks Prism would make for the part's distributors that wait for one, and the calls they save. Nothing changes."""
 
@@ -83,7 +50,7 @@ async def proposed(part_id: str, _user: AuthenticatedUser = Depends(require_supp
     return await _run(read)
 
 
-@router.post("/auto/{part_id}")
+@router.post("/auto/{part_id}", response_model=PicksMade)
 async def apply_proposed(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
     def run() -> dict[str, int]:
         with _store().connection() as conn:
@@ -93,17 +60,17 @@ async def apply_proposed(part_id: str, user: AuthenticatedUser = Depends(require
     return await _run(run)
 
 
-@router.get("/{part_id}/{connector_id}")
+@router.get("/{part_id}/{connector_id}", response_model=PackagingOptions)
 async def options(part_id: str, connector_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             # Taking a listing off the part is a decision for those who may pin one.
-            return {**packaging_picks.options(conn, part_id, connector_id), "can_unpin": user.role in SUPPLY_APPROVE_ROLES}
+            return {**packaging_picks.options(conn, part_id, connector_id), "can_unpin": is_approver(user)}
 
     return await _run(read)
 
 
-@router.put("/{part_id}/{connector_id}")
+@router.put("/{part_id}/{connector_id}", response_model=PackagingPicked)
 async def pick(part_id: str, connector_id: str, body: PickIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
     """Pick a listing. The answer offers the same packaging for the similar parts still waiting; nothing applies until confirmed."""
 
@@ -130,7 +97,7 @@ async def clear(part_id: str, connector_id: str, user: AuthenticatedUser = Depen
     await _run(run)
 
 
-@router.post("/similar")
+@router.post("/similar", response_model=PicksMade)
 async def apply_similar(body: SimilarIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
     def run() -> dict[str, int]:
         with _store().connection() as conn:

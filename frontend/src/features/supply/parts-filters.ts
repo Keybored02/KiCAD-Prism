@@ -24,8 +24,8 @@ export const FILTER_LABEL: Record<Exclude<PartsFilter, "" | `${string}:${string}
   lifecycle_obsolete: "Obsolete",
   lifecycle_unknown: "Lifecycle unknown",
   outlook_ended: "Outlook: ended",
-  outlook_under_2_years: "Outlook: under 2 years",
-  outlook_2_to_5_years: "Outlook: 2 to 5 years",
+  outlook_ending: "Outlook: ending",
+  outlook_warning_signs: "Outlook: warning signs",
   outlook_no_signs: "Outlook: no signs of an end",
   outlook_unknown: "Outlook: unknown",
   lead_under_2w: "Lead time under 2 weeks",
@@ -36,6 +36,7 @@ export const FILTER_LABEL: Record<Exclude<PartsFilter, "" | `${string}:${string}
   lead_none: "No lead time quoted",
   rohs_compliant: "RoHS compliant",
   rohs_not_compliant: "RoHS not compliant",
+  rohs_disputed: "RoHS disputed",
   rohs_not_applicable: "RoHS not applicable",
   rohs_unknown: "RoHS unknown",
   reach_compliant: "REACH unaffected",
@@ -52,6 +53,11 @@ export const FILTER_LABEL: Record<Exclude<PartsFilter, "" | `${string}:${string}
 export const LIFECYCLE_FILTERS = ["lifecycle", "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown"] as const;
 export const ANY = "any";
 
+export const RISK_LIFECYCLE: Record<string, string> = {
+  active: "Active", nrnd: "Not recommended for new designs", last_time_buy: "Last time buy", obsolete: "Obsolete", unknown: "Lifecycle unknown",
+};
+export const RISK_AVAILABILITY: Record<string, string> = { two_plus: "2+ distributors", one: "One distributor", out: "Out", not_read: "Not read" };
+
 const VALUED_LABEL: Record<string, (value: string) => string> = {
   origin: (value) => (value === "Several" ? "Origin: several countries" : value === "Unknown" ? "Origin unknown" : `Made in ${value}`),
   listed: (value) => `Listed at ${value}`,
@@ -60,6 +66,10 @@ const VALUED_LABEL: Record<string, (value: string) => string> = {
   repricing: (value) => `${value} changes their price`,
   leader: (value) => `${value} moves price first`,
   restock_first: (value) => `${value} restocks first`,
+  risk: (value) => {
+    const [lifecycle, column] = value.split(".");
+    return `${RISK_LIFECYCLE[lifecycle] ?? lifecycle} · ${RISK_AVAILABILITY[column] ?? column}`;
+  },
 };
 
 /** A filter from the address, or none when it is not one Prism knows. */

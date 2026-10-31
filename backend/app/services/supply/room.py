@@ -40,14 +40,14 @@ def _typical(conn) -> dict[str, dict[str, float | int]]:
     """Per connector: parts searched there, the share it carries, and the listings read for a carried part."""
 
     searched: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, connector_id FROM discovery_runs").fetchall():
+    for row in conn.execute("SELECT part_id, connector_id FROM supply_discovery_runs").fetchall():
         searched[row["connector_id"]].add(row["part_id"])
     listings: dict[str, dict[str, int]] = defaultdict(dict)
     for row in conn.execute(
-        "SELECT part_id, connector_id, COUNT(*) AS n FROM listings WHERE match_state IN ('exact', 'manual') GROUP BY part_id, connector_id"
+        "SELECT part_id, connector_id, COUNT(*) AS n FROM supply_listings WHERE supply_counted(match_state) GROUP BY part_id, connector_id"
     ).fetchall():
         listings[row["connector_id"]][row["part_id"]] = int(row["n"])
-    for row in conn.execute("SELECT part_id, connector_id FROM packaging_picks").fetchall():
+    for row in conn.execute("SELECT part_id, connector_id FROM supply_packaging_picks").fetchall():
         if row["part_id"] in listings[row["connector_id"]]:
             listings[row["connector_id"]][row["part_id"]] = 1
     found = {}
@@ -74,12 +74,12 @@ def _measured(conn, connector_ids: tuple[str, ...], now: datetime, reset_time: s
 
     today = quota.provider_day(now, reset_time, reset_tz)
     first = conn.execute(
-        "SELECT MIN(day) AS day FROM call_counts WHERE connector_id = ANY(%s)", (list(connector_ids),)
+        "SELECT MIN(day) AS day FROM supply_call_counts WHERE connector_id = ANY(%s)", (list(connector_ids),)
     ).fetchone()["day"]
     if first is None or (today - first).days < CALIBRATION_DAYS:
         return None
     row = conn.execute(
-        "SELECT COALESCE(SUM(calls), 0) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s "
+        "SELECT COALESCE(SUM(calls), 0) AS n FROM supply_call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s "
         "AND purpose = ANY(%s) AND kind NOT IN ('refused', 'test')",
         (list(connector_ids), today - timedelta(days=CALIBRATION_DAYS), today, list(TRACKING_PURPOSES)),
     ).fetchone()
@@ -91,7 +91,7 @@ def _spent_yesterday(conn, connector_ids: tuple[str, ...], now: datetime, reset_
 
     day = quota.provider_day(now, reset_time, reset_tz) - timedelta(days=1)
     row = conn.execute(
-        "SELECT COALESCE(SUM(calls), 0) AS n, COUNT(*) AS rows FROM call_counts WHERE connector_id = ANY(%s) AND day = %s "
+        "SELECT COALESCE(SUM(calls), 0) AS n, COUNT(*) AS rows FROM supply_call_counts WHERE connector_id = ANY(%s) AND day = %s "
         "AND purpose = ANY(%s) AND kind NOT IN ('refused', 'test')",
         (list(connector_ids), day, list(TRACKING_PURPOSES)),
     ).fetchone()
@@ -105,7 +105,7 @@ def view(conn, now: datetime) -> dict[str, Any]:
     typical = _typical(conn)
     rows = []
     for group in groups:
-        owner = accounts.resolve(conn, group.ledger_id)
+        owner = accounts.resolve(conn, group.connector_ids[0])
         members = group.connector_ids
         status = standing[members[0]]
         specs = {connector_id: connectors[connector_id][1] for connector_id in members}
@@ -113,7 +113,7 @@ def view(conn, now: datetime) -> dict[str, Any]:
         searched = min((int(item["searched"]) for item in known if item), default=0)
         estimated = sum(
             admission.part_cost(specs[row["connector_id"]], row["part_id"], row["connector_id"], data)
-            for row in conn.execute("SELECT part_id, connector_id FROM admissions WHERE state = 'admitted' AND connector_id = ANY(%s)",
+            for row in conn.execute("SELECT part_id, connector_id FROM supply_admissions WHERE state = 'admitted' AND connector_id = ANY(%s)",
                                     (list(members),)).fetchall()
             if row["part_id"] in data["tiers"]
         )

@@ -14,16 +14,17 @@ vi.mock("./supply-api", async (importOriginal) => ({
 
 import { OutlookSection } from "./outlook-section";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 
 function finding(overrides: Partial<SupplyFinding> = {}): SupplyFinding {
-  return { check: "nrnd", severity: "warning", text: "The manufacturer does not recommend this part for new designs.", scope: "nrnd", waiver: null, ...overrides };
+  return { check: "nrnd", severity: "warning", text: "The manufacturer does not recommend this part for new designs.", scope: "nrnd", waiver: null, detail: {}, ...overrides };
 }
 
 function assessment(overrides: Partial<SupplyAssessment> = {}): SupplyAssessment {
   return {
-    part_id: "p1", health: 6.4, status: "warning", need: null, findings: [finding()],
+    part_id: "p1", health: 6.4, status: "warning", need: null, changes_at: null, findings: [finding()],
     sub_scores: [
       { name: "lifecycle", score: 3, reasons: ["Manufacturer lifecycle: nrnd."] },
       { name: "sourcing", score: 3, reasons: ["Only one distributor holds it."] },
@@ -38,7 +39,7 @@ function assessment(overrides: Partial<SupplyAssessment> = {}): SupplyAssessment
 const waiver = { id: "w1", state: "approved" as const, reason: "We hold stock", proposed_by: "a@example.com", decided_by: "qa@example.com", holds: true, outdated: false };
 
 const OUTLOOK: SupplyOutlook = {
-  band: "no_signs", label: "No signs of an end of life", method: "rule-based", signals: [],
+  band: "no_signs", label: "No signs of an end", method: "rule-based", signals: [],
 };
 
 function renderIt(role: UserRole = "designer") {
@@ -77,7 +78,7 @@ describe("the outlook and health line", () => {
     expect(screen.queryByRole("heading", { name: "Health" })).toBeNull();
     const section = screen.getByRole("region", { name: "Outlook" });
     expect(within(section).getAllByRole("button", { name: /Show how the outlook/ })).toHaveLength(1);
-    expect(within(section).getByText("No signs of an end of life").className).toContain("success");
+    expect(within(section).getByText("No signs of an end").className).toContain("success");
     await openDetails();
     expect(screen.getByText(/Nothing found points to an end/)).toBeTruthy();
     expect(screen.getByRole("list", { name: "Risk" })).toBeTruthy();
@@ -99,18 +100,21 @@ describe("the outlook and health line", () => {
     expect(screen.queryByRole("list", { name: "Risk" })).toBeNull();
   });
 
-  it("offers no Waive, and puts the severity tag above each finding", async () => {
+  it("lets a designer ask QA to waive a finding with a reason, and puts the severity tag above each finding", async () => {
     renderIt("designer");
     await openDetails();
     const findings = await screen.findByRole("list", { name: "Findings" });
-    expect(within(findings).queryByRole("button", { name: /Waive|Ask QA/ })).toBeNull();
+    fireEvent.click(within(findings).getByRole("button", { name: "Waive" }));
+    fireEvent.change(within(findings).getByRole("textbox"), { target: { value: "We hold stock" } });
+    fireEvent.click(within(findings).getByRole("button", { name: "Ask QA" }));
+    await waitFor(() => expect(mocked.proposeWaiver).toHaveBeenCalledWith("p1", "nrnd", "We hold stock"));
     const tag = within(findings).getByText("Warning");
     const text = within(findings).getByText(/does not recommend this part/);
     expect(tag.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("lists the outlook's signals in the same modal", async () => {
-    render(<OutlookSection outlook={{ ...OUTLOOK, band: "under_2_years", label: "Under 2 years", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
+    render(<OutlookSection outlook={{ ...OUTLOOK, band: "ending", label: "Ending", signals: [{ text: "A notice announces end of life.", source: "product change notice", weight: "hard" }] }} partId="p1" role="designer" />);
     expect(screen.queryByText(/A notice announces end of life/)).toBeNull();
     await openDetails();
     expect(screen.getByRole("list", { name: "Outlook signals" })).toBeTruthy();
@@ -126,6 +130,7 @@ describe("the outlook and health line", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
     await waitFor(() => expect(mocked.decideWaiver).toHaveBeenCalledWith("w1", true));
     cleanup();
+    forgetServerState([]);
     renderIt("designer");
     await openDetails();
     await screen.findByText(/Waiting for QA/);
@@ -140,11 +145,12 @@ describe("the outlook and health line", () => {
     expect(await screen.findByText("Waived by qa@example.com: We hold stock")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
     cleanup();
+    forgetServerState([]);
     mocked.getSupplyAssessment.mockResolvedValue(assessment({ findings: [finding({ waiver: { ...waiver, holds: false, outdated: true } })] }));
     renderIt("designer");
     await openDetails();
     expect(await screen.findByText(/Waived for an earlier condition/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Waive again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Waive again" })).toBeTruthy();
   });
 
   it("offers no waiver to a viewer and shows a failed action", async () => {
@@ -153,6 +159,7 @@ describe("the outlook and health line", () => {
     await screen.findByText(/does not recommend/);
     expect(screen.queryByRole("button", { name: "Waive" })).toBeNull();
     cleanup();
+    forgetServerState([]);
     mocked.decideWaiver.mockRejectedValue(new Error("Could not save the decision"));
     mocked.getSupplyAssessment.mockResolvedValue(assessment({ findings: [finding({ waiver: { ...waiver, state: "proposed", holds: false } })] }));
     renderIt("admin");

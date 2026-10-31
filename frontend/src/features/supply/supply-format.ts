@@ -71,19 +71,96 @@ export function formatStock(stock: number | null): string {
   return stock === null ? "None yet" : stock.toLocaleString();
 }
 
+/** A lead time in the unit people think in: days under two weeks, whole weeks above. Empty for no quote. */
+export function formatLeadTime(days: number | null | undefined): string {
+  if (days === null || days === undefined) return "";
+  return days < 14 ? `${days} d` : `${Math.round(days / 7)} w`;
+}
+
+const PLAIN_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** A calendar day ("2026-03-01") or an ISO timestamp as "1 Mar", with the year when it is not `today`'s. */
+export function formatDay(iso: string, today?: string): string {
+  const parts = PLAIN_DAY.exec(iso);
+  const date = parts ? new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))) : new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const year = parts ? Number(parts[1]) : date.getFullYear();
+  const sameYear = year === Number((today ?? String(new Date().getFullYear())).slice(0, 4));
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+    ...(parts ? { timeZone: "UTC" } : {}),
+  });
+}
+
+/** A time of day today, "14:20", or with the day when it is not today ("tomorrow 09:10", "Oct 24 09:10"). */
+export function clockTime(iso: string, now: number = Date.now()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = formatTime(date);
+  const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return time;
+  if (days === 1) return `tomorrow ${time}`;
+  return `${formatDay(iso)} ${time}`;
+}
+
+/** A time of day, "14:20": the one clock every supply screen shows. */
+export function formatTime(date: Date): string {
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** An ISO timestamp as its local date and time, "1 Mar 2026, 10:00". Empty for no time. */
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 /** Shown under a part that has nothing counted, when something is wrong rather than merely unread. */
 export const PROBLEM_LABEL: Record<SupplyProblem, string> = {
   not_found: "No distributor carries this part number",
   gone: "Every listing for this part has disappeared",
 };
 
-/** `0.52` and `EUR` as a price, to at most `digits` decimals (a unit price needs four, a total two). Falls back to plain text for a currency the browser does not know. */
+/** Rupees are written the Indian way, ₹12,82,650.00, wherever the reader is; every other currency in the reader's own locale. */
+function localeOf(currency: string): string | undefined {
+  return currency.toUpperCase() === "INR" ? "en-IN" : undefined;
+}
+
+/** An axis tick: a price to two decimals below a thousand, else short (€15K, ₹1.5L, ₹1.2Cr), so it fits beside a chart. */
+export function formatAxisPrice(value: number, currency: string): string {
+  if (Math.abs(value) < 1000) return formatPrice(String(value), currency, 2);
+  try {
+    return new Intl.NumberFormat(localeOf(currency), { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value);
+  } catch {
+    return formatPrice(String(value), currency, 0);
+  }
+}
+
+/** "INR · ₹": a currency's code with its symbol, for choosing one. */
+export function currencyLabel(currency: string): string {
+  try {
+    const symbol = new Intl.NumberFormat(localeOf(currency) ?? "en", { style: "currency", currency, currencyDisplay: "narrowSymbol" })
+      .formatToParts(0).find((part) => part.type === "currency")?.value;
+    return symbol && symbol !== currency ? `${currency} · ${symbol}` : currency;
+  } catch {
+    return currency;
+  }
+}
+
+/**
+ * `0.52` and `EUR` as a price, to at most `digits` decimals (a unit price needs four, a total two). From 100 up two decimals
+ * are enough: ₹393.28, not ₹393.2835. Falls back to plain text for a currency the browser does not know.
+ */
 export function formatPrice(price: string | null, currency: string, digits = 4): string {
   if (price === null || price === "") return "";
   const amount = Number(price);
   if (!currency || Number.isNaN(amount)) return price;
+  const places = Math.abs(amount) >= 100 ? 2 : Math.max(2, digits);
   try {
-    return amount.toLocaleString(undefined, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, digits) });
+    return amount.toLocaleString(localeOf(currency), { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: places });
   } catch {
     return `${currency} ${price}`;
   }

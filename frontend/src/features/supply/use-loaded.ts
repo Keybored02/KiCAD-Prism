@@ -1,79 +1,54 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useState } from "react";
 
-import { readLoaded, storeLoaded } from "./loaded-cache";
+import { useServerState } from "@/lib/server-state";
+import type { JobProgress } from "@/types/supply";
+import { SUPPLY_ROOT } from "./supply-writes";
 
-interface Loaded<T> {
+export { invalidateSupply } from "./supply-writes";
+
+/**
+ * Supply's reads, on the app's server state (`@/lib/server-state`): a key names one resource (`connectors`,
+ * `parts/<id>/notices`), so every screen showing it shares one answer and one request in flight, and a return to a
+ * page starts from what it showed while it reads again. A write goes through `changesSupply` (`supply-writes.ts`),
+ * which reads again every supply resource on screen.
+ */
+
+export interface Loaded<T> {
   status: "loading" | "ready" | "error";
   data: T | null;
   error: string;
 }
 
-type Action<T> =
-  | { type: "loading" }
-  | { type: "cached"; data: T }
-  | { type: "loaded"; data: T }
-  | { type: "failed"; error: string };
-
-function reducer<T>(state: Loaded<T>, action: Action<T>): Loaded<T> {
-  switch (action.type) {
-    case "loading":
-      // A new key or a retry: whatever was on screen belongs to something else.
-      return { status: "loading", data: null, error: "" };
-    case "cached":
-    case "loaded":
-      return { status: "ready", data: action.data, error: "" };
-    case "failed":
-      // A failed refresh keeps what is on screen; only a first load shows the error alone.
-      return { ...state, status: state.data ? "ready" : "error", error: action.error };
-  }
-}
-
 /**
- * Loads something keyed by `key`, again whenever the key changes.
- * `refresh` reloads without the loading state so a change does not blank the screen.
- * With `cacheAs` (a name for this kind of data, so keys of different hooks never meet),
- * it starts from what was last shown for the key, even after leaving the page, and reloads behind it.
+ * The resource named `key` (segments split on "/"), read with `fetcher`; null reads nothing. `refresh` reads again
+ * keeping what is on screen; `retry` is the same, for after an error. `refreshEvery` (ms) reads again while mounted,
+ * and with `refreshWhile` only while it holds for the data on screen; null or 0 stops it. `onData` and `onError` hear
+ * each answer, for a screen that acts when a job ends.
  */
-export function useLoaded<T>(key: string | null, fetcher: (signal: AbortSignal) => Promise<T>, fallback: string, cacheAs?: string) {
-  const storeKey = cacheAs && key !== null ? `${cacheAs}:${key}` : null;
-  const [state, dispatch] = useReducer(reducer<T>, storeKey, (initial): Loaded<T> => {
-    const cached = readLoaded<T>(initial);
-    return cached === undefined ? { status: "loading", data: null, error: "" } : { status: "ready", data: cached, error: "" };
+export function useLoaded<T>(
+  key: string | null,
+  fetcher: (signal: AbortSignal) => Promise<T>,
+  fallback: string,
+  { refreshEvery = null, refreshWhile, onData, onError }: {
+    refreshEvery?: number | null;
+    refreshWhile?: (data: T) => boolean;
+    onData?: (data: T) => void;
+    onError?: (error: Error) => void;
+  } = {},
+) {
+  // Whether the data on screen asks for another read; kept in state because the read's options depend on its own data.
+  const [wanted, setWanted] = useState(!refreshWhile);
+  const read = useServerState<T>(key === null ? null : [SUPPLY_ROOT, ...key.split("/")], fetcher, {
+    pollMs: refreshEvery && wanted ? refreshEvery : undefined, onData, onError,
   });
-
-  const load = useCallback(async (quiet: boolean, signal: AbortSignal) => {
-    if (!quiet) dispatch({ type: "loading" });
-    try {
-      const data = await fetcher(signal);
-      // The key may have changed while this was in flight; its answer belongs to something else.
-      if (!signal.aborted) {
-        storeLoaded(storeKey, data);
-        dispatch({ type: "loaded", data });
-      }
-    } catch (error) {
-      if (signal.aborted) return;
-      dispatch({ type: "failed", error: error instanceof Error ? error.message : fallback });
-    }
-  }, [fetcher, fallback, storeKey]);
-
-  // The load for the current key. Retry and refresh join it, so a change of key cancels them too.
-  const current = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    if (key === null) return undefined;
-    const controller = new AbortController();
-    current.current = controller;
-    const cached = readLoaded<T>(storeKey);
-    if (cached !== undefined) dispatch({ type: "cached", data: cached });
-    void load(cached !== undefined, controller.signal);
-    return () => controller.abort();
-  }, [key, load, storeKey]);
-
-  const retry = useCallback(() => {
-    if (current.current) void load(false, current.current.signal);
-  }, [load]);
-  const refresh = useCallback(async () => {
-    if (current.current) await load(true, current.current.signal);
-  }, [load]);
-  return { ...state, retry, refresh };
+  const stillWanted = !refreshWhile || (read.data !== undefined && refreshWhile(read.data));
+  if (stillWanted !== wanted) setWanted(stillWanted);
+  const { refresh } = read;
+  const retry = useCallback(() => void refresh(), [refresh]);
+  const status: Loaded<T>["status"] = read.data !== undefined ? "ready" : read.error && !read.fetching ? "error" : "loading";
+  const error = read.error ? read.error.message || fallback : "";
+  return { status, data: read.data ?? null, error, retry, refresh };
 }
+
+/** For `refreshWhile`: a job still running. */
+export const isRunning = (progress: JobProgress) => progress.state === "running";

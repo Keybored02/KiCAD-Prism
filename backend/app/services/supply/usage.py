@@ -20,23 +20,22 @@ from app.services.supply.identity import alias_key, match_key
 
 MAX_REFERENCES_TEXT = 500
 
-# Every stored line of every design, the base design (variant '') and the named variants, as one table.
-ALL_USES = (
-    "(SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, '' AS variant FROM bom_usage "
-    "UNION ALL SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, variant FROM bom_usage_variants)"
-)
+# Every stored line of every design: the base design (variant '') and the named variants.
+ALL_USES = "supply_bom_usage"
 
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the
 # manufacturer is blank, is the part's own name, or is a spelling of it (confirmed, or one the part has been seen under).
-MATCHES_PART = """
-    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND (
+# The manufacturer half of the match: blank, the part's own name, or a spelling of it (confirmed, or one the part was seen under).
+MATCHES_MAKER = """(
         u.alias_key = '' OR u.alias_key = m.name_key OR EXISTS (
-            SELECT 1 FROM manufacturer_aliases a
+            SELECT 1 FROM supply_manufacturer_aliases a
             WHERE a.alias_key = u.alias_key AND a.manufacturer_id = p.manufacturer_id AND a.status = 'confirmed'
         ) OR EXISTS (
-            SELECT 1 FROM part_spellings ps WHERE ps.part_id = p.id AND ps.alias_key = u.alias_key
+            SELECT 1 FROM supply_part_spellings ps WHERE ps.part_id = p.id AND ps.alias_key = u.alias_key
         )
-    )
+    )"""
+MATCHES_PART = """
+    (u.match_key = p.match_key OR EXISTS (SELECT 1 FROM supply_part_numbers pn WHERE pn.part_id = p.id AND pn.match_key = u.match_key)) AND """ + MATCHES_MAKER + """
 """
 
 
@@ -45,8 +44,47 @@ VISIBLE = "(%s::text IS NULL OR %s = ANY(up.visible_roles))"
 ALL_ROLES: tuple[str, ...] = ("admin", "designer", "qa")
 
 
+def visible_project_ids(role: str | None) -> set[str] | None:
+    """The projects ``role`` may see, by the workspace's folder rules (the same rule a project's own page applies). None, meaning every
+    project, for internal callers that pass no role. Aggregate answers filter by this before they read a project's name or settings."""
+
+    if role is None:
+        return None
+    from app.services.workspace_service import workspace
+
+    return {str(row["id"]) for row in workspace.get_all_projects(role)}
+
+
 def role_params(role: str | None) -> list[str | None]:
     return [role, role]
+
+
+def part_projects_sql(only_parts: bool) -> str:
+    """The (part_id, project_id) pairs of BOM uses a project the role may see has, as one set: the part's own number and the other
+    numbers it is sold under are joined to the BOM lines by equality, so the number indexes serve it whatever the size. With
+    ``only_parts`` the first two parameters are the part ids (twice); the role parameters follow."""
+
+    limit = "WHERE p.id = ANY(%s)" if only_parts else ""
+    limit_numbers = "WHERE pn.part_id = ANY(%s)" if only_parts else ""
+    return f"""
+        SELECT DISTINCT p.id AS part_id, u.project_id
+        FROM (SELECT p.id AS part_id, p.match_key FROM supply_parts p {limit}
+              UNION SELECT pn.part_id, pn.match_key FROM supply_part_numbers pn {limit_numbers}) k
+        JOIN {ALL_USES} u ON u.match_key = k.match_key
+        JOIN supply_parts p ON p.id = k.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        JOIN supply_bom_usage_projects up ON up.project_id = u.project_id
+        WHERE {MATCHES_MAKER} AND {VISIBLE}
+    """
+
+
+def projects_of_parts(conn, part_ids: list[str], role: str | None) -> dict[str, set[str]]:
+    """The projects (that ``role`` may see) whose BOM uses each part."""
+
+    found: dict[str, set[str]] = {}
+    if part_ids:
+        for row in conn.execute(part_projects_sql(True), [part_ids, part_ids, *role_params(role)]).fetchall():
+            found.setdefault(row["part_id"], set()).add(row["project_id"])
+    return found
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,13 +99,15 @@ class UsageLine:
     lcsc: str = ""
     datasheet: str = ""
     prism_id: str = ""
+    value: str = ""
+    footprint: str = ""
 
 
 Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
 # Part of the stored revision key. Raise it when what is stored from an index changes (a new kind of row), so every project
 # is read again once. With the index's own revision key it is the fingerprint of what the rows were made from.
-USAGE_VERSION = 4
+USAGE_VERSION = 6
 MAX_VARIANTS = 30
 
 
@@ -104,7 +144,10 @@ def variant_components(payload: Mapping[str, Any], name: str) -> list[Mapping[st
 
 
 def lines_from_components(components: Iterable[Mapping[str, Any]], identities: Identities | None = None) -> list[UsageLine]:
-    """The distinct parts among the fitted components, with how many go on one board. No number, no line.
+    """The distinct parts among the fitted components, with how many go on one board.
+
+    A fitted component with neither a part number nor an LCSC number is still a line, one per value and footprint, so a page that
+    counts the BOM never counts it as checked.
 
     A symbol carrying a ``Prism ID`` that ``identities`` knows takes the library component's manufacturer
     and part number, whatever its own fields say (plan 6.4, step 1).
@@ -122,22 +165,27 @@ def lines_from_components(components: Iterable[Mapping[str, Any]], identities: I
         manufacturer, mpn = placed if placed and placed[1].strip() else identity_of(fields)
         number = match_key(mpn)
         lcsc = lcsc_of(fields)
-        if not number and not lcsc:
-            continue
-        # A symbol with only an LCSC number is kept as a line of its own: it has no part yet, and says so.
-        key = f"{alias_key(manufacturer)}|{number}" if number else f"lcsc:{lcsc}"
+        # A symbol with only an LCSC number, or with no number at all, is kept as a line of its own: it has no part yet, and says so.
+        if number:
+            key = f"{alias_key(manufacturer)}|{number}"
+        elif lcsc:
+            key = f"lcsc:{lcsc}"
+        else:
+            key = f"none:{str(fields.get('Value') or '').strip()}|{str(fields.get('Footprint') or '').strip()}"
         line = found.setdefault(key, {
             "manufacturer": manufacturer, "mpn": mpn if number else "", "alias": alias_key(manufacturer), "number": number, "refs": [],
-            "lcsc": "", "datasheet": "", "prism_id": "",
+            "lcsc": "", "datasheet": "", "prism_id": "", "value": "", "footprint": "",
         })
         line["refs"].append(str(component.get("reference") or ""))
         line["lcsc"] = line["lcsc"] or lcsc
         line["datasheet"] = line["datasheet"] or _datasheet_of(fields)
         line["prism_id"] = line["prism_id"] or prism_id_of(fields)
+        line["value"] = line["value"] or str(fields.get("Value") or "").strip()[:200]
+        line["footprint"] = line["footprint"] or str(fields.get("Footprint") or "").strip()[:200]
     return [
         UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], len(line["refs"]),
                   " ".join(sorted(ref for ref in line["refs"] if ref))[:MAX_REFERENCES_TEXT], line["lcsc"], line["datasheet"][:500],
-                  line["prism_id"][:100])
+                  line["prism_id"][:100], line["value"], line["footprint"])
         for key, line in found.items()
     ]
 
@@ -164,38 +212,30 @@ def store_project(
     ``variant_lines`` are the lines of each named design variant; the base design's are ``lines``.
     """
 
-    current = conn.execute("SELECT revision_key FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
+    current = conn.execute("SELECT revision_key FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
     if current and current["revision_key"] == revision_key:
         conn.execute(
-            "UPDATE bom_usage_projects SET project_name = %s, visible_roles = %s WHERE project_id = %s",
+            "UPDATE supply_bom_usage_projects SET project_name = %s, visible_roles = %s WHERE project_id = %s",
             (project_name, list(visible_roles), project_id),
         )
         return False
-    conn.execute("DELETE FROM bom_usage WHERE project_id = %s", (project_id,))
-    conn.execute("DELETE FROM bom_usage_variants WHERE project_id = %s", (project_id,))
+    conn.execute("DELETE FROM supply_bom_usage WHERE project_id = %s", (project_id,))
     conn.execute(
         """
-        INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at, visible_roles)
+        INSERT INTO supply_bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at, visible_roles)
         VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (project_id) DO UPDATE SET project_name = EXCLUDED.project_name, revision_key = EXCLUDED.revision_key,
             line_count = EXCLUDED.line_count, updated_at = EXCLUDED.updated_at, visible_roles = EXCLUDED.visible_roles
         """,
         (project_id, project_name, revision_key, len(lines), now, list(visible_roles)),
     )
-    for line in lines:
-        conn.execute(
-            "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, datasheet, prism_id) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references,
-             line.lcsc, line.datasheet, line.prism_id),
-        )
-    for name, named in (variant_lines or {}).items():
-        for line in named:
+    for variant, designed in (("", lines), *(variant_lines or {}).items()):
+        for line in designed:
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
-                "datasheet, prism_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (project_id, name, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
-                 line.references, line.lcsc, line.datasheet, line.prism_id),
+                "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc, "
+                "datasheet, prism_id, value, footprint) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (project_id, variant, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
+                 line.references, line.lcsc, line.datasheet, line.prism_id, line.value, line.footprint),
             )
     return True
 
@@ -234,9 +274,9 @@ def refresh(
             updated += 1
         else:
             skipped += 1
-    gone = [row["project_id"] for row in conn.execute("SELECT project_id FROM bom_usage_projects").fetchall() if row["project_id"] not in seen]
+    gone = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_bom_usage_projects").fetchall() if row["project_id"] not in seen]
     for project_id in gone:
-        conn.execute("DELETE FROM bom_usage_projects WHERE project_id = %s", (project_id,))
+        conn.execute("DELETE FROM supply_bom_usage_projects WHERE project_id = %s", (project_id,))
     return {"updated": updated, "unchanged": skipped, "without_index": missing, "removed": len(gone)}
 
 
@@ -270,7 +310,7 @@ def project_variants(conn, project_id: str) -> list[str]:
 
     return [
         row["variant"] for row in conn.execute(
-            "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s ORDER BY variant", (project_id,)
+            "SELECT DISTINCT variant FROM supply_bom_usage WHERE project_id = %s AND variant <> '' ORDER BY variant", (project_id,)
         ).fetchall()
     ]
 
@@ -281,19 +321,14 @@ def project_rows(conn, project_id: str, variant: str = "") -> list[dict[str, Any
     ``variant`` names a design variant; empty is the base design.
     """
 
-    if variant:
-        rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM bom_usage_variants WHERE project_id = %s AND variant = %s "
-            "ORDER BY line_key", (project_id, variant),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id FROM bom_usage WHERE project_id = %s ORDER BY line_key",
-            (project_id,)
-        ).fetchall()
+    rows = conn.execute(
+        "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc, datasheet, prism_id, value, footprint FROM supply_bom_usage "
+        "WHERE project_id = %s AND variant = %s ORDER BY line_key", (project_id, variant),
+    ).fetchall()
     return [
         {"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"]),
-         "references": row["refs"], "lcsc": row["lcsc"], "datasheet": row["datasheet"], "prism_id": row["prism_id"]}
+         "references": row["refs"], "lcsc": row["lcsc"], "datasheet": row["datasheet"], "prism_id": row["prism_id"],
+         "value": row["value"], "footprint": row["footprint"]}
         for row in rows
     ]
 
@@ -308,10 +343,10 @@ def used_in(conn, part_id: str, role: str | None = None) -> list[dict[str, Any]]
     rows = conn.execute(
         f"""
         SELECT u.project_id, up.project_name, u.variant, SUM(u.quantity) AS quantity, LEFT(string_agg(u.refs, ' '), 500) AS refs
-        FROM parts p
-        JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_parts p
+        JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         JOIN {ALL_USES} u ON {MATCHES_PART}
-        JOIN bom_usage_projects up ON up.project_id = u.project_id
+        JOIN supply_bom_usage_projects up ON up.project_id = u.project_id
         WHERE p.id = %s AND {VISIBLE}
         GROUP BY u.project_id, up.project_name, u.variant
         """,

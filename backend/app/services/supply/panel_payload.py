@@ -10,14 +10,14 @@ supply data, and a component Prism does not track simply has no summary.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import datetime
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode
 
-from app.services.supply import bom_lookup, forecast_overview, insights, parts_view, pricing
+from app.services.supply import bom_lookup, clock, insights, parts_view, price_quantity, pricing
 from app.services.supply.assessment import service as assessment
 from app.services.supply.bom_lookup import BomLine
+from app.services.supply.forecast import views
 
 MAX_RISKS = 2
 _SEVERITY_ORDER = {"fatal": 0, "error": 1, "warning": 2, "ok": 3}
@@ -26,7 +26,7 @@ _SEVERITY_ORDER = {"fatal": 0, "error": 1, "warning": 2, "ok": 3}
 def data_version(conn) -> str:
     """Changes when supply data does, to a granularity the panel's caches can live with."""
 
-    row = conn.execute("SELECT COALESCE(MAX(fetched_at), 'epoch'::timestamptz) AS newest FROM offers").fetchone()
+    row = conn.execute("SELECT COALESCE(MAX(fetched_at), 'epoch'::timestamptz) AS newest FROM supply_offers").fetchone()
     return str(int(row["newest"].timestamp() // 600))
 
 
@@ -72,18 +72,19 @@ def summaries(conn, components: Sequence[Mapping[str, Any]], role: str | None = 
     }
 
 
-def _source_rows(offers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _source_rows(offers: Sequence[Mapping[str, Any]], wanted: int) -> list[dict[str, Any]]:
+    """Each offer at the part's price quantity, in its own currency."""
+
     rows = []
     for offer in offers:
-        breaks = [(int(q), Decimal(p)) for q, p in offer["price_breaks"]]
-        price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"]) if offer["currency"] else None
+        price, _currency, _quantity = pricing.native_price(offer, wanted)
         rows.append({
             "connector": offer["connector_name"],
             "provider": offer["provider"],
             "sku": offer["sku"],
             "stock": offer["stock"],
             "marketplace": bool(offer["marketplace"]),
-            "unit_price": format(price.normalize(), "f") if price is not None else None,
+            "unit_price": price,
             "currency": offer["currency"],
             "moq": offer["moq"],
             "lead_time_days": offer["lead_time_days"],
@@ -100,7 +101,8 @@ def _links(origin: str, component_id: str, part_id: str) -> dict[str, str]:
     return {
         "component": library(),
         "sourcing": library(componentTab="sourcing"),
-        "supply": f"{origin}/?" + urlencode({"section": "supply", "supplyView": "parts", "part": part_id}),
+        # ``component`` brings KiCad's panel back to this component when the part page it opens there is closed.
+        "supply": f"{origin}/?" + urlencode({"section": "supply", "supplyView": "parts", "part": part_id, "component": component_id}),
     }
 
 
@@ -121,7 +123,7 @@ def _risks(assessed: Mapping[str, Any], insight: Mapping[str, Any]) -> list[str]
 def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, now: datetime | None = None) -> dict[str, Any] | None:
     """Everything the panel shows for one component, or None when Prism does not track its part."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     component_id = str(component["id"])
     part_id = _resolve(conn, [component]).get(component_id)
     if part_id is None:
@@ -135,11 +137,11 @@ def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, no
     assessed = assessment.assess_summaries(conn, items, offers, {}, now)[part_id]
     return {
         "summary": _summary(items[0], here),
-        "offers": _source_rows(here),
+        "offers": _source_rows(here, price_quantity.of_parts(conn, [part_id])[part_id]),
         "insight": insight,
         "outlook": detail_view["outlook"]["label"],
         "health": {"score": assessed["health"], "status": assessed["status"]},
         "risks": _risks(assessed, insight),
-        "forecast": forecast_overview.panel_line(conn, part_id),
+        "forecast": views.panel_line(conn, part_id),
         "links": _links(origin, component_id, part_id),
     }

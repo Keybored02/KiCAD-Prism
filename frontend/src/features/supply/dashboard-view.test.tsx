@@ -3,11 +3,10 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { User } from "@/types/auth";
-import { alertFixture, dashboardFixture, overviewFixture } from "./supply-test-fixtures";
+import { alertFixture, dashboardFixture } from "./supply-test-fixtures";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
-  getSupplyOverview: vi.fn(),
   getSupplyDashboard: vi.fn(),
   listSupplyAlerts: vi.fn(),
   listSupplyParts: vi.fn(),
@@ -15,12 +14,12 @@ vi.mock("./supply-api", async (importOriginal) => ({
   acknowledgeSupplyAlert: vi.fn(),
   snoozeSupplyAlert: vi.fn(),
 }));
-vi.mock("./packaging-api", () => ({ listPackagingWaiting: vi.fn() }));
+vi.mock("./ending-api", () => ({ getEndingParts: vi.fn(async () => ({ items: [], tracked: 0, more: 0 })) }));
 vi.mock("./part-sheet", () => ({ PartSheet: ({ partId }: { partId: string | null }) => (partId ? <div>Sheet of {partId}</div> : null) }));
 
 import * as api from "./supply-api";
-import * as packaging from "./packaging-api";
 import { DashboardView } from "./dashboard-view";
+import { reviewQueueFixture } from "./supply-test-fixtures";
 
 const mocked = vi.mocked(api);
 const user: User = { name: "Ana", email: "ana@example.com", role: "designer" };
@@ -43,12 +42,10 @@ const search = () => screen.getByLabelText("location").textContent ?? "";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.getSupplyOverview.mockResolvedValue(overviewFixture());
   mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture());
   mocked.listSupplyAlerts.mockResolvedValue({ items: [alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } })] });
-  mocked.listSupplyParts.mockResolvedValue({ items: [], total: 3, limit: 50 });
-  mocked.getSupplyReviewQueue.mockResolvedValue({ aliases: [], listings: [], counts: { aliases: 1, unresolved: 2, near: 1 }, manufacturers: [] });
-  vi.mocked(packaging.listPackagingWaiting).mockResolvedValue({ items: [], saves_calls_a_day: 0 });
+  mocked.listSupplyParts.mockResolvedValue({ items: [], total: 3, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
+  mocked.getSupplyReviewQueue.mockResolvedValue(reviewQueueFixture({ aliases: [], listings: [], counts: { aliases: 1, unresolved: 2, near: 1 }, manufacturers: [] }));
 });
 afterEach(cleanup);
 
@@ -57,17 +54,17 @@ describe("the dashboard", () => {
     renderView();
     const tile = await atRiskTile();
     expect(within(tile).getByText("2")).toBeTruthy();
-    expect(screen.getByText("Waiting for room").closest("button")!.textContent).toContain("3");
+    expect(screen.getByText("Queued for calls").closest("button")!.textContent).toContain("3");
     expect(await screen.findByText("OOS-1")).toBeTruthy();
   });
 
   it("opens the place that deals with each count", async () => {
     renderView();
     fireEvent.click(await atRiskTile());
-    expect(search()).toContain("supplyView=parts");
+    expect(search()).toContain("supplyView=tracking");
     expect(search()).toContain("partsOnly=at_risk");
     expect(search()).not.toContain("partsQ");
-    fireEvent.click(screen.getByText("Waiting for room").closest("button")!);
+    fireEvent.click(screen.getByText("Queued for calls").closest("button")!);
     expect(search()).toContain("partsScope=waiting");
   });
 
@@ -78,24 +75,15 @@ describe("the dashboard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Under 2 weeks: 1" }));
     expect(search()).toContain("partsOnly=runs_out_2w");
     fireEvent.click(screen.getByRole("button", { name: "Not recommended for new designs, 2+ distributors: 0" }));
-    expect(search()).not.toContain("partsOnly=lifecycle");
+    expect(search()).not.toContain("partsOnly=risk");
     fireEvent.click(screen.getByRole("button", { name: "Not recommended for new designs, Out: 1" }));
-    expect(search()).toContain("partsOnly=lifecycle");
-    fireEvent.click(screen.getByRole("button", { name: "Active, One: 1" }));
-    expect(search()).toContain("partsOnly=one_distributor");
+    expect(search()).toContain("partsOnly=risk%3Anrnd.out");
+    fireEvent.click(screen.getByRole("button", { name: "Active, One distributor: 1" }));
+    expect(search()).toContain("partsOnly=risk%3Aactive.one");
   });
 
-  it("tells library users how many ending components wait for a decision and opens the Ending Parts tab", async () => {
+  it("has no Ending in library tile: ending parts are notifications on the Dashboard itself", async () => {
     mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ ending_components: 3 }));
-    renderView();
-    const tile = (await screen.findByText("Ending in library")).closest("button")!;
-    expect(tile.textContent).toContain("3");
-    fireEvent.click(tile);
-    expect(search()).toContain("section=library-manager");
-    expect(search()).toContain("libraryView=ending");
-  });
-
-  it("shows no such tile when nothing waits", async () => {
     renderView();
     await atRiskTile();
     expect(screen.queryByText("Ending in library")).toBeNull();
@@ -140,16 +128,48 @@ describe("the dashboard", () => {
     expect(within(projects).getByText("120")).toBeTruthy();
   });
 
+  it("lists the open alerts the tile counts, and the acknowledged ones only with the cleared", async () => {
+    mocked.listSupplyAlerts.mockResolvedValue({ items: [
+      alertFixture({ id: 1, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } }),
+      alertFixture({ id: 2, kind: "out_of_stock", severity: "error", mpn: "SEEN-1", state: "acknowledged", detail: { stock: 0 } }),
+    ] });
+    renderView();
+    expect(await screen.findByText("OOS-1")).toBeTruthy();
+    expect(screen.queryByText("SEEN-1")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Show cleared"));
+    expect(await screen.findByText("SEEN-1")).toBeTruthy();
+  });
+
+  it("shows a tracked project's boards as unconfirmed while a line is unchecked, and the build its cost is for", async () => {
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({
+      projects: [{
+        project_id: "prj_2", project_name: "Trigger board", count: 17, statuses: { ok: 17 },
+        stats: { at_risk: 0, out: 0, end_of_life: 0, one_distributor: 17, runs_out_soon: 0, boards: 247, cost_per_board: "128.265", currency: "EUR", build_quantity: 10, unchecked: 1 },
+      }],
+    }));
+    renderView();
+    const projects = await screen.findByRole("region", { name: "Tracked projects" });
+    expect(within(projects).getByText("Unconfirmed")).toBeTruthy();
+    expect(within(projects).getByText("247 · 1 unchecked")).toBeTruthy();
+    expect(within(projects).getByText("× 10")).toBeTruthy();
+  });
+
+  it("has no inbox: the tiles, cards and alerts below say the same", async () => {
+    renderView();
+    await atRiskTile();
+    expect(screen.queryByRole("region", { name: "Inbox" })).toBeNull();
+  });
+
   it("opens a part from an alert", async () => {
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "OOS-1" }));
-    expect(search()).not.toContain("supplyView=parts");
+    expect(search()).not.toContain("supplyView=tracking");
     expect(search()).toContain("part=");
     expect((await screen.findByText(/^Sheet of /)).textContent).toMatch(/^Sheet of \S+/);
   });
 
   it("tells a new workspace what to do first", async () => {
-    mocked.getSupplyOverview.mockResolvedValue(overviewFixture({ figures: { watched: 0, at_risk: 0, out_of_stock: 0, lifecycle: 0, no_data: 0 }, connectors: 0, open_alerts: 0 }));
+    mocked.getSupplyDashboard.mockResolvedValue(dashboardFixture({ figures: { watched: 0, at_risk: 0, out_of_stock: 0, lifecycle: 0, open_alerts: 0, waiting: 0 }, connectors: 0 }));
     mocked.listSupplyAlerts.mockResolvedValue({ items: [] });
     renderView();
     expect(await screen.findByText(/No distributor is connected/)).toBeTruthy();

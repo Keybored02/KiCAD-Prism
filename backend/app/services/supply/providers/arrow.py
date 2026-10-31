@@ -22,13 +22,9 @@ run against the live service: no key was available. The tests use answers shaped
 from __future__ import annotations
 
 import json
-import time
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from typing import Any, Callable, Mapping, Sequence
+from datetime import date, datetime
+from typing import Any, Mapping, Sequence
 
-from app.services.supply import pacing
-from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers import packaging_hints
@@ -45,7 +41,9 @@ from app.services.supply.providers.base import (
     ProviderSpec,
     RateLimited,
 )
-from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.providers import normalise
+from app.services.supply.providers.http import HttpProvider
+from app.services.supply.providers.text_values import parse_count
 from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -74,26 +72,14 @@ def split_sku(sku: str) -> tuple[str, str]:
     return number.strip(), source_id.strip()
 
 
-class ArrowProvider:
-    def __init__(
-        self,
-        config: ProviderConfig,
-        *,
-        client: SafeHttpClient | None = None,
-        clock: Callable[[], datetime] | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
+class ArrowProvider(HttpProvider):
+    def __init__(self, config: ProviderConfig, **transport: Any) -> None:
+        super().__init__(config, hosts=ALLOWED_HOSTS, pace_seconds=PACE_SECONDS, **transport)
         self._login = config.credentials.get("login", "").strip()
         self._api_key = config.credentials.get("api_key", "").strip()
         self._remote_ip = config.credentials.get("remote_ip", "").strip()
         region = config.storefront.strip().upper()
         self._sources = frozenset({region} if region and region != ALL else ())
-        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
-        # Calls the last get_offers made, for the poller's budget.
-        self.last_batch_calls = 0
 
     # --- transport ---------------------------------------------------------
 
@@ -106,20 +92,17 @@ class ArrowProvider:
             "login": self._login, "apikey": self._api_key, "remoteIp": self._remote_ip, "useExact": True,
             "parts": [{"partNum": number} for number in numbers],
         }}
-        self._pacer.wait()
-        answer = self._client.request_json("GET", LIST_URL, params={"req": json.dumps(request, separators=(",", ":")), "rows": str(ROWS), "fmt": "JSON"})
+        answer = self.request("GET", LIST_URL, params={"req": json.dumps(request, separators=(",", ":")), "rows": str(ROWS), "fmt": "JSON"})
         return _part_list(answer)
 
-    def _ask(self, numbers: Sequence[str]) -> tuple[list[dict[str, Any]], int]:
-        """Items for each distinct, askable number, and the calls it took."""
+    def _ask(self, numbers: Sequence[str]) -> list[dict[str, Any]]:
+        """Items for each distinct, askable number, ``MAX_PARTS`` numbers a call."""
 
         askable = list(dict.fromkeys(number.strip() for number in numbers if number.strip() and "*" not in number))
         items: list[dict[str, Any]] = []
-        calls = 0
         for start in range(0, len(askable), MAX_PARTS):
             items += self._call(askable[start:start + MAX_PARTS])
-            calls += 1
-        return items, calls
+        return items
 
     def _wanted_source(self, source: Mapping[str, Any]) -> bool:
         return not self._sources or str(source.get("sourceCd") or "").upper() in self._sources
@@ -130,7 +113,7 @@ class ArrowProvider:
         """Matches for several manufacturer numbers in one call, keyed by each number's ``match_key``. One match per orderable line."""
 
         result: dict[str, list[PartMatch]] = {match_key(number): [] for number in mpns if match_key(number)}
-        items, _calls = self._ask(mpns)
+        items = self._ask(mpns)
         for item in items:
             key = match_key(str(item.get("partNum") or ""))
             if key not in result:
@@ -153,7 +136,7 @@ class ArrowProvider:
             if number and source_id:
                 wanted[source_id] = sku
                 numbers.append(number)
-        items, self.last_batch_calls = self._ask(numbers)
+        items = self._ask(numbers)
         now = self._clock()
         offers: list[Offer] = []
         for item in items:
@@ -284,13 +267,10 @@ def _compliance(item: Mapping[str, Any], label: str) -> str:
 
 def _rohs(item: Mapping[str, Any]) -> bool | None:
     value = _compliance(item, "eurohs").lower()
-    if value == "compliant":
-        return True
-    if value in ("non compliant", "non-compliant", "not compliant"):
-        return False
-    if value and value != "unknown":
+    found = normalise.rohs_word(value)
+    if found is None and value and value != "unknown":
         note(KEY, "RoHS wording", value)
-    return None
+    return found
 
 
 def _price_breaks(source: Mapping[str, Any], part: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]:
@@ -298,17 +278,10 @@ def _price_breaks(source: Mapping[str, Any], part: Mapping[str, Any]) -> tuple[t
     if len(currency) != 3 or not currency.isalpha():
         return (), ""
     prices = part.get("Prices")
-    tiers: dict[int, Decimal] = {}
-    for entry in (prices.get("resaleList") if isinstance(prices, dict) else None) or []:
-        if not isinstance(entry, dict):
-            continue
-        quantity = parse_count(entry.get("minQty"))
-        price = parse_decimal(entry.get("price"))
-        if quantity and price is not None and price > 0:
-            tiers.setdefault(quantity, price)
-    if not tiers:
-        return (), ""
-    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), currency
+    entries = (prices.get("resaleList") if isinstance(prices, dict) else None) or []
+    # Arrow writes 0 where it gives no price.
+    breaks = normalise.price_breaks(((entry.get("minQty"), entry.get("price")) for entry in entries if isinstance(entry, dict)), free=False)
+    return (breaks, currency) if breaks else ((), "")
 
 
 def _stock(part: Mapping[str, Any]) -> int:
@@ -422,6 +395,8 @@ def _offer(sku: str, item: Mapping[str, Any], source: Mapping[str, Any], part: M
 
 SPEC = ProviderSpec(
     key=KEY,
+    hosts=ALLOWED_HOSTS,
+    limits_storage=True,
     label="Arrow",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING}),
     max_batch=MAX_PARTS,

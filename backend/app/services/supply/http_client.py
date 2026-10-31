@@ -124,10 +124,6 @@ class RequestsTransport:
             self._sessions[(host, address)] = session
         return session
 
-    def clear_cookies(self) -> None:
-        for session in self._sessions.values():
-            session.cookies.clear()
-
     def close(self) -> None:
         for session in self._sessions.values():
             session.close()
@@ -141,13 +137,15 @@ class RequestsTransport:
         if self._proxy:
             return self._send_via_proxy(method, target, headers, body, timeout, max_bytes)
         parts = urlsplit(target.url)
+        # The port the URL names goes on the pinned address and in the Host header; the certificate is still checked for the name.
+        suffix = f":{target.port}" if target.port else ""
         for address in target.addresses:
-            netloc = f"[{address}]" if ":" in address else address
+            netloc = (f"[{address}]" if ":" in address else address) + suffix
             pinned = urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, ""))
             session = self._session(target.host, address)
             try:
                 response = session.request(
-                    method, pinned, headers={**headers, "Host": target.host}, data=body,
+                    method, pinned, headers={**headers, "Host": target.host + suffix}, data=body,
                     timeout=timeout, allow_redirects=False, stream=True,
                 )
             except requests.ConnectionError:
@@ -198,6 +196,13 @@ def _read_capped(response: requests.Response, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """Scheme, host and port: what a redirect must keep for headers and a body to follow it."""
+
+    parts = urlsplit(url)
+    return parts.scheme.lower(), (parts.hostname or "").lower(), parts.port or {"https": 443, "http": 80}.get(parts.scheme.lower())
+
 def _label(url: str) -> str:
     """Host and path only; never the query."""
 
@@ -247,12 +252,10 @@ class SafeHttpClient:
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
         max_redirects: int = MAX_REDIRECTS,
         host_denied: Callable[[str], bool] | None = None,
-        keep_cookies: bool = True,
+        private_hosts: Collection[str] = (),
     ) -> None:
-        # With ``keep_cookies`` False every request goes with an empty cookie jar: a service that ties a request-forgery token to its
-        # session cookie (JLCPCB) then never sees a session it would want the token for.
-        self._keep_cookies = keep_cookies
         self._host_denied = host_denied
+        self._private_hosts = tuple(private_hosts)
         self._allowed = None if allowed_hosts is None else tuple(allowed_hosts)
         if transport is None:
             from app.core.config import settings
@@ -309,13 +312,17 @@ class SafeHttpClient:
             if not location:
                 raise ProviderError("redirect without a location")
             next_url = urljoin(url, location)
-            if urlsplit(next_url).hostname != urlsplit(url).hostname:
-                send_headers = {
-                    key: value for key, value in send_headers.items() if key.lower() in _PORTABLE_HEADERS
-                }
             if response.status == 303 or (response.status in (301, 302) and method == "POST"):
                 method, body = "GET", None
                 send_headers = {k: v for k, v in send_headers.items() if k.lower() != "content-type"}
+            if _origin(next_url) != _origin(url):
+                # A body can carry a secret (an OAuth form's client_secret), so it never follows a redirect to another origin,
+                # as the credential headers do not.
+                if body is not None:
+                    raise ProviderError(f"refused a redirect that would send the request body to {_label(next_url)}")
+                send_headers = {
+                    key: value for key, value in send_headers.items() if key.lower() in _PORTABLE_HEADERS
+                }
             url = next_url
         raise ProviderError("too many redirects")
 
@@ -328,14 +335,11 @@ class SafeHttpClient:
         return self.request(method, url, **kwargs).json()
 
     def _send_once(self, method: str, url: str, headers: Mapping[str, str], body: bytes | None) -> HttpResponse:
-        if not self._keep_cookies:
-            clear = getattr(self._transport, "clear_cookies", None)
-            if clear is not None:
-                clear()
         try:
             target = validate_url(
                 url, allowed_hosts=self._allowed, resolve=self._resolve,
                 check_addresses=not getattr(self._transport, "proxied", False),
+                private_hosts=self._private_hosts,
             )
         except EgressDenied as exc:
             raise EgressBlocked(str(exc)) from None

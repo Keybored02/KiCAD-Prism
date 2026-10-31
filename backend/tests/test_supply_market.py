@@ -13,7 +13,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import market  # noqa: E402
+from supply_api_helpers import reading as _reading  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -71,6 +73,7 @@ class MarketDatabaseTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_market.router)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
@@ -84,18 +87,18 @@ class MarketDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("market_indices", "samples", "offers", "listings", "watches", "parts", "manufacturers", "connectors"):
+            for table in ("supply_market_indices", "supply_samples", "supply_offers", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
-            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
+            conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
 
     def follow(self, maker: str, mpn: str, stock: int, lifecycle: str = "active") -> None:
         with self.store.connection() as conn:
             record, _ = self.watches.add_watch(conn, maker, mpn, "seed@example.com")
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')",
                 (f"l-{mpn}", mpn, record.part_id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)", (f"l-{mpn}", NOW, stock, lifecycle))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)", (f"l-{mpn}", NOW, stock, lifecycle))
 
     def test_a_group_needs_enough_parts_and_the_whole_set_is_always_given_its_size(self) -> None:
         for index in range(3):
@@ -113,7 +116,7 @@ class MarketDatabaseTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertGreater(market.snapshot(conn, date(2026, 2, 1)), 0)
             self.assertEqual(market.snapshot(conn, date(2026, 2, 1)), 0, "already stored today")
-            conn.execute("UPDATE offers SET stock = 0 WHERE listing_id = 'l-A-0'")
+            conn.execute("UPDATE supply_offers SET stock = 0 WHERE listing_id = 'l-A-0'")
             market.snapshot(conn, date(2026, 3, 3))
             result = market.overview(conn)
         self.assertEqual((result["day"], result["compared_with"]), ("2026-03-03", "2026-02-01"))
@@ -128,7 +131,7 @@ class MarketDatabaseTests(unittest.TestCase):
             self.follow("Acme" if index < 2 else "Globex", f"X-{index}", 100)
         with self.store.connection() as conn:
             for mpn, provider, category in (("X-0", "digikey", "Op Amps"), ("X-1", "mouser", "Op Amps"), ("X-2", "digikey", "Op Amps"), ("X-2", "mouser", "Other")):
-                part = conn.execute("SELECT id FROM parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
+                part = conn.execute("SELECT id FROM supply_parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
                 facts.set_one(conn, part, provider, "category", category, NOW)
             scopes = market.compute(conn)
             market.snapshot(conn, date(2026, 3, 1))
@@ -150,9 +153,7 @@ class MarketDatabaseTests(unittest.TestCase):
 
         def price(mpn: str, day: date, unit: str) -> None:
             with self.store.connection() as conn:
-                conn.execute(
-                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 100, %s, 'EUR')",
-                    (f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), unit))
+                _reading(conn, f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), 100, price=unit)
 
         for mpn in ("A-0", "A-1", "A-2"):
             price(mpn, date(2026, 3, 1), "1.00")
@@ -170,16 +171,37 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertAlmostEqual(line[0][1], 100.0)
         self.assertAlmostEqual(line[1][1], 110.0, places=3)
 
+    def test_a_disabled_connector_s_prices_leave_the_price_index(self) -> None:
+        from datetime import datetime, timezone
+
+        for index in range(3):
+            self.follow("Acme", f"A-{index}", 100)
+
+        def price(mpn: str, day: date, unit: str) -> None:
+            with self.store.connection() as conn:
+                _reading(conn, f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), 100, price=unit)
+
+        for mpn in ("A-0", "A-1", "A-2"):
+            price(mpn, date(2026, 3, 1), "1.00")
+            price(mpn, date(2026, 3, 2), "2.00")
+        with self.store.connection() as conn:
+            self.assertEqual(len(market.price_changes(conn, [self.part_of("A-0")], datetime(2026, 3, 2, tzinfo=timezone.utc))), 1)
+            conn.execute("UPDATE supply_connectors SET enabled = false WHERE id = 'c1'")
+            self.assertEqual(market.price_changes(conn, [self.part_of("A-0")], datetime(2026, 3, 2, tzinfo=timezone.utc)), {})
+
+    def part_of(self, mpn: str) -> str:
+        with self.store.connection() as conn:
+            return conn.execute("SELECT id FROM supply_parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
+
     def test_the_history_is_for_readers_and_one_known_metric(self) -> None:
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=dropped").json,
                          {"metric": "dropped", "series": []})
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=bad").status, 422)
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["viewer"], query="metric=dropped").status, 403)
 
-    def test_nothing_stored_yet_says_so_and_only_readers_see_it(self) -> None:
-        response = _request(self.app, "GET", "/api/supply/market", user=self.users["qa"])
-        self.assertEqual((response.status, response.json), (200, {"day": None, "scopes": []}))
-        self.assertEqual(_request(self.app, "GET", "/api/supply/market", user=self.users["viewer"]).status, 403)
+    def test_nothing_stored_yet_says_so(self) -> None:
+        with self.store.connection() as conn:
+            self.assertEqual(market.overview(conn), {"day": None, "scopes": []})
 
 
 if __name__ == "__main__":

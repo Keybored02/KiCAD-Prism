@@ -28,7 +28,7 @@ def _calls(items: int, per_call: int, calls_per_batch: int = 1) -> int:
 def connector_rest(conn, connector_id: str, now: datetime, until: datetime) -> int:
     """Calls this connector still needs before ``until`` for the work that is on a schedule."""
 
-    row = conn.execute("SELECT provider, enabled, paused_reason FROM connectors WHERE id = %s", (connector_id,)).fetchone()
+    row = conn.execute("SELECT provider, enabled, paused_reason FROM supply_connectors WHERE id = %s", (connector_id,)).fetchone()
     if row is None or not row["enabled"] or row["paused_reason"]:
         return 0
     try:
@@ -40,12 +40,12 @@ def connector_rest(conn, connector_id: str, now: datetime, until: datetime) -> i
     reads = conn.execute(
         """
         SELECT COUNT(*) AS listings, COUNT(DISTINCT l.part_id) AS parts
-        FROM listings l
-        JOIN part_tiers pt ON pt.part_id = l.part_id
-        JOIN admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
-        LEFT JOIN packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND %s
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
-        WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+        FROM supply_listings l
+        JOIN supply_part_tiers pt ON pt.part_id = l.part_id
+        JOIN supply_admissions a ON a.part_id = l.part_id AND a.connector_id = l.connector_id AND a.state = 'admitted'
+        LEFT JOIN supply_packaging_picks pk ON pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND %s
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
+        WHERE l.connector_id = %s AND supply_counted(l.match_state)
           AND (pk.listing_id IS NULL OR pk.listing_id = l.id OR ps.listing_id IS NULL)
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
         """,
@@ -59,10 +59,10 @@ def connector_rest(conn, connector_id: str, now: datetime, until: datetime) -> i
     if CAP_SEARCH in spec.capabilities:
         searches = conn.execute(
             f"""
-            SELECT COUNT(*) AS n FROM connectors c
-            CROSS JOIN part_tiers pt
-            LEFT JOIN admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
-            LEFT JOIN discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
+            SELECT COUNT(*) AS n FROM supply_connectors c
+            CROSS JOIN supply_part_tiers pt
+            LEFT JOIN supply_admissions a ON a.part_id = pt.part_id AND a.connector_id = c.id
+            LEFT JOIN supply_discovery_runs d ON d.part_id = pt.part_id AND d.connector_id = c.id
             WHERE c.id = %(connector)s AND ({DUE_SEARCH})
             """,
             {"connector": connector_id, **cutoffs(until)},

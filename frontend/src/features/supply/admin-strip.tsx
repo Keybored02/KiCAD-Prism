@@ -1,9 +1,12 @@
-import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
-import type { SupplyConnector, SupplySignin, SupplySvhcList } from "@/types/supply";
-import { getSupplySignin, getSvhcList, listSupplyConnectors } from "./supply-api";
+import type { SupplyConnector, SupplySvhcList } from "@/types/supply";
+import { getSvhcList } from "./supply-api";
+import { SOURCES_PLACE } from "./supply-views";
 import { useLoaded } from "./use-loaded";
+import { useConnectorList } from "./use-supply-connectors";
+
+const svhcFetcher = (signal: AbortSignal) => getSvhcList(signal);
 
 const DAY_MS = 24 * 3600 * 1000;
 /** ECHA updates the Candidate List twice a year. */
@@ -17,10 +20,9 @@ export interface AdminNotice {
   action: string;
 }
 
-/** What only an administrator can fix, from the connectors, the sign-ins and the Candidate List. Pure, so it can be tested. */
+/** What only an administrator can fix, from the connectors (with their sign-ins) and the Candidate List. Pure, so it can be tested. */
 export function adminNotices(
   connectors: readonly SupplyConnector[],
-  signins: ReadonlyMap<string, SupplySignin>,
   list: SupplySvhcList | null,
   waiting: number,
   now: number,
@@ -30,7 +32,7 @@ export function adminNotices(
     if (connector.paused_reason) {
       notices.push({ key: `paused:${connector.id}`, text: `${connector.display_name} is paused: ${connector.paused_reason}`, to: "connectors", action: "Open" });
     }
-    const signin = signins.get(connector.id);
+    const signin = connector.signin;
     if (signin && (signin.state === "expired" || signin.state === "refused")) {
       notices.push({ key: `signin:${connector.id}`, text: `${connector.display_name} needs a new sign-in for change notices`, to: "connectors", action: "Sign in" });
     } else if (signin?.expires_at) {
@@ -54,19 +56,10 @@ export function adminNotices(
 
 /** The Dashboard strip for administrators: the few things only they can fix, each with where to fix it. Empty when all is well. */
 export function AdminStrip({ waiting }: { waiting: number }) {
-  const fetcher = useCallback(async (signal: AbortSignal) => {
-    const connectors = await listSupplyConnectors(signal);
-    const signins = new Map<string, SupplySignin>();
-    await Promise.all(connectors.map(async (item) => {
-      if (item.provider !== "digikey") return;
-      try { signins.set(item.id, await getSupplySignin(item.id, signal)); } catch { /* no sign-in to report */ }
-    }));
-    let list: SupplySvhcList | null = null;
-    try { list = await getSvhcList(signal); } catch { /* the list is optional */ }
-    return { connectors, signins, list };
-  }, []);
-  const { data } = useLoaded("admin-strip", fetcher, "Could not load the administrator notes", "supply");
-  const notices = data ? adminNotices(data.connectors, data.signins, data.list, waiting, Date.now()) : [];
+  const connectors = useConnectorList().data;
+  // The list is optional: a failed read shows no note about it.
+  const list = useLoaded("compliance/svhc-list", svhcFetcher, "Could not load the Candidate List").data;
+  const notices = connectors ? adminNotices(connectors, list, waiting, Date.now()) : [];
   if (notices.length === 0) return null;
   return (
     <div className="space-y-2" aria-label="For administrators">
@@ -75,7 +68,7 @@ export function AdminStrip({ waiting }: { waiting: number }) {
           {notices.map((notice) => (
             <li key={notice.key} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <span>{notice.text}</span>
-              <Link to={`/?section=supply&supplyView=${notice.to === "settings" ? "connectors" : notice.to}`} className="text-xs text-primary hover:underline">{notice.action}</Link>
+              <Link to={notice.to === "settings" || notice.to === "connectors" ? SOURCES_PLACE : `/?section=supply&supplyView=${notice.to}`} className="text-xs text-primary hover:underline">{notice.action}</Link>
             </li>
           ))}
         </ul>

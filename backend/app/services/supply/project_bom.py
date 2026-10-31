@@ -117,7 +117,7 @@ def _event(conn, project: Any, roles: Sequence[str], before: Mapping[str, tuple[
         "removed": [{"manufacturer": maker, "mpn": mpn} for maker, mpn in removed[:MAX_NAMED]],
         "visible_roles": list(roles),
     }
-    conn.execute("INSERT INTO events (at, kind, payload) VALUES (%s, %s, %s::jsonb)", (now, EVENT_KIND, json.dumps(payload)))
+    conn.execute("INSERT INTO supply_events (at, kind, payload) VALUES (%s, %s, %s::jsonb)", (now, EVENT_KIND, json.dumps(payload)))
 
 
 def refresh_tracked(
@@ -134,10 +134,8 @@ def refresh_tracked(
     tracked = {item["project_id"]: item for item in tracking.list_tracked_projects(conn)}
     counts = {"updated": 0, "unchanged": 0, "reading": 0, "removed": 0}
     found = projects(tracked)
-    # A project deleted from the workspace is no longer followed.
-    for gone in sorted(set(tracked) - {str(project.id) for project, _roles in found}):
-        tracking.untrack_project(conn, gone, "system")
-        counts["removed"] += 1
+    # A project deleted from the workspace is no longer followed (the tiers are worked out once, however many went).
+    counts["removed"] = tracking.untrack_projects(conn, sorted(set(tracked) - {str(project.id) for project, _roles in found}), "system")
     for project, roles in found:
         variants = list(tracked[str(project.id)]["variants"])
         before = _lines(conn, str(project.id), variants)

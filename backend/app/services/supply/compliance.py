@@ -15,8 +15,9 @@ import re
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import parts
+from app.services.supply import clock, counted, facts, offer_rules, parts, spreadsheet
 from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.errors import Refused
 
 MAX_LIST_BYTES = 5 * 1024 * 1024
 # A spreadsheet is a zip file: what it holds once unpacked is capped too, so a small file cannot fill memory.
@@ -32,8 +33,10 @@ _COLUMNS = {
 }
 
 
-class ComplianceError(ValueError):
+class ComplianceError(Refused):
     """The input does not apply. The message is safe to show."""
+
+    code = "invalid_compliance"
 
 
 def valid_cas(number: str) -> bool:
@@ -68,28 +71,12 @@ def _from_header(text: str) -> str:
 def csv_from_xlsx(data: bytes) -> str:
     """The first sheet of an Excel file as CSV text, for ``parse_list`` (which finds the header row itself)."""
 
-    import zipfile
-
-    from openpyxl import load_workbook
-
-    if len(data) > MAX_LIST_BYTES:
-        raise ComplianceError("The file is larger than 5 MB.")
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            if sum(item.file_size for item in archive.infolist()) > MAX_XLSX_UNPACKED:
-                raise ComplianceError("The spreadsheet is too large once unpacked.")
-        book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        try:
-            out = io.StringIO()
-            writer = csv.writer(out)
-            for row in book.worksheets[0].iter_rows(values_only=True):
-                writer.writerow(["" if cell is None else (cell.date().isoformat() if isinstance(cell, datetime) else str(cell)) for cell in row])
-        finally:
-            book.close()
-    except ComplianceError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - a damaged or foreign file is the person's to fix, whatever the library raised
-        raise ComplianceError("The file is not a readable Excel spreadsheet. Export it as CSV, or save it again as .xlsx.") from exc
+        rows = spreadsheet.first_sheet_rows(data, max_bytes=MAX_LIST_BYTES, max_unpacked=MAX_XLSX_UNPACKED)
+    except spreadsheet.SpreadsheetError as exc:
+        raise ComplianceError(str(exc)) from exc
+    out = io.StringIO()
+    csv.writer(out).writerows(rows)
     return out.getvalue()
 
 
@@ -140,26 +127,26 @@ def load_list(conn, text: str, source_name: str, actor: str) -> dict[str, Any]:
     if len(text.encode("utf-8")) > MAX_LIST_BYTES:
         raise ComplianceError("The file is larger than 5 MB.")
     substances = parse_list(text)
-    conn.execute("DELETE FROM svhc_substances")
+    conn.execute("DELETE FROM supply_svhc_substances")
     for item in substances:
         conn.execute(
-            "INSERT INTO svhc_substances (cas, name, ec, added_on) VALUES (%s, %s, %s, %s)",
+            "INSERT INTO supply_svhc_substances (cas, name, ec, added_on) VALUES (%s, %s, %s, %s)",
             (item["cas"], item["name"], item["ec"], item["added_on"]),
         )
     conn.execute(
         """
-        INSERT INTO svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, NOW(), %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE SET loaded_at = NOW(), loaded_by = EXCLUDED.loaded_by,
+        INSERT INTO supply_svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET loaded_at = EXCLUDED.loaded_at, loaded_by = EXCLUDED.loaded_by,
             source_name = EXCLUDED.source_name, substances = EXCLUDED.substances
         """,
-        (actor, source_name[:200], len(substances)),
+        (clock.now(), actor, source_name[:200], len(substances)),
     )
     write_audit(conn, actor, "svhc.load", "1", {"source": source_name[:200], "substances": len(substances)}, subject_kind="compliance")
     return list_info(conn)
 
 
 def list_info(conn) -> dict[str, Any]:
-    row = conn.execute("SELECT loaded_at, loaded_by, source_name, substances FROM svhc_list WHERE id = 1").fetchone()
+    row = conn.execute("SELECT loaded_at, loaded_by, source_name, substances FROM supply_svhc_list WHERE id = 1").fetchone()
     if row is None:
         return {"loaded": False, "substances": 0, "loaded_at": None, "loaded_by": "", "source_name": ""}
     return {"loaded": True, "substances": int(row["substances"]), "loaded_at": row["loaded_at"].isoformat(),
@@ -174,15 +161,15 @@ def declare(conn, part_id: str, cas: str, note: str, actor: str) -> None:
     cas = cas.strip()
     if not valid_cas(cas):
         raise ComplianceError(f"{cas or 'That'} is not a valid CAS number.")
-    count = conn.execute("SELECT COUNT(*) AS n FROM part_substances WHERE part_id = %s", (part_id,)).fetchone()["n"]
+    count = conn.execute("SELECT COUNT(*) AS n FROM supply_part_substances WHERE part_id = %s", (part_id,)).fetchone()["n"]
     if count >= MAX_PER_PART:
         raise ComplianceError(f"A part can have at most {MAX_PER_PART} declared substances.")
     conn.execute(
         """
-        INSERT INTO part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id, cas) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
+        INSERT INTO supply_part_substances (part_id, cas, note, declared_by, declared_at) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id, cas) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = EXCLUDED.declared_at
         """,
-        (part_id, cas, note.strip()[:200], actor),
+        (part_id, cas, note.strip()[:200], actor, clock.now()),
     )
     write_audit(conn, actor, "svhc.declare", part_id, {"cas": cas}, subject_kind="part")
 
@@ -203,26 +190,34 @@ def sync_distributor(conn, part_id: str, provider: str, entries: Sequence[str]) 
         numbers = [number for number in _CAS_IN_TEXT.findall(entry) if valid_cas(number)]
         if not numbers:
             row = conn.execute(
-                "SELECT cas FROM svhc_substances WHERE lower(name) = lower(%s) ORDER BY cas LIMIT 1", (entry.strip(),)
+                "SELECT cas FROM supply_svhc_substances WHERE lower(name) = lower(%s) ORDER BY cas LIMIT 1", (entry.strip(),)
             ).fetchone()
             numbers = [row["cas"]] if row else []
         for number in numbers:
             found.setdefault(number, entry[:200])
     source = DISTRIBUTOR_PREFIX + provider
     removed = conn.execute(
-        "DELETE FROM part_substances WHERE part_id = %s AND declared_by = %s AND NOT (cas = ANY(%s))",
+        "DELETE FROM supply_part_substances WHERE part_id = %s AND declared_by = %s AND NOT (cas = ANY(%s))",
         (part_id, source, list(found)),
     ).rowcount
     added = 0
     for number, text in list(found.items())[:MAX_PER_PART]:
         added += conn.execute(
             """
-            INSERT INTO part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
+            INSERT INTO supply_part_substances (part_id, cas, note, declared_by, declared_at) VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (part_id, cas) DO NOTHING RETURNING cas
             """,
-            (part_id, number, text, source),
+            (part_id, number, text, source, clock.now()),
         ).fetchone() is not None
     return removed + added
+
+
+def record_distributor(conn, part_id: str, provider: str, entries: Sequence[str], now: datetime) -> int:
+    """Keep what a distributor states about a part's substances: its ``reach_svhc`` fact and its declarations
+    (``sync_distributor``). Returns how many declarations changed."""
+
+    facts.set_one(conn, part_id, provider, "reach_svhc", "; ".join(entries) or "None listed", now)
+    return sync_distributor(conn, part_id, provider, entries)
 
 
 def source_label(declared_by: str) -> str:
@@ -236,7 +231,7 @@ def source_label(declared_by: str) -> str:
 
 def remove_declaration(conn, part_id: str, cas: str, actor: str) -> None:
     actor = actor_text(actor)
-    conn.execute("DELETE FROM part_substances WHERE part_id = %s AND cas = %s", (part_id, cas.strip()))
+    conn.execute("DELETE FROM supply_part_substances WHERE part_id = %s AND cas = %s", (part_id, cas.strip()))
     write_audit(conn, actor, "svhc.undeclare", part_id, {"cas": cas.strip()}, subject_kind="part")
 
 
@@ -246,8 +241,8 @@ def declared(conn, part_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT d.cas, d.note, d.declared_by, d.declared_at, s.name AS listed_as
-        FROM part_substances d LEFT JOIN LATERAL (
-            SELECT name FROM svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1
+        FROM supply_part_substances d LEFT JOIN LATERAL (
+            SELECT name FROM supply_svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1
         ) s ON TRUE
         WHERE d.part_id = %s ORDER BY d.cas
         """,
@@ -268,8 +263,8 @@ def listed_substances(conn, part_ids: Sequence[str]) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for row in conn.execute(
         """
-        SELECT d.part_id, (SELECT name FROM svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1) AS name
-        FROM part_substances d WHERE d.part_id = ANY(%s) AND EXISTS (SELECT 1 FROM svhc_substances s WHERE s.cas = d.cas)
+        SELECT d.part_id, (SELECT name FROM supply_svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1) AS name
+        FROM supply_part_substances d WHERE d.part_id = ANY(%s) AND EXISTS (SELECT 1 FROM supply_svhc_substances s WHERE s.cas = d.cas)
         ORDER BY d.part_id, d.cas
         """,
         (list(part_ids),),
@@ -291,6 +286,27 @@ def standing(offers: Iterable[Mapping[str, Any]], listed: Sequence[str]) -> dict
     return {"state": "unknown", "reason": "No distributor or declaration says either way."}
 
 
+_ROHS_REASONS = {
+    "compliant": "Distributors list the part as RoHS compliant.",
+    "not_compliant": "Distributors list the part as not RoHS compliant.",
+    "disputed": "Distributors disagree.",
+    "not_applicable": "Distributors state RoHS does not apply to the part.",
+    "unknown": "No distributor says either way.",
+}
+
+
+def rohs_standing(offers: Sequence[Mapping[str, Any]], stated: Sequence[str]) -> dict[str, str]:
+    """What is known about RoHS for a part (``offer_rules.rohs_verdict``) and why."""
+
+    state = offer_rules.rohs_verdict(offers, stated)
+    from_offers = any(offer.get("rohs") is not None for offer in offers)
+    reason = _ROHS_REASONS[state]
+    if not from_offers and state in ("compliant", "not_compliant", "disputed"):
+        reason = {"compliant": "The part's stated RoHS status is compliant.", "not_compliant": "The part's stated RoHS status is not compliant.",
+                  "disputed": "The RoHS statuses stated for the part disagree."}[state]
+    return {"state": state, "reason": reason}
+
+
 MAX_EXEMPTIONS = 20
 _EXEMPTION = re.compile(r"^[0-9]{1,2}(?:\([a-z]{1,2}\))?(?:-[IVX]{1,4})?(?:\([a-z]{1,2}\))?$|^[A-Za-z0-9 ./()\-]{2,24}$")
 
@@ -303,22 +319,22 @@ def add_exemption(conn, part_id: str, code: str, note: str, actor: str) -> None:
     code = code.strip()
     if not code or not _EXEMPTION.match(code):
         raise ComplianceError("Give the exemption as its number in Annex III or IV, such as 7(a).")
-    count = conn.execute("SELECT COUNT(*) AS n FROM rohs_exemptions WHERE part_id = %s", (part_id,)).fetchone()["n"]
+    count = conn.execute("SELECT COUNT(*) AS n FROM supply_rohs_exemptions WHERE part_id = %s", (part_id,)).fetchone()["n"]
     if count >= MAX_EXEMPTIONS:
         raise ComplianceError(f"A part can have at most {MAX_EXEMPTIONS} exemptions.")
     conn.execute(
         """
-        INSERT INTO rohs_exemptions (part_id, code, note, declared_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (part_id, code) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
+        INSERT INTO supply_rohs_exemptions (part_id, code, note, declared_by, declared_at) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (part_id, code) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = EXCLUDED.declared_at
         """,
-        (part_id, code, note.strip()[:200], actor),
+        (part_id, code, note.strip()[:200], actor, clock.now()),
     )
     write_audit(conn, actor, "rohs.exemption", part_id, {"code": code}, subject_kind="part")
 
 
 def remove_exemption(conn, part_id: str, code: str, actor: str) -> None:
     actor = actor_text(actor)
-    conn.execute("DELETE FROM rohs_exemptions WHERE part_id = %s AND code = %s", (part_id, code))
+    conn.execute("DELETE FROM supply_rohs_exemptions WHERE part_id = %s AND code = %s", (part_id, code))
     write_audit(conn, actor, "rohs.exemption_removed", part_id, {"code": code}, subject_kind="part")
 
 
@@ -329,7 +345,30 @@ def exemptions(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, str]]]
         return {}
     found: dict[str, list[dict[str, str]]] = {}
     for row in conn.execute(
-        "SELECT part_id, code, note, declared_by FROM rohs_exemptions WHERE part_id = ANY(%s) ORDER BY part_id, code", (list(part_ids),)
+        "SELECT part_id, code, note, declared_by FROM supply_rohs_exemptions WHERE part_id = ANY(%s) ORDER BY part_id, code", (list(part_ids),)
     ).fetchall():
         found.setdefault(row["part_id"], []).append({"code": row["code"], "note": row["note"], "declared_by": row["declared_by"]})
     return found
+
+
+def rohs_flags(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
+    """Per part, the RoHS and REACH flags of its counted offers, with the distributor that gives them."""
+
+    found: dict[str, list[dict[str, Any]]] = {part_id: [] for part_id in part_ids}
+    if part_ids:
+        for row in conn.execute(
+            "SELECT l.part_id, o.rohs, o.reach_affected, c.display_name AS connector_name FROM supply_offers o "
+            "JOIN supply_listings l ON l.id = o.listing_id JOIN supply_connectors c ON c.id = l.connector_id "
+            f"WHERE l.part_id = ANY(%s) AND {counted.listing_sql()}",
+            (list(part_ids),),
+        ).fetchall():
+            found[row["part_id"]].append(dict(row))
+    return found
+
+
+def rohs_verdicts(conn, part_ids: Sequence[str]) -> dict[str, str]:
+    """Each part's RoHS verdict (``offer_rules.rohs_verdict``): its counted offers first, the RoHS status stated for it when none says."""
+
+    offers = rohs_flags(conn, part_ids)
+    stated = facts.rohs_stated(conn, part_ids)
+    return {part_id: offer_rules.rohs_verdict(offers[part_id], stated.get(part_id, ())) for part_id in part_ids}

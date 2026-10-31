@@ -3,17 +3,16 @@ import { AlertTriangle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import type { SupplyBomLineResult } from "@/types/supply";
+import { AlternatesNote } from "./alternates-note";
 import { untrackedLabel, type RowSupply } from "./bom-supply";
+import { PriceAtQuantity } from "./price-at-quantity";
 import { JlcIcon, MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
-import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
+import { formatLeadTime, formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
+import { StoresCell } from "./stores-cell";
+import { TestDataChip } from "./test-data-chip";
 
 const MUTED = <span className="text-muted-foreground">{"-"}</span>;
-
-function leadTime(days: number | null | undefined): string {
-  if (days === null || days === undefined) return "";
-  return days % 7 === 0 && days >= 14 ? `${days / 7} wk` : `${days} d`;
-}
 
 function manufacturerHint(result: SupplyBomLineResult): string {
   if (result.manufacturer_match === "missing") return "Matched on the part number alone: this line names no manufacturer.";
@@ -22,7 +21,16 @@ function manufacturerHint(result: SupplyBomLineResult): string {
   return "";
 }
 
+/** ", alternate ALT-1" when the purchase is of an approved alternate, not the line's own part. */
+function alternateBought(result: SupplyBomLineResult): string {
+  const bought = result.buy?.part_id;
+  if (!bought || bought === result.part_id) return "";
+  const alternate = result.alternates?.find((item) => item.part_id === bought);
+  return alternate ? `, alternate ${alternate.mpn}` : "";
+}
+
 function LineCell({ column, result }: { column: string; result: SupplyBomLineResult }) {
+  if (column === "Stores") return result.stores ? <StoresCell stores={result.stores} /> : MUTED;
   if (result.state !== "tracked") {
     return column === "Supply" ? <span className="text-muted-foreground">{untrackedLabel(result)}</span> : MUTED;
   }
@@ -50,23 +58,28 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
         >
           {formatStock(result.stock)}
           <span className="text-muted-foreground"> / {(result.part_need ?? result.need).toLocaleString()}</span>
+          <AlternatesNote alternates={result.alternates ?? undefined} statusFrom={result.status_from} />
         </span>
       );
     case "Unit price":
       if (result.bought_with) return <span className="text-muted-foreground" title="This part is on more than one line and is bought once">with another line</span>;
-      return buy ? <span title={`At ${buy.quantity.toLocaleString()} pieces`}>{formatPrice(buy.unit_price, buy.currency)}</span> : MUTED;
+      return buy ? <span><PriceAtQuantity price={formatPrice(buy.unit_price, buy.currency)} quantity={buy.quantity} /><TestDataChip show={buy.test_data} /></span> : MUTED;
     case "Extended":
       if (result.bought_with) return MUTED;
       return buy ? (
         <span
           className={buy.covers ? undefined : "text-warning"}
-          title={`Buy ${buy.quantity.toLocaleString()} from ${buy.connector_name} (${buy.sku})${buy.covers ? "" : ". No offer holds enough stock."}`}
+          title={`Buy ${buy.quantity.toLocaleString()} from ${buy.connector_name} (${buy.sku})${alternateBought(result)}${buy.covers ? "" : ". No offer holds enough stock."}`}
         >
           {formatPrice(buy.extended, buy.currency)}
         </span>
       ) : MUTED;
+    case "Distributor":
+      // Where the price and stock come from: the distributor whose offer the build buys.
+      if (result.bought_with) return MUTED;
+      return buy ? <span className="truncate">{buy.connector_name}<TestDataChip show={buy.test_data} /></span> : MUTED;
     case "Lead time":
-      return leadTime(result.lead_time_days) ? <span>{leadTime(result.lead_time_days)}</span> : MUTED;
+      return formatLeadTime(result.lead_time_days) ? <span>{formatLeadTime(result.lead_time_days)}</span> : MUTED;
     default:
       return null;
   }

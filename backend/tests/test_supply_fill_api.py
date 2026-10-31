@@ -43,6 +43,8 @@ class SupplyFillTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_fill.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -57,7 +59,7 @@ class SupplyFillTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("connectors", "audit_events"):
+            for table in ("supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(
             actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim",
@@ -69,7 +71,7 @@ class SupplyFillTests(unittest.TestCase):
 
     def spent(self) -> int:
         with self.store.connection() as conn:
-            row = conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM quota_ledger").fetchone()
+            row = conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM supply_quota_ledger").fetchone()
         return int(row["n"])
 
     def test_search_returns_the_matching_candidates_and_spends_the_interactive_reserve(self) -> None:
@@ -100,7 +102,7 @@ class SupplyFillTests(unittest.TestCase):
         self.assertEqual(self.spent(), 0)
         self.connectors.resume(self.cid, actor="admin@example.com")
         with self.store.connection() as conn:
-            conn.execute("UPDATE connectors SET daily_budget = 0")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 0")
         response = self.call("search", {"mpn": "LM358DR"})
         self.assertEqual(response.json["skipped"], [{"connector": "Sim", "reason": "daily lookup allowance used"}])
 

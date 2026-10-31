@@ -16,31 +16,33 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any, Sequence
 
+from app.services.supply import counted
+from app.services.supply.history import days_sql
+
 MIN_EVENTS = 5
 WINDOW_DAYS = 365
 STOCK_DAYS = 90
 ROUND_DAYS = 21
 ON_TIME_DAYS = 7
-_COUNTED = ("exact", "manual")
 
 
 def _median(values: Sequence[int]) -> int | None:
     return round(statistics.median(values)) if values else None
 
 
+# Listings of the parts two or more distributors list (exact or a person's match), as SQL both readers share.
+_SHARED_LISTINGS = """
+    SELECT l.part_id, l.id AS listing_id, l.connector_id FROM supply_listings l
+    WHERE l.match_state = ANY(%(counted)s) AND l.part_id IN (
+        SELECT part_id FROM supply_listings WHERE match_state = ANY(%(counted)s) GROUP BY part_id HAVING COUNT(DISTINCT connector_id) >= 2)
+"""
+
+
 def _shared(conn) -> dict[str, dict[str, str]]:
     """Parts two or more distributors list: part id to {listing id: connector id}."""
 
-    rows = conn.execute(
-        """
-        SELECT l.part_id, l.id AS listing_id, l.connector_id FROM listings l
-        WHERE l.match_state = ANY(%s) AND l.part_id IN (
-            SELECT part_id FROM listings WHERE match_state = ANY(%s) GROUP BY part_id HAVING COUNT(DISTINCT connector_id) >= 2)
-        """,
-        (list(_COUNTED), list(_COUNTED)),
-    ).fetchall()
     found: dict[str, dict[str, str]] = defaultdict(dict)
-    for row in rows:
+    for row in conn.execute(_SHARED_LISTINGS, {"counted": list(counted.STATES)}).fetchall():
         found[row["part_id"]][row["listing_id"]] = row["connector_id"]
     return found
 
@@ -73,35 +75,23 @@ def _rounds(restocks: dict[str, dict[str, list[date]]]) -> tuple[dict[str, int],
     return first, took_part
 
 
-def _stock_share(conn, shared: dict[str, dict[str, str]], today: date) -> dict[str, tuple[int, int]]:
-    """Per connector: days with stock and days observed, over the last ``STOCK_DAYS``, on the shared parts."""
+def _stock_share(conn, today: date) -> dict[str, tuple[int, int]]:
+    """Per connector: days with stock and days observed, over the last ``STOCK_DAYS``, on the shared parts.
 
-    listing_ids = [listing for listings in shared.values() for listing in listings]
-    owner = {listing: connector for listings in shared.values() for listing, connector in listings.items()}
-    if not listing_ids:
-        return {}
-    since = today - timedelta(days=STOCK_DAYS)
+    A day's figure is the listing's last reading that day (``days_sql``). Counted in the database: the days run to millions
+    on a large library, and the shared set is joined there rather than sent as a list of listings."""
+
     rows = conn.execute(
-        """
-        SELECT listing_id, day, stock FROM (
-            SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-                   s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock
-            FROM samples s WHERE s.listing_id = ANY(%(ids)s) AND s.sampled_at >= %(since)s AND NOT s.marketplace
-            ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        ) raw
-        UNION ALL
-        SELECT d.listing_id, d.day, d.last_stock FROM samples_daily d
-        WHERE d.listing_id = ANY(%(ids)s) AND d.day >= %(since_day)s AND NOT d.marketplace
-          AND NOT EXISTS (SELECT 1 FROM samples s WHERE s.listing_id = d.listing_id AND (s.sampled_at AT TIME ZONE 'UTC')::date = d.day)
+        f"""
+        SELECT l.connector_id, COUNT(*) AS seen, COUNT(*) FILTER (WHERE d.stock > 0) AS held
+        FROM {days_sql(f"SELECT shared.listing_id FROM ({_SHARED_LISTINGS}) shared", "%(since)s")} d
+        JOIN supply_listings l ON l.id = d.listing_id
+        WHERE NOT d.marketplace
+        GROUP BY l.connector_id
         """,
-        {"ids": listing_ids, "since": since, "since_day": since},
+        {"counted": list(counted.STATES), "since": today - timedelta(days=STOCK_DAYS)},
     ).fetchall()
-    counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    for row in rows:
-        entry = counts[owner[row["listing_id"]]]
-        entry[1] += 1
-        entry[0] += 1 if row["stock"] > 0 else 0
-    return {connector: (held, seen) for connector, (held, seen) in counts.items()}
+    return {row["connector_id"]: (int(row["held"]), int(row["seen"])) for row in rows}
 
 
 def build(conn, today: date) -> dict[str, Any]:
@@ -111,11 +101,11 @@ def build(conn, today: date) -> dict[str, Any]:
     owner = {listing: (part, connector) for part, listings in shared.items() for listing, connector in listings.items()}
     since = today - timedelta(days=WINDOW_DAYS)
     events = conn.execute(
-        "SELECT listing_id, day, kind, quoted_lead_days, expected, resolved_on FROM stock_events WHERE day >= %s AND listing_id = ANY(%s)",
+        "SELECT listing_id, day, kind, quoted_lead_days, expected, resolved_on FROM supply_stock_events WHERE day >= %s AND listing_id = ANY(%s)",
         (since, list(owner)),
     ).fetchall() if owner else []
     arrivals = conn.execute(
-        "SELECT listing_id, state, delay_days FROM arrival_promises WHERE state IN ('arrived', 'slipped') AND first_seen_at >= %s AND listing_id = ANY(%s)",
+        "SELECT listing_id, state, delay_days FROM supply_arrival_promises WHERE state IN ('arrived', 'slipped') AND first_seen_at >= %s AND listing_id = ANY(%s)",
         (since, list(owner)),
     ).fetchall() if owner else []
 
@@ -153,11 +143,11 @@ def build(conn, today: date) -> dict[str, Any]:
         elif arrival["delay_days"] is not None and arrival["delay_days"] > ON_TIME_DAYS:
             late[connector].append(int(arrival["delay_days"]))
     first, took_part = _rounds(restocks)
-    share = _stock_share(conn, shared, today)
+    share = _stock_share(conn, today)
 
     connectors = {connector for _part, connector in owner.values()}
     names = {row["id"]: (row["display_name"], row["provider"]) for row in conn.execute(
-        "SELECT id, display_name, provider FROM connectors WHERE id = ANY(%s)", (list(connectors),)).fetchall()} if connectors else {}
+        "SELECT id, display_name, provider FROM supply_connectors WHERE id = ANY(%s)", (list(connectors),)).fetchall()} if connectors else {}
     parts_of: dict[str, int] = defaultdict(int)
     for listings in shared.values():
         for connector in set(listings.values()):
@@ -188,8 +178,8 @@ def for_part(conn, part_id: str, today: date) -> list[dict[str, Any]]:
     """Each distributor's open promise on a part and how its earlier ones turned out."""
 
     listings = {row["id"]: row for row in conn.execute(
-        "SELECT l.id, l.connector_id, c.display_name, c.provider FROM listings l JOIN connectors c ON c.id = l.connector_id "
-        "WHERE l.part_id = %s AND l.match_state = ANY(%s)", (part_id, list(_COUNTED))).fetchall()}
+        "SELECT l.id, l.connector_id, c.display_name, c.provider FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
+        "WHERE l.part_id = %s AND l.match_state = ANY(%s)", (part_id, list(counted.STATES))).fetchall()}
     if not listings:
         return []
     ids = list(listings)
@@ -203,7 +193,7 @@ def for_part(conn, part_id: str, today: date) -> list[dict[str, Any]]:
         })
 
     for event in conn.execute(
-        "SELECT listing_id, day, quoted_lead_days, expected, resolved_on FROM stock_events WHERE listing_id = ANY(%s) AND kind = 'stock_out' ORDER BY day",
+        "SELECT listing_id, day, quoted_lead_days, expected, resolved_on FROM supply_stock_events WHERE listing_id = ANY(%s) AND kind = 'stock_out' ORDER BY day",
         (ids,),
     ).fetchall():
         item = entry(event["listing_id"])
@@ -215,7 +205,7 @@ def for_part(conn, part_id: str, today: date) -> list[dict[str, Any]]:
             item["resolved"] += 1
             item["kept"] += 1 if (event["resolved_on"] - event["expected"]).days <= ON_TIME_DAYS else 0
     for promise in conn.execute(
-        "SELECT listing_id, expected, quantity, state, delay_days FROM arrival_promises WHERE listing_id = ANY(%s)", (ids,)
+        "SELECT listing_id, expected, quantity, state, delay_days FROM supply_arrival_promises WHERE listing_id = ANY(%s)", (ids,)
     ).fetchall():
         item = entry(promise["listing_id"])
         if promise["state"] == "open":

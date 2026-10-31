@@ -1,12 +1,5 @@
+import { formatPrice, LIFECYCLE_LABEL } from "@/features/supply/supply-format";
 import type { PanelSupplySummary } from "@/panel/lib/panel-api";
-
-const LIFECYCLE: Record<PanelSupplySummary["lifecycle"], string> = {
-  active: "Active",
-  nrnd: "Not recommended for new designs",
-  last_time_buy: "Last time buy",
-  obsolete: "Obsolete",
-  unknown: "",
-};
 
 /** What a refresh did, in a sentence for the log. */
 export function refreshText(result: { read: number; connectors: number; problems: Array<{ reason: string }> }): string {
@@ -22,25 +15,19 @@ export function compactCount(value: number): string {
   return `${thousands >= 100 ? Math.round(thousands) : Math.round(thousands * 10) / 10}k`;
 }
 
+/** A unit price as the app writes it (`formatPrice`); empty without a price or a currency. */
 export function price(unit: string | null, currency: string): string {
-  if (unit === null || !currency) return "";
-  const value = Number(unit);
-  if (!Number.isFinite(value)) return "";
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: value < 1 ? 4 : 2 }).format(value);
-  } catch {
-    return `${unit} ${currency}`;
-  }
+  return unit === null || !currency ? "" : formatPrice(unit, currency);
 }
 
-/** "38.2k at 3 distributors, Active, from 0.30 EUR at 100". */
+/** "38.2k at 3 distributors, Active, from €0.30 × 100": a price with its quantity as the app writes one (`PriceAtQuantity`). */
 export function summaryText(summary: PanelSupplySummary): string {
   if (summary.stock === null) return "Not read from distributors yet";
   const parts = [
     `${compactCount(summary.stock)} at ${summary.distributors} ${summary.distributors === 1 ? "distributor" : "distributors"}`,
   ];
-  if (LIFECYCLE[summary.lifecycle]) parts.push(LIFECYCLE[summary.lifecycle]);
+  if (summary.lifecycle !== "unknown") parts.push(LIFECYCLE_LABEL[summary.lifecycle]);
   const from = price(summary.unit_price, summary.currency);
-  if (from) parts.push(`from ${from} at ${summary.price_quantity}`);
+  if (from) parts.push(`from ${from} × ${summary.price_quantity.toLocaleString()}`);
   return parts.join(", ");
 }

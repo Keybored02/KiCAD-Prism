@@ -32,6 +32,9 @@ class PackagingPickTests(unittest.TestCase):
         from app.services.postgres_database import database
         from app.services.supply import admission, packaging_picks, parts_view, stock, watches
         from app.services.supply.connectors import ConnectorService
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+        from app.services.supply.providers.fake import FakeProvider
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
 
@@ -43,7 +46,15 @@ class PackagingPickTests(unittest.TestCase):
         cls.store.initialize()
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
+        # A provider that pays a call for each listing, so a packaging pick saves calls (LCSC and JLCPCB are CSV-fed now).
+        cls.registry = registry
+        registry.register(ProviderSpec(
+            key="pick_demo", label="Pick demo", capabilities=frozenset({"search", "offers"}), max_batch=1,
+            stock_pooling="separate", credential_fields=(), factory=lambda config: FakeProvider(config), default_daily_budget=1000,
+        ), replace=True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_packaging.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -52,15 +63,16 @@ class PackagingPickTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.patcher.stop()
+        cls.registry.unregister("pick_demo")
         from support.postgres import APPLICATION_URL, drop_schema
 
         drop_schema(cls.store.schema, url=APPLICATION_URL)
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-        self.cid = self.connectors.create(actor=ACTOR, provider="lcsc", daily_budget=1000)["id"]
+        self.cid = self.connectors.create(actor=ACTOR, provider="pick_demo", daily_budget=1000)["id"]
 
     def part(self, mpn: str, packagings: tuple[str, ...], stock: int = 100) -> str:
         with self.store.connection() as conn:
@@ -68,13 +80,19 @@ class PackagingPickTests(unittest.TestCase):
             for index, packaging in enumerate(packagings):
                 lid = f"{mpn}-{index}"
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
                     "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact', %s)", (lid, self.cid, f"SKU-{lid}", watch.part_id, packaging))
                 conn.execute(
-                    "INSERT INTO offers (listing_id, fetched_at, stock, packaging, price_breaks, currency, moq) "
+                    "INSERT INTO supply_offers (listing_id, fetched_at, stock, packaging, price_breaks, currency, moq) "
                     "VALUES (%s, %s, %s, %s, %s::jsonb, 'USD', 1)", (lid, NOW, stock, packaging, BREAKS))
             self.admission.sync(conn)
         return watch.part_id
+
+    def waiting(self) -> list[dict]:
+        """The parts waiting for a pick whose pick would save calls."""
+
+        with self.store.connection() as conn:
+            return [item for item in self.picks.waiting(conn) if item["saves_calls_a_day"] > 0]
 
     def call(self, method, path, *, role="designer", body=None):
         return _request(self.app, method, "/api/supply/packaging" + path, user=self.users[role], body=body)
@@ -86,9 +104,9 @@ class PackagingPickTests(unittest.TestCase):
     def test_a_part_with_several_listings_waits_for_a_pick_and_says_what_it_would_save(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         self.part("ONE", ("cut_tape",))
-        listed = self.call("GET", "/waiting").json
-        self.assertEqual([item["part_id"] for item in listed["items"]], [a])
-        self.assertAlmostEqual(listed["items"][0]["saves_calls_a_day"], 1.0, places=2, msg="LCSC reads each listing: one fewer call a day")
+        listed = self.waiting()
+        self.assertEqual([item["part_id"] for item in listed], [a])
+        self.assertAlmostEqual(listed[0]["saves_calls_a_day"], 1.0, places=2, msg="the provider reads each listing: one fewer call a day")
 
     def test_review_lists_every_part_with_several_listings_picked_or_not(self) -> None:
         waiting = self.part("A", ("cut_tape", "tape_reel"))
@@ -133,8 +151,8 @@ class PackagingPickTests(unittest.TestCase):
     def test_a_listing_under_another_number_is_marked_and_unpinning_is_for_those_who_decide(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET raw_mpn = 'A' WHERE id = 'A-0'")
-            conn.execute("UPDATE listings SET raw_mpn = 'A-T' WHERE id = 'A-1'")
+            conn.execute("UPDATE supply_listings SET raw_mpn = 'A' WHERE id = 'A-0'")
+            conn.execute("UPDATE supply_listings SET raw_mpn = 'A-T' WHERE id = 'A-1'")
         options = self.call("GET", f"/{a}/{self.cid}").json
         self.assertEqual([item["other_number"] for item in options["listings"]], [False, True])
         self.assertFalse(options["can_unpin"])
@@ -151,10 +169,10 @@ class PackagingPickTests(unittest.TestCase):
             self.assertEqual(self.parts_view.summaries_for(conn, [a])[0]["stock"], 100)
             self.assertEqual(self.stock.part_stock(conn, a).total, 100)
             self.assertLessEqual(self.admission.status(conn)[0]["committed"], before)
-        self.assertEqual(self.call("GET", "/waiting").json["items"], [])
+        self.assertEqual(self.waiting(), [])
         self.assertEqual(self.call("GET", f"/{a}/{self.cid}").json["picked"], "A-1")
         self.assertEqual(self.call("DELETE", f"/{a}/{self.cid}").status, 204)
-        self.assertEqual(len(self.call("GET", "/waiting").json["items"]), 1)
+        self.assertEqual(len(self.waiting()), 1)
 
     def test_a_listing_found_after_the_pick_is_flagged_in_review(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
@@ -163,7 +181,7 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual(before["new_since_pick"], 0)
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
                 "VALUES ('A-2', %s, 'SKU-A-2', %s, 'x', 'Acme', 'exact', 'custom_reel')", (self.cid, a))
         (after,) = [item for item in self.call("GET", "/several").json["items"] if item["part_id"] == a]
         self.assertEqual(after["new_since_pick"], 1)
@@ -181,13 +199,13 @@ class PackagingPickTests(unittest.TestCase):
         self.assertEqual(done, {"picked": 1})
         self.assertEqual(self.picked(b), "B-1")
         with self.store.connection() as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'packaging.pick'").fetchone()["n"], 2)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_audit_events WHERE action = 'packaging.pick'").fetchone()["n"], 2)
 
     def test_a_pick_is_dropped_when_its_listing_stops_being_counted(self) -> None:
         a = self.part("A", ("cut_tape", "tape_reel"))
         self.call("PUT", f"/{a}/{self.cid}", body={"listing_id": "A-1"})
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET match_state = 'gone' WHERE id = 'A-1'")
+            conn.execute("UPDATE supply_listings SET match_state = 'gone' WHERE id = 'A-1'")
             self.admission.sync(conn)
         self.assertIsNone(self.picked(a))
 
@@ -196,7 +214,6 @@ class PackagingPickTests(unittest.TestCase):
         b = self.part("B", ("cut_tape", "tape_reel"))
         self.assertEqual(self.call("PUT", f"/{a}/{self.cid}", body={"listing_id": "B-0"}).status, 400)
         self.assertEqual(self.call("PUT", f"/{b}/{self.cid}", body={"listing_id": "B-0"}, role="viewer").status, 403)
-        self.assertEqual(self.call("GET", "/waiting", role="viewer").status, 403)
         self.assertEqual(self.call("PUT", f"/{b}/{self.cid}", body={"listing_id": "B-0"}, role="qa").status, 200)
         self.assertEqual(self.call("GET", "/nope/" + self.cid).status, 404)
 

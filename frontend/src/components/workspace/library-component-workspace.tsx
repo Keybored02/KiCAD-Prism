@@ -209,7 +209,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
         <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
         <MetricCard label="Required assets" value={`${requiredAttached}/${requiredAttached + component.missing_assets.length}`} detail={component.missing_assets.length ? `Missing ${component.missing_assets.join(", ")}` : "All required assets attached"} />
         <MetricCard label="Validation" value={VALIDATION_LABELS[component.validation.status]} detail={`${component.validation.error_count} errors · ${component.validation.warning_count} warnings`} />
-        <MetricCard label="Project usage" value={component.place_enabled ? "Placeable" : "Not placeable"} detail={`${AVAILABILITY_LABELS[component.availability_state]}${component.place_enabled ? "" : " · requires Released"}`} />
+        <MetricCard label="Project usage" value={component.place_enabled ? "Placeable" : "Not for new designs"} detail={`${AVAILABILITY_LABELS[component.availability_state]}${component.place_enabled ? "" : " · requires Released"}`} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -311,7 +311,7 @@ export function LibraryComponentWorkspace({
   const requestedRevisionId = searchParams.get("revision") || "";
   const compareRevisionId = searchParams.get("compare") || "";
   const returnView = searchParams.get("libraryView") || "catalog";
-  const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : returnView === "ending" ? "Ending Parts" : "Catalog";
+  const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : "Catalog";
   const [currentComponent, setCurrentComponent] = useState<CatalogComponent | null>(null);
   const [activeComponent, setActiveComponent] = useState<CatalogComponent | null>(null);
   // Every tab's evidence belongs to one component generation, so it is stored
@@ -720,7 +720,7 @@ export function LibraryComponentWorkspace({
         </div>
       </header>
 
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className={`min-h-0 flex-1${activeTab === "sourcing" ? " themed-scrollbar" : ""}`}>
         <main className="mx-auto w-full max-w-screen-2xl p-3">
           {activeTab === "overview" ? <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor} /> : null}
           {activeTab === "assets" ? (

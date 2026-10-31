@@ -8,11 +8,11 @@ category and never folded into "fine". Reads only, from the summaries, the facts
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import facts, fx, headline_price, part_insights, parts_view, price_quantity, trade
-from app.services.supply.assessment import settings_store
+from app.services.supply import clock, compliance, facts, fx, part_insights, parts_view, price_quantity, pricing, trade
+from app.services.supply import settings as supply_settings
 
 LIFECYCLES = ("active", "nrnd", "last_time_buy", "obsolete", "unknown")
 AVAILABILITY = ("two_plus", "one", "out", "not_read")
@@ -22,6 +22,9 @@ LEAD_BUCKETS = part_insights.LEAD_BUCKETS
 MOVERS = 50
 ORIGINS = 12
 CONTROLLED_LIMIT = 200
+# The bars of the Insights compliance charts.
+ROHS_BARS = ("compliant", "not_compliant", "disputed", "not_applicable", "unknown")
+REACH_BARS = ("compliant", "affected", "not_applicable", "unknown")
 
 
 def availability_of(item: Mapping[str, Any], held: Mapping[str, Any] | None) -> str:
@@ -62,7 +65,7 @@ def deadlines(conn, tracked: Sequence[str], today: date) -> list[dict[str, Any]]
     for row in conn.execute(
         """
         SELECT n.title, n.last_time_buy, n.last_time_ship, n.notice_url, pp.part_id, p.mpn, m.name AS manufacturer
-        FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id JOIN parts p ON p.id = pp.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_pcns n JOIN supply_pcn_parts pp ON pp.pcn_id = n.id JOIN supply_parts p ON p.id = pp.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE n.state = 'open' AND pp.part_id = ANY(%s) AND (n.last_time_buy IS NOT NULL OR n.last_time_ship IS NOT NULL)
         """,
         (list(tracked),),
@@ -73,7 +76,7 @@ def deadlines(conn, tracked: Sequence[str], today: date) -> list[dict[str, Any]]
     for row in conn.execute(
         """
         SELECT f.part_id, f.provider, f.value, p.mpn, m.name AS manufacturer
-        FROM part_facts f JOIN parts p ON p.id = f.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        FROM supply_part_facts f JOIN supply_parts p ON p.id = f.part_id JOIN supply_manufacturers m ON m.id = p.manufacturer_id
         WHERE f.name = 'last_buy_date' AND f.part_id = ANY(%s)
         """,
         (list(tracked),),
@@ -109,7 +112,7 @@ def _coverage_sets(conn, items: Sequence[Mapping[str, Any]]):
     ids = [item["id"] for item in items]
     offers = parts_view.offers_by_part(conn, ids)
     quantities = price_quantity.of_parts(conn, ids)
-    base = settings_store.load(conn).base_currency
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
     listed: dict[str, set[str]] = defaultdict(set)
     held: dict[str, set[str]] = defaultdict(set)
@@ -122,7 +125,7 @@ def _coverage_sets(conn, items: Sequence[Mapping[str, Any]]):
             names[offer["connector_id"]] = (offer["connector_name"], offer["provider"])
             entry = by_connector.setdefault(offer["connector_id"], {"stock": 0, "price": None})
             entry["stock"] += int(offer["stock"] or 0)
-            found = headline_price.quote(offer, quantities[part_id], base, rates)
+            found = pricing.quote(offer, quantities[part_id], base, rates)
             if found is not None and (entry["price"] is None or found.price < entry["price"]):
                 entry["price"] = found.price
         for connector_id, entry in by_connector.items():
@@ -144,14 +147,14 @@ def origin_labels(conn, tracked: Sequence[str]) -> dict[str, str]:
     """The country each tracked part is said to come from: the one country distributors give, ``Several`` when they differ, else ``Unknown``."""
 
     origins: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'origin_country' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+    for row in conn.execute("SELECT part_id, value FROM supply_part_facts WHERE name = 'origin_country' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
         origins[row["part_id"]].add(row["value"].strip())
     found = {part_id: {value for value in origins.get(part_id, set()) if value} for part_id in tracked}
     return {part_id: (sorted(values)[0] if len(values) == 1 else "Several" if values else "Unknown") for part_id, values in found.items()}
 
 
 # Filters that carry a value (``kind:value``), from the Insights charts that have one bar per country or distributor.
-VALUED = ("origin", "listed", "stocked", "cheapest", "repricing", "leader", "restock_first")
+VALUED = ("origin", "listed", "stocked", "cheapest", "repricing", "leader", "restock_first", "risk")
 
 
 def valued_members(conn, only: str, items: Sequence[Mapping[str, Any]]) -> set[str] | None:
@@ -160,6 +163,16 @@ def valued_members(conn, only: str, items: Sequence[Mapping[str, Any]]) -> set[s
     kind, _, value = only.partition(":")
     if kind not in VALUED or not value:
         return None
+    if kind == "risk":
+        # One cell of the risk grid, "nrnd.one": exactly the parts ``risk_grid`` counts there.
+        lifecycle, _, column = value.partition(".")
+        if lifecycle not in LIFECYCLES or column not in AVAILABILITY:
+            return None
+        kept = {row["part_id"]: row for row in part_insights.read_all(conn)}
+        return {
+            item["id"] for item in items
+            if (item["lifecycle"] if item["lifecycle"] in LIFECYCLES else "unknown") == lifecycle and availability_of(item, kept.get(item["id"])) == column
+        }
     ids = [item["id"] for item in items]
     if kind == "origin":
         return {part_id for part_id, label in origin_labels(conn, ids).items() if label == value}
@@ -191,42 +204,38 @@ def outlook_bands(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     from app.services.supply import outlook
 
     counts = Counter(row.get("outlook_band") or outlook.UNKNOWN for row in rows)
-    return {name: counts.get(name, 0) for name in (outlook.ENDED, outlook.UNDER_TWO, outlook.TWO_TO_FIVE, outlook.NO_SIGNS, outlook.UNKNOWN)}
+    return {name: counts.get(name, 0) for name in (outlook.ENDED, outlook.ENDING, outlook.WARNING_SIGNS, outlook.NO_SIGNS, outlook.UNKNOWN)}
 
 
 def compliance_verdicts(conn, tracked: Sequence[str]) -> tuple[dict[str, str], dict[str, str]]:
-    """RoHS and REACH verdict of each tracked part by what distributors state: any one saying no wins, then a yes, else unknown."""
+    """RoHS and REACH verdict of each tracked part. RoHS is ``compliance.rohs_verdicts``: the offers first, the stated status when
+    none says. REACH is by what distributors state: any one saying affected wins, then unaffected, else unknown."""
 
-    rohs: dict[str, set[str]] = defaultdict(set)
     reach: dict[str, set[str]] = defaultdict(set)
     if tracked:
         for row in conn.execute(
-            "SELECT part_id, name, value FROM part_facts WHERE name IN ('rohs_status', 'reach_status') AND part_id = ANY(%s)", (list(tracked),)
+            "SELECT part_id, value FROM supply_part_facts WHERE name = 'reach_status' AND part_id = ANY(%s)", (list(tracked),)
         ).fetchall():
-            (rohs if row["name"] == "rohs_status" else reach)[row["part_id"]].add(facts.rohs_class(row["value"]) if row["name"] == "rohs_status" else facts.reach_class(row["value"]))
+            reach[row["part_id"]].add(facts.reach_class(row["value"]))
 
-    def verdict(classes: set[str], bad: str, good: tuple[str, ...]) -> str:
-        if bad in classes:
-            return bad
-        for name in good:
-            if name in classes:
-                return "compliant" if name.startswith("compliant") or name == "unaffected" else name
-        return "unknown"
+    def verdict(classes: set[str]) -> str:
+        if "affected" in classes:
+            return "affected"
+        if "unaffected" in classes:
+            return "compliant"
+        return "not_applicable" if "not_applicable" in classes else "unknown"
 
-    return (
-        {part_id: verdict(rohs.get(part_id, set()), "not_compliant", ("compliant", "compliant_exemption", "not_applicable")) for part_id in tracked},
-        {part_id: verdict(reach.get(part_id, set()), "affected", ("unaffected", "not_applicable")) for part_id in tracked},
-    )
+    return compliance.rohs_verdicts(conn, tracked), {part_id: verdict(reach.get(part_id, set())) for part_id in tracked}
 
 
-def compliance(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
-    """RoHS and REACH counts by what distributors state (see ``compliance_verdicts``)."""
+def compliance_counts(conn, tracked: Sequence[str]) -> dict[str, dict[str, int]]:
+    """RoHS and REACH counts by verdict (see ``compliance_verdicts``)."""
 
     rohs, reach = compliance_verdicts(conn, tracked)
     rohs_counts, reach_counts = Counter(rohs.values()), Counter(reach.values())
     return {
-        "rohs": {name: rohs_counts.get(name, 0) for name in ("compliant", "not_compliant", "not_applicable", "unknown")},
-        "reach": {name: reach_counts.get(name, 0) for name in ("compliant", "affected", "not_applicable", "unknown")},
+        "rohs": {name: rohs_counts.get(name, 0) for name in ROHS_BARS},
+        "reach": {name: reach_counts.get(name, 0) for name in REACH_BARS},
     }
 
 
@@ -265,16 +274,16 @@ def control_states(conn, tracked: Sequence[str]) -> dict[str, str]:
     """Export control state of each tracked part (controlled, disputed, none, unknown)."""
 
     eccn: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, value FROM part_facts WHERE name = 'eccn' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+    for row in conn.execute("SELECT part_id, value FROM supply_part_facts WHERE name = 'eccn' AND part_id = ANY(%s)", (list(tracked),)).fetchall():
         eccn[row["part_id"]].add(row["value"].strip())
-    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
+    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM supply_part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
     return {part_id: _control(part_id, eccn, marks)[0] for part_id in tracked}
 
 
 # The Insights charts whose bars open the parts behind them: name, then how to tell which tracked parts belong.
 GROUPS = (
-    *(f"rohs_{name}" for name in ("compliant", "not_compliant", "not_applicable", "unknown")),
-    *(f"reach_{name}" for name in ("compliant", "affected", "not_applicable", "unknown")),
+    *(f"rohs_{name}" for name in ROHS_BARS),
+    *(f"reach_{name}" for name in REACH_BARS),
     *(f"control_{name}" for name in ("controlled", "disputed", "none", "unknown")),
 )
 
@@ -301,11 +310,11 @@ def trade_overview(conn, tracked: Sequence[str]) -> dict[str, Any]:
         return {"origins": [], "other_origins": 0, "control": {"controlled": 0, "none": 0, "disputed": 0, "unknown": 0}, "controlled": []}
     origins: dict[str, set[str]] = defaultdict(set)
     eccn: dict[str, set[str]] = defaultdict(set)
-    for row in conn.execute("SELECT part_id, name, value FROM part_facts WHERE name IN ('origin_country', 'eccn') AND part_id = ANY(%s)", (list(tracked),)).fetchall():
+    for row in conn.execute("SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('origin_country', 'eccn') AND part_id = ANY(%s)", (list(tracked),)).fetchall():
         (origins if row["name"] == "origin_country" else eccn)[row["part_id"]].add(row["value"].strip())
-    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
+    marks = {row["part_id"]: row for row in conn.execute("SELECT part_id, control, eccn FROM supply_part_trade_marks WHERE part_id = ANY(%s)", (list(tracked),)).fetchall()}
     names = {row["id"]: (row["mpn"], row["manufacturer"]) for row in conn.execute(
-        "SELECT p.id, p.mpn, m.name AS manufacturer FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id WHERE p.id = ANY(%s)", (list(tracked),)).fetchall()}
+        "SELECT p.id, p.mpn, m.name AS manufacturer FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id WHERE p.id = ANY(%s)", (list(tracked),)).fetchall()}
     country: Counter[str] = Counter()
     control: Counter[str] = Counter()
     controlled = []
@@ -327,4 +336,4 @@ def trade_overview(conn, tracked: Sequence[str]) -> dict[str, Any]:
 
 
 def today() -> date:
-    return datetime.now().date()
+    return clock.now().date()

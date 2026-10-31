@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Sequence, cast
 
-from app.services.supply import bom_comments, bom_lookup, cost_history, tracking, usage
-from app.services.supply.assessment import settings_store
+from app.services.supply import attention, bom_comments, clock, bom_lookup, cost_history, freshness, tracking, usage
+from app.services.supply import settings as supply_settings
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
@@ -49,24 +49,28 @@ def attrition_of(spares: str) -> float | None | str:
     return percent
 
 
+def bom_line(row: dict[str, Any]) -> bom_lookup.BomLine:
+    """A stored BOM row as a line to look up, with the component its symbol places."""
+
+    return bom_lookup.BomLine(
+        row["key"], row["manufacturer"], row["mpn"], row["quantity"], prism_id=row.get("prism_id") or "", lcsc=row["lcsc"],
+        value=row.get("value") or "", footprint=row.get("footprint") or "",
+    )
+
+
 def _parts(
     conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[str, int], attrition_percent: float | None = 0,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     """The BOM lines as the page and the MCP tool read them, the rollup for the build, and the cost curve."""
 
-    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
+    lines = [bom_line(row) for row in rows]
     # What is read does not depend on the build size: it is read once, and priced for the chosen size and for the curve.
-    loaded = bom_lookup.load(conn, lines)
+    loaded = bom_lookup.load(conn, lines, **bom_lookup.library_readers(conn))
     result = bom_lookup.price(conn, loaded, build_quantity, attrition_percent)
     sizes = sorted({*CURVE_SIZES, build_quantity})
     curve = bom_lookup.cost_curve(loaded, sizes, attrition_percent)
     part_ids = sorted({entry["part_id"] for entry in result["lines"].values() if entry.get("part_id")})
-    alerts = {
-        row["part_id"]: int(row["n"])
-        for row in conn.execute(
-            "SELECT part_id, COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s) GROUP BY part_id", (part_ids,)
-        ).fetchall()
-    } if part_ids else {}
+    alerts = attention.open_counts(conn, clock.now(), attention.PART, part_ids) if part_ids else {}
     converted = bool(result["rollup"]["converted"])
     parts = []
     for row in rows:
@@ -77,20 +81,33 @@ def _parts(
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "short": bool(entry.get("short")),
-            "unit_price": buy.get("unit_price"), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
+            # The unit price in its offer's currency, and in the total's currency (what the line cost is made of) when converted.
+            "unit_price": buy.get("unit_price"), "unit_currency": buy.get("currency"),
+            "unit_price_in_total": _unit_in_total(buy) if converted else buy.get("unit_price"), "buy_quantity": buy.get("quantity"), "test_data": bool(buy.get("test_data")), "notes": notes.get(row["key"], 0), "need": entry.get("need"),
             # The line's cost for the build, in the total's currency; none for a line bought with another line or not priced.
             "line_cost": None if entry.get("bought_with") or not buy else (buy.get("in_base") if converted else buy.get("extended")),
             "alerts": alerts.get(part_id, 0),
+            "prism_id": row.get("prism_id") or "", "in_library": entry.get("in_library"),
+            "alternates": entry.get("alternates") or [], "status_from": entry.get("status_from"),
+            "stores": entry.get("stores"),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
     return parts, result["rollup"], curve
+
+
+def _unit_in_total(buy: dict[str, Any]) -> str | None:
+    """A purchase's unit price in the total's currency: its converted cost over the pieces bought."""
+
+    if not buy.get("in_base") or not buy.get("quantity"):
+        return None
+    return format((Decimal(buy["in_base"]) / int(buy["quantity"])).quantize(Decimal("0.0001")).normalize(), "f")
 
 
 def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[dict[str, Any]]:
     """Each release's frozen snapshot, with the parts that were fine then and are not today."""
 
     rows = conn.execute(
-        "SELECT build_id, tag, created_at, health, status, assessment FROM release_snapshots WHERE project_id = %s "
+        "SELECT build_id, tag, created_at, health, status, assessment FROM supply_release_snapshots WHERE project_id = %s "
         "ORDER BY created_at DESC LIMIT %s",
         (project_id, MAX_RELEASES),
     ).fetchall()
@@ -124,22 +141,18 @@ def snapshot_costs(conn, now: datetime) -> int:
         for variant in project["variants"]:
             boards = int(project["build_quantity"])
             kept = conn.execute(
-                "SELECT build_quantity FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
+                "SELECT build_quantity FROM supply_bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
             ).fetchone()
             if kept and kept["build_quantity"] == boards:
                 continue
             if kept:
                 # The usual build changed since today's row was written: the row is for another size, so it is worked out again.
-                conn.execute("DELETE FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today))
-            rows = usage.project_rows(conn, project["project_id"], variant)
-            if not rows:
-                continue
-            lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-            rollup = bom_lookup.lookup(conn, lines, boards, usual_attrition(conn, project))["rollup"]
-            if rollup["cost_per_board"] is None or not rollup["currency"]:
+                conn.execute("DELETE FROM supply_bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today))
+            rollup = usual_rollup(conn, project, variant)
+            if rollup is None or rollup["cost_per_board"] is None or not rollup["currency"]:
                 continue
             conn.execute(
-                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT DO NOTHING",
                 (project["project_id"], variant, today, rollup["cost_per_board"], rollup["currency"], rollup["lines"], rollup["lines_priced"],
                  json.dumps({key: rollup.get(key) for key in KEPT_ROLLUP}), boards),
@@ -183,24 +196,139 @@ def usual_attrition(conn, tracked: dict[str, Any] | None) -> float | None:
     """The spares a project is costed with when nothing asks for others: its own when it is tracked and has them, else the workspace's."""
 
     chosen = attrition_of((tracked or {}).get("spares") or "")
-    return settings_store.load(conn).default_attrition() if chosen == DEFAULT else chosen
+    return supply_settings.load(conn).spares.default_attrition() if chosen == DEFAULT else chosen
+
+
+# A kept rollup older than this is worked out again even with no mark: "read is late" and other findings move with the clock.
+ROLLUP_MAX_AGE = timedelta(hours=1)
+
+
+def _kept_rollup(conn, project_id: str, variant: str) -> tuple[bool, dict[str, Any] | None]:
+    """(found, rollup) for a kept rollup no mark has made stale since it was worked out."""
+
+    kept = _kept_rollups(conn, [(project_id, variant)])
+    return ((project_id, variant) in kept, kept.get((project_id, variant)))
+
+
+def _kept_rollups(conn, wanted: Sequence[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any] | None]:
+    """The kept rollups no mark has made stale since they were worked out, by (project, variant); stale or missing ones are left out."""
+
+    rows = conn.execute(
+        """
+        SELECT r.project_id, r.variant, r.data FROM supply_project_rollups r
+        JOIN unnest(%s::text[], %s::text[]) AS w(project_id, variant) ON r.project_id = w.project_id AND r.variant = w.variant
+        WHERE r.computed_at > %s
+          AND NOT {stale}
+        """.replace("{stale}", freshness.stale_sql("rollup", "(ARRAY[r.project_id] || r.part_ids)", "r")),
+        ([project_id for project_id, _ in wanted], [variant for _, variant in wanted], clock.now() - ROLLUP_MAX_AGE),
+    ).fetchall()
+    return {(row["project_id"], row["variant"]): row["data"].get("rollup") for row in rows}
+
+
+def _keep_rollup(conn, project_id: str, variant: str, seen: str, rollup: dict[str, Any] | None, part_ids: list[str]) -> None:
+    # Keeping it is a favour to the next reader: never wait for a row another transaction holds.
+    if conn.execute(
+        "SELECT 1 FROM supply_project_rollups WHERE project_id = %s AND variant = %s FOR UPDATE SKIP LOCKED", (project_id, variant)
+    ).fetchone() is None and conn.execute(
+        "SELECT 1 FROM supply_project_rollups WHERE project_id = %s AND variant = %s", (project_id, variant)
+    ).fetchone():
+        return
+    conn.execute(
+        """
+        INSERT INTO supply_project_rollups (project_id, variant, data, part_ids, seen, snap, own, computed_at)
+        VALUES (%s, %s, %s::jsonb, %s, %s, pg_snapshot_xmin(%s::pg_snapshot)::text::bigint, {own}, %s)
+        ON CONFLICT (project_id, variant) DO UPDATE SET data = EXCLUDED.data, part_ids = EXCLUDED.part_ids, seen = EXCLUDED.seen,
+            snap = EXCLUDED.snap, own = EXCLUDED.own, computed_at = EXCLUDED.computed_at
+        """.replace("{own}", freshness.OWN_SQL),
+        (project_id, variant, json.dumps({"rollup": rollup}), sorted(set(part_ids)), seen, seen, clock.now()),
+    )
+
+
+def usual_rollup(conn, project: dict[str, Any], variant: str) -> dict[str, Any] | None:
+    """A tracked project's rollup at its usual build and spares, as its page shows it when nothing else is asked for. None without a BOM.
+
+    Kept per project and design: worked out again only after something it is made from changed (``schema.derived.SOURCES``, ``freshness``).
+    """
+
+    project_id = project["project_id"]
+    found, rollup = _kept_rollup(conn, project_id, variant)
+    if found:
+        return rollup
+    seen = freshness.seen(conn)[0]
+    rows = usage.project_rows(conn, project_id, variant)
+    part_ids: list[str] = []
+    if rows:
+        loaded = bom_lookup.load(conn, [bom_line(row) for row in rows], **bom_lookup.library_readers(conn))
+        # As it comes back from being kept (numbers as JSON gives them), so a kept and a fresh rollup read the same.
+        rollup = json.loads(json.dumps(bom_lookup.price(conn, loaded, int(project["build_quantity"]), usual_attrition(conn, project))["rollup"], default=str))
+        part_ids = [*loaded.per_board, *(other for others in loaded.alternates.values() for other in others)]
+    _keep_rollup(conn, project_id, variant, seen, rollup, part_ids)
+    return rollup
+
+
+def usual_rollups(conn, wanted: Sequence[tuple[dict[str, Any], str]]) -> dict[str, dict[str, Any] | None]:
+    """``usual_rollup`` for several tracked projects, by project id: the kept ones in one read, only stale ones worked out."""
+
+    kept = _kept_rollups(conn, [(project["project_id"], variant) for project, variant in wanted])
+    return {
+        project["project_id"]: kept[(project["project_id"], variant)] if (project["project_id"], variant) in kept else usual_rollup(conn, project, variant)
+        for project, variant in wanted
+    }
+
+
+def refresh_rollups(conn) -> int:
+    """Work out every tracked project's stale rollup now, so the next reader finds it kept. Returns how many were worked out."""
+
+    worked = 0
+    for project in tracking.list_tracked_projects(conn):
+        variant = (project["variants"] or [""])[0]
+        if not _kept_rollup(conn, project["project_id"], variant)[0]:
+            usual_rollup(conn, project, variant)
+            worked += 1
+    return worked
+
+
+def build_of(
+    conn, project_id: str, build_quantity: int | None, attrition_percent: float | None | str, fallback_build: int = 100,
+) -> tuple[dict[str, Any] | None, int, float | None]:
+    """The tracked project, and the build and spares a page prices for: as asked, else the project's usual ones, else
+    ``fallback_build`` boards with the workspace's spares. An empty ``project_id`` is no project."""
+
+    tracked = tracking.tracked_project(conn, project_id) if project_id else None
+    spares = usual_attrition(conn, tracked) if attrition_percent == DEFAULT else cast(float | None, attrition_percent)
+    if build_quantity is None:
+        build_quantity = (int(tracked["build_quantity"]) if tracked else None) or fallback_build
+    return tracked, build_quantity, spares
+
+
+def _notes_by_line(notes: list[dict[str, Any]]) -> dict[str, int]:
+    counted: dict[str, int] = {}
+    for note in notes:
+        counted[note["line_key"]] = counted.get(note["line_key"], 0) + 1
+    return counted
+
+
+def project_lines(
+    conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT,
+) -> list[dict[str, Any]]:
+    """The project's BOM lines priced for a build, as the overview's ``parts`` has them; empty when the BOM has not been read."""
+
+    _tracked, build_quantity, attrition_percent = build_of(conn, project_id, build_quantity, attrition_percent)
+    rows = usage.project_rows(conn, project_id, variant)
+    if not rows:
+        return []
+    return _parts(conn, rows, build_quantity, _notes_by_line(bom_comments.for_project(conn, project_id)), attrition_percent)[0]
 
 
 def overview(conn, project_id: str, variant: str = "", build_quantity: int | None = None, attrition_percent: float | None | str = DEFAULT) -> dict[str, Any]:
     """``build_quantity`` None is the tracked project's usual build, else 100; ``attrition_percent`` ``DEFAULT`` is the project's own
     spares when it is tracked and has them, else the workspace's."""
 
-    tracked = tracking.tracked_project(conn, project_id)
-    if attrition_percent == DEFAULT:
-        attrition_percent = usual_attrition(conn, tracked)
+    tracked, build_quantity, attrition_percent = build_of(conn, project_id, build_quantity, attrition_percent)
     usual = int(tracked["build_quantity"]) if tracked else None
-    if build_quantity is None:
-        build_quantity = usual or 100
     rows = usage.project_rows(conn, project_id, variant)
-    notes_by_line: dict[str, int] = {}
     notes = bom_comments.for_project(conn, project_id)
-    for note in notes:
-        notes_by_line[note["line_key"]] = notes_by_line.get(note["line_key"], 0) + 1
+    notes_by_line = _notes_by_line(notes)
     if not rows:
         return {"available": False, "variants": usage.project_variants(conn, project_id), "variant": variant, "releases": [], "notes": notes}
     parts, rollup, curve = _parts(conn, rows, build_quantity, notes_by_line, attrition_percent)
@@ -228,8 +356,8 @@ def _costed(conn, project_id: str, variant: str, build_quantity: int, attrition_
     rows = usage.project_rows(conn, project_id, variant)
     if not rows:
         return None
-    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-    return rows, bom_lookup.lookup(conn, lines, build_quantity, attrition_percent)
+    lines = [bom_line(row) for row in rows]
+    return rows, bom_lookup.lookup(conn, lines, build_quantity, attrition_percent, **bom_lookup.library_readers(conn))
 
 
 def _cost_line(row: dict[str, Any], entry: dict[str, Any]) -> list[Any]:

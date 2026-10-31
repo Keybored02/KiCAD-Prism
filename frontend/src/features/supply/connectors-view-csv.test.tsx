@@ -16,21 +16,21 @@ vi.mock("./supply-api", async (importOriginal) => ({
   uploadSupplyCsv: vi.fn(),
   clearSupplyCsv: vi.fn(),
   testSupplyConnector: vi.fn(),
-  listSupplyCapacity: vi.fn(),
 }));
 
 import { SupplyConnectorsView } from "./connectors-view";
 import * as api from "./supply-api";
+import { forgetServerState } from "@/lib/server-state";
 
 const mocked = vi.mocked(api);
 const admin: User = { name: "Ana", email: "ana@example.com", role: "admin" };
 
 const csvProvider = providerFixture({
-  key: "csv", label: "CSV import", credential_fields: [], metered: false, default_daily_budget: 0,
+  key: "csv", label: "CSV import", credential_fields: [], metered: false, default_daily_budget: 0, csv_fed: true,
 });
 const csvConnector = (overrides = {}) => connectorFixture({
   id: "f1", provider: "csv", provider_label: "CSV import", display_name: "Price list",
-  credentials: {}, metered: false, daily_budget: 0, ...overrides,
+  credentials: {}, metered: false, csv_fed: true, daily_budget: 0, ...overrides,
 });
 const uploaded = {
   filename: "stock.csv", imported_by: "ana@example.com", imported_at: "2026-03-02T09:00:00Z", row_count: 1240,
@@ -53,7 +53,6 @@ function pick(file: File) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.listSupplyCapacity.mockResolvedValue([]);
 });
 afterEach(cleanup);
 
@@ -78,7 +77,7 @@ describe("a CSV connector", () => {
 
   it("uploads the chosen file and shows the result", async () => {
     load();
-    mocked.uploadSupplyCsv.mockResolvedValue({ ...uploaded, ignored_columns: ["notes"] });
+    mocked.uploadSupplyCsv.mockImplementation(async () => { load([csvConnector({ csv_import: uploaded })]); return { ...uploaded, ignored_columns: ["notes"] }; });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     expect(screen.queryByRole("menuitem", { name: "Remove uploaded data" })).toBeNull();
@@ -142,7 +141,7 @@ describe("a CSV connector", () => {
 
   it("removes uploaded data after confirmation", async () => {
     load([csvConnector({ csv_import: uploaded })]);
-    mocked.clearSupplyCsv.mockResolvedValue(undefined);
+    mocked.clearSupplyCsv.mockImplementation(async () => { load(); });
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);
     await openMenu("Price list");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove uploaded data" }));
@@ -165,6 +164,7 @@ describe("a CSV connector", () => {
       expect.objectContaining({ provider: "csv", credentials: {}, daily_budget: 0 }),
     ));
     unmount();
+    forgetServerState([]);
 
     load();
     render(<MemoryRouter><SupplyConnectorsView user={admin} /></MemoryRouter>);

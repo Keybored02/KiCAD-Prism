@@ -141,40 +141,6 @@ class RequestShapeTests(unittest.TestCase):
             client.request_json("GET", "https://api.example.com/x")
 
 
-class CookieTests(unittest.TestCase):
-    class Jar(ScriptedTransport):
-        """Sets a cookie on the first answer and refuses any request that comes while it is held, as JLCPCB's check does."""
-
-        def __init__(self) -> None:
-            super().__init__()
-            self.cookie = False
-            self.cleared = 0
-
-        def clear_cookies(self) -> None:
-            self.cookie = False
-            self.cleared += 1
-
-        def send(self, *, method, target, headers, body, timeout, max_bytes):
-            refused = self.cookie
-            self.cookie = True
-            return _response(403, {"status": 403}, content_type="application/json") if refused else _response(200, {"ok": True})
-
-    def test_with_no_cookies_kept_every_request_goes_with_an_empty_jar(self) -> None:
-        transport = self.Jar()
-        client = SafeHttpClient(("api.example.com",), transport=transport, resolve=_resolver(), keep_cookies=False)
-        for _ in range(3):
-            self.assertEqual(client.request_json("GET", "https://api.example.com/x"), {"ok": True})
-        self.assertEqual(transport.cleared, 3)
-
-    def test_by_default_cookies_are_kept_and_the_second_request_is_refused(self) -> None:
-        transport = self.Jar()
-        client = SafeHttpClient(("api.example.com",), transport=transport, resolve=_resolver())
-        client.request_json("GET", "https://api.example.com/x")
-        with self.assertRaises(AuthError):
-            client.request_json("GET", "https://api.example.com/x")
-        self.assertEqual(transport.cleared, 0)
-
-
 class ErrorMappingTests(unittest.TestCase):
     def _error(self, response_or_error, **kwargs):
         client, _ = _client(response_or_error, **kwargs)
@@ -237,6 +203,28 @@ class EgressTests(unittest.TestCase):
         self._blocked("https://api.example.com/", resolve=_resolver("10.0.0.5"))
         self._blocked("https://api.example.com/", resolve=_resolver(PUBLIC, "169.254.169.254"))
 
+    def test_a_listed_private_host_may_resolve_to_a_private_network(self) -> None:
+        client, transport = _client(_response(200, {}), private_hosts=("api.example.com",), resolve=_resolver("10.20.30.40"))
+        client.request("GET", "https://api.example.com/api/")
+        self.assertEqual(transport.calls[0]["addresses"], ("10.20.30.40",))
+        self._blocked("https://api.example.com/", private_hosts=("other.example.com",), resolve=_resolver("10.20.30.40"))
+        for address in ("169.254.169.254", "0.0.0.0", "224.0.0.1", "fe80::1"):
+            self._blocked("https://api.example.com/", private_hosts=("api.example.com",), resolve=_resolver(address))
+
+    def test_only_a_listed_private_host_may_name_a_port(self) -> None:
+        client, transport = _client(_response(200, {}), private_hosts=("api.example.com",), resolve=_resolver("10.20.30.40"))
+        client.request("GET", "https://api.example.com:8443/api/")
+        self.assertEqual(transport.calls[0]["url"], "https://api.example.com:8443/api/")
+        self._blocked("https://api.example.com:8443/")
+        self._blocked("https://api.example.com:8443/", private_hosts=("other.example.com",))
+        self._blocked("http://api.example.com:8080/", private_hosts=("api.example.com",), resolve=_resolver("10.20.30.40"))
+
+    def test_the_private_host_setting_is_a_comma_list(self) -> None:
+        from app.core.supply_config import SupplySettings
+
+        listed = SupplySettings(SUPPLY_INVENTORY_PRIVATE_HOSTS_STR=" Inventory.Example.Internal. , ,stock.example.com")
+        self.assertEqual(listed.SUPPLY_INVENTORY_PRIVATE_HOSTS, ["inventory.example.internal", "stock.example.com"])
+
     def test_no_allowlist_means_any_public_host(self) -> None:
         client, transport = _client(_response(200, {}), allowed=None)
         client.request("GET", "https://anything.example.org/file.pdf")
@@ -286,6 +274,24 @@ class RedirectTests(unittest.TestCase):
         second = transport.calls[1]
         self.assertEqual(second["method"], "POST")
         self.assertEqual(json.loads(second["body"]), {"a": 1})
+
+    def test_a_body_never_follows_a_redirect_to_another_origin(self) -> None:
+        secret = "sentinel-" + "form-value"
+        for status in (307, 308):
+            for location in ("https://auth.api.example.com/collect", "http://api.example.com/token", "https://api.example.com:8443/token"):
+                client, transport = _client(_response(status, location=location), _response(200, {}), allowed=("api.example.com",))
+                with self.assertRaises(ProviderError):
+                    client.request("POST", "https://api.example.com/token", form={"client_secret": secret})
+                self.assertEqual(len(transport.calls), 1, (status, location))
+            client, transport = _client(_response(status, location="https://auth.api.example.com/x"), _response(200, {}))
+            with self.assertRaises(ProviderError):
+                client.request("POST", "https://api.example.com/token", json={"client_secret": secret})
+            self.assertEqual(len(transport.calls), 1, "JSON bodies too")
+
+    def test_a_get_still_follows_a_redirect_to_another_allowed_host(self) -> None:
+        client, transport = _client(_response(307, location="https://auth.api.example.com/x"), _response(200, {}))
+        client.request("GET", "https://api.example.com/x")
+        self.assertEqual(transport.calls[1]["url"], "https://auth.api.example.com/x")
 
     def test_leaving_the_host_drops_custom_headers(self) -> None:
         client, transport = _client(
@@ -355,6 +361,21 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(seen["headers"]["Host"], "api.example.com")
         self.assertFalse(seen["allow_redirects"])
         self.assertEqual(response.headers["content-type"], "application/json")
+
+    def test_a_private_host_s_port_goes_on_the_address_and_in_the_host_header(self) -> None:
+        from app.services.supply.egress import ValidatedTarget
+
+        seen = {}
+
+        def fake_request(session, method, url, **kwargs):
+            seen.update(url=url, **kwargs)
+            return _FakeResponse(200, {"Content-Type": "application/json"})
+
+        target = ValidatedTarget(url="https://stock.example.internal:8443/api/?limit=1", host="stock.example.internal", addresses=("10.1.2.3",), port=8443)
+        with mock.patch.object(requests.Session, "request", fake_request):
+            http_client.RequestsTransport().send(method="GET", target=target, headers={}, body=None, timeout=(1, 1), max_bytes=100)
+        self.assertEqual(seen["url"], "https://10.1.2.3:8443/api/?limit=1")
+        self.assertEqual(seen["headers"]["Host"], "stock.example.internal:8443")
 
     def test_ipv6_addresses_are_bracketed(self) -> None:
         seen = {}

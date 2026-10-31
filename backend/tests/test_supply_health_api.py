@@ -43,6 +43,8 @@ class SupplyHealthTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_health.router)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
@@ -56,24 +58,25 @@ class SupplyHealthTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("poll_state", "offers", "listings", "parts", "manufacturers", "connectors"):
+            for table in ("supply_poll_state", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider, display_name, daily_budget, last_error_code) VALUES ('c1', 'tme', 'TME', 1000, 'rate_limited')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider, display_name, last_error_code) VALUES ('c1', 'tme', 'TME', 'rate_limited')")
+            conn.execute("UPDATE supply_accounts SET daily_budget = 1000 WHERE id = 'c1'")
             part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com").id
             for index, (due, errors) in enumerate(((NOW - timedelta(hours=5), 2), (NOW + timedelta(hours=3), 0))):
                 conn.execute(
-                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                     "VALUES (%s, 'c1', %s, %s, 'x', 'Acme', 'exact')", (f"l{index}", f"S{index}", part))
                 conn.execute(
-                    "INSERT INTO poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak) VALUES (%s, 'daily', %s, %s, %s)",
+                    "INSERT INTO supply_poll_state (listing_id, tier, next_poll_at, last_polled_at, error_streak) VALUES (%s, 'daily', %s, %s, %s)",
                     (f"l{index}", due, NOW - timedelta(hours=30 - index), errors))
 
     def test_an_administrator_sees_what_polling_has_done_and_how_late_it_runs(self) -> None:
-        from app.services.supply import health
+        from app.services.supply import connector_health
 
         with self.store.connection() as conn:
-            (row,) = health.connector_health(conn, NOW)
+            (row,) = connector_health.connector_health(conn, NOW)
         self.assertEqual((row["name"], row["calls_today"], row["budget"], row["last_error_code"]), ("TME", 0, 1000, "rate_limited"))
         self.assertEqual((row["listings"], row["late"], row["failing"], row["late_by_hours"]), (2, 1, 1, 5.0))
         self.assertTrue(row["oldest_read"].startswith("2026-02-28T06:00"))
@@ -83,6 +86,7 @@ class SupplyHealthTests(unittest.TestCase):
             self.assertEqual(_request(self.app, "GET", "/api/supply/health", user=self.users[role]).status, 403, role)
         response = _request(self.app, "GET", "/api/supply/health", user=self.users["admin"])
         self.assertEqual((response.status, len(response.json["connectors"])), (200, 1))
+        self.assertIn("inventory", [task["name"] for task in response.json["tasks"]])
 
 
 if __name__ == "__main__":

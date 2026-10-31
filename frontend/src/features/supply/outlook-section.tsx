@@ -11,8 +11,8 @@ import { useHealth } from "./use-health";
 
 const TONE: Record<SupplyOutlook["band"], "outline" | "warning" | "destructive" | "success"> = {
   ended: "destructive",
-  under_2_years: "destructive",
-  "2_to_5_years": "warning",
+  ending: "destructive",
+  warning_signs: "warning",
   no_signs: "success",
   unknown: "outline",
 };
@@ -52,7 +52,7 @@ export function OutlookSection({ outlook, partId = null, role, below = null }: {
               ))}
             </ul>
           ) : null}
-          {data && scored && partId ? <HealthBody data={data} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
+          {data && scored && partId ? <HealthBody partId={partId} data={data} canPropose={canPropose} canApprove={canApprove} act={act} /> : null}
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         </HoverDetails>
       </div>

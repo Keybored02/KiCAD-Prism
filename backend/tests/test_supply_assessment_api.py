@@ -24,7 +24,7 @@ class AssessmentApiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from fastapi import FastAPI
 
-        from app.api import supply_assessment, supply_bom, supply_connectors, supply_parts
+        from app.api import supply_assessment, supply_bom, supply_connectors, supply_parts, supply_tracking
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
         from app.services.supply.connectors import ConnectorService
@@ -36,12 +36,16 @@ class AssessmentApiTests(unittest.TestCase):
             role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             for role in ("viewer", "qa", "designer", "admin")
         }
+        # QA's role through an agent: it may propose, never approve.
+        cls.users["qa_agent"] = AuthenticatedUser(email="qa@example.com", name="qa", role="qa", auth_type="mcp", scopes=["*"])
         cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_assess_test_{uuid.uuid4().hex[:8]}"})()
         cls.store.initialize()
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
-        for module in (supply_parts, supply_assessment, supply_bom):
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
+        for module in (supply_parts, supply_tracking, supply_assessment, supply_bom):
             cls.app.include_router(module.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -56,10 +60,10 @@ class AssessmentApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("waivers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_attention_decisions", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
-        self.part_id = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": "ABC123"}).json["part_id"]
+        self.part_id = self.call("POST", "/api/supply/tracking/parts", body={"manufacturer": "Acme", "mpn": "ABC123"}).json["watch"]["part_id"]
 
     def call(self, method: str, path: str, *, role: str = "admin", body=None, query: str = ""):
         return _request(self.app, method, path, user=self.users[role], body=body, query=query)
@@ -68,10 +72,10 @@ class AssessmentApiTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, self.cid, sku, self.part_id))
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)",
                 (listing_id, datetime.now(timezone.utc), stock, lifecycle))
 
     def assessment(self, quantity=None, role="qa") -> dict:
@@ -82,7 +86,7 @@ class AssessmentApiTests(unittest.TestCase):
 
     def audited(self) -> list[str]:
         with self.store.connection() as conn:
-            return [r["action"] for r in conn.execute("SELECT action FROM audit_events WHERE action LIKE 'waiver.%' ORDER BY id").fetchall()]
+            return [r["action"] for r in conn.execute("SELECT action FROM supply_audit_events WHERE action LIKE 'waiver.%' ORDER BY id").fetchall()]
 
     def test_a_part_that_has_not_been_read_is_unknown(self) -> None:
         result = self.assessment()
@@ -104,17 +108,17 @@ class AssessmentApiTests(unittest.TestCase):
         today = datetime.now(timezone.utc).date()
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'last_buy_date', %s, now())",
+                "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'mouser', 'last_buy_date', %s, now())",
                 (self.part_id, (today + timedelta(days=90)).isoformat()),
             )
         self.assertEqual(self.assessment()["status"], "error", "a date within 180 days")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'a')", (today - timedelta(days=2),))
-            conn.execute("INSERT INTO pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
+            conn.execute("INSERT INTO supply_pcns (id, title, kind, last_time_buy, state, created_by) VALUES ('n1', 'EOL', 'end_of_life', %s, 'open', 'a')", (today - timedelta(days=2),))
+            conn.execute("INSERT INTO supply_pcn_parts (pcn_id, part_id) VALUES ('n1', %s)", (self.part_id,))
         found = self.assessment()
         self.assertEqual(found["status"], "error", "an open notice's date has passed, the earliest counts, and a distributor still has stock")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET stock = 0")
+            conn.execute("UPDATE supply_offers SET stock = 0")
         found = self.assessment()
         self.assertEqual((found["status"], found["health"]), ("fatal", 0.0), "the date has passed and nobody has stock")
 
@@ -137,11 +141,17 @@ class AssessmentApiTests(unittest.TestCase):
         response = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Fine"})
         self.assertEqual(response.json["state"], "approved")
 
+    def test_an_approver_through_an_agent_only_proposes(self) -> None:
+        self.offer(lifecycle="nrnd")
+        response = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa_agent", body={"check": "nrnd", "reason": "Fine"})
+        self.assertEqual(response.json.get("state"), "proposed", response.json)
+        self.assertEqual(self.call("POST", f"/api/supply/waivers/{response.json['id']}/approve", role="qa_agent").status, 403)
+
     def test_a_waiver_stops_holding_when_the_condition_changes(self) -> None:
         self.offer(lifecycle="nrnd")
         waiver = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Fine"}).json
         with self.store.connection() as conn:
-            conn.execute("UPDATE waivers SET scope = 'something_else' WHERE id = %s", (waiver["id"],))
+            conn.execute("UPDATE supply_attention_decisions SET scope = 'something_else' WHERE id = %s", (waiver["id"],))
         (finding,) = self.assessment()["findings"]
         self.assertEqual((finding["waiver"]["holds"], finding["waiver"]["outdated"]), (False, True))
         again = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", role="qa", body={"check": "nrnd", "reason": "Still fine"})
@@ -151,12 +161,12 @@ class AssessmentApiTests(unittest.TestCase):
     def test_what_cannot_be_waived(self) -> None:
         self.offer()
         no_finding = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "x"})
-        self.assertEqual((no_finding.status, no_finding.json["detail"]["message"]), (400, "The part has no such finding to waive."))
+        self.assertEqual((no_finding.status, no_finding.json["detail"]), (400, "The part has no such finding to waive."))
         self.offer(lifecycle="nrnd", sku="B")
         self.assertEqual(self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "  "}).status, 400)
         self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "ok"})
         twice = self.call("POST", f"/api/supply/parts/{self.part_id}/waivers", body={"check": "nrnd", "reason": "ok"})
-        self.assertEqual(twice.json["detail"]["message"], "This finding already has a waiver.")
+        self.assertEqual(twice.json["detail"], "This finding already has a waiver.")
 
     def test_rejecting_and_revoking(self) -> None:
         self.offer(lifecycle="nrnd")

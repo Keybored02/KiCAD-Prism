@@ -1,7 +1,7 @@
 """Compliance and trade facts from DigiKey and Mouser, change notices and substances: reading, not storing.
 
 Shapes follow DigiKey's ProductSearch v4 and Product Change Notifications v3 Swagger files and Mouser's V1 answer
-recorded live (``ProductCompliance``) and its V2 description (``REACH-SVHC``).
+recorded live (``ProductCompliance``) and its V1 description (``REACH-SVHC``).
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from test_supply_distributors import FakeClient, mouser_provider  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "supply"
 PCN_PATH = "/ChangeNotifications/v3/Products/{}"
-V2 = "/api/v2/search/partnumberandmanufacturer"
 
 
 class WordingTests(unittest.TestCase):
@@ -143,19 +142,15 @@ class MouserFactsTests(unittest.TestCase):
         self.assertEqual(mouser._trade_facts([{"ComplianceName": "ZZHTS", "ComplianceValue": "8542"}]), (("trade_zzhts", "8542"),))
         self.assertEqual(len(unrecognised._seen), 1)
 
-    def test_substances_are_read_from_version_2_with_the_manufacturer_name(self) -> None:
-        answer = {"Errors": [], "SearchResults": {"Parts": [
-            {"MouserPartNumber": "595-LM358DR", "REACH-SVHC": ["Lead (CAS 7439-92-1)"], "TradeCompliance": []},
-        ]}}
-        client = FakeClient({V2: [answer]})
-        found = mouser_provider(client).substances("595-LM358DR", "Texas Instruments")
-        self.assertEqual(client.calls[0]["json"]["SearchByPartMfrNameRequest"]["manufacturerName"], "Texas Instruments")
-        self.assertEqual((found.entries, found.stated), (("Lead (CAS 7439-92-1)",), True))
+    def test_substances_come_with_the_version_1_offer(self) -> None:
+        part = {"MouserPartNumber": "595-LM358DR", "AvailabilityInStock": "10", "REACH-SVHC": ["Lead  (CAS 7439-92-1)", " "]}
+        self.assertEqual(mouser._offer("595-LM358DR", part, NOW).substances, ("Lead (CAS 7439-92-1)",))
+        self.assertEqual(mouser._offer("595-LM358DR", {**part, "REACH-SVHC": []}, NOW).substances, (), "none listed")
+        without = {key: value for key, value in part.items() if key != "REACH-SVHC"}
+        self.assertIsNone(mouser._offer("595-LM358DR", without, NOW).substances, "nothing stated")
 
-    def test_no_manufacturer_or_no_field_means_nothing_stated(self) -> None:
-        self.assertFalse(mouser_provider(FakeClient({})).substances("595-LM358DR", "").stated)
-        answer = {"Errors": [], "SearchResults": {"Parts": [{"MouserPartNumber": "595-LM358DR"}]}}
-        self.assertFalse(mouser_provider(FakeClient({V2: [answer]})).substances("595-LM358DR", "TI").stated)
+    def test_mouser_makes_no_substances_call(self) -> None:
+        self.assertFalse(hasattr(mouser.MouserProvider, "substances"))
 
 
 def _parts(recorded):

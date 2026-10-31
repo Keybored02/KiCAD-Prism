@@ -8,8 +8,9 @@ always add up (refusals are counted apart: they were already paid for when the c
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from app.services.supply import accounts, quota
 
@@ -46,8 +47,8 @@ def _purpose(purpose: str | None, interactive: bool) -> str:
 def _count(conn, connector_id: str, day, hour: int, kind: str, purpose: str, calls: int) -> None:
     conn.execute(
         """
-        INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (connector_id, day, hour, kind, purpose) DO UPDATE SET calls = call_counts.calls + EXCLUDED.calls
+        INSERT INTO supply_call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (connector_id, day, hour, kind, purpose) DO UPDATE SET calls = supply_call_counts.calls + EXCLUDED.calls
         """,
         (connector_id, day, hour, kind, purpose, calls),
     )
@@ -70,7 +71,7 @@ def get_state(
     reset_tz: str = quota.DEFAULT_RESET_TZ,
 ) -> quota.QuotaState:
     row = conn.execute(
-        "SELECT spent, interactive_spent, spare_spent FROM quota_ledger WHERE connector_id = %s AND day = %s",
+        "SELECT spent, interactive_spent, spare_spent FROM supply_quota_ledger WHERE account_id = %s AND day = %s",
         (connector_id, quota.provider_day(now, reset_time, reset_tz)),
     ).fetchone()
     return quota.QuotaState(
@@ -90,14 +91,14 @@ def expected_people_calls(conn, account: accounts.Account, now: datetime) -> int
     today = quota.provider_day(now, account.reset_time, account.reset_tz)
     since = today - timedelta(days=HISTORY_DAYS)
     days = conn.execute(
-        "SELECT COUNT(DISTINCT day) AS n FROM call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s",
+        "SELECT COUNT(DISTINCT day) AS n FROM supply_call_counts WHERE connector_id = ANY(%s) AND day >= %s AND day < %s",
         (list(account.members), since, today),
     ).fetchone()["n"]
     if not days:
         return None
     rows = conn.execute(
         """
-        SELECT SUM(calls) AS n FROM call_counts
+        SELECT SUM(calls) AS n FROM supply_call_counts
         WHERE connector_id = ANY(%s) AND day >= %s AND day < %s AND hour >= %s AND purpose = ANY(%s) AND kind <> 'refused'
         GROUP BY day
         """,
@@ -113,8 +114,8 @@ def store_scheduled(conn, ledger_id: str, now: datetime, rest: int, *, reset_tim
     day = quota.provider_day(now, reset_time, reset_tz)
     conn.execute(
         """
-        INSERT INTO quota_ledger (connector_id, day, scheduled_rest, scheduled_at) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (connector_id, day) DO UPDATE SET scheduled_rest = EXCLUDED.scheduled_rest, scheduled_at = EXCLUDED.scheduled_at
+        INSERT INTO supply_quota_ledger (account_id, day, scheduled_rest, scheduled_at) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (account_id, day) DO UPDATE SET scheduled_rest = EXCLUDED.scheduled_rest, scheduled_at = EXCLUDED.scheduled_at
         """,
         (ledger_id, day, rest, now),
     )
@@ -170,12 +171,12 @@ def try_spend(
         raise ValueError("units must be at least 1")
     day = quota.provider_day(now, reset_time, reset_tz)
     conn.execute(
-        "INSERT INTO quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+        "INSERT INTO supply_quota_ledger (account_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING",
         (connector_id, day),
     )
     row = conn.execute(
-        "SELECT spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger "
-        "WHERE connector_id = %s AND day = %s FOR UPDATE",
+        "SELECT spent, interactive_spent, spare_spent, scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger "
+        "WHERE account_id = %s AND day = %s FOR UPDATE",
         (connector_id, day),
     ).fetchone()
     state = quota.QuotaState(
@@ -196,9 +197,9 @@ def try_spend(
         return False
     hour = quota.day_hour(now, reset_time, reset_tz)
     conn.execute(
-        "UPDATE quota_ledger SET spent = spent + %s, interactive_spent = interactive_spent + %s, spare_spent = spare_spent + %s, "
+        "UPDATE supply_quota_ledger SET spent = spent + %s, interactive_spent = interactive_spent + %s, spare_spent = spare_spent + %s, "
         "spare_hour_spent = CASE WHEN NOT %s THEN spare_hour_spent WHEN spare_hour = %s THEN spare_hour_spent + %s ELSE %s END, "
-        "spare_hour = CASE WHEN %s THEN %s ELSE spare_hour END WHERE connector_id = %s AND day = %s",
+        "spare_hour = CASE WHEN %s THEN %s ELSE spare_hour END WHERE account_id = %s AND day = %s",
         (units, units if interactive else 0, units if spare else 0, spare, hour, units, units, spare, hour, connector_id, day),
     )
     purpose = PURPOSE_SPARE if spare and purpose is None else purpose
@@ -223,9 +224,9 @@ def record_calls(
         day = quota.provider_day(now, account.reset_time, account.reset_tz)
         conn.execute(
             """
-            INSERT INTO quota_ledger (connector_id, day, spent, interactive_spent) VALUES (%s, %s, %s, %s)
-            ON CONFLICT (connector_id, day) DO UPDATE SET spent = quota_ledger.spent + EXCLUDED.spent,
-                interactive_spent = quota_ledger.interactive_spent + EXCLUDED.interactive_spent
+            INSERT INTO supply_quota_ledger (account_id, day, spent, interactive_spent) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (account_id, day) DO UPDATE SET spent = supply_quota_ledger.spent + EXCLUDED.spent,
+                interactive_spent = supply_quota_ledger.interactive_spent + EXCLUDED.interactive_spent
             """,
             (account.ledger_id, day, units, units if interactive else 0),
         )
@@ -258,3 +259,43 @@ def spend_call(
             kind=kind, purpose=purpose, counted_for=connector["id"], spare=spare, keep_pool_pct=keep_pool_pct,
             delay_seconds=quota.start_delay_seconds(account.ledger_id, quota.provider_day(now, account.reset_time, account.reset_tz)),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Source:
+    """One place a call can be paid from: the background allowance (committed work), the pool (``interactive``), or free
+    calls (``spare``). ``purpose`` is what the call is counted as."""
+
+    purpose: str
+    interactive: bool = False
+    spare: bool = False
+    keep_pool_pct: int = 0
+
+
+def committed(tier: int | None = None) -> Source:
+    return Source(f"tier{tier}" if tier else PURPOSE_COMMITTED)
+
+
+PEOPLE = Source(PURPOSE_INTERACTIVE, interactive=True)
+SPARE = Source(PURPOSE_SPARE, spare=True)
+# Something asked for once: from the pool while half of it is left for people, then from free calls.
+ONE_OFF = (Source(PURPOSE_ONE_OFF, interactive=True, keep_pool_pct=POOL_KEPT_FOR_PEOPLE_PCT), Source(PURPOSE_ONE_OFF, spare=True))
+
+
+def first_search(tier: int, *, reads_due: bool) -> tuple[Source, ...]:
+    """A part's first search is scheduled work: from the background allowance while no committed read is due, else from the
+    pool (half of it kept for people), then from free calls."""
+
+    return (*(() if reads_due else (committed(tier),)), ONE_OFF[0], SPARE)
+
+
+def fund(store, connector: Mapping, sources: Sequence[Source], *, now: datetime, kind: str = KIND_OFFERS, units: int = 1) -> Source | None:
+    """Pay for ``units`` calls from the first of ``sources`` that allows them. Returns that source, or None when none could."""
+
+    for source in sources:
+        if spend_call(
+            store, connector, now=now, interactive=source.interactive, units=units, kind=kind, purpose=source.purpose,
+            spare=source.spare, keep_pool_pct=source.keep_pool_pct,
+        ):
+            return source
+    return None

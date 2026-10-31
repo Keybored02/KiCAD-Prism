@@ -12,11 +12,12 @@ that is recorded as the reason, not retried.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from app.services.job_kinds import JobKind
-from app.services.supply import catalog_read, release_bom, release_check, release_source
+from app.services.supply import catalog_read, clock, release_bom, release_check, release_source
+from app.services.supply.progress import job_progress
 from app.services.supply.store import supply_store
 
 JOB_KIND = "supply_release_snapshot"
@@ -32,23 +33,28 @@ def artifact_key(build_id: str) -> str:
 def _state(conn, project_id: str, build_id: str, state: str, reason: str = "", *, attempt: bool = False) -> None:
     conn.execute(
         """
-        INSERT INTO release_snapshot_jobs (build_id, project_id, state, reason, attempts) VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (build_id) DO UPDATE SET state = EXCLUDED.state, reason = EXCLUDED.reason, updated_at = NOW(),
-            attempts = release_snapshot_jobs.attempts + %s
+        INSERT INTO supply_release_snapshot_jobs (build_id, project_id, state, reason, attempts, updated_at) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (build_id) DO UPDATE SET state = EXCLUDED.state, reason = EXCLUDED.reason, updated_at = EXCLUDED.updated_at,
+            attempts = supply_release_snapshot_jobs.attempts + %s
         """,
-        (build_id, project_id, state, reason[:300], 1 if attempt else 0, 1 if attempt else 0),
+        (build_id, project_id, state, reason[:300], 1 if attempt else 0, clock.now(), 1 if attempt else 0),
     )
 
 
 def status_of(conn, project_id: str, build_id: str) -> dict[str, Any]:
-    """Whether a release has its snapshot: ``taken``, ``queued``, or ``failed`` with the reason. ``none`` when nothing was asked."""
+    """Whether a release has its snapshot, as a job's progress: ``done`` once taken, ``running`` while queued, ``failed``
+    with the reason, ``none`` when nothing was asked."""
 
-    if conn.execute("SELECT 1 FROM release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)).fetchone():
-        return {"state": "taken", "reason": ""}
-    row = conn.execute("SELECT state, reason FROM release_snapshot_jobs WHERE build_id = %s AND project_id = %s", (build_id, project_id)).fetchone()
+    if conn.execute("SELECT 1 FROM supply_release_snapshots WHERE project_id = %s AND build_id = %s", (project_id, build_id)).fetchone():
+        return job_progress("done", done=1, total=1)
+    row = conn.execute("SELECT state, reason FROM supply_release_snapshot_jobs WHERE build_id = %s AND project_id = %s", (build_id, project_id)).fetchone()
     if row is None:
-        return {"state": "none", "reason": ""}
-    return {"state": "taken" if row["state"] == "done" else row["state"], "reason": row["reason"]}
+        return job_progress("none")
+    if row["state"] == "failed":
+        return job_progress("failed", total=1, failed=1, reason=row["reason"])
+    if row["state"] == "done":
+        return job_progress("done", done=1, total=1)
+    return job_progress("running", total=1)
 
 
 def queue(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str, *, job_service: Any | None = None) -> bool:
@@ -82,7 +88,7 @@ def queue(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str,
 def take(project_id: str, build_id: str, tag: str, commit_sha: str, actor: str, *, now: datetime | None = None) -> str:
     """Take the snapshot now. Returns ``taken``, or ``failed`` for a reason that retrying will not change."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     try:
         text = release_source.build_bom_text(build_id)
     except release_source.NoBuildBom as exc:

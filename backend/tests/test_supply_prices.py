@@ -32,13 +32,6 @@ class PriceTrendTests(unittest.TestCase):
     def test_a_fall_is_reported_as_a_negative_change(self) -> None:
         self.assertEqual(prices.trend(points("2.00", "1.00", every=10), TODAY)["change_percent"], -50.0)
 
-    def test_the_series_keeps_the_cheapest_per_day_in_the_main_currency(self) -> None:
-        day = TODAY
-        mixed = [(day, Decimal("1.20"), "EUR"), (day, Decimal("1.10"), "EUR"), (day, Decimal("9"), "USD"),
-                 (day - timedelta(days=1), Decimal("1.00"), "EUR")]
-        self.assertEqual(prices.series(mixed), [(day - timedelta(days=1), Decimal("1.00"), "EUR"), (day, Decimal("1.10"), "EUR")])
-        self.assertEqual(prices.series([]), [])
-
     def test_the_view_has_the_daily_series_and_the_move_over_the_last_thirty_days_only(self) -> None:
         old = (TODAY - timedelta(days=60), Decimal("0.50"), "EUR")
         recent = points("1.00", "1.30", every=10)

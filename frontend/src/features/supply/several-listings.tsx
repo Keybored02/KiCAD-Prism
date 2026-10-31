@@ -19,7 +19,7 @@ function who(item: PackagingSeveral): string {
 /** Every tracked part that a distributor lists in more than one packaging, with the listing followed there. A place to check and change the picks. */
 export function SeveralListings({ canDecide, user = null }: { canDecide: boolean; user?: User | null }) {
   const fetcher = useCallback((signal: AbortSignal) => listPackagingSeveral(signal), []);
-  const { data, retry } = useLoaded("packaging-several", fetcher, "Could not load the listings");
+  const { data, retry } = useLoaded("packaging/several", fetcher, "Could not load the listings");
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [choosing, setChoosing] = useState<PackagingSeveral | null>(null);
   const [openPart, setOpenPart] = useState<string | null>(null);

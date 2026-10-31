@@ -6,21 +6,22 @@ no marketplace stock, pooling per provider). A part with a watch is "watched".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Mapping, Sequence
 
-from app.services.supply import budget, facts, fx, headline_price, insights, outlook, params, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, forecasting, trade_marks, prices, pricing, promises, scorecard, stock, usage
-from app.services.supply.assessment import settings_store
-from app.services.supply.part_status import (
-    PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
-)
+from app.services.supply import attention, budget, clock, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_history, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
+from app.services.supply.history import days_sql
+from app.services.supply import settings as supply_settings
+from app.services.supply.forecast import store
+from app.services.supply.providers import registry
 from app.services.supply.tiers import SCHEDULES
-from app.services.supply.offer_lines import offer_lines
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.offer_lines import in_base, offer_lines
+from app.services.supply.vocabulary import ENDING_LIFECYCLES, STATUS_ORDER, Lifecycle, worst_lifecycle
 
 # watched: tracked at tier 1 or 2; tier1 and tier2 narrow that; waiting: waits for room at a distributor; pick: has several
 # listings at a distributor and no packaging picked.
@@ -29,31 +30,36 @@ Filter = Literal[
     "", "at_risk", "out_of_stock", "lifecycle", "runs_out_2w", "runs_out_8w", "runs_out_later", "steady", "few_readings", "draining",
     "restock_late", "often_out", "one_distributor", "lead_up", "unusual_drop", "price_moving", "likely_out_4w", "likely_out_8w",
     "lifecycle_active", "lifecycle_nrnd", "lifecycle_last_time_buy", "lifecycle_obsolete", "lifecycle_unknown",
-    "outlook_ended", "outlook_under_2_years", "outlook_2_to_5_years", "outlook_no_signs", "outlook_unknown",
+    "outlook_ended", "outlook_ending", "outlook_warning_signs", "outlook_no_signs", "outlook_unknown",
     "lead_under_2w", "lead_2_to_8w", "lead_8_to_16w", "lead_16_to_26w", "lead_over_26w", "lead_none",
-    "rohs_compliant", "rohs_not_compliant", "rohs_not_applicable", "rohs_unknown",
+    "rohs_compliant", "rohs_not_compliant", "rohs_disputed", "rohs_not_applicable", "rohs_unknown",
     "reach_compliant", "reach_affected", "reach_not_applicable", "reach_unknown",
     "control_controlled", "control_disputed", "control_none", "control_unknown",
 ]
 # "At risk" is error or fatal everywhere (the Dashboard, this filter, the Projects view, a project's page); a warning only needs a look.
 _AT_RISK = ("fatal", "error")
-_LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
-# The groups the Overview counts, so a count and the list it links to agree.
-FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
-    "at_risk": lambda item: item["status"] in _AT_RISK,
-    "out_of_stock": lambda item: item["stock"] == 0,
-    "lifecycle": lambda item: item["lifecycle"] in _LIFECYCLE_RISK,
-    **{f"lifecycle_{state.value}": (lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
+
+
+def _sql_in(values) -> str:
+    return "(" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+# The groups the Overview counts, so a count and the list it links to agree: each as a test of a kept summary (``s``) and the same
+# test of a summary row.
+_GROUPS: dict[str, tuple[str, Callable[[dict[str, Any]], bool]]] = {
+    "at_risk": (f"s.status IN {_sql_in(_AT_RISK)}", lambda item: item["status"] in _AT_RISK),
+    "out_of_stock": ("s.stock = 0", lambda item: item["stock"] == 0),
+    "lifecycle": (f"s.lifecycle IN {_sql_in(ENDING_LIFECYCLES)}", lambda item: item["lifecycle"] in ENDING_LIFECYCLES),
+    **{f"lifecycle_{state.value}": (f"s.lifecycle = '{state.value}'", lambda item, value=state.value: item["lifecycle"] == value) for state in Lifecycle},
 }
+FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {name: test for name, (_sql, test) in _GROUPS.items()}
 MAX_LIMIT = 200
-# Parts are ordered by how much they need a look, which needs every candidate's
-# status, so the list reads this many at most before it cuts to the page.
-MAX_CANDIDATES = 5000
 HISTORY_DAYS = 90
-_COUNTED = ("exact", "manual")
 # Most often first: the schedule a part is read on.
 _TIER_ORDER = list(SCHEDULES)
 _STATUS_RANK = {status.value: rank for rank, status in enumerate(STATUS_ORDER)}
+# Of a kept summary, what needs a look first.
+_RANK_SQL = "CASE s.status " + " ".join(f"WHEN '{status}' THEN {rank}" for status, rank in _STATUS_RANK.items()) + f" ELSE {len(_STATUS_RANK)} END"
 
 
 def _like(text: str) -> str:
@@ -74,8 +80,24 @@ def _tracking_dto(row) -> dict[str, Any] | None:
 def _watch_dto(row) -> dict[str, Any] | None:
     if row["watch_id"] is None:
         return None
-    return {"id": row["watch_id"], "threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"],
+    return {"threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"],
             "packaging": row["watch_packaging"] or "any"}
+
+
+# Why a part has no counted stock at all, when it should have; None when it is merely not read yet.
+PROBLEM_NOT_FOUND = "not_found"  # distributors were asked and none carries it
+PROBLEM_GONE = "gone"  # it had listings and every one has disappeared
+PROBLEM_LABEL = {PROBLEM_NOT_FOUND: "No distributor carries this part number", PROBLEM_GONE: "Every listing for this part has disappeared"}
+
+
+def problem_of(*, counted: bool, gone: bool, listed: bool, searched: bool) -> str | None:
+    """Why a part with nothing counted is in trouble, or None if it is merely not read yet (or candidates wait in Review)."""
+
+    if counted:
+        return None
+    if gone:
+        return PROBLEM_GONE
+    return PROBLEM_NOT_FOUND if searched and not listed else None
 
 
 def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
@@ -91,36 +113,32 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
                    bool_or(match_state = ANY(%s)) AS counted,
                    bool_or(match_state = 'gone') AS gone,
                    bool_or(match_state <> 'rejected') AS listed
-            FROM listings WHERE part_id = ANY(%s) GROUP BY part_id
+            FROM supply_listings WHERE part_id = ANY(%s) GROUP BY part_id
             """,
-            (list(_COUNTED), part_ids),
+            (list(counted.STATES), part_ids),
         ).fetchall()
     }
     searched = {
         row["part_id"]
-        for row in conn.execute("SELECT DISTINCT part_id FROM discovery_runs WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+        for row in conn.execute("SELECT DISTINCT part_id FROM supply_discovery_runs WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
     }
     result: dict[str, str | None] = {}
     for part_id in part_ids:
         fact = facts.get(part_id)
-        result[part_id] = part_problem(
-            has_counted=bool(fact and fact["counted"]),
-            has_gone=bool(fact and fact["gone"]),
-            has_listings=bool(fact and fact["listed"]),
-            was_searched=part_id in searched,
+        result[part_id] = problem_of(
+            counted=bool(fact and fact["counted"]), gone=bool(fact and fact["gone"]), listed=bool(fact and fact["listed"]), searched=part_id in searched,
         )
     return result
 
 
-_USES = "FROM " + usage.ALL_USES + " u JOIN bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
-_IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
+# A part some visible project's BOM uses: one set over every part, not a scan of the BOM lines for each (role twice as parameters).
+_IN_USE = "p.id IN (SELECT pp.part_id FROM (" + usage.part_projects_sql(False) + ") pp)"
 
 _ROW_SELECT = (
     "SELECT p.id, p.mpn, m.name AS manufacturer, m.provisional AS maker_provisional, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
-    "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons, "
-    "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
-    "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
-    "LEFT JOIN part_tiers pt ON pt.part_id = p.id "
+    "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons "
+    "FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
+    "LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id "
 )
 
 
@@ -135,18 +153,17 @@ def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) ->
         return offers
     for row in conn.execute(
         """
-        SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
+        SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name, {pool} AS pool,
                o.stock, o.marketplace, o.packaging, o.reel_size, o.packaging_inferred, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
-               o.order_multiple, o.lead_time_days, o.product_url, ps.tier,
-               EXISTS (SELECT 1 FROM packaging_picks fp WHERE fp.listing_id = l.id) AS followed
-        FROM listings l
-        JOIN offers o ON o.listing_id = l.id
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
-        WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
-          AND (%s OR {counted})
-        """.replace("{counted}", stock.counted_listing_sql()),
-        (part_ids, list(_COUNTED), every_listing),
+               o.order_multiple, o.lead_time_days, o.product_url, o.price_up_to, ps.tier,
+               EXISTS (SELECT 1 FROM supply_packaging_picks fp WHERE fp.listing_id = l.id) AS followed
+        FROM supply_listings l
+        JOIN supply_offers o ON o.listing_id = l.id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
+        WHERE l.part_id = ANY(%s) AND {state} AND c.enabled AND (%s OR {read})
+        """.replace("{state}", counted.state_sql()).replace("{read}", counted.read_sql()).replace("{pool}", stock.pool_sql()),
+        (part_ids, every_listing),
     ).fetchall():
         offers[row["part_id"]].append(dict(row))
     if not every_listing:
@@ -168,8 +185,8 @@ def _one_offer_per_pick(offers: dict[str, list[dict]]) -> None:
             if followed is None or len(held) == 1:
                 kept.extend(held)
                 continue
-            counted = [row for row in held if not row["marketplace"]]
-            kept.append({**followed, "stock": stock.connector_stock(followed["provider"], counted) if counted and not followed["marketplace"] else followed["stock"]})
+            sold = [row for row in held if not row["marketplace"]]
+            kept.append({**followed, "stock": stock.connector_stock(followed["provider"], sold) if sold and not followed["marketplace"] else followed["stock"]})
         offers[part_id] = kept
 
 
@@ -187,78 +204,190 @@ def _offer_summary(offers_here: list[dict], policy: str, problem: str | None, pr
         # Every distributor that lists it has stopped selling it.
         "dropped": bool(offers_here) and all(o["discontinued"] for o in offers_here),
         **price,
-        "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
+        # As old as the oldest read the total rests on: a fresh zero from one distributor doesn't make another's old stock current.
+        "fetched_at": combined.as_of.isoformat() if combined and combined.as_of else None,
+        "dated_by": "oldest",
         "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
     }
 
 
-def _computed(conn, rows, offers: dict[str, list[dict]]) -> dict[str, dict[str, Any]]:
-    problems = _problems(conn, [r["id"] for r in rows])
-    base = settings_store.load(conn).base_currency
+def _money(conn) -> tuple[str, fx.Rates, str]:
+    """The workspace currency, the exchange rates, and a key naming both: a kept summary priced with another key is stale."""
+
+    base = supply_settings.base_currency(conn)
     rates = fx.latest(conn)
+    named = ",".join([base, str(rates.day), *(f"{currency}={rate}" for currency, rate in sorted(rates.per_eur.items()))])
+    return base, rates, hashlib.sha256(named.encode()).hexdigest()[:16]
+
+
+def _now() -> datetime:
+    """The time a summary's status is assessed at (a test sets its own clock)."""
+
+    return clock.now()
+
+
+def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Rates, str] | None = None) -> dict[str, dict[str, Any]]:
+    problems = _problems(conn, [r["id"] for r in rows])
+    base, rates, priced_with = money or _money(conn)
     quantities = price_quantity.of_parts(conn, [r["id"] for r in rows])
-    found = {}
+    found, counted = {}, {}
     for row in rows:
         here = [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
         price = headline_price.headline(
             [o for o in here if not o["marketplace"]], quantities[row["id"]], base, rates,
-            lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates),
+            lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates, quantities[part_id]),
         )
-        found[row["id"]] = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
+        summary = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
+        summary["priced_with"] = priced_with
+        found[row["id"]] = summary
+        counted[row["id"]] = here
+    # The part's status is its assessment's (without a build to cover), kept with the summary so lists filter and the Dashboard counts
+    # on it; it holds until what it read changes (``freshness``) or the clock changes it (``changes_at``).
+    from app.services.supply.assessment import service as assessment  # the assessment reads summaries, so it is imported here
+
+    items = [
+        {"id": row["id"], "lifecycle": found[row["id"]]["lifecycle"], "problem": found[row["id"]]["problem"],
+         "tracking": {"rate": row["tracking_rate"]} if row["tracking_rate"] else None,
+         "watch": {"threshold": row["threshold"]} if row["watch_id"] else None}
+        for row in rows
+    ]
+    for part_id, assessed in assessment.assess_summaries(conn, items, counted, {}, _now()).items():
+        found[part_id].update(status=assessed["status"], health=assessed["health"], changes_at=assessed["changes_at"])
     return found
 
 
-def _cached(conn, rows) -> dict[str, dict[str, Any]]:
-    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept."""
+# Bumped whenever what a kept summary holds or how it is worked out changes: every kept one is then worked out again.
+SUMMARY_VERSION = 3
+_SUMMARY_FIELDS = (
+    "part_id text, status text, health real, changes_at timestamptz, problem text, stock integer, listings integer, lifecycle text, "
+    "dropped boolean, tier text, unit_price numeric, as_of timestamptz, price jsonb, priced_with text"
+)
+_PRICE_KEYS = ("unit_price", "currency", "price_quantity", "price_kind", "price_lead_days", "price_range", "price_native", "price_seen_day",
+               "price_unrated", "price_test_data")
 
-    ids = [r["id"] for r in rows]
-    # A kept summary is current while no change of its part came from a transaction still running when it was worked out.
+
+def _current_sql(priced_with: str, summary: str = "s") -> str:
+    """SQL for "this kept summary is current": worked out by this code, in today's currency at today's rates (neither marks a part:
+    they change every price at once), no change it did not see has marked it (``freshness``), and the clock has not reached the time
+    its assessment changes by itself (``changes_at``: a read falling late, a last date to buy coming close). Takes the clock's time as
+    its one parameter, after any the caller's SQL has before it."""
+
+    if not priced_with.isalnum():
+        raise ValueError("not a pricing key")
+    return (
+        f"({summary}.version = {SUMMARY_VERSION} AND {summary}.priced_with = '{priced_with}' AND {summary}.snap > 0 "
+        f"AND ({summary}.changes_at IS NULL OR {summary}.changes_at > %s) "
+        f"AND NOT {freshness.stale_sql('summary', f'ARRAY[{summary}.part_id]', summary)})"
+    )
+
+
+def _from_row(row) -> dict[str, Any]:
+    """A kept summary as ``_computed`` gives it."""
+
+    return {
+        "problem": row["problem"], "stock": row["stock"], "listings": row["listings"], "lifecycle": row["lifecycle"], "dropped": row["dropped"],
+        **row["price"],
+        "fetched_at": row["as_of"].isoformat() if row["as_of"] else None, "dated_by": "oldest", "tier": row["tier"], "status": row["status"],
+        "health": row["health"], "changes_at": row["changes_at"].isoformat() if row["changes_at"] else None, "priced_with": row["priced_with"],
+    }
+
+
+def _keep(conn, found: dict[str, dict[str, Any]], seen: tuple[str, int]) -> None:
+    """Keep worked-out summaries, as a favour to the next reader: never wait for a row another transaction holds, and write them all at
+    once. ``seen`` is the snapshot taken before what they were worked out from was read (``freshness.seen``)."""
+
+    if not found:
+        return
+    ids = list(found)
+    mine = {row["part_id"] for row in conn.execute(
+        "SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s) FOR UPDATE SKIP LOCKED", (ids,)).fetchall()}
+    held = {row["part_id"] for row in conn.execute("SELECT part_id FROM supply_part_summaries WHERE part_id = ANY(%s)", (ids,)).fetchall()} - mine
+
+    def records(part_ids: list[str]) -> str:
+        return json.dumps([
+            {"part_id": part_id, **{key: found[part_id][key] for key in ("status", "health", "changes_at", "problem", "stock", "listings", "lifecycle", "dropped", "tier", "unit_price", "priced_with")},
+             "as_of": found[part_id]["fetched_at"], "price": {key: found[part_id][key] for key in _PRICE_KEYS}}
+            for part_id in part_ids
+        ])
+
+    columns = "status, health, changes_at, problem, stock, listings, lifecycle, dropped, tier, unit_price, as_of, price, priced_with"
+    values = ", ".join("n." + name.strip() for name in columns.split(","))
+    update = [part_id for part_id in ids if part_id in mine]
+    insert = [part_id for part_id in ids if part_id not in mine and part_id not in held]
+    if update:
+        conn.execute(
+            f"UPDATE supply_part_summaries s SET ({columns}, version, seen, snap, own, computed_at) = "
+            f"({values}, %s, %s, %s, {freshness.OWN_SQL}, %s) "
+            f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) WHERE s.part_id = n.part_id",
+            (SUMMARY_VERSION, *seen, clock.now(), records(update)),
+        )
+    if insert:
+        conn.execute(
+            f"INSERT INTO supply_part_summaries (part_id, {columns}, version, seen, snap, own, computed_at) "
+            f"SELECT n.part_id, {values}, %s, %s, %s, {freshness.OWN_SQL}, %s "
+            f"FROM jsonb_to_recordset(%s::jsonb) AS n({_SUMMARY_FIELDS}) ON CONFLICT DO NOTHING",
+            (SUMMARY_VERSION, *seen, clock.now(), records(insert)),
+        )
+
+
+def _cached(
+    conn, rows, money: tuple[str, fx.Rates, str] | None = None, offers: dict[str, list[dict]] | None = None, seen: tuple[str, int] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept. A caller that has read
+    the offers passes them with the snapshot it took before (``freshness.seen``)."""
+
+    if offers is None or seen is None:
+        offers, seen = None, freshness.seen(conn)
+    money = money or _money(conn)
     fresh = {
-        r["part_id"]: r["data"] for r in conn.execute(
-            """
-            SELECT s.part_id, s.data FROM part_summaries s
-            WHERE s.part_id = ANY(%s) AND s.snap > 0
-              AND NOT EXISTS (SELECT 1 FROM summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
-            """,
-            (ids,),
+        row["part_id"]: _from_row(row) for row in conn.execute(
+            f"SELECT s.* FROM supply_part_summaries s WHERE s.part_id = ANY(%s) AND {_current_sql(money[2])}", ([r["id"] for r in rows], clock.now()),
         ).fetchall()
     }
     todo = [r for r in rows if r["id"] not in fresh]
     if todo:
-        snap = conn.execute("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS n").fetchone()["n"]
-        found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]))
-        for row in todo:
-            # Keeping it is a favour to the next reader: never wait for a row another transaction holds.
-            mine = conn.execute("SELECT part_id FROM part_summaries WHERE part_id = %s FOR UPDATE SKIP LOCKED", (row["id"],)).fetchone()
-            data = json.dumps(found[row["id"]])
-            if mine:
-                conn.execute(
-                    "UPDATE part_summaries SET data = %s::jsonb, snap = %s, computed_at = NOW() WHERE part_id = %s",
-                    (data, max(snap, 1), row["id"]),
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO part_summaries (part_id, data, snap, computed_at) VALUES (%s, %s::jsonb, %s, NOW()) ON CONFLICT DO NOTHING",
-                    (row["id"], data, max(snap, 1)),
-                )
+        found = _computed(conn, todo, offers if offers is not None else offers_by_part(conn, [r["id"] for r in todo]), money)
+        _keep(conn, found, seen)
         fresh.update(found)
     return fresh
 
 
-def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[dict[str, Any]]:
-    """The list-row summary of each part row: status, stock, price, lifecycle, tier.
+_BATCH = 1000
 
-    With ``offers`` given they are used as they are. Without, the offer summaries are read from ``part_summaries``.
+
+def _bring_up_to_date(conn, where: str, params: list[Any]) -> str:
+    """Work out and keep the summaries of the parts ``where`` selects that are stale or missing (the worker keeps the tracked ones
+    current, so normally few), so a list can filter, sort and page on the kept columns. Returns the pricing key."""
+
+    money = _money(conn)
+    while True:
+        seen = freshness.seen(conn)
+        rows = conn.execute(
+            _ROW_SELECT + f"LEFT JOIN supply_part_summaries s ON s.part_id = p.id WHERE {where} AND NOT COALESCE({_current_sql(money[2])}, FALSE) "
+            f"LIMIT {_BATCH}", [*params, clock.now()],
+        ).fetchall()
+        if rows:
+            _keep(conn, _computed(conn, rows, offers_by_part(conn, [r["id"] for r in rows]), money), seen)
+        if len(rows) < _BATCH:
+            return money[2]
+
+
+def _summaries(
+    conn, rows, offers: dict[str, list[dict]] | None = None, *, role: str | None = None, seen: tuple[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """The list-row summary of each part row: status, stock, price, lifecycle, tier, and how many projects ``role`` may see use it.
+
+    The offer summaries are the kept ones (``part_summaries``); a stale or missing one is worked out from ``offers`` when given.
     """
 
     ids = [r["id"] for r in rows]
-    sums = _computed(conn, rows, offers) if offers is not None else _cached(conn, rows)
+    sums = _cached(conn, rows, offers=offers, seen=seen)
     jlc = facts.jlc_classes(conn, ids)
+    used = usage.projects_of_parts(conn, ids, role)
 
     items = []
     for row in rows:
         mine = sums[row["id"]]
-        lifecycle = Lifecycle(mine["lifecycle"])
         items.append({
             "id": row["id"],
             "mpn": row["mpn"],
@@ -267,9 +396,8 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "manufacturer_provisional": bool(row["maker_provisional"]),
             "watch": _watch_dto(row),
             "tracking": _tracking_dto(row),
-            "status": part_status(mine["stock"], row["threshold"], lifecycle, mine["problem"]).value,
             **mine,
-            "used_in": int(row["used_in"]),
+            "used_in": len(used.get(row["id"], ())),
             "jlc": jlc.get(row["id"]),
         })
     return items
@@ -280,12 +408,12 @@ def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
 
     if not part_ids:
         return []
-    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(None), list(part_ids)]).fetchall()
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [list(part_ids)]).fetchall()
     return _summaries(conn, rows)
 
 
 def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:
-    """Summaries of the given parts and the counted offers behind them, for callers that price.
+    """Summaries of the given parts (the kept ones, as the list shows) and the counted offers behind them, for callers that price.
 
     A watch counts one packaging when it says so (cut tape for prototypes), and the offers returned follow it, so a
     purchase suggestion and the checks never use a packaging the watch leaves out.
@@ -293,27 +421,28 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
 
     if not part_ids:
         return [], {}
-    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(role), list(part_ids)]).fetchall()
+    seen = freshness.seen(conn)
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [list(part_ids)]).fetchall()
     offers = offers_by_part(conn, [row["id"] for row in rows])
-    counted = {
+    wanted = {
         row["id"]: [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
         for row in rows
     }
-    return _summaries(conn, rows, counted), counted
+    return _summaries(conn, rows, wanted, role=role, seen=seen), wanted
 
 
-def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
-    """Every matching part (up to ``MAX_CANDIDATES``), the ones that need a look first, and the true count."""
+def _scope_where(scope: Scope, query: str, role: str | None) -> tuple[str, list[Any]]:
+    """SQL over ``_ROW_SELECT`` for the parts a scope and a search take in, and its parameters."""
 
     limited = "ARRAY[" + ", ".join(f"'{key}'" for key in budget.providers_limited_by_picks() if key.replace("_", "").isalnum()) + "]::text[]"
     conditions = [{
         "all": "TRUE", "watched": "pt.part_id IS NOT NULL", "in_use": "(" + _IN_USE + ")",
         "followed": "(pt.part_id IS NOT NULL OR " + _IN_USE + ")",
         "tier1": "pt.tier = 1", "tier2": "pt.tier = 2",
-        "waiting": "EXISTS (SELECT 1 FROM admissions ad WHERE ad.part_id = p.id AND ad.state = 'waiting')",
-        "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM listings pl JOIN connectors pc ON pc.id = pl.connector_id "
-                "WHERE pl.part_id = p.id AND pl.match_state IN ('exact', 'manual') AND pc.provider = ANY(" + limited + ") "
-                "AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = pl.part_id AND pk.connector_id = pl.connector_id) "
+        "waiting": "EXISTS (SELECT 1 FROM supply_admissions ad WHERE ad.part_id = p.id AND ad.state = 'waiting')",
+        "pick": "pt.part_id IS NOT NULL AND EXISTS (SELECT 1 FROM supply_listings pl JOIN supply_connectors pc ON pc.id = pl.connector_id "
+                "WHERE pl.part_id = p.id AND supply_counted(pl.match_state) AND pc.provider = ANY(" + limited + ") "
+                "AND NOT EXISTS (SELECT 1 FROM supply_packaging_picks pk WHERE pk.part_id = pl.part_id AND pk.connector_id = pl.connector_id) "
                 "GROUP BY pl.connector_id HAVING COUNT(*) > 1)",
     }[scope]]
     params: list[Any] = usage.role_params(role) if scope in ("in_use", "followed") else []
@@ -321,18 +450,72 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
     if text:
         conditions.append("(p.mpn ILIKE %s OR m.name ILIKE %s)")
         params += [_like(text), _like(text)]
-    where = " AND ".join(conditions)
-    total = conn.execute(
-        f"SELECT COUNT(*) AS n FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        f"LEFT JOIN watches w ON w.part_id = p.id LEFT JOIN part_tiers pt ON pt.part_id = p.id WHERE {where}", params,
-    ).fetchone()["n"]
+    return " AND ".join(conditions), params
+
+
+_KEPT = "JOIN supply_part_summaries s ON s.part_id = p.id "
+
+
+def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
+    """Every matching part, the ones that need a look first, then by name, with what counts and groups need: id, mpn, manufacturer,
+    status, stock, lifecycle, whether every distributor dropped it, and when it was read. From the kept summaries."""
+
+    where, params = _scope_where(scope, query, role)
+    _bring_up_to_date(conn, where, params)
     rows = conn.execute(
-        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*usage.role_params(role), *params, MAX_CANDIDATES],
+        "SELECT p.id, p.mpn, m.name AS manufacturer, s.status, s.stock, s.lifecycle, s.dropped, s.as_of "
+        "FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
+        f"LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id {_KEPT}WHERE {where} ORDER BY {_RANK_SQL}, lower(m.name), lower(p.mpn)", params,
     ).fetchall()
-    items = _summaries(conn, rows)
-    # The sort is stable, so parts of equal status keep their name order.
-    items.sort(key=lambda item: _STATUS_RANK[item["status"]])
-    return items, int(total)
+    items = [{**{key: row[key] for key in ("id", "mpn", "manufacturer", "status", "stock", "lifecycle", "dropped")},
+              "fetched_at": row["as_of"].isoformat() if row["as_of"] else None} for row in rows]
+    return items, len(items)
+
+
+def tracked_states(conn) -> list[dict[str, Any]]:
+    """Every tracked part, uncapped, with what the Dashboard counts: id, status, stock, lifecycle and whether every distributor dropped
+    it. Reads the kept summaries and works out only the stale ones (the worker keeps them fresh, so normally none)."""
+
+    rows = conn.execute(_ROW_SELECT + "WHERE pt.part_id IS NOT NULL").fetchall()
+    sums = _cached(conn, rows)
+    return [{"id": row["id"], **{key: sums[row["id"]][key] for key in ("status", "stock", "lifecycle", "dropped")}} for row in rows]
+
+
+_EVERY = object()
+
+
+def tracked_project_rows(
+    conn, states: list[dict[str, Any]], kept: dict[str, dict[str, Any]], role: str | None, *, visible: Any = _EVERY,
+) -> list[dict[str, Any]]:
+    """The Dashboard's row for each tracked project ``role`` may see: its parts' status counts and its kept usual-build rollup.
+    ``visible`` is ``usage.visible_project_ids(role)`` when the caller has it already."""
+
+    if visible is _EVERY:
+        visible = usage.visible_project_ids(role)
+    tracked = [row["project_id"] for row in conn.execute("SELECT project_id FROM supply_tracked_projects").fetchall()
+               if visible is None or row["project_id"] in visible]
+    if not tracked:
+        return []
+    of = _projects_of(conn, [state["id"] for state in states], role)
+    names = {row["project_id"]: row["project_name"] for row in conn.execute(
+        "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (tracked,)).fetchall()}
+    members: dict[str, list[dict[str, Any]]] = {project_id: [] for project_id in tracked if project_id in names}
+    for state in states:
+        for project_id in of.get(state["id"], ()):
+            if project_id in members:
+                members[project_id].append(state)
+    groups = [{"project_id": project_id, "tracked": True, "members": mine} for project_id, mine in members.items()]
+    known = _row_facts(conn, groups)
+    rows = []
+    for group in groups:
+        statuses: dict[str, int] = {}
+        for state in group["members"]:
+            statuses[state["status"]] = statuses.get(state["status"], 0) + 1
+        rows.append({"project_id": group["project_id"], "project_name": names[group["project_id"]], "count": len(group["members"]),
+                     "statuses": statuses, "stats": _group_stats(group, kept, known)})
+    # As the Projects view orders them: what needs a look first, then by name.
+    rows.sort(key=lambda row: (min((_STATUS_RANK[status] for status in row["statuses"]), default=len(_STATUS_RANK)), row["project_name"].lower()))
+    return rows
 
 
 NO_PROJECT = "none"
@@ -341,18 +524,7 @@ NO_PROJECT = "none"
 def _projects_of(conn, part_ids: list[str], role: str | None) -> dict[str, set[str]]:
     """The projects (that ``role`` may see) whose BOM carries each part."""
 
-    found: dict[str, set[str]] = {}
-    if not part_ids:
-        return found
-    rows = conn.execute(
-        "SELECT DISTINCT p.id AS part_id, u.project_id FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        "JOIN " + usage.ALL_USES + " u ON " + usage.MATCHES_PART + " JOIN bom_usage_projects up ON up.project_id = u.project_id "
-        "WHERE p.id = ANY(%s) AND " + usage.VISIBLE,
-        [part_ids, *usage.role_params(role)],
-    ).fetchall()
-    for row in rows:
-        found.setdefault(row["part_id"], set()).add(row["project_id"])
-    return found
+    return usage.projects_of_parts(conn, part_ids, role)
 
 
 def part_groups(
@@ -381,9 +553,9 @@ def part_groups(
     real = [key for key in groups if key != NO_PROJECT]
     if real:
         named = {row["project_id"]: row["project_name"] for row in conn.execute(
-            "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
+            "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
         tracked = {row["project_id"] for row in conn.execute(
-            "SELECT project_id FROM tracked_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
+            "SELECT project_id FROM supply_tracked_projects WHERE project_id = ANY(%s)", (real,)).fetchall()}
     for key, group in groups.items():
         group["project_name"] = "Not in a project" if key == NO_PROJECT else (named.get(key) or key)
         group["tracked"] = key in tracked
@@ -393,9 +565,10 @@ def part_groups(
         key=lambda group: (group["project_id"] == NO_PROJECT, not group["tracked"], group["worst"], group["project_name"].lower()),
     )
     kept = part_insights.of_parts(conn, [item["id"] for item in items])
+    known = _row_facts(conn, ordered)
     for group in ordered:
         del group["worst"]
-        group["stats"] = _group_stats(conn, group, kept)
+        group["stats"] = _group_stats(group, kept, known)
         del group["members"]
     return {"groups": ordered, "total": len(items)}
 
@@ -417,8 +590,31 @@ def status_counts(members: list[dict[str, Any]], facts: list[dict[str, Any]]) ->
     }
 
 
-def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts."""
+def _row_facts(conn, groups: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the project rows need beyond their parts, read once for all of them: BOM ages, tracked projects, their kept rollups and cost
+    series, and open alerts per part."""
+
+    from app.services.supply import cost_history, project_supply, tracking  # they read this module, so they are imported here
+
+    real = [group["project_id"] for group in groups if group["project_id"] != NO_PROJECT]
+    read_at = {row["project_id"]: row["updated_at"] for row in conn.execute(
+        "SELECT project_id, updated_at FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (real,)).fetchall()} if real else {}
+    tracked = tracking.tracked_projects(conn, [group["project_id"] for group in groups if group["project_id"] != NO_PROJECT and group["tracked"]])
+    variants = {project_id: (project["variants"] or [""])[0] for project_id, project in tracked.items()}
+    rollups = project_supply.usual_rollups(conn, [(project, variants[project_id]) for project_id, project in tracked.items()])
+    costed = [(project_id, variants[project_id]) for project_id, rollup in rollups.items()
+              if rollup and rollup["cost_per_board"] is not None and rollup["currency"]]
+    members = list({item["id"] for group in groups for item in group["members"]})
+    alerts = attention.open_counts(conn, clock.now(), attention.PART, members)
+    return {"read_at": read_at, "tracked": tracked, "variants": variants, "rollups": rollups,
+            "series": cost_history.series_of(conn, costed, 120), "alerts": alerts}
+
+
+def _group_stats(group: dict[str, Any], kept: dict[str, dict[str, Any]], known: dict[str, Any]) -> dict[str, Any]:
+    """What a project row shows closed: the counts that need a look, and for a tracked project its cost, boards, BOM age and alerts.
+    ``known`` is ``_row_facts`` of the rows shown."""
+
+    from app.services.supply import cost_history  # it reads this module, so it is imported here
 
     members = group["members"]
     facts = [kept.get(item["id"]) or {} for item in members]
@@ -426,25 +622,29 @@ def _group_stats(conn, group: dict[str, Any], kept: dict[str, dict[str, Any]]) -
     project_id = group["project_id"]
     if project_id == NO_PROJECT:
         return stats
-    read = conn.execute("SELECT updated_at FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
-    stats["bom_read_at"] = read["updated_at"].isoformat() if read and read["updated_at"] else None
+    read = known["read_at"].get(project_id)
+    stats["bom_read_at"] = read.isoformat() if read else None
     if not group["tracked"]:
         return stats
-    tracked = conn.execute("SELECT variants, all_variants, packaging FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    tracked = known["tracked"].get(project_id)
     stats["variants"] = list(tracked["variants"]) if tracked else []
     stats["all_variants"] = bool(tracked and tracked["all_variants"])
     stats["packaging"] = tracked["packaging"] if tracked else None
-    from app.services.supply import cost_history
-
-    kept, _left_out = cost_history.series(conn, project_id, (tracked["variants"] or [""])[0] if tracked else "", 120)
-    if kept:
-        latest = kept[-1]
-        stats["cost_per_board"] = format(latest["cost_per_board"], "f")
-        stats["currency"] = latest["currency"]
-        stats["cost_change_percent"] = cost_history.change_percent(kept)
-        stats["boards"] = (latest["rollup"] or {}).get("can_build")
-    stats["alerts"] = int(conn.execute(
-        "SELECT COUNT(*) AS n FROM alerts WHERE state = 'open' AND part_id = ANY(%s)", ([item["id"] for item in members],)).fetchone()["n"])
+    # The same rollup the project page shows: the day's stored row only gives the change over time.
+    rollup = known["rollups"].get(project_id) if tracked else None
+    if rollup and rollup["cost_per_board"] is not None and rollup["currency"]:
+        stats["cost_per_board"] = format(Decimal(str(rollup["cost_per_board"])), "f")
+        stats["currency"] = rollup["currency"]
+        stats["boards"] = rollup["can_build"]
+        stats["build_quantity"] = int(tracked["build_quantity"])
+        stats["unchecked"] = int(rollup["not_tracked"])
+        # A cost over fewer lines than the BOM has is a subtotal: every summary says how many lines it covers.
+        stats["lines"] = int(rollup["lines"])
+        stats["lines_priced"] = int(rollup["lines_priced"])
+        stats["test_data"] = bool(rollup.get("test_data"))
+        series, _left_out = known["series"].get((project_id, known["variants"][project_id]), ([], []))
+        stats["cost_change_percent"] = cost_history.change_percent(series) if series else None
+    stats["alerts"] = sum(known["alerts"].get(item["id"], 0) for item in members)
     return stats
 
 
@@ -454,8 +654,8 @@ def _at_vendor(conn, items: list[dict[str, Any]], vendor: str) -> list[dict[str,
     if not vendor or not items:
         return items
     listed = {row["part_id"] for row in conn.execute(
-        "SELECT DISTINCT part_id FROM listings WHERE connector_id = %s AND match_state = ANY(%s) AND part_id = ANY(%s)",
-        (vendor, list(_COUNTED), [item["id"] for item in items]),
+        "SELECT DISTINCT part_id FROM supply_listings WHERE connector_id = %s AND match_state = ANY(%s) AND part_id = ANY(%s)",
+        (vendor, list(counted.STATES), [item["id"] for item in items]),
     ).fetchall()}
     return [item for item in items if item["id"] in listed]
 
@@ -480,66 +680,72 @@ def _only(conn, items: list[dict[str, Any]], only: str) -> list[dict[str, Any]]:
     return [item for item in items if item["id"] in keep]
 
 
-def _runs_out_first(conn, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The chance of being out in 4 weeks (a part already out counts as certain), then the fewest days to zero; parts with neither keep
-    their order after them."""
-
-    kept = part_insights.of_parts(conn, [item["id"] for item in items])
-
-    def key(item: dict[str, Any]) -> tuple[float, float]:
-        data = kept.get(item["id"]) or {}
-        forecast = data.get("forecast") or {}
-        chance = 1.0 if forecast.get("out_now") else float(forecast.get("p_out_4w") or 0.0) if forecast.get("available") else 0.0
-        days = data.get("days_to_zero")
-        return (-chance, float(days) if days is not None else float("inf"))
-
-    return sorted(items, key=key)
-
-
 # Columns the list sorts by, as "<column>:<asc|desc>". A part with no figure comes after the others either way.
-SORT_COLUMNS = ("part", "stock", "price")
+SORT_COLUMNS = {"part": "lower(p.mpn)", "stock": "s.stock", "price": "s.unit_price"}
+# The chance of being out in 4 weeks, a part already out counting as certain (kept insights, ``i``).
+_OUT_CHANCE_SQL = (
+    "CASE WHEN COALESCE((i.data->'forecast'->>'out_now')::boolean, FALSE) THEN 1.0 "
+    "WHEN COALESCE((i.data->'forecast'->>'available')::boolean, FALSE) THEN COALESCE((i.data->'forecast'->>'p_out_4w')::float, 0.0) ELSE 0.0 END"
+)
 
 
-def _by_column(items: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+def _order_sql(sort: str) -> str:
+    """The list's order: what needs a look first, then by name; ``sort`` puts its key before that."""
+
+    usual = f"{_RANK_SQL}, lower(m.name), lower(p.mpn)"
+    if sort == "runout":
+        return f"{_OUT_CHANCE_SQL} DESC, (i.data->>'days_to_zero')::float ASC NULLS LAST, {usual}"
     column, _, direction = sort.partition(":")
-    if column not in SORT_COLUMNS or direction not in ("asc", "desc"):
-        return items
-
-    def value(item: dict[str, Any]) -> Any:
-        if column == "part":
-            return item["mpn"].lower()
-        figure = item.get("stock") if column == "stock" else item.get("unit_price")
-        return None if figure is None else Decimal(str(figure))
-
-    known = sorted((item for item in items if value(item) is not None), key=value, reverse=direction == "desc")
-    return known + [item for item in items if value(item) is None]
+    if column in SORT_COLUMNS and direction in ("asc", "desc"):
+        return f"{SORT_COLUMNS[column]} {direction.upper()} NULLS LAST, {usual}"
+    return usual
 
 
 def list_parts(
     conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter | str = "", offset: int = 0,
-    project_id: str = "", vendor: str = "", sort: str = "",
+    project_id: str = "", vendor: str = "", sort: str = "", part_ids: Sequence[str] | None = None, order_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them; ``project_id`` the parts of
     one project (``none`` for those in no project). ``sort`` "runout" puts the parts likeliest to be out within 4 weeks first, then
-    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column."""
+    by days to zero; "part", "stock" or "price" with ":asc" or ":desc" sorts by that column. ``part_ids`` keeps only those parts;
+    ``order_ids`` puts the parts in that order first (a project's own columns). Filtered, ordered and paged on the kept summaries,
+    however many parts match."""
 
     limit = max(1, min(limit, MAX_LIMIT))
-    items, total = ranked_parts(conn, scope=scope, query=query, role=role)
-    if only:
-        items = _only(conn, items, only)
-        total = len(items)
-    items = _at_vendor(conn, items, vendor)
-    total = len(items) if vendor else total
-    if project_id:
-        of = _projects_of(conn, [item["id"] for item in items], role)
-        items = [item for item in items if (project_id in of.get(item["id"], set()) if project_id != NO_PROJECT else not of.get(item["id"]))]
-        total = len(items)
-    if sort == "runout":
-        items = _runs_out_first(conn, items)
-    elif sort:
-        items = _by_column(items, sort)
     offset = max(0, offset)
-    page = items[offset:offset + limit]
+    where, params = _scope_where(scope, query, role)
+    _bring_up_to_date(conn, where, params)
+    conditions = [where]
+    if only in _GROUPS:
+        conditions.append(_GROUPS[only][0])
+    elif only:
+        # A finding from the kept insights or a risk group: the parts it names, of those the scope takes in.
+        items, _total = ranked_parts(conn, scope=scope, query=query, role=role)
+        conditions.append("p.id = ANY(%s)")
+        params = [*params, [item["id"] for item in _only(conn, items, only)]]
+    if vendor:
+        conditions.append("EXISTS (SELECT 1 FROM supply_listings vl WHERE vl.part_id = p.id AND vl.connector_id = %s AND supply_counted(vl.match_state))")
+        params = [*params, vendor]
+    if project_id:
+        used = "p.id IN (SELECT pp.part_id FROM (" + usage.part_projects_sql(False) + ") pp" + (" WHERE pp.project_id = %s)" if project_id != NO_PROJECT else ")")
+        conditions.append(used if project_id != NO_PROJECT else f"NOT {used}")
+        params = [*params, *usage.role_params(role), *([project_id] if project_id != NO_PROJECT else [])]
+    if part_ids is not None:
+        conditions.append("p.id = ANY(%s)")
+        params = [*params, list(part_ids)]
+    where = " AND ".join(conditions)
+    order = _order_sql(sort)
+    order_params: list[Any] = []
+    if order_ids is not None:
+        order = f"array_position(%s::text[], p.id) NULLS LAST, {order}"
+        order_params = [list(order_ids)]
+    joins = _KEPT + ("LEFT JOIN supply_part_insights i ON i.part_id = p.id " if sort == "runout" else "")
+    total = int(conn.execute(
+        "SELECT COUNT(*) AS n FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id LEFT JOIN supply_watches w ON w.part_id = p.id "
+        f"LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id {_KEPT}WHERE {where}", params,
+    ).fetchone()["n"])
+    rows = conn.execute(_ROW_SELECT + f"{joins}WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s", [*params, *order_params, limit, offset]).fetchall()
+    page = _summaries(conn, rows, role=role)
     kept = part_insights.of_parts(conn, [item["id"] for item in page])
     extras = _row_extras(conn, page, kept, role)
     page = [
@@ -547,7 +753,7 @@ def list_parts(
         for item in page
     ]
     more = offset + limit < total
-    states = forecasting.model_states(conn)
+    states = store.model_states(conn)
     return {
         "items": page, "total": total, "limit": limit, "offset": offset, "next_offset": offset + limit if more else None,
         "forecast_state": {name: states[name]["state"] for name in ("runout", "out_4w", "can_buy_4w", "can_buy_8w")},
@@ -563,31 +769,38 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
     wanted = {project for found in projects.values() for project in found}
     if wanted:
         names = {row["project_id"]: row["project_name"] for row in conn.execute(
-            "SELECT project_id, project_name FROM bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
+            "SELECT project_id, project_name FROM supply_bom_usage_projects WHERE project_id = ANY(%s)", (list(wanted),)).fetchall()}
     offers = offers_by_part(conn, ids)
     shown = offers_by_part(conn, ids, every_listing=True)
     quantities = price_quantity.of_parts(conn, ids)
-    waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
+    base = supply_settings.base_currency(conn)
+    rates = fx.latest(conn)
+    waiting = {row["part_id"] for row in conn.execute("SELECT DISTINCT part_id FROM supply_admissions WHERE state = 'waiting' AND part_id = ANY(%s)", (ids,)).fetchall()}
     preferred = preferences.of_parts(conn, ids)
     stated: dict[str, dict[str, set[str]]] = {}
     for row in conn.execute(
-        "SELECT part_id, name, value FROM part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
+        "SELECT part_id, name, value FROM supply_part_facts WHERE name IN ('ncnr', 'normally_stocking') AND part_id = ANY(%s)", (ids,)
     ).fetchall():
         stated.setdefault(row["part_id"], {}).setdefault(row["name"], set()).add(row["value"].strip().lower())
+    rohs_said = facts.rohs_stated(conn, ids)
     extras = {}
     for item in page:
         here = [offer for offer in offers.get(item["id"], []) if not offer["marketplace"]]
         by_connector: dict[str, dict[str, Any]] = {}
+        held: dict[str, list[dict]] = defaultdict(list)
         for offer in here:
             entry = by_connector.setdefault(offer["connector_id"], {"connector_id": offer["connector_id"], "provider": offer["provider"], "name": offer["connector_name"], "stock": 0, "price": None, "currency": ""})
-            entry["stock"] += int(offer["stock"] or 0)
-            price, currency, _quantity = headline_price.native_price(offer, quantities[item["id"]])
+            held[offer["connector_id"]].append(offer)
+            price, currency, _quantity = pricing.native_price(offer, quantities[item["id"]])
             if price is not None and (entry["price"] is None or Decimal(price) < Decimal(entry["price"])):
                 entry["price"], entry["currency"] = price, currency
+        for connector_id, entry in by_connector.items():
+            # By pile, as the part's stock counts it: cut tape and custom reel are one shelf.
+            entry["stock"] = stock.connector_stock(entry["provider"], held[connector_id])
         flags = []
         if item["id"] in waiting:
             flags.append("waiting")
-        if any(offer["rohs"] is False for offer in here):
+        if offer_rules.rohs_verdict(offers.get(item["id"], []), rohs_said.get(item["id"], ())) in ("not_compliant", "disputed"):
             flags.append("rohs")
         if any(offer["reach_affected"] for offer in here):
             flags.append("reach")
@@ -600,7 +813,7 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
         extras[item["id"]] = {
             "project_names": projects_here[:2],
             "distributors": sorted(by_connector.values(), key=lambda entry: entry["name"].lower()),
-            "offers": offer_lines([offer for offer in shown.get(item["id"], []) if not offer["marketplace"]]),
+            "offers": in_base(offer_lines([offer for offer in shown.get(item["id"], []) if not offer["marketplace"]]), base, rates),
             "preferred_connector_id": preferred.get(item["id"]),
             "price_change_percent": facts_here.get("price_change_percent"),
             "forecast": (facts_here.get("forecast") or None) if (facts_here.get("forecast") or {}).get("available") else None,
@@ -611,35 +824,21 @@ def _row_extras(conn, page: list[dict[str, Any]], kept: dict[str, dict[str, Any]
 
 
 def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
-    """Each listing's last known stock per day: raw samples where they exist, rollups before that."""
+    """Each counted listing's last known stock per day (``days_sql``)."""
 
-    states = list(_COUNTED) + ["gone"]
-    raw = conn.execute(
-        """
-        SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, l.connector_id, c.provider, l.match_state, l.packaging,
-               (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.marketplace
-        FROM samples s
-        JOIN listings l ON l.id = s.listing_id
-        JOIN connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s AND {counted}
-        ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
-        """.replace("{counted}", stock.counted_listing_sql()),
-        (part_id, states, since),
+    states = list(counted.STATES) + ["gone"]
+    days = days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s AND match_state = ANY(%(states)s)", "%(since)s")
+    rows = conn.execute(
+        f"""
+        SELECT d.listing_id, l.connector_id, l.sku, c.provider, {stock.pool_sql()} AS pool, l.match_state, l.packaging, d.day, d.stock, d.marketplace
+        FROM {days} d
+        JOIN supply_listings l ON l.id = d.listing_id
+        JOIN supply_connectors c ON c.id = l.connector_id
+        WHERE {counted.read_sql()}
+        """,
+        {"part": part_id, "states": states, "since": since.date()},
     ).fetchall()
-    rolled = conn.execute(
-        """
-        SELECT d.listing_id, l.connector_id, c.provider, l.match_state, l.packaging, d.day, d.last_stock AS stock, d.marketplace
-        FROM samples_daily d
-        JOIN listings l ON l.id = d.listing_id
-        JOIN connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s AND {counted}
-        """.replace("{counted}", stock.counted_listing_sql()),
-        (part_id, states, since.date()),
-    ).fetchall()
-    merged = {(r["listing_id"], r["day"]): dict(r) for r in rolled}
-    merged.update({(r["listing_id"], r["day"]): dict(r) for r in raw})
-    return list(merged.values())
+    return [dict(row) for row in rows]
 
 
 def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
@@ -654,8 +853,7 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     rows = _day_rows(conn, part_id, now - timedelta(days=HISTORY_DAYS))
     if not rows:
         return []
-    watch = conn.execute("SELECT packaging FROM watches WHERE part_id = %s", (part_id,)).fetchone()
-    policy = watch["packaging"] if watch else "any"
+    policy = stock.packaging_of(conn, part_id)
     by_day: dict[date, list] = defaultdict(list)
     last_day: dict[str, date] = {}
     gone: set[str] = set()
@@ -670,16 +868,17 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     while day <= end:
         for row in by_day.get(day, []):
             last[row["listing_id"]] = {
-                "connector_id": row["connector_id"], "provider": row["provider"], "stock": row["stock"],
+                "connector_id": row["connector_id"], "provider": row["provider"], "stock": row["stock"], "pool": row["pool"], "sku": row["sku"],
                 "marketplace": bool(row["marketplace"]), "fetched_at": day, "packaging": row["packaging"],
             }
         for listing_id in gone:
             if last_day[listing_id] < day:
                 last.pop(listing_id, None)
         combined = stock.aggregate(last.values(), policy)
-        holding = [amount for amount in combined.by_connector.values() if amount > 0]
+        # Holders and concentration count stock pools: connectors on one account hold one shelf.
+        holding = [amount for amount in combined.by_pool.values() if amount > 0]
         series.append({
-            "day": day.isoformat(), "stock": combined.total, "listings": combined.listings, "sources": len(holding),
+            "day": day.isoformat(), "stock": combined.total, "listings": combined.listings, "sources": combined.holders,
             "concentration": sum((amount / combined.total) ** 2 for amount in holding) if combined.total > 0 else None,
         })
         day += timedelta(days=1)
@@ -692,33 +891,34 @@ LEAD_TREND_MIN_CHANGE_DAYS = 7
 
 
 def lead_time_trend(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
-    """How the quoted lead time moved over the last 90 days: the median of the first two weeks of readings against the last two.
+    """How the quoted lead time moved over the last 90 days: the median of the first two weeks of daily readings against the last two.
     None without lead times in both windows, or when the change is under a week."""
 
     rows = conn.execute(
-        """
-        SELECT s.sampled_at, s.lead_time_days FROM samples s JOIN listings l ON l.id = s.listing_id
-        WHERE l.part_id = %s AND s.lead_time_days IS NOT NULL AND s.sampled_at >= %s ORDER BY s.sampled_at
+        f"""
+        SELECT d.day, d.lead_time_days FROM {days_sql("SELECT id FROM supply_listings WHERE part_id = %(part)s", "%(since)s")} d
+        WHERE d.lead_time_days IS NOT NULL ORDER BY d.day
         """,
-        (part_id, now - timedelta(days=LEAD_TREND_DAYS)),
+        {"part": part_id, "since": (now - timedelta(days=LEAD_TREND_DAYS)).date()},
     ).fetchall()
     if len(rows) < 2:
         return None
     window = timedelta(days=LEAD_TREND_WINDOW_DAYS)
-    first = [row["lead_time_days"] for row in rows if row["sampled_at"] <= rows[0]["sampled_at"] + window]
-    last = [row["lead_time_days"] for row in rows if row["sampled_at"] >= rows[-1]["sampled_at"] - window]
-    if rows[-1]["sampled_at"] - rows[0]["sampled_at"] < window * 2:
+    first_day, last_day = rows[0]["day"], rows[-1]["day"]
+    if last_day - first_day < window * 2:
         return None
+    first = [row["lead_time_days"] for row in rows if row["day"] <= first_day + window]
+    last = [row["lead_time_days"] for row in rows if row["day"] >= last_day - window]
     before, after = statistics.median(first), statistics.median(last)
     if abs(after - before) < LEAD_TREND_MIN_CHANGE_DAYS:
         return None
-    return {"before": round(before), "after": round(after), "since": rows[0]["sampled_at"].date().isoformat()}
+    return {"before": round(before), "after": round(after), "since": first_day.isoformat()}
 
 
 def _first_seen(conn, part_id: str) -> str | None:
     """The day Prism first knew the part: a rough age, since parts are created when first searched for."""
 
-    row = conn.execute("SELECT created_at FROM parts WHERE id = %s", (part_id,)).fetchone()
+    row = conn.execute("SELECT created_at FROM supply_parts WHERE id = %s", (part_id,)).fetchone()
     return row["created_at"].date().isoformat() if row else None
 
 
@@ -739,12 +939,9 @@ def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetim
     return insights.analyse(points, threshold=threshold, today=now.astimezone(timezone.utc).date())
 
 
-def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
-    """The attributes distributors list for the part: known ones in one vocabulary first, the rest as written."""
+def _parameters(rows: list[dict[str, Any]], part_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Shape one part's parameter rows and facts into the list the part sheet shows."""
 
-    rows = conn.execute(
-        "SELECT provider, name, raw FROM part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
-    ).fetchall()
     sources: dict[tuple[str, str], list[str]] = {}
     for row in rows:
         sources.setdefault((row["name"].lower(), row["raw"]), []).append(row["provider"])
@@ -758,7 +955,7 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
         for item in params.normalise(first_seen)
     ]
     # What a distributor files the part under is not a compliance fact; it is listed here, as the distributor wrote it.
-    for fact in facts.for_part(conn, part_id):
+    for fact in part_facts:
         if fact["name"] in facts.NOT_COMPLIANCE:
             for value in dict.fromkeys(source["value"] for source in fact["sources"]):
                 listed.append({
@@ -768,17 +965,41 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
     return listed
 
 
+def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
+    """The attributes distributors list for the part: known ones in one vocabulary first, the rest as written."""
+
+    rows = conn.execute(
+        "SELECT provider, name, raw FROM supply_part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
+    ).fetchall()
+    return _parameters(rows, facts.for_part(conn, part_id))
+
+
+def parameters_of_parts(conn, part_ids: list[str], *, with_facts: bool = True) -> dict[str, list[dict[str, Any]]]:
+    """The attributes of several parts, each exactly as ``parameters_of`` gives it, from one parameter read. ``with_facts`` False leaves
+    out what distributors file the parts under (rows with no ``key``), and with them a facts read per part."""
+
+    ids = list(dict.fromkeys(part_ids))
+    if not ids:
+        return {}
+    by_part: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in conn.execute(
+        "SELECT part_id, provider, name, raw FROM supply_part_params WHERE part_id = ANY(%s) ORDER BY part_id, provider, name", (ids,)
+    ).fetchall():
+        by_part[row["part_id"]].append(row)
+    return {part_id: _parameters(by_part.get(part_id, []), facts.for_part(conn, part_id) if with_facts else []) for part_id in ids}
+
+
 def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     """The picks on a part (listing per distributor), and the distributors where it still waits for one."""
 
-    pick_rows = conn.execute("SELECT connector_id, listing_id, picked_by, note FROM packaging_picks WHERE part_id = %s", (part_id,)).fetchall()
+    pick_rows = conn.execute("SELECT connector_id, listing_id, picked_by, note FROM supply_packaging_picks WHERE part_id = %s", (part_id,)).fetchall()
     picks = {row["connector_id"]: row["listing_id"] for row in pick_rows}
     counts = conn.execute(
-        "SELECT l.connector_id, c.display_name, COUNT(*) AS n FROM listings l JOIN connectors c ON c.id = l.connector_id "
+        "SELECT l.connector_id, c.display_name, COUNT(*) AS n FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
         "WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id, c.display_name HAVING COUNT(*) > 1",
-        (part_id, list(_COUNTED)),
+        (part_id, list(counted.STATES)),
     ).fetchall()
-    tracked = conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone() is not None
+    tracked = conn.execute("SELECT 1 FROM supply_part_tiers WHERE part_id = %s", (part_id,)).fetchone() is not None
     return {
         "picks": picks,
         # Who picked each (a person, or "auto" for Prism) and what Prism noted when it fell back.
@@ -790,18 +1011,15 @@ def _packaging_state(conn, part_id: str) -> dict[str, Any]:
     }
 
 
-def _price_block(conn, part_id: str, now: datetime, offers: list[dict]) -> dict[str, Any]:
-    """The part sheet's price: the daily series and move, the quantity it is priced at, and the list price with its range."""
+def _price_block(conn, part_id: str, now: datetime, kept: Mapping[str, Any]) -> dict[str, Any]:
+    """The part sheet's price: the daily series and move, the quantity it is priced at, and the list price with its range (the
+    kept summary's, as the list shows it)."""
 
-    series, meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
+    series, _meta = prices.daily(conn, part_id, now, prices.CHART_DAYS)
     block = prices.view(series, now.date())
     chosen = price_quantity.of_part(conn, part_id)
-    base = settings_store.load(conn).base_currency
-    rates = fx.latest(conn)
-    headline = headline_price.headline(
-        offers, chosen["quantity"], base, rates, lambda: prices.last_in_stock(conn, part_id, base, rates),
-    )
-    return block | {"currency": base, **chosen, "estimated_until": meta["estimated_until"], "headline": headline}
+    base = supply_settings.base_currency(conn)
+    return block | {"currency": base, **chosen, "headline": {key: kept[key] for key in _PRICE_KEYS}}
 
 
 # Distributors whose product page is known from the number alone, for a listing not read yet.
@@ -818,39 +1036,42 @@ def _page_url(provider: str, sku: str, read_url: str | None) -> str:
 
 
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     part = parts.get_part(conn, part_id)
     watch_row = conn.execute(
         "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
         "pt.tier AS tracking_tier, pt.rate AS tracking_rate, pt.reasons AS tracking_reasons "
-        "FROM parts p LEFT JOIN watches w ON w.part_id = p.id LEFT JOIN part_tiers pt ON pt.part_id = p.id WHERE p.id = %s",
+        "FROM supply_parts p LEFT JOIN supply_watches w ON w.part_id = p.id LEFT JOIN supply_part_tiers pt ON pt.part_id = p.id WHERE p.id = %s",
         (part_id,),
     ).fetchone()
 
     rows = conn.execute(
         """
-        SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, l.sku, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
+        SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, {pool} AS pool, l.sku, COALESCE(NULLIF(o.packaging, 'unknown'), l.packaging) AS packaging,
                o.reel_size, o.packaging_inferred, l.match_state,
                l.match_reason, l.raw_mpn, l.raw_manufacturer, o.fetched_at, o.stock, o.incoming, o.moq, o.order_multiple, o.price_breaks, o.currency,
                o.lead_time_days, o.lifecycle, o.discontinued, o.rohs, o.reach_affected, o.marketplace, o.product_url,
-               ps.tier, ps.next_poll_at, ps.last_polled_at, ps.error_streak, ps.last_error_code
-        FROM listings l
-        JOIN connectors c ON c.id = l.connector_id
-        LEFT JOIN offers o ON o.listing_id = l.id
-        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+               ps.tier, ps.next_poll_at, ps.last_polled_at, ps.error_streak, ps.last_error_code, {counts} AS counts
+        FROM supply_listings l
+        JOIN supply_connectors c ON c.id = l.connector_id
+        LEFT JOIN supply_offers o ON o.listing_id = l.id
+        LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = %s AND l.match_state <> 'rejected'
         ORDER BY c.display_name, l.sku
-        """,
+        """.replace("{pool}", stock.pool_sql()).replace("{counts}", counted.listing_sql()),
         (part_id,),
     ).fetchall()
 
     policy = watch_row["watch_packaging"] or "any"
-    counted = [dict(r) for r in rows if r["match_state"] in _COUNTED and r["fetched_at"] is not None]
-    combined = stock.aggregate(counted, policy) if counted else None
-    lifecycle = worst_lifecycle(Lifecycle(r["lifecycle"]) for r in counted)
+    # Status, stock, lifecycle, problem and price are the kept summary's, so the sheet and the list agree; the stock by distributor
+    # is worked out from the same listings (``counted.listing_sql`` and the watch's packaging).
+    kept = _cached(conn, conn.execute(_ROW_SELECT + "WHERE p.id = %s", [part_id]).fetchall())[part_id]
+    counting = [dict(r) for r in rows if r["counts"] and r["fetched_at"] is not None and stock.counts(r["packaging"], policy)]
+    combined = stock.aggregate(counting, policy) if counting else None
+    lifecycle = Lifecycle(kept["lifecycle"])
     names = {r["connector_id"]: r["connector_name"] for r in rows}
     providers = {r["connector_id"]: r["provider"] for r in rows}
-    problem = _problems(conn, [part_id])[part_id] if combined is None else None
+    problem = kept["problem"]
 
     def iso(value: datetime | None) -> str | None:
         return value.isoformat() if value else None
@@ -863,6 +1084,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "connector_id": r["connector_id"],
             "connector_name": r["connector_name"],
             "provider": r["provider"],
+            "test_data": registry.is_simulated(r["provider"]),
             "sku": r["sku"],
             "packaging": r["packaging"],
             "reel_size": r["reel_size"],
@@ -872,7 +1094,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "raw_manufacturer": r["raw_manufacturer"] or "",
             "match_reason": r["match_reason"] or "",
             "page_url": _page_url(r["provider"], r["sku"], r["product_url"]),
-            "counted": r["match_state"] in _COUNTED,
+            "counted": r["match_state"] in counted.STATES,
             "offer": {
                 "fetched_at": iso(r["fetched_at"]),
                 "stock": r["stock"],
@@ -899,7 +1121,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         })
 
     days = history(conn, part_id, now)
-    price_view = _price_block(conn, part_id, now, [r for r in counted if not r["marketplace"]])
+    price_view = _price_block(conn, part_id, now, kept)
     ahead = outlook.outlook(
         lifecycle,
         [item["offer"] for item in listings if item["counted"] and item["offer"]],
@@ -919,19 +1141,20 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "packaging": _packaging_state(conn, part_id),
         "preferred_connector_id": preferences.get(conn, part_id),
         "trade": trade_marks.state(conn, part_id),
-        "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
+        "status": kept["status"],
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),
-        "stock": {
-            "total": combined.total if combined else None,
-            "by_connector": [
-                {"connector_id": cid, "connector_name": names.get(cid, ""), "provider": providers.get(cid, ""), "stock": value}
-                for cid, value in (combined.by_connector.items() if combined else [])
-            ],
-        },
+        "stock": kept["stock"],
+        "stock_by_connector": [
+            {"connector_id": cid, "connector_name": names.get(cid, ""), "provider": providers.get(cid, ""), "stock": value}
+            for cid, value in (combined.by_connector.items() if combined else [])
+        ],
         "lifecycle": lifecycle.value,
+        "fetched_at": kept["fetched_at"],
         "listings": listings,
         "history": days,
+        # Stock and price a line per distributor over the sheet's 90 days, so the sheet needs no second request for its charts.
+        "distributor_history": part_history.build(conn, part_id, now),
         "price": price_view,
         "parameters": parameters_of(conn, part_id),
         "outlook": ahead,

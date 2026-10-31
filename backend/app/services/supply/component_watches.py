@@ -1,38 +1,42 @@
-"""Watching a catalog component: its own part.
+"""Watching a catalog component: a reason to follow its main part, like a tracked project.
 
-A component watch is a standing request. ``sync`` turns it into an ordinary part watch, so the poller, alerts and the
-Parts list work as they do for any watched part. It runs when the watch is set and on the supply poll job, so a component whose
-maker or number changed is picked up without anyone returning to it. The component's packaging is applied when its part watch
-is created and when the component watch is set; a later sync leaves a packaging someone set on the part alone. Stopping a
-component watch leaves the part watch alone: it may be wanted for other reasons.
+A component watch is a standing request. ``tracking`` reads it as a ``component`` reason for the component's main part
+(``component_parts``), at the watch's tier and rate, so the poller, alerts and the Parts list work as they do for any followed
+part. When the component's maker or number changes, ``component_parts.sync_main`` moves the main part and the reason moves
+with it. Stopping a component watch takes the reason away: the part drops a tier unless something else follows it. The watch's
+packaging counts when no person's watch on the part chose one (``stock.packaging_of``).
+
+Only in a schema with the catalog: the table refers to catalog components.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any
 
-from app.services.supply import stock, tracking, watches
+from app.services.supply import component_parts, stock, tracking
 from app.services.supply.audit import actor_text, write_audit
-
-Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
-SYSTEM = "system"
+from app.services.supply.errors import Refused
 
 
-class ComponentWatchError(ValueError):
+class ComponentWatchError(Refused):
     """The request is not valid. The message is safe to show."""
+
+    code = "component_watch_error"
 
 
 def get(conn, component_id: str) -> dict[str, Any] | None:
     row = conn.execute(
-        "SELECT component_id, packaging, tier, rate, owner FROM component_watches WHERE component_id = %s", (component_id,)
+        "SELECT component_id, packaging, tier, rate, owner FROM supply_component_watches WHERE component_id = %s", (component_id,)
     ).fetchone()
     return dict(row) if row else None
 
 
-def set_watch(
-    conn, component_id: str, actor: str, identities: Identities, *, packaging: str = "any",
-    tier: int = 2, rate: str = "weekly",
-) -> dict[str, Any]:
+def _main_part(conn, component_id: str) -> str | None:
+    row = conn.execute("SELECT part_id FROM component_parts WHERE component_id = %s AND role = 'main'", (component_id,)).fetchone()
+    return row["part_id"] if row else None
+
+
+def set_watch(conn, component_id: str, actor: str, *, packaging: str = "any", tier: int = 2, rate: str = "weekly") -> dict[str, Any]:
     actor = actor_text(actor)
     if packaging not in stock.POLICIES:
         raise ComponentWatchError("Packaging is any, cut_tape, tape_reel, tray, tube or bulk.")
@@ -40,78 +44,59 @@ def set_watch(
         tier, rate = tracking.check_tier(tier, rate)
     except tracking.TrackingError as exc:
         raise ComponentWatchError(str(exc)) from exc
-    maker, mpn = identities([component_id]).get(component_id, ("", ""))
-    if not maker.strip() or not mpn.strip():
+    named = conn.execute(
+        """
+        SELECT r.manufacturer, r.mpn FROM components c JOIN component_revisions r ON r.id = c.current_revision_id
+        WHERE c.id = %s AND c.is_active = 1
+        """,
+        (component_id,),
+    ).fetchone() if component_parts.library_present(conn) else None
+    if named is None or not (named["manufacturer"] or "").strip() or not (named["mpn"] or "").strip():
         raise ComponentWatchError("The component needs a manufacturer and a part number before it can be watched.")
+    before = _main_part(conn, component_id)
     conn.execute(
         """
-        INSERT INTO component_watches (component_id, packaging, tier, rate, owner, created_by)
+        INSERT INTO supply_component_watches (component_id, packaging, tier, rate, owner, created_by)
         VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (component_id) DO UPDATE SET packaging = EXCLUDED.packaging, tier = EXCLUDED.tier, rate = EXCLUDED.rate
         """,
         (component_id, packaging, tier, rate, actor, actor),
     )
-    write_audit(conn, actor, "component_watch.set", component_id,
-                {"packaging": packaging, "tier": tier, "rate": rate},
-                subject_kind="component")
-    sync_component(conn, component_id, identities, actor, apply_packaging=True)
+    write_audit(conn, actor, "component_watch.set", component_id, {"packaging": packaging, "tier": tier, "rate": rate}, subject_kind="component")
+    # The main part follows the revision now rather than at the next housekeeping. A number several makers share waits for a person;
+    # the reason counts once the main part is settled.
+    component_parts.sync_main(conn, [component_id], actor=actor)
+    tracking.recompute(conn, [part for part in (before, _main_part(conn, component_id)) if part])
     return get(conn, component_id) or {}
 
 
 def remove_watch(conn, component_id: str, actor: str) -> None:
     actor = actor_text(actor)
-    conn.execute("DELETE FROM component_watches WHERE component_id = %s", (component_id,))
+    if conn.execute("DELETE FROM supply_component_watches WHERE component_id = %s RETURNING component_id", (component_id,)).fetchone() is None:
+        return
     write_audit(conn, actor, "component_watch.remove", component_id, {}, subject_kind="component")
+    part_id = _main_part(conn, component_id)
+    if part_id:
+        tracking.recompute(conn, [part_id])
 
 
-def forget_part(conn, part_id: str) -> int:
-    """Drop the component watches whose component is this part, so stopping a part's tracking is not undone by the next sync. Returns how many."""
+def remove_for_part(conn, part_id: str, actor: str) -> list[str]:
+    """Stop the watches of the components whose main part this is (a person stopped following the part). Returns their ids."""
 
-    from app.services.supply import catalog_read, parts
-
-    ids = [row["component_id"] for row in conn.execute("SELECT component_id FROM component_watches").fetchall()]
-    if not ids:
-        return 0
-    try:
-        named = catalog_read.identities(ids)
-    except Exception:  # noqa: BLE001 - the catalog may be unavailable; the watch stays and can be stopped from the component
-        return 0
-    gone = []
-    for component_id, (maker, mpn) in named.items():
-        part = parts.find_part(conn, maker, mpn) if maker and mpn else None
-        if part is not None and part.id == part_id:
-            gone.append(component_id)
-    if gone:
-        conn.execute("DELETE FROM component_watches WHERE component_id = ANY(%s)", (gone,))
-    return len(gone)
-
-
-def sync_component(conn, component_id: str, identities: Identities, actor: str = SYSTEM, *, apply_packaging: bool = False) -> int:
-    """Make sure the component's part is watched. Returns how many part watches were added (0 or 1).
-
-    A new part watch takes the component's packaging. An existing one keeps its own unless ``apply_packaging`` is
-    set, which is when a person has just set the component watch.
-    """
-
-    row = get(conn, component_id)
-    if row is None:
-        return 0
-    wanted: list[tuple[str, str, int, str]] = []
-    maker, mpn = identities([component_id]).get(component_id, ("", ""))
-    if maker.strip() and mpn.strip():
-        wanted.append((maker, mpn, row["tier"], row["rate"]))
-    added = 0
-    for maker, mpn, tier, rate in wanted:
-        with conn.transaction():
-            record, created = watches.add_watch(conn, maker, mpn, actor, tier=tier, rate=rate, origin="component")
-            if (created or apply_packaging) and record.packaging != row["packaging"]:
-                watches.update_watch(conn, record.id, actor, packaging=row["packaging"])
-        added += 1 if created else 0
-    return added
-
-
-def sync_all(conn, identities: Identities) -> int:
-    added = 0
-    for row in conn.execute("SELECT component_id FROM component_watches ORDER BY component_id").fetchall():
-        added += sync_component(conn, row["component_id"], identities)
-    return added
+    if not component_parts.library_present(conn):
+        return []
+    actor = actor_text(actor)
+    gone = [
+        row["component_id"]
+        for row in conn.execute(
+            """
+            DELETE FROM supply_component_watches w USING component_parts cp
+            WHERE cp.component_id = w.component_id AND cp.role = 'main' AND cp.part_id = %s
+            RETURNING w.component_id
+            """,
+            (part_id,),
+        ).fetchall()
+    ]
+    for component_id in gone:
+        write_audit(conn, actor, "component_watch.remove", component_id, {"part_id": part_id}, subject_kind="component")
+    return gone

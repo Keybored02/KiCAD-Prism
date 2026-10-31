@@ -7,6 +7,7 @@ import sys
 import unittest
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -55,6 +56,8 @@ class ReleaseCheckTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        from app.core.errors import install_error_handlers
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_release.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -69,9 +72,9 @@ class ReleaseCheckTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("waivers", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_attention_decisions", "supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
 
     def part(self, mpn: str, *, stock: int, lifecycle: str = "active") -> str:
@@ -79,9 +82,9 @@ class ReleaseCheckTests(unittest.TestCase):
             part = self.parts.ensure_part(conn, "Acme", mpn, "seed@example.com")
             listing_id = uuid.uuid4().hex
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact')",
                 (listing_id, self.cid, f"S-{mpn}", part.id))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)", (listing_id, NOW, stock, lifecycle))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, lifecycle) VALUES (%s, %s, %s, %s)", (listing_id, NOW, stock, lifecycle))
         return part.id
 
     def bom(self):
@@ -97,7 +100,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.part("OBS-1", stock=0, lifecycle="obsolete")
         with self.store.connection() as conn:
             result = self.release_check.check(conn, lines(self.bom()), NOW)
-        self.assertEqual((result["parts"], result["tracked"], result["not_tracked"]), (3, 2, 1), "a line with no number is not a line")
+        self.assertEqual((result["parts"], result["tracked"], result["not_tracked"]), (4, 2, 2), "a line with no number is a line, and not tracked")
         self.assertEqual(result["status"], "fatal")
         self.assertEqual(result["needing_a_look"], 1)
         (attention,) = result["attention"]
@@ -114,7 +117,7 @@ class ReleaseCheckTests(unittest.TestCase):
         from app.services.supply.vocabulary import Status
 
         with self.store.connection() as conn:
-            part_id = conn.execute("SELECT id FROM parts").fetchone()["id"]
+            part_id = conn.execute("SELECT id FROM supply_parts").fetchone()["id"]
             waivers.propose(conn, part_id, Finding("obsolete", Status.FATAL, "x", "obsolete"), "Last-time stock bought", "qa@example.com", approver=True)
             result = self.release_check.check(conn, lines([component("U1", "Acme", "OBS-1")]), NOW)
         self.assertEqual((result["needing_a_look"], result["status"]), (0, "ok"))
@@ -145,16 +148,16 @@ class ReleaseCheckTests(unittest.TestCase):
             as_csv = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/bld_1/compliance", user=self.users["qa"], query="format=csv")
             missing = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/nope/compliance", user=self.users["qa"])
             with self.store.connection() as conn:
-                conn.execute("ALTER TABLE release_snapshots DISABLE TRIGGER trg_release_snapshots_frozen")
-                conn.execute("UPDATE release_snapshots SET compliance = NULL")
-                conn.execute("ALTER TABLE release_snapshots ENABLE TRIGGER trg_release_snapshots_frozen")
+                conn.execute("ALTER TABLE supply_release_snapshots DISABLE TRIGGER trg_supply_release_snapshots_frozen")
+                conn.execute("UPDATE supply_release_snapshots SET compliance = NULL")
+                conn.execute("ALTER TABLE supply_release_snapshots ENABLE TRIGGER trg_supply_release_snapshots_frozen")
             old = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/bld_1/compliance", user=self.users["qa"])
         self.assertEqual((frozen.status, frozen.json["tag"], len(frozen.json["draft"]["parts"])), (200, "v1", 1))
         self.assertEqual((as_csv.status, as_csv.headers["content-type"].startswith("text/csv")), (200, True))
         self.assertIn("GOOD-1", as_csv.text)
         self.assertEqual((missing.status, old.status), (404, 404))
         with self.store.connection() as conn, self.assertRaises(Exception) as caught:
-            conn.execute("UPDATE release_snapshots SET tag = 'v2'")
+            conn.execute("UPDATE supply_release_snapshots SET tag = 'v2'")
         self.assertIn("cannot be changed", str(caught.exception))
         with self.assertRaises(self.release_check.SnapshotNotFound), self.store.connection() as conn:
             self.release_check.get_snapshot(conn, "prj_1", "missing")
@@ -191,37 +194,37 @@ class ReleaseCheckTests(unittest.TestCase):
             response = _request(self.app, "POST", "/api/supply/projects/prj_5/release-builds/b1/read-bom", user=self.users["qa"])
         self.assertEqual((response.status, response.json["parts"], response.json["without_number"]), (200, 2, 1))
         with self.store.connection() as conn:
-            kept = conn.execute("SELECT mpn, quantity FROM bom_usage WHERE project_id = 'prj_5' ORDER BY mpn").fetchall()
+            kept = conn.execute("SELECT mpn, quantity FROM supply_bom_usage WHERE project_id = 'prj_5' ORDER BY mpn").fetchall()
             self.assertEqual([(r["mpn"], r["quantity"]) for r in kept], [("GOOD-1", 2), ("OBS-1", 1)])
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM tracked_projects").fetchone()["n"], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_tiers").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_tracked_projects").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM supply_part_tiers").fetchone()["n"], 0)
         viewer = _request(self.app, "POST", "/api/supply/projects/prj_5/release-builds/b1/read-bom", user=self.users["viewer"])
         self.assertEqual(viewer.status, 403)
 
-    def test_the_project_health_rolls_up_the_stored_bom_lines(self) -> None:
+    def test_the_project_page_rolls_up_the_stored_bom_lines(self) -> None:
         from app.services.supply import usage
 
         self.part("GOOD-1", stock=5000)
         project = SimpleNamespace(id="prj_9")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            self.assertEqual(self.request("prj_9/bom-health").json, {"available": False})
+            self.assertFalse(self.request("prj_9/supply").json["available"])
             with self.store.connection() as conn:
                 usage.store_project(conn, "prj_9", "Nine", "rev1", usage.lines_from_components([
                     component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
                 ]), NOW)
-            response = self.request("prj_9/bom-health", query="build_quantity=10")
+            response = self.request("prj_9/supply", query="build_quantity=10")
         self.assertEqual(response.status, 200, response.text)
         rollup = response.json["rollup"]
         self.assertEqual((response.json["available"], rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["can_build"]), (True, 2, 1, 1, 2500))
         self.assertEqual(rollup["health_status"], "ok")
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_9', 'Lite', 'k', 'Acme', 'GOOD-1', 1)")
+                "INSERT INTO supply_bom_usage (project_id, variant, line_key, manufacturer, mpn, match_key, quantity) VALUES ('prj_9', 'Lite', 'k', 'Acme', 'GOOD-1', '', 1)")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
-            lite = self.request("prj_9/bom-health", query="variant=Lite").json
-            nothing = self.request("prj_9/bom-health", query="variant=Nope").json
+            lite = self.request("prj_9/supply", query="variant=Lite").json
+            nothing = self.request("prj_9/supply", query="variant=Nope").json
         self.assertEqual((lite["available"], lite["variant"], lite["variants"], lite["rollup"]["lines"]), (True, "Lite", ["Lite"], 1))
-        self.assertEqual(nothing, {"available": False})
+        self.assertFalse(nothing["available"])
 
     def test_the_project_page_lists_parts_releases_and_what_changed_since(self) -> None:
         from app.services.supply import usage
@@ -234,11 +237,11 @@ class ReleaseCheckTests(unittest.TestCase):
                 component("R1", "Acme", "GOOD-1"), component("U1", "Acme", "FLAKY-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
             conn.execute(
-                "INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment) "
+                "INSERT INTO supply_release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment) "
                 "VALUES ('s1', 'prj_8', 'b1', 'v1', 'abc', 'a@example.com', 9.0, 'ok', %s::jsonb)",
                 ('{"parts": 2, "needing_a_look": 0, "lines": [{"part_id": "%s", "manufacturer": "Acme", "mpn": "FLAKY-1", "status": "ok"}]}' % flaky,),
             )
-            conn.execute("UPDATE offers SET lifecycle = 'obsolete', stock = 0 WHERE listing_id IN (SELECT id FROM listings WHERE part_id = %s)", (flaky,))
+            conn.execute("UPDATE supply_offers SET lifecycle = 'obsolete', stock = 0 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (flaky,))
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             body = self.request("prj_8/supply").json
         self.assertTrue(body["available"])
@@ -259,7 +262,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.part("OBS-1", stock=0, lifecycle="obsolete")
         project = SimpleNamespace(id="prj_55", name="Fifty five")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
             usage.store_project(conn, "prj_55", "Fifty five", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("U1", "Acme", "WARN-1"), component("U2", "Acme", "OBS-1"),
             ]), NOW)
@@ -278,6 +281,28 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(float(good["line_cost"]), 10.0, "20 pieces at 0.50")
         self.assertEqual(good["alerts"], 0)
 
+    def test_a_line_bought_in_another_currency_gives_its_unit_price_in_both(self) -> None:
+        from app.services.supply import usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_56", name="Fifty six")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_fx_rates")
+
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'USD', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("INSERT INTO supply_fx_rates (day, currency, per_eur, source) VALUES (CURRENT_DATE, 'USD', 1.25, 'manual')")
+            usage.store_project(conn, "prj_56", "Fifty six", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            page = self.request("prj_56/supply", query="build_quantity=20").json
+        (line,) = page["parts"]
+        self.assertEqual(page["rollup"]["currency"], "EUR")
+        self.assertEqual((line["unit_price"], line["unit_currency"]), ("0.5", "USD"), "as the distributor quotes it")
+        self.assertEqual((float(line["unit_price_in_total"]), float(line["line_cost"])), (0.4, 8.0), "20 at 0.40 EUR")
+
     def test_a_tracked_projects_cost_is_stored_once_a_day_and_shown_on_its_page(self) -> None:
         from app.services.supply import project_supply, usage
 
@@ -286,7 +311,7 @@ class ReleaseCheckTests(unittest.TestCase):
 
         def clear() -> None:
             with self.store.connection() as conn:
-                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                for table in ("supply_tracked_projects", "supply_bom_cost_history", "supply_bom_usage_projects"):
                     conn.execute(f"DELETE FROM {table}")
 
         clear()
@@ -294,8 +319,8 @@ class ReleaseCheckTests(unittest.TestCase):
         with self.store.connection() as conn:
             usage.store_project(conn, "prj_7", "Seven", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
             self.assertEqual(project_supply.snapshot_costs(conn, NOW), 0, "a project nobody tracks has no history")
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
-            conn.execute("INSERT INTO tracked_projects (project_id, variants, tracked_by) VALUES ('prj_7', '{\"\"}', 'a@example.com')")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by) VALUES ('prj_7', '{\"\"}', 'a@example.com')")
             self.assertEqual(project_supply.snapshot_costs(conn, NOW), 1)
             self.assertEqual(project_supply.snapshot_costs(conn, NOW), 0, "once a day")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
@@ -304,21 +329,21 @@ class ReleaseCheckTests(unittest.TestCase):
 
     def test_the_workspaces_spares_are_the_pages_unless_it_names_its_own(self) -> None:
         from app.services.supply import usage
-        from app.services.supply.assessment import settings_store
+        from app.services.supply import settings as supply_settings
 
         self.part("GOOD-1", stock=5000)
         project = SimpleNamespace(id="prj_56", name="Fifty six")
         with self.store.connection() as conn:
             usage.store_project(conn, "prj_56", "Fifty six", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
-            settings_store.save(conn, {"spares_mode": "flat", "spares_percent": 10}, "admin@example.com")
+            supply_settings.save_form(conn, {"spares_mode": "flat", "spares_percent": 10}, "admin@example.com")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             page = self.request("prj_56/supply", query="build_quantity=10").json
             own = self.request("prj_56/supply", query="build_quantity=10&spares=0").json
         self.assertEqual((page["attrition_percent"], page["parts"][0]["need"]), (10.0, 11), "10 pieces and 10%")
         self.assertEqual((own["attrition_percent"], own["parts"][0]["need"]), (0.0, 10))
         with self.store.connection() as conn:
-            settings_store.save(conn, {"spares_mode": "package"}, "admin@example.com")
-            self.assertIsNone(settings_store.load(conn).default_attrition())
+            supply_settings.save_form(conn, {"spares_mode": "package"}, "admin@example.com")
+            self.assertIsNone(supply_settings.load(conn).spares.default_attrition())
 
     def test_the_cost_curve_equals_single_lookups_and_the_money_goes_to_the_biggest_lines(self) -> None:
         from app.services.supply import bom_lookup, usage
@@ -327,7 +352,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.part("WARN-1", stock=50)
         project = SimpleNamespace(id="prj_57", name="Fifty seven")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.4\"], [1000, \"0.2\"]]'::jsonb")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.4\"], [1000, \"0.2\"]]'::jsonb")
             usage.store_project(conn, "prj_57", "Fifty seven", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("U1", "Acme", "WARN-1"),
             ]), NOW)
@@ -360,7 +385,7 @@ class ReleaseCheckTests(unittest.TestCase):
 
         def clear() -> None:
             with self.store.connection() as conn:
-                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                for table in ("supply_tracked_projects", "supply_bom_cost_history", "supply_bom_usage_projects"):
                     conn.execute(f"DELETE FROM {table}")
 
         clear()
@@ -373,12 +398,33 @@ class ReleaseCheckTests(unittest.TestCase):
             usage.store_project(conn, "prj_58", "Fifty eight", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
             for back, cost, priced in rows:
                 conn.execute(
-                    "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                    "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
                     "VALUES ('prj_58', '', %s, %s, 'EUR', 150, %s, '{}'::jsonb, 100)", (today - timedelta(days=4 - back), cost, priced))
             kept, left_out = cost_history.series(conn, "prj_58", "", 30)
         self.assertEqual([float(row["cost_per_board"]) for row in kept], [300.0, 310.0, 305.0], "the 24-line day and the day that read one price wrong are out")
         self.assertEqual([(row["day"], float(row["cost_per_board"])) for row in left_out], [(today - timedelta(days=3), 1476446.14)])
         self.assertIsNone(cost_history.change_percent(kept), "no kept day is 30 days before the latest")
+
+    def test_a_changed_currency_starts_a_new_cost_series(self) -> None:
+        from datetime import date, timedelta
+
+        from app.services.supply import cost_history
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_bom_cost_history")
+
+        clear()
+        self.addCleanup(clear)
+        today = date(2026, 3, 1)
+        with self.store.connection() as conn:
+            for back, cost, currency in ((40, "12.0000", "EUR"), (35, "12.5000", "EUR"), (0, "18.0000", "USD")):
+                conn.execute(
+                    "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, rollup, build_quantity) "
+                    "VALUES ('prj_59', '', %s, %s, %s, 1, 1, '{}'::jsonb, 100)", (today - timedelta(days=back), cost, currency))
+            kept, _left_out = cost_history.series(conn, "prj_59", "", 90)
+        self.assertEqual([(row["currency"], float(row["cost_per_board"])) for row in kept], [("USD", 18.0)], "the EUR days are another series")
+        self.assertIsNone(cost_history.change_percent(kept), "18 USD is not compared with 12 EUR")
 
     def test_a_tracked_project_is_costed_for_its_usual_build_and_a_changed_one_starts_a_new_series(self) -> None:
         from datetime import timedelta
@@ -390,28 +436,56 @@ class ReleaseCheckTests(unittest.TestCase):
 
         def clear() -> None:
             with self.store.connection() as conn:
-                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                for table in ("supply_tracked_projects", "supply_bom_cost_history", "supply_bom_usage_projects"):
                     conn.execute(f"DELETE FROM {table}")
 
         clear()
         self.addCleanup(clear)
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
             usage.store_project(conn, "prj_44", "Forty four", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
-            conn.execute("INSERT INTO tracked_projects (project_id, variants, tracked_by) VALUES ('prj_44', '{\"\"}', 'a@example.com')")
-            self.assertEqual(conn.execute("SELECT build_quantity FROM tracked_projects").fetchone()["build_quantity"], 100, "100 boards unless said")
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by) VALUES ('prj_44', '{\"\"}', 'a@example.com')")
+            self.assertEqual(conn.execute("SELECT build_quantity FROM supply_tracked_projects").fetchone()["build_quantity"], 100, "100 boards unless said")
             project_supply.snapshot_costs(conn, NOW - timedelta(days=2))
             tracking.set_usual_build(conn, "prj_44", 1, "a@example.com")
             project_supply.snapshot_costs(conn, NOW - timedelta(days=1))
             project_supply.snapshot_costs(conn, NOW)
             with self.assertRaises(tracking.TrackingError):
                 tracking.set_usual_build(conn, "prj_44", 0, "a@example.com")
-            rows = conn.execute("SELECT build_quantity, cost_per_board FROM bom_cost_history ORDER BY day").fetchall()
+            rows = conn.execute("SELECT build_quantity, cost_per_board FROM supply_bom_cost_history ORDER BY day").fetchall()
         self.assertEqual([(row["build_quantity"], float(row["cost_per_board"])) for row in rows], [(100, 0.25), (1, 0.5), (1, 0.5)])
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             page = self.request("prj_44/supply").json
         self.assertEqual((page["build_quantity"], page["usual_build"]), (1, 1), "without a size the page opens at the usual build")
         self.assertEqual([point["cost_per_board"] for point in page["cost_history"]], ["0.5000", "0.5000"], "the 100-board days are another series")
+
+    def test_a_tracked_project_row_shows_the_figures_its_page_shows_now(self) -> None:
+        from app.services.supply import parts_view, project_supply, tracking, usage
+
+        self.part("GOOD-1", stock=5000)
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("supply_tracked_projects", "supply_bom_cost_history", "supply_bom_usage_projects"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            lines = usage.lines_from_components([component("R1", "Acme", "GOOD-1"), component("J1", "", "")])
+            usage.store_project(conn, "prj_46", "Forty six", "rev1", lines, NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_46', '{\"\"}', 'a@example.com', 1)")
+
+            def row() -> dict:
+                groups = parts_view.part_groups(conn, scope="all")["groups"]
+                return next(group["stats"] for group in groups if group["project_id"] == "prj_46")
+
+            page = project_supply.overview(conn, "prj_46")["rollup"]
+            stats = row()
+            self.assertEqual((stats["cost_per_board"], stats["boards"], stats["unchecked"]), (page["cost_per_board"], page["can_build"], 1), "no day was stored")
+            tracking.set_usual_build(conn, "prj_46", 100, "a@example.com")
+            self.assertEqual((row()["cost_per_board"], row()["build_quantity"]), ("0.2500", 100), "a new usual build shows at once")
 
     def test_a_changed_usual_build_works_today_out_again_and_a_project_keeps_its_own_spares(self) -> None:
         from app.services.supply import project_supply, tracking, usage
@@ -421,25 +495,25 @@ class ReleaseCheckTests(unittest.TestCase):
 
         def clear() -> None:
             with self.store.connection() as conn:
-                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                for table in ("supply_tracked_projects", "supply_bom_cost_history", "supply_bom_usage_projects"):
                     conn.execute(f"DELETE FROM {table}")
 
         clear()
         self.addCleanup(clear)
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
             usage.store_project(conn, "prj_45", "Forty five", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
-            conn.execute("INSERT INTO tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_45', '{\"\"}', 'a@example.com', 1)")
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_45', '{\"\"}', 'a@example.com', 1)")
             project_supply.snapshot_costs(conn, NOW)
             tracking.set_usual_build(conn, "prj_45", 100, "a@example.com")
             project_supply.snapshot_costs(conn, NOW)
-            rows = conn.execute("SELECT build_quantity, cost_per_board FROM bom_cost_history").fetchall()
+            rows = conn.execute("SELECT build_quantity, cost_per_board FROM supply_bom_cost_history").fetchall()
             self.assertEqual([(row["build_quantity"], float(row["cost_per_board"])) for row in rows], [(100, 0.25)], "today's row is for the new size")
             for bad in ("-1", "101", "lots"):
                 with self.assertRaises(tracking.TrackingError):
                     tracking._spares_text(bad)
             self.assertEqual((tracking._spares_text(""), tracking._spares_text("AUTO"), tracking._spares_text("10")), (None, "auto", "10"))
-            conn.execute("UPDATE tracked_projects SET spares = '10' WHERE project_id = 'prj_45'")
+            conn.execute("UPDATE supply_tracked_projects SET spares = '10' WHERE project_id = 'prj_45'")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
             own = self.request("prj_45/supply").json
             asked = self.request("prj_45/supply", query="spares=0").json
@@ -455,7 +529,7 @@ class ReleaseCheckTests(unittest.TestCase):
 
         self.part("GOOD-1", stock=5000)
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
             usage.store_project(conn, "prj_6", "Six", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
@@ -507,7 +581,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.part("GOOD-1", stock=5000)
         project = SimpleNamespace(id="prj_7", name="Seven")
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
             usage.store_project(conn, "prj_7", "Seven", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
             ]), NOW)
@@ -539,7 +613,7 @@ class ReleaseCheckTests(unittest.TestCase):
         known = self.part("GOOD-1", stock=10)
         self.part("PLAIN-1", stock=10)
         with self.store.connection() as conn:
-            conn.execute("UPDATE offers SET rohs = TRUE, reach_affected = FALSE WHERE listing_id IN (SELECT id FROM listings WHERE part_id = %s)", (known,))
+            conn.execute("UPDATE supply_offers SET rohs = TRUE, reach_affected = FALSE WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (known,))
             facts.replace(conn, known, "digikey", [("rohs_status", "RoHS Compliant By Exemption"), ("reach_status", "REACH Unaffected")], NOW)
             usage.store_project(conn, "prj_7", "Seven", "rev1", usage.lines_from_components([
                 component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("U1", "Acme", "PLAIN-1"),
@@ -555,7 +629,8 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(by_mpn["PLAIN-1"]["rohs_stated"], "")
         self.assertIn("No RoHS statement from any distributor.", by_mpn["PLAIN-1"]["gaps"])
         self.assertIn("Prism does not track this part, so nothing is known about it.", by_mpn["=EVIL()"]["gaps"])
-        self.assertEqual(draft["summary"]["parts"], 3, "the line without a part number is not a distinct part")
+        self.assertEqual(draft["summary"]["parts"], 4, "the line without a part number is listed, with nothing known about it")
+        self.assertIn("No part number on the BOM line.", by_mpn[""]["gaps"])
         self.assertIn("'=EVIL()", csv_text)
         self.assertNotIn(",=EVIL()", csv_text)
         self.assertEqual(compliance_draft.to_csv({"parts": []}).strip(), ",".join(compliance_draft.HEADER))
@@ -581,15 +656,15 @@ class ReleaseCheckTests(unittest.TestCase):
                 mock.patch("app.services.supply.release_snapshot.catalog_read.component_ids_by_part", return_value={}):
             queue = mock.Mock()
             self.assertTrue(release_snapshot.queue("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com", job_service=queue))
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_9")["state"], "queued")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "running")
             self.assertEqual(queue.enqueue.call_args.kwargs["artifact_key"], "supply-snapshot:bld_9")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken")
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_9")["state"], "taken")
+            self.assertEqual(self.status_of("prj_1", "bld_9")["state"], "done")
             self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken", "asking twice is harmless")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_1")):
             response = self.request("prj_1/releases/bld_9/supply")
             status = self.request("prj_1/releases/bld_9/supply-status")
-        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "taken"))
+        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "done"))
 
     def test_a_build_without_a_bom_records_why_there_is_no_snapshot(self) -> None:
         from app.services.supply import release_snapshot, release_source
@@ -597,8 +672,8 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.services.supply.release_snapshot.supply_store", self.store), \
                 mock.patch("app.services.supply.release_snapshot.release_source.build_bom_text", side_effect=release_source.NoBuildBom("This build exported no BOM file.")):
             self.assertEqual(release_snapshot.take("prj_1", "bld_x", "vx", "c" * 40, "qa@example.com"), "failed")
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_x"), {"state": "failed", "reason": "This build exported no BOM file."})
-        self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "never"), {"state": "none", "reason": ""})
+            self.assertEqual(self.status_of("prj_1", "bld_x"), {"state": "failed", "done": 0, "total": 1, "failed": 1, "reason": "This build exported no BOM file."})
+        self.assertEqual(self.status_of("prj_1", "never"), {"state": "none", "done": 0, "total": 0, "failed": 0, "reason": ""})
 
     def test_queueing_never_raises_and_says_when_it_could_not(self) -> None:
         from app.services.supply import release_snapshot
@@ -607,7 +682,130 @@ class ReleaseCheckTests(unittest.TestCase):
             broken = mock.Mock()
             broken.enqueue.side_effect = RuntimeError("down")
             self.assertFalse(release_snapshot.queue("prj_1", "bld_q", "vq", "d" * 40, "qa@example.com", job_service=broken))
-            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_q")["state"], "failed")
+            self.assertEqual(self.status_of("prj_1", "bld_q")["state"], "failed")
 
-    def conn(self):
-        return self.store.connection().__enter__()
+    def status_of(self, project_id: str, build_id: str) -> dict:
+        from app.services.supply import release_snapshot
+
+        # Closed before returning: a connection left in a transaction blocks dropping the test schema.
+        with self.store.connection() as conn:
+            return release_snapshot.status_of(conn, project_id, build_id)
+
+
+@unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply tests")
+class KeptRollupTests(unittest.TestCase):
+    """A tracked project's usual-build rollup is kept, and worked out again only after something it is made from changed."""
+
+    setUpClass = ReleaseCheckTests.__dict__["setUpClass"]
+    tearDownClass = ReleaseCheckTests.__dict__["tearDownClass"]
+    setUp = ReleaseCheckTests.setUp
+    part = ReleaseCheckTests.part
+
+    def track(self, project_id: str, bom) -> dict:
+        from app.services.supply import tracking, usage
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("supply_tracked_projects", "supply_bom_usage_projects", "supply_project_rollups"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"], [100, \"0.25\"]]'::jsonb")
+            usage.store_project(conn, project_id, project_id, "rev1", lines(bom), NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES (%s, '{\"\"}', 'a@example.com', 10)", (project_id,))
+            return tracking.tracked_project(conn, project_id)
+
+    def rollup(self, project: dict, *, fresh: bool):
+        """The rollup, asserting whether it was worked out (``fresh``) or read as kept."""
+
+        from app.services.supply import bom_lookup, project_supply
+
+        with mock.patch.object(bom_lookup, "load", wraps=bom_lookup.load) as load, self.store.connection() as conn:
+            found = project_supply.usual_rollup(conn, project, "")
+        self.assertEqual(load.called, fresh, "worked out" if fresh else "read as kept")
+        return found
+
+    def test_a_kept_rollup_is_read_until_one_of_its_parts_changes(self) -> None:
+        part_id = self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k1", [component("R1", "Acme", "GOOD-1"), component("J1")])
+        first = self.rollup(project, fresh=True)
+        self.assertEqual(self.rollup(project, fresh=False), first, "nothing changed")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET stock = 3 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (part_id,))
+        changed = self.rollup(project, fresh=True)
+        self.assertEqual((first["can_build"], changed["can_build"]), (5000, 3))
+        self.assertEqual(changed["not_tracked"], 1, "the line with no number")
+
+    def test_a_new_usual_build_or_a_workspace_setting_makes_it_stale(self) -> None:
+        from app.services.supply import tracking
+
+        self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k2", [component("R1", "Acme", "GOOD-1")])
+        self.rollup(project, fresh=True)
+        with self.store.connection() as conn:
+            tracking.set_usual_build(conn, "prj_k2", 20, "a@example.com")
+            project = tracking.tracked_project(conn, "prj_k2")
+        self.rollup(project, fresh=True)
+        self.rollup(project, fresh=False)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO supply_dirty (kind, key) VALUES ('rollup', '*')")
+        self.rollup(project, fresh=True)
+
+    def test_a_kept_rollup_reads_as_a_fresh_one_and_the_dashboard_row_matches_it(self) -> None:
+        from app.services.supply import parts_view
+
+        self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k3", [component("R1", "Acme", "GOOD-1")])
+        fresh = self.rollup(project, fresh=True)
+        self.assertEqual(self.rollup(project, fresh=False), fresh)
+        from app.services.supply import dashboard
+
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO supply_part_tiers (part_id, tier, rate) SELECT id, 1, 'daily' FROM supply_parts ON CONFLICT DO NOTHING")
+            (row,) = [group for group in parts_view.part_groups(conn, scope="watched")["groups"] if group["project_id"] == "prj_k3"]
+            (dash,) = [item for item in dashboard.build(conn, NOW)["projects"] if item["project_id"] == "prj_k3"]
+        self.assertEqual((row["stats"]["boards"], row["stats"]["cost_per_board"]), (fresh["can_build"], format(Decimal(fresh["cost_per_board"]), "f")))
+        self.assertEqual((dash["count"], dash["statuses"], dash["stats"]), (row["count"], row["statuses"], row["stats"]), "the Dashboard row is the Projects row")
+
+    def test_a_project_the_caller_may_not_see_is_left_out_of_the_dashboard(self) -> None:
+        import json
+
+        from app.services.supply import dashboard, usage
+
+        self.part("GOOD-1", stock=5000)
+        self.track("prj_seen", [component("R1", "Acme", "GOOD-1")])
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM supply_bom_cost_history WHERE project_id IN ('prj_seen', 'prj_hidden')")
+
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            usage.store_project(conn, "prj_hidden", "Private customer board", "rev1", lines([component("R1", "Acme", "GOOD-1")]), NOW)
+            conn.execute("INSERT INTO supply_tracked_projects (project_id, variants, tracked_by, build_quantity) VALUES ('prj_hidden', '{\"\"}', 'a@example.com', 10)")
+            for project_id in ("prj_seen", "prj_hidden"):
+                conn.execute(
+                    "INSERT INTO supply_bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced, build_quantity) "
+                    "VALUES (%s, '', %s, 1, 'EUR', 1, 1, 10)", (project_id, NOW.date()),
+                )
+            with mock.patch.object(usage, "visible_project_ids", return_value={"prj_seen"}):
+                built = dashboard.build(conn, NOW, role="designer")
+            everyone = dashboard.build(conn, NOW)
+        self.assertEqual([row["project_id"] for row in built["projects"]], ["prj_seen"])
+        self.assertEqual([row["project_id"] for row in built["project_costs"]], ["prj_seen"])
+        self.assertNotIn("Private customer board", json.dumps(built, default=str))
+        self.assertEqual(sorted(row["project_id"] for row in everyone["projects"]), ["prj_hidden", "prj_seen"], "internal callers see all")
+
+    def test_trimming_keeps_the_marks_a_kept_rollup_still_depends_on(self) -> None:
+        from app.services.supply import retention
+
+        part_id = self.part("GOOD-1", stock=5000)
+        project = self.track("prj_k4", [component("R1", "Acme", "GOOD-1")])
+        self.rollup(project, fresh=True)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET stock = 7 WHERE listing_id IN (SELECT id FROM supply_listings WHERE part_id = %s)", (part_id,))
+        with self.store.connection() as conn:
+            retention.trim_summaries(conn)
+        self.assertEqual(self.rollup(project, fresh=True)["can_build"], 7)

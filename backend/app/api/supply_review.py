@@ -6,34 +6,22 @@ spelling and pinning or rejecting a listing follow catalog QA (admin, qa).
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Callable, Optional, TypeVar
+from functools import partial
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from fastapi import APIRouter, Depends
 
 from app.api import supply_connectors
+from app.api.supply_call import run_supply
+from app.api.supply_review_models import (
+    AliasConfirmed, AliasUndone, ChoiceRequest, ConfirmAliasRequest, ListingsRejected, MakerChosen, NumbersCounted, NumbersRequest, PinRequest,
+    RejectManyRequest, SettleUndone, SupplyReviewQueue,
+)
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_tracker
 from app.services.supply import discovery, parts, review, settle
 
 router = APIRouter(prefix="/api/supply/review", tags=["supply"])
-
-T = TypeVar("T")
-
-
-class ConfirmAliasRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    alias_key: str = Field(min_length=1, max_length=200)
-    # Map to a manufacturer that exists, or name one to create. Exactly one.
-    manufacturer_id: Optional[str] = Field(default=None, max_length=64)
-    new_manufacturer_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
-
-    @model_validator(mode="after")
-    def exactly_one_target(self) -> "ConfirmAliasRequest":
-        if (self.manufacturer_id is None) == (self.new_manufacturer_name is None):
-            raise ValueError("give manufacturer_id or new_manufacturer_name, not both")
-        return self
+_run = partial(run_supply, invalid="invalid_request")
 
 
 def _store():
@@ -41,24 +29,7 @@ def _store():
     return supply_connectors.service.store
 
 
-def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, (discovery.ListingNotFound, parts.PartNotFound)):
-        return HTTPException(status_code=404, detail="Not found")
-    if isinstance(exc, parts.AliasError):
-        return HTTPException(status_code=400, detail={"code": "alias_error", "message": str(exc)})
-    if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)})
-    raise exc
-
-
-async def _run(call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except Exception as exc:
-        raise _http_error(exc) from exc
-
-
-@router.get("")
+@router.get("", response_model=SupplyReviewQueue)
 async def get_review_queue(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -67,13 +38,7 @@ async def get_review_queue(_user: AuthenticatedUser = Depends(require_supply_rea
     return await _run(read)
 
 
-class ChoiceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    key: str = Field(min_length=1, max_length=200)
-
-
-@router.post("/choices/{part_id}/choose")
+@router.post("/choices/{part_id}/choose", response_model=MakerChosen)
 async def choose_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, str]:
     """Say which maker a part is (or, for a part with a known maker, that the listed maker is the same)."""
 
@@ -84,13 +49,7 @@ async def choose_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUse
     return await _run(run)
 
 
-class NumbersRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    keys: list[str] = Field(min_length=1, max_length=50)
-
-
-@router.post("/choices/{part_id}/numbers")
+@router.post("/choices/{part_id}/numbers", response_model=NumbersCounted)
 async def use_numbers(part_id: str, body: NumbersRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
     """Say the part is also sold as these numbers."""
 
@@ -101,7 +60,7 @@ async def use_numbers(part_id: str, body: NumbersRequest, user: AuthenticatedUse
     return await _run(run)
 
 
-@router.post("/choices/{part_id}/other")
+@router.post("/choices/{part_id}/other", response_model=ListingsRejected)
 async def other_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
     """Say the listings of one maker are not this part."""
 
@@ -112,7 +71,7 @@ async def other_maker(part_id: str, body: ChoiceRequest, user: AuthenticatedUser
     return await _run(run)
 
 
-@router.post("/parts/{part_id}/undo")
+@router.post("/parts/{part_id}/undo", response_model=SettleUndone)
 async def undo_settled(part_id: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, bool]:
     """Take back the maker Prism settled for a part: it is asked about again."""
 
@@ -123,7 +82,7 @@ async def undo_settled(part_id: str, approver: AuthenticatedUser = Depends(requi
     return await _run(run)
 
 
-@router.post("/aliases/{alias_key}/undo")
+@router.post("/aliases/{alias_key}/undo", response_model=AliasUndone)
 async def undo_alias(alias_key: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, int]:
     def run() -> dict[str, int]:
         with _store().connection() as conn:
@@ -132,7 +91,7 @@ async def undo_alias(alias_key: str, approver: AuthenticatedUser = Depends(requi
     return await _run(run)
 
 
-@router.post("/aliases/confirm")
+@router.post("/aliases/confirm", response_model=AliasConfirmed)
 async def confirm_alias(
     body: ConfirmAliasRequest, approver: AuthenticatedUser = Depends(require_supply_approver)
 ) -> dict[str, int]:
@@ -147,20 +106,13 @@ async def confirm_alias(
     return await _run(run)
 
 
-class PinRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # The listing is numbered otherwise than the part: also say the part is sold under that number.
-    add_number: bool = False
-
-
 @router.post("/listings/{listing_id}/pin", status_code=204)
 async def pin_listing(listing_id: str, body: Optional[PinRequest] = None, approver: AuthenticatedUser = Depends(require_supply_approver)) -> None:
     """Confirm the listing is the part it is a candidate for."""
 
     def run() -> None:
         with _store().connection() as conn:
-            row = conn.execute("SELECT part_id, raw_mpn FROM listings WHERE id = %s", (listing_id,)).fetchone()
+            row = conn.execute("SELECT part_id, raw_mpn FROM supply_listings WHERE id = %s", (listing_id,)).fetchone()
             if row is None:
                 raise discovery.ListingNotFound(listing_id)
             if row["part_id"] is None:
@@ -172,13 +124,7 @@ async def pin_listing(listing_id: str, body: Optional[PinRequest] = None, approv
     await _run(run)
 
 
-class RejectManyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    listing_ids: list[str] = Field(min_length=1, max_length=500)
-
-
-@router.post("/listings/reject-many")
+@router.post("/listings/reject-many", response_model=ListingsRejected)
 async def reject_listings(body: RejectManyRequest, approver: AuthenticatedUser = Depends(require_supply_approver)) -> dict[str, int]:
     """Take several listings off their part in one go (the pins with another number)."""
 

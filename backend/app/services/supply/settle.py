@@ -34,7 +34,7 @@ def _evidence(conn, part_id: str, key: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT l.id, l.connector_id, c.display_name AS connector, l.raw_mpn, l.raw_manufacturer, l.match_state
-        FROM listings l JOIN connectors c ON c.id = l.connector_id
+        FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state <> 'rejected' ORDER BY l.first_seen_at
         """,
         (part_id,),
@@ -84,15 +84,15 @@ def _apply(conn, part: parts.PartRecord, clusters: list[dict[str, Any]], leader:
         best = leader["spellings"].most_common(1)[0][0]
         target = parts.similar_manufacturer(conn, best) or parts.ensure_manufacturer(conn, best, actor)
         if target != part.manufacturer_id:
-            clash = conn.execute("SELECT 1 FROM parts WHERE manufacturer_id = %s AND match_key = %s AND id <> %s", (target, part.match_key, part.id)).fetchone()
+            clash = conn.execute("SELECT 1 FROM supply_parts WHERE manufacturer_id = %s AND match_key = %s AND id <> %s", (target, part.match_key, part.id)).fetchone()
             if clash:
                 return "conflict"
-            conn.execute("UPDATE parts SET manufacturer_id = %s WHERE id = %s", (target, part.id))
+            conn.execute("UPDATE supply_parts SET manufacturer_id = %s WHERE id = %s", (target, part.id))
             if part.manufacturer_name != parts.UNKNOWN_NAME:
                 parts.record_spelling(conn, part.id, part.manufacturer_name, LEARNED)
-            conn.execute("DELETE FROM manufacturers WHERE id = %s AND provisional AND NOT EXISTS (SELECT 1 FROM parts WHERE manufacturer_id = %s)", (part.manufacturer_id, part.manufacturer_id))
-    conn.execute("UPDATE manufacturers SET provisional = FALSE WHERE id = %s", (target,))
-    conn.execute("UPDATE parts SET ask_maker = FALSE WHERE id = %s", (part.id,))
+            conn.execute("DELETE FROM supply_manufacturers WHERE id = %s AND provisional AND NOT EXISTS (SELECT 1 FROM supply_parts WHERE manufacturer_id = %s)", (part.manufacturer_id, part.manufacturer_id))
+    conn.execute("UPDATE supply_manufacturers SET provisional = FALSE WHERE id = %s", (target,))
+    conn.execute("UPDATE supply_parts SET ask_maker = FALSE WHERE id = %s", (part.id,))
     counted = {row["id"] for row in leader["listings"]}
     for cluster in clusters:
         for row in cluster["listings"]:
@@ -100,12 +100,12 @@ def _apply(conn, part: parts.PartRecord, clusters: list[dict[str, Any]], leader:
                 continue
             if row["id"] in counted:
                 conn.execute(
-                    "UPDATE listings SET match_state = 'exact', match_reason = %s, matched_by = %s WHERE id = %s",
+                    "UPDATE supply_listings SET match_state = 'exact', match_reason = %s, matched_by = %s WHERE id = %s",
                     ("same maker as the part", actor, row["id"]),
                 )
             else:
                 conn.execute(
-                    "UPDATE listings SET match_state = 'near', match_reason = %s, matched_by = %s WHERE id = %s",
+                    "UPDATE supply_listings SET match_state = 'near', match_reason = %s, matched_by = %s WHERE id = %s",
                     ("same part number, different maker", actor, row["id"]),
                 )
     for spelling in leader["spellings"]:
@@ -120,14 +120,14 @@ def settle_part(conn, part_id: str, actor: str = SYSTEM) -> str:
     part = parts.get_part(conn, part_id)
     if not part.provisional:
         return "unchanged"
-    if conn.execute("SELECT ask_maker FROM parts WHERE id = %s", (part_id,)).fetchone()["ask_maker"]:
+    if conn.execute("SELECT ask_maker FROM supply_parts WHERE id = %s", (part_id,)).fetchone()["ask_maker"]:
         return "choice"  # a person took it back: they are asked
     canon = parts._known_keys(conn).get  # noqa: SLF001
     clusters = _clusters(_evidence(conn, part_id, part.match_key), canon)
     if not clusters:
-        searched = conn.execute("SELECT 1 FROM discovery_runs WHERE part_id = %s LIMIT 1", (part_id,)).fetchone()
+        searched = conn.execute("SELECT 1 FROM supply_discovery_runs WHERE part_id = %s LIMIT 1", (part_id,)).fetchone()
         if searched and part.manufacturer_name != parts.UNKNOWN_NAME:
-            conn.execute("UPDATE manufacturers SET provisional = FALSE WHERE id = %s", (part.manufacturer_id,))
+            conn.execute("UPDATE supply_manufacturers SET provisional = FALSE WHERE id = %s", (part.manufacturer_id,))
             return "confirmed"
         return "unchanged"
     leader = _leader(clusters, part.manufacturer_name, canon)
@@ -164,8 +164,8 @@ def needs_choice(conn, part_ids: set[str] | None = None) -> list[dict[str, Any]]
     found: list[dict[str, Any]] = []
     rows = conn.execute(
         """
-        SELECT p.id, p.mpn, p.match_key, p.ask_maker, m.name AS maker, m.provisional FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
-        WHERE m.provisional OR NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state IN ('exact', 'manual'))
+        SELECT p.id, p.mpn, p.match_key, p.ask_maker, m.name AS maker, m.provisional FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        WHERE m.provisional OR NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND supply_counted(l.match_state))
         ORDER BY lower(p.mpn)
         """
     ).fetchall()
@@ -188,16 +188,16 @@ def _number_questions(conn, canon) -> list[dict[str, Any]]:
     questions = []
     rows = conn.execute(
         """
-        SELECT p.id, p.mpn, p.match_key, m.name AS maker FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id
-        WHERE NOT m.provisional AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state IN ('exact', 'manual'))
-          AND EXISTS (SELECT 1 FROM listings l WHERE l.part_id = p.id AND l.match_state = 'near')
+        SELECT p.id, p.mpn, p.match_key, m.name AS maker FROM supply_parts p JOIN supply_manufacturers m ON m.id = p.manufacturer_id
+        WHERE NOT m.provisional AND NOT EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND supply_counted(l.match_state))
+          AND EXISTS (SELECT 1 FROM supply_listings l WHERE l.part_id = p.id AND l.match_state = 'near')
         ORDER BY lower(p.mpn)
         """
     ).fetchall()
     for part in rows:
         seen: dict[str, dict[str, Any]] = {}
         for listing in conn.execute(
-            "SELECT l.raw_mpn, l.raw_manufacturer, c.display_name AS connector FROM listings l JOIN connectors c ON c.id = l.connector_id "
+            "SELECT l.raw_mpn, l.raw_manufacturer, c.display_name AS connector FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id "
             "WHERE l.part_id = %s AND l.match_state = 'near'", (part["id"],)
         ).fetchall():
             key = match_key(listing["raw_mpn"] or "")
@@ -218,14 +218,14 @@ def use_numbers(conn, part_id: str, keys: list[str], actor: str) -> int:
     part = parts.get_part(conn, part_id)
     moved = 0
     for listing in conn.execute(
-        "SELECT id, raw_mpn, match_state FROM listings WHERE part_id = %s AND match_state IN ('near', 'exact')", (part_id,)
+        "SELECT id, raw_mpn, match_state FROM supply_listings WHERE part_id = %s AND match_state IN ('near', 'exact')", (part_id,)
     ).fetchall():
         key = match_key(listing["raw_mpn"] or "")
         if key in keys and key != part.match_key:
             parts.add_number(conn, part_id, listing["raw_mpn"], actor, "suggested")
             if listing["match_state"] != "exact":
                 conn.execute(
-                    "UPDATE listings SET match_state = 'exact', match_reason = 'another number of the part, said by a person', matched_by = %s WHERE id = %s",
+                    "UPDATE supply_listings SET match_state = 'exact', match_reason = 'another number of the part, said by a person', matched_by = %s WHERE id = %s",
                     (actor, listing["id"]),
                 )
                 moved += 1
@@ -247,7 +247,7 @@ def choose(conn, part_id: str, key: str, actor: str) -> str:
     for row in chosen["listings"]:
         if row["match_state"] != "manual":
             conn.execute(
-                "UPDATE listings SET match_state = 'exact', match_reason = %s, matched_by = %s WHERE id = %s",
+                "UPDATE supply_listings SET match_state = 'exact', match_reason = %s, matched_by = %s WHERE id = %s",
                 ("same maker, said by a person", actor, row["id"]),
             )
     for spelling in chosen["spellings"]:
@@ -267,7 +267,7 @@ def not_this_maker(conn, part_id: str, key: str, actor: str) -> int:
     if chosen is None:
         return 0
     for row in chosen["listings"]:
-        conn.execute("UPDATE listings SET match_state = 'rejected', match_reason = 'another maker, said by a person', matched_by = %s WHERE id = %s", (actor, row["id"]))
+        conn.execute("UPDATE supply_listings SET match_state = 'rejected', match_reason = 'another maker, said by a person', matched_by = %s WHERE id = %s", (actor, row["id"]))
     write_audit(conn, actor, "part.other_maker", part_id, {"spellings": sorted(chosen["spellings"])}, subject_kind="part")
     return len(chosen["listings"])
 
@@ -281,16 +281,16 @@ def undo_settled(conn, part_id: str, actor: str) -> bool:
     unknown = parts._unknown_manufacturer(conn)  # noqa: SLF001
     if part.manufacturer_id == unknown:
         return False
-    if conn.execute("SELECT 1 FROM parts WHERE manufacturer_id = %s AND match_key = %s AND id <> %s", (unknown, part.match_key, part_id)).fetchone():
+    if conn.execute("SELECT 1 FROM supply_parts WHERE manufacturer_id = %s AND match_key = %s AND id <> %s", (unknown, part.match_key, part_id)).fetchone():
         return False
     parts.record_spelling(conn, part_id, part.manufacturer_name, "learned")
     old = part.manufacturer_id
-    conn.execute("UPDATE parts SET manufacturer_id = %s, ask_maker = TRUE WHERE id = %s", (unknown, part_id))
+    conn.execute("UPDATE supply_parts SET manufacturer_id = %s, ask_maker = TRUE WHERE id = %s", (unknown, part_id))
     conn.execute(
-        "UPDATE listings SET match_state = 'near', match_reason = 'the maker is being asked again', matched_by = %s "
+        "UPDATE supply_listings SET match_state = 'near', match_reason = 'the maker is being asked again', matched_by = %s "
         "WHERE part_id = %s AND match_state = 'exact'", (actor, part_id),
     )
-    conn.execute("DELETE FROM manufacturers WHERE id = %s AND provisional AND NOT EXISTS (SELECT 1 FROM parts WHERE manufacturer_id = %s)", (old, old))
+    conn.execute("DELETE FROM supply_manufacturers WHERE id = %s AND provisional AND NOT EXISTS (SELECT 1 FROM supply_parts WHERE manufacturer_id = %s)", (old, old))
     write_audit(conn, actor, "part.settle_undo", part_id, {}, subject_kind="part")
     return True
 
@@ -299,22 +299,22 @@ def undo_alias(conn, key: str, actor: str) -> int:
     """Take back a spelling Prism learned for a maker. It is not learned again for that maker. Returns the listings that stop counting."""
 
     actor = actor_text(actor)
-    row = conn.execute("SELECT manufacturer_id FROM manufacturer_aliases WHERE alias_key = %s AND source = 'learned'", (key,)).fetchone()
+    row = conn.execute("SELECT manufacturer_id FROM supply_manufacturer_aliases WHERE alias_key = %s AND source = 'learned'", (key,)).fetchone()
     if row is None:
         raise ValueError("Prism did not learn that spelling.")
-    conn.execute("INSERT INTO alias_rejections (alias_key, manufacturer_id, rejected_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (key, row["manufacturer_id"], actor))
-    conn.execute("DELETE FROM manufacturer_aliases WHERE alias_key = %s", (key,))
-    conn.execute("DELETE FROM part_spellings WHERE alias_key = %s AND source = 'learned'", (key,))
+    conn.execute("INSERT INTO supply_alias_rejections (alias_key, manufacturer_id, rejected_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (key, row["manufacturer_id"], actor))
+    conn.execute("DELETE FROM supply_manufacturer_aliases WHERE alias_key = %s", (key,))
+    conn.execute("DELETE FROM supply_part_spellings WHERE alias_key = %s AND source = 'learned'", (key,))
     moved = 0
     for listing in conn.execute(
-        "SELECT l.id, l.sku, l.raw_mpn, l.raw_manufacturer, l.part_id FROM listings l WHERE l.match_state = 'exact' AND l.part_id IS NOT NULL"
+        "SELECT l.id, l.sku, l.raw_mpn, l.raw_manufacturer, l.part_id FROM supply_listings l WHERE l.match_state = 'exact' AND l.part_id IS NOT NULL"
     ).fetchall():
         if alias_key(listing["raw_manufacturer"] or "") != key:
             continue
         part = parts.get_part(conn, listing["part_id"])
         if same_maker(listing["raw_manufacturer"], part.manufacturer_name, parts._known_keys(conn).get) or key in parts.part_spelling_keys(conn, part.id):  # noqa: SLF001
             continue
-        conn.execute("UPDATE listings SET match_state = 'near', match_reason = 'same part number, different manufacturer', matched_by = %s WHERE id = %s", (actor, listing["id"]))
+        conn.execute("UPDATE supply_listings SET match_state = 'near', match_reason = 'same part number, different manufacturer', matched_by = %s WHERE id = %s", (actor, listing["id"]))
         moved += 1
     write_audit(conn, actor, "alias.undo", key, {"listings": moved}, subject_kind="manufacturer_alias")
     return moved
@@ -329,7 +329,7 @@ def learn_aliases(conn) -> int:
     rows = conn.execute(
         """
         SELECT s.alias_key, MIN(s.alias_text) AS alias_text, MIN(p.manufacturer_id) AS manufacturer_id
-        FROM part_spellings s JOIN parts p ON p.id = s.part_id
+        FROM supply_part_spellings s JOIN supply_parts p ON p.id = s.part_id
         GROUP BY s.alias_key HAVING COUNT(DISTINCT s.part_id) >= 2 AND COUNT(DISTINCT p.manufacturer_id) = 1
         """
     ).fetchall()
@@ -338,10 +338,10 @@ def learn_aliases(conn) -> int:
     for row in rows:
         if row["alias_key"] in known:
             continue
-        if conn.execute("SELECT 1 FROM alias_rejections WHERE alias_key = %s AND manufacturer_id = %s", (row["alias_key"], row["manufacturer_id"])).fetchone():
+        if conn.execute("SELECT 1 FROM supply_alias_rejections WHERE alias_key = %s AND manufacturer_id = %s", (row["alias_key"], row["manufacturer_id"])).fetchone():
             continue
         conn.execute(
-            "INSERT INTO manufacturer_aliases (alias_key, alias_text, manufacturer_id, status, confirmed_by, source) "
+            "INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, manufacturer_id, status, confirmed_by, source) "
             "VALUES (%s, %s, %s, 'confirmed', %s, 'learned') ON CONFLICT (alias_key) DO NOTHING",
             (row["alias_key"], row["alias_text"], row["manufacturer_id"], SYSTEM),
         )

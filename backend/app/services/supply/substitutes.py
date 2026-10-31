@@ -14,21 +14,21 @@ tracked or approved from it: a person decides.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
-from app.services.supply import alternates, ledger, parts, trouble
+from app.services.supply import alternates, clock, ledger, parts, trouble
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import match_key
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SUBSTITUTES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
-from app.services.supply.vocabulary import Lifecycle
+from app.services.supply.vocabulary import ENDING_LIFECYCLES
+from app.services.supply import errors
 
 ACTION = "part.substitutes"
 FRESH_DAYS = 30
 ASK_COOLDOWN = timedelta(hours=1)
 MAX_AUTO_PER_RUN = 5
-_ENDING = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 
 _STOPPED_TEXT = {
     "budget": "has used today's allowance for asking",
@@ -40,7 +40,7 @@ _STOPPED_TEXT = {
 }
 
 
-class TooSoon(ValueError):
+class TooSoon(errors.TooSoon):
     """The part's substitutes were asked for a short while ago."""
 
 
@@ -86,8 +86,8 @@ def _ask_one(service, connector, part_id: str, sku: str, now: datetime, provider
 def _listing_for(conn, part_id: str, connector_id: str) -> str | None:
     row = conn.execute(
         """
-        SELECT l.sku FROM listings l LEFT JOIN offers o ON o.listing_id = l.id
-        WHERE l.part_id = %s AND l.connector_id = %s AND l.match_state IN ('exact', 'manual')
+        SELECT l.sku FROM supply_listings l LEFT JOIN supply_offers o ON o.listing_id = l.id
+        WHERE l.part_id = %s AND l.connector_id = %s AND supply_counted(l.match_state)
         ORDER BY o.fetched_at DESC NULLS LAST, l.sku LIMIT 1
         """,
         (part_id, connector_id),
@@ -101,19 +101,19 @@ def ask_now(
     """Ask every distributor that can for its substitutes of the part, now. One call each, from the interactive reserve."""
 
     actor = actor_text(actor)
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     store = service.store
     with store.connection() as conn:
         parts.get_part(conn, part_id)
         last = conn.execute(
-            "SELECT MAX(at) AS at FROM audit_events WHERE action = %s AND subject_id = %s", (ACTION, part_id)
+            "SELECT MAX(at) AS at FROM supply_audit_events WHERE action = %s AND subject_id = %s", (ACTION, part_id)
         ).fetchone()["at"]
         if last is not None and now - last < ASK_COOLDOWN:
             minutes = max(1, int((ASK_COOLDOWN - (now - last)).total_seconds() // 60) + 1)
             raise TooSoon(f"Substitutes were asked for a moment ago. You can ask again in {minutes} {'minute' if minutes == 1 else 'minutes'}.")
         connector_ids = [
             row["connector_id"] for row in conn.execute(
-                "SELECT DISTINCT connector_id FROM listings WHERE part_id = %s AND match_state IN ('exact', 'manual')", (part_id,)
+                "SELECT DISTINCT connector_id FROM supply_listings WHERE part_id = %s AND supply_counted(match_state)", (part_id,)
             ).fetchall()
         ]
     found = asked = 0
@@ -152,7 +152,7 @@ def resolve_numbers(service, part_id: str, *, now: datetime, provider: Any | Non
             row["connector_id"]: (row["name"], alternates.unresolved(conn, part_id, row["provider"]))
             for row in conn.execute(
                 "SELECT DISTINCT ON (l.connector_id) l.connector_id, c.provider, c.display_name AS name "
-                "FROM listings l JOIN connectors c ON c.id = l.connector_id WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') AND c.provider = 'mouser'",
+                "FROM supply_listings l JOIN supply_connectors c ON c.id = l.connector_id WHERE l.part_id = %s AND supply_counted(l.match_state) AND c.provider = 'mouser'",
                 (part_id,),
             ).fetchall()
         }
@@ -180,24 +180,24 @@ def due(conn, connector_id: str, now: datetime, limit: int = MAX_AUTO_PER_RUN) -
     return [dict(row) for row in conn.execute(
         """
         SELECT DISTINCT ON (p.id) p.id AS part_id, l.sku
-        FROM part_tiers pt JOIN parts p ON p.id = pt.part_id
-        JOIN listings l ON l.part_id = p.id AND l.connector_id = %(connector)s AND l.match_state IN ('exact', 'manual')
-        JOIN offers o ON o.listing_id = l.id
+        FROM supply_part_tiers pt JOIN supply_parts p ON p.id = pt.part_id
+        JOIN supply_listings l ON l.part_id = p.id AND l.connector_id = %(connector)s AND supply_counted(l.match_state)
+        JOIN supply_offers o ON o.listing_id = l.id
         WHERE EXISTS (
-                SELECT 1 FROM listings l2 JOIN offers o2 ON o2.listing_id = l2.id
-                WHERE l2.part_id = p.id AND l2.match_state IN ('exact', 'manual') AND (o2.lifecycle = ANY(%(ending)s) OR o2.discontinued))
-          AND NOT EXISTS (SELECT 1 FROM audit_events a WHERE a.action = %(action)s AND a.subject_id = p.id AND a.at > %(since)s)
+                SELECT 1 FROM supply_listings l2 JOIN supply_offers o2 ON o2.listing_id = l2.id
+                WHERE l2.part_id = p.id AND supply_counted(l2.match_state) AND (o2.lifecycle = ANY(%(ending)s) OR o2.discontinued))
+          AND NOT EXISTS (SELECT 1 FROM supply_audit_events a WHERE a.action = %(action)s AND a.subject_id = p.id AND a.at > %(since)s)
         ORDER BY p.id, o.fetched_at DESC
         LIMIT %(limit)s
         """,
-        {"connector": connector_id, "ending": list(_ENDING), "action": ACTION, "since": now - timedelta(days=FRESH_DAYS), "limit": limit},
+        {"connector": connector_id, "ending": list(ENDING_LIFECYCLES), "action": ACTION, "since": now - timedelta(days=FRESH_DAYS), "limit": limit},
     ).fetchall()]
 
 
 def run_due(service, connector_id: str, *, now: datetime | None = None, provider: Any | None = None, limit: int = MAX_AUTO_PER_RUN) -> int:
     """Ask for the substitutes of ending parts, a few a run, from the committed budget. Returns how many were asked."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.now()
     connector = service.get(connector_id)
     if CAP_SUBSTITUTES not in registry.get_spec(connector["provider"]).capabilities:
         return 0

@@ -4,6 +4,7 @@ import { BarList } from "./bar-list";
 import { ChartCard } from "./chart-card";
 import { DistributorsSection } from "./distributors-section";
 import { HoldersCard } from "./holders-card";
+import type { InsightsPanels } from "./insights-shown";
 import { vendorColor } from "./vendor-colors";
 
 type OpenParts = (filter: PartsFilter) => void;
@@ -17,17 +18,17 @@ const COVERAGE = [
 const COVERAGE_FILTER = { listed: "listed", in_stock: "stocked", cheapest: "cheapest" } as const;
 
 /** Which distributors carry the BOM: how many tracked parts each lists, holds in stock, and is cheapest for. */
-export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; onOpen: OpenParts }) {
+export function SourcingSection({ page, panels, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpen: OpenParts }) {
   const { coverage, resilience } = page.sourcing;
   const behaviour = page.distributors.repricing.length + page.distributors.leaders.length + page.distributors.restock_first.length > 0 || page.distributors.arrivals !== null;
   const largest = Math.max(1, ...coverage.flatMap((item) => [item.listed, item.in_stock, item.cheapest]));
   return (
     <div className="space-y-3">
       <div className="grid gap-3 lg:grid-cols-2">
-        <ChartCard
+        {panels.coverage ? <ChartCard
           title="Distributor coverage"
           info="Of the parts you track: how many each distributor lists, how many it holds in stock, and how many it is the cheapest for at 100 pieces."
-          answer={coverage.length === 0 ? "No distributor has been read yet" : `${coverage[0].name} lists ${coverage[0].listed.toLocaleString()} of ${coverage[0].tracked.toLocaleString()} parts`}
+          answer={`${coverage[0].name} lists ${coverage[0].listed.toLocaleString()} of ${coverage[0].tracked.toLocaleString()} parts`}
         >
           <div className="space-y-1.5 text-xs">
             <div className="grid grid-cols-[6rem_repeat(3,1fr)] gap-2 text-muted-foreground">
@@ -51,7 +52,7 @@ export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; on
               </div>
             ))}
           </div>
-        </ChartCard>
+        </ChartCard> : null}
         <HoldersCard
           holders={resilience}
           onOpen={(key) => onOpen(key === "none" ? "out_of_stock" : key === "one" ? "one_distributor" : key === "unknown" ? "few_readings" : "")}
@@ -71,14 +72,14 @@ const LIFECYCLE: Array<{ key: keyof SupplyInsightsPage["lifecycle"]["mix"]; labe
 ];
 const OUTLOOK: Array<{ key: keyof SupplyInsightsPage["lifecycle"]["outlook"]; label: string; tone: string }> = [
   { key: "ended", label: "Ended", tone: "bg-destructive" },
-  { key: "under_2_years", label: "Under 2 years", tone: "bg-destructive/70" },
-  { key: "2_to_5_years", label: "2 to 5 years", tone: "bg-warning" },
+  { key: "ending", label: "Ending", tone: "bg-destructive/70" },
+  { key: "warning_signs", label: "Warning signs", tone: "bg-warning" },
   { key: "no_signs", label: "No signs of an end", tone: "bg-success" },
-  { key: "unknown", label: "Unknown", tone: GREY },
+  { key: "unknown", label: "Not enough to say", tone: GREY },
 ];
 
 /** How old the BOM is, when parts will end, and whether it can ship (RoHS and REACH). Unknown stays its own bar. */
-export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; onOpen: OpenParts }) {
+export function LifecycleSection({ page, panels, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpen: OpenParts }) {
   const { mix, outlook, compliance } = page.lifecycle;
   const ending = mix.nrnd + mix.last_time_buy + mix.obsolete;
   const bad = compliance.rohs.not_compliant + compliance.reach.affected;
@@ -96,7 +97,7 @@ export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; o
       >
         <BarList rows={OUTLOOK.map((item) => ({ key: item.key, label: item.label, value: outlook[item.key], tone: item.tone, onClick: () => onOpen(`outlook_${item.key}`) }))} labelWidth="11rem" />
       </ChartCard>
-      <ChartCard
+      {panels.compliance ? <ChartCard
         title="Compliance"
         answer={bad === 0 ? "No distributor reports a RoHS or REACH problem" : `${bad.toLocaleString()} ${bad === 1 ? "report" : "reports"} of a RoHS or REACH problem`}
         className="lg:col-span-2"
@@ -107,6 +108,7 @@ export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; o
             <BarList rows={[
               { key: "ok", label: "Compliant", value: compliance.rohs.compliant, tone: "bg-success", onClick: () => onOpen("rohs_compliant") },
               { key: "bad", label: "Not compliant", value: compliance.rohs.not_compliant, tone: "bg-destructive", onClick: () => onOpen("rohs_not_compliant") },
+              { key: "disputed", label: "Disputed", value: compliance.rohs.disputed, tone: "bg-warning", onClick: () => onOpen("rohs_disputed") },
               { key: "na", label: "Not applicable", value: compliance.rohs.not_applicable, tone: GREY, onClick: () => onOpen("rohs_not_applicable") },
               { key: "unknown", label: "Unknown", value: compliance.rohs.unknown, tone: GREY, onClick: () => onOpen("rohs_unknown") },
             ]} />
@@ -121,7 +123,7 @@ export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; o
             ]} />
           </div>
         </div>
-      </ChartCard>
+      </ChartCard> : null}
     </div>
   );
 }
@@ -131,12 +133,11 @@ const BUCKETS: Record<SupplyInsightsPage["lead_times"][number]["bucket"], string
 };
 
 /** How long waiting takes, and what got dearer or cheaper. */
-export function LeadAndPricesSection({ page, onOpenPart, onOpen }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
+export function LeadAndPricesSection({ page, panels, onOpenPart, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
   const long = page.lead_times.filter((item) => item.bucket === "16_to_26w" || item.bucket === "over_26w").reduce((sum, item) => sum + item.parts, 0);
-  const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"], empty: string) => (
+  const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"]) => (
     <ChartCard title={title}>
-      {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : (
-        <ul className="max-h-64 divide-y overflow-y-auto text-sm">
+      <ul className="max-h-64 divide-y themed-scrollbar overflow-y-auto text-sm">
           {rows.map((row) => (
             <li key={row.part_id} className="flex items-baseline justify-between gap-3 py-1">
               <button type="button" className="font-medium hover:underline" onClick={() => onOpenPart(row.part_id)}>{row.mpn}</button>
@@ -144,31 +145,30 @@ export function LeadAndPricesSection({ page, onOpenPart, onOpen }: { page: Suppl
               <span className={`text-xs tabular-nums ${row.percent > 0 ? "text-warning" : "text-success"}`}>{row.percent > 0 ? "+" : ""}{row.percent}%</span>
             </li>
           ))}
-        </ul>
-      )}
+      </ul>
     </ChartCard>
   );
   return (
     <div className="grid gap-3 lg:grid-cols-3">
-      <ChartCard
+      {panels.leadTimes ? <ChartCard
         title="Lead times"
         info="The shortest lead time any distributor quotes for each part."
         answer={long === 0 ? "No part is quoted over 16 weeks" : `${long.toLocaleString()} ${long === 1 ? "part is" : "parts are"} quoted over 16 weeks`}
       >
         <BarList rows={page.lead_times.map((item) => ({ key: item.bucket, label: BUCKETS[item.bucket], value: item.parts, tone: item.bucket === "none" ? GREY : undefined, onClick: () => onOpen(`lead_${item.bucket}`) }))} labelWidth="8rem" />
-      </ChartCard>
-      {movers("Prices up, 30 days", page.price_movers.up, "No price went up by 5% or more.")}
-      {movers("Prices down, 30 days", page.price_movers.down, "No price went down by 5% or more.")}
+      </ChartCard> : null}
+      {panels.pricesUp ? movers("Prices up, 30 days", page.price_movers.up) : null}
+      {panels.pricesDown ? movers("Prices down, 30 days", page.price_movers.down) : null}
     </div>
   );
 }
 
 /** Where the tracked parts come from and which are export controlled. */
-export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
+export function TradeSection({ page, panels, onOpenPart, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
   const { origins, other_origins: other, control, controlled } = page.trade;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <ChartCard
+      {panels.origins ? <ChartCard
         title="Country of origin"
         info="What distributors state. A part with several answers is counted as Several."
       >
@@ -176,8 +176,8 @@ export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsight
           ...origins.map((item) => ({ key: item.country, label: item.country, value: item.parts, tone: item.country === "Unknown" || item.country === "Several" ? GREY : undefined, onClick: () => onOpen(`origin:${item.country}`) })),
           ...(other > 0 ? [{ key: "other", label: "Other countries", value: other }] : []),
         ]} />
-      </ChartCard>
-      <ChartCard
+      </ChartCard> : null}
+      {panels.control ? <ChartCard
         title="Export control"
         info="The ECCN distributors give; EAR99 is no control. A mark set on a part's sheet wins."
       >
@@ -188,7 +188,7 @@ export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsight
           { key: "unknown", label: "No class given", value: control.unknown, tone: GREY, onClick: () => onOpen("control_unknown") },
         ]} />
         {controlled.length > 0 ? (
-          <ul className="mt-2 max-h-64 divide-y overflow-y-auto border-t text-sm">
+          <ul className="mt-2 max-h-64 divide-y themed-scrollbar overflow-y-auto border-t text-sm">
             {controlled.map((item) => (
               <li key={item.part_id} className="flex items-baseline gap-3 py-1">
                 <button type="button" className="font-medium hover:underline" onClick={() => onOpenPart(item.part_id)}>{item.mpn}</button>
@@ -198,7 +198,7 @@ export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsight
             ))}
           </ul>
         ) : null}
-      </ChartCard>
+      </ChartCard> : null}
     </div>
   );
 }

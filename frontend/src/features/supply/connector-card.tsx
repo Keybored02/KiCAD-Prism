@@ -9,12 +9,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CSV_PROVIDER, type BudgetConnector, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
+import { type BudgetConnector, type SupplyConnector } from "@/types/supply";
 import { BudgetDetail } from "./budget-view";
-import { CallBudget, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
+import { CallBudget, LibraryBar, OffersFile, providerNote, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
+import { formatDateTime } from "./supply-format";
 import { vendorColor } from "./vendor-colors";
-import { clockTime, connectorState, errorCodeLabel, formatWhen, lastCallFailed, resting, slowedText } from "./connector-status";
+import { connectorState, errorCodeLabel, lastCallFailed, resting, slowedText } from "./connector-status";
+import { clockTime } from "./supply-format";
 
 export type ConnectorAction =
   | "edit"
@@ -27,17 +29,17 @@ export type ConnectorAction =
   | "apply-reset"
   | "csv-upload"
   | "csv-clear"
+  | "push-token"
   | "delete";
 
 interface ConnectorCardProps {
   connector: SupplyConnector;
-  capacity?: SupplyCapacity;
   budget?: BudgetConnector;
   isAdmin: boolean;
   onAction: (action: ConnectorAction, connector: SupplyConnector) => void;
 }
 
-export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }: ConnectorCardProps) {
+export function ConnectorCard({ connector, budget, isAdmin, onAction }: ConnectorCardProps) {
   const state = connectorState(connector);
   const credentialNames = Object.keys(connector.credentials);
   const where = [connector.provider_label, connector.storefront, connector.currency].filter(Boolean).join(" · ");
@@ -60,9 +62,10 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
       </div>
 
       {connector.metered
-        ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} capacity={capacity} /> : undefined} />
+        ? <CallBudget connector={connector} budget={budget} detail={budget ? <BudgetDetail item={budget} /> : undefined} />
         : <OffersFile connector={connector} />}
-      {providerNote(connector.provider) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider)}</p> : null}
+      {budget?.library && budget.library.total > 0 ? <LibraryBar library={budget.library} /> : null}
+      {providerNote(connector.provider, connector.catalogue) ? <p className="mt-2 text-[11px] text-muted-foreground">{providerNote(connector.provider, connector.catalogue)}</p> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">
         {credentialNames.length > 0 ? (
@@ -94,7 +97,7 @@ export function ConnectorCard({ connector, capacity, budget, isAdmin, onAction }
           </div>
         ) : null}
       </dl>
-      {isAdmin && connector.provider === "digikey" ? <ConnectorSignin connectorId={connector.id} notices={budget?.notices} /> : null}
+      {isAdmin && connector.provider === "digikey" ? <ConnectorSignin connectorId={connector.id} status={connector.signin} notices={budget?.notices} /> : null}
     </article>
   );
 }
@@ -105,9 +108,9 @@ function lastCallText(connector: SupplyConnector): string {
       const what = connector.last_error_code === "blocked" ? "Refused" : connector.last_error_code === "rate_limited" ? "Rate limited" : `Failed (${errorCodeLabel(connector.last_error_code)})`;
       return `${what} ${clockTime(connector.last_error_at)}, resting until ${clockTime(connector.cooldown_until as string)}`;
     }
-    return `Failed (${errorCodeLabel(connector.last_error_code)}) ${formatWhen(connector.last_error_at)}`;
+    return `Failed (${errorCodeLabel(connector.last_error_code)}) ${formatDateTime(connector.last_error_at)}`;
   }
-  return connector.last_ok_at ? `OK ${formatWhen(connector.last_ok_at)}` : "None yet";
+  return connector.last_ok_at ? `OK ${formatDateTime(connector.last_ok_at)}` : "None yet";
 }
 
 function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connector" | "onAction">) {
@@ -126,9 +129,10 @@ function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connec
         {takesCredentials ? (
           <DropdownMenuItem onClick={() => onAction("credentials", connector)}>Replace credentials</DropdownMenuItem>
         ) : null}
-        {connector.provider === CSV_PROVIDER ? (
+        {connector.csv_fed ? (
           <>
             <DropdownMenuItem onClick={() => onAction("csv-upload", connector)}>Upload CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAction("push-token", connector)}>Push token</DropdownMenuItem>
             {connector.csv_import ? (
               <DropdownMenuItem onClick={() => onAction("csv-clear", connector)}>Remove uploaded data</DropdownMenuItem>
             ) : null}

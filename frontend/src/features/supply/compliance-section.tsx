@@ -26,7 +26,7 @@ interface ComplianceSectionProps {
 /** RoHS and REACH, with where each answer comes from, what distributors state, and the substances declared for the part. */
 export function ComplianceSection({ partId, canEdit, trade, onChanged }: ComplianceSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => getPartCompliance(partId, signal), [partId]);
-  const loaded = useLoaded<SupplyCompliance>(`${partId}:compliance`, fetcher, "Could not load the compliance");
+  const loaded = useLoaded<SupplyCompliance>(`parts/${partId}/compliance`, fetcher, "Could not load the compliance");
   const { busy, error, run } = useConnectorSubmit();
   const [cas, setCas] = useState("");
   const [note, setNote] = useState("");

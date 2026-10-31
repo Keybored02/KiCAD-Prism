@@ -68,7 +68,7 @@ class PollingTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_listings", "supply_watches", "supply_parts", "supply_manufacturer_aliases", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.clock = Clock()
         self.provider_behaviour = None  # set by a test to wrap the provider
@@ -100,7 +100,7 @@ class PollingTests(unittest.TestCase):
         listing_id = uuid.uuid4().hex
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
                 "VALUES (%s, %s, %s, %s, 'x', 'Acme', %s)", (listing_id, connector_id, sku, part_id, state))
         return listing_id
 
@@ -109,7 +109,7 @@ class PollingTests(unittest.TestCase):
             return conn.execute(sql, params).fetchall()
 
     def state_of(self, sku: str) -> dict:
-        (row,) = self.rows("SELECT l.id, l.match_state, ps.* FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id WHERE l.sku = %s", sku)
+        (row,) = self.rows("SELECT l.id, l.match_state, ps.* FROM supply_listings l LEFT JOIN supply_poll_state ps ON ps.listing_id = l.id WHERE l.sku = %s", sku)
         return dict(row)
 
     # --- watches ----------------------------------------------------------
@@ -122,19 +122,15 @@ class PollingTests(unittest.TestCase):
         listing = self.add_listing(watch.part_id, cid, "SR-1")
         offer = Offer(provider="fake", sku="SR-1", mpn="ABC123", manufacturer="Acme", stock=40, fetched_at=self.clock.now)
         self.poller().record_search_offers(cid, [(listing, offer)])
-        (alert,) = self.rows("SELECT kind, seen_count FROM alerts WHERE part_id = %s", watch.part_id)
+        (alert,) = self.rows("SELECT kind, seen_count FROM supply_attention WHERE part_id = %s", watch.part_id)
         self.assertEqual((alert["kind"], alert["seen_count"]), ("below_threshold", 1), "the first look is counted; the alert opens after the second")
 
     def test_watching_creates_the_part_and_is_idempotent(self) -> None:
         first = self.watch("LM358-D", threshold=100)
         again = self.watch("lm358d")
         self.assertEqual((first.id, first.threshold, first.owner), (again.id, 100, ACTOR))
-        self.assertEqual(len(self.rows("SELECT 1 FROM parts")), 1)
-        self.assertEqual([w.mpn for w in self.rows_as_watches()], ["LM358-D"])
-
-    def rows_as_watches(self):
-        with self.store.connection() as conn:
-            return self.watches.list_watches(conn)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_parts")), 1)
+        self.assertEqual(first.mpn, "LM358-D")
 
     def test_changing_and_removing_a_watch(self) -> None:
         watch = self.watch()
@@ -147,9 +143,9 @@ class PollingTests(unittest.TestCase):
             self.watches.remove_watch(conn, watch.id, ACTOR)
             with self.assertRaises(self.watches.WatchNotFound):
                 self.watches.get_watch(conn, watch.id)
-        actions = [r["action"] for r in self.rows("SELECT action FROM audit_events WHERE action LIKE 'watch.%%' ORDER BY id")]
+        actions = [r["action"] for r in self.rows("SELECT action FROM supply_audit_events WHERE action LIKE 'watch.%%' ORDER BY id")]
         self.assertEqual(actions, ["watch.add", "watch.update", "watch.update", "watch.remove"])
-        self.assertEqual(len(self.rows("SELECT 1 FROM parts")), 1, "removing a watch keeps the part")
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_parts")), 1, "removing a watch keeps the part")
 
     def test_watch_rules_are_checked(self) -> None:
         watch = self.watch()
@@ -186,7 +182,7 @@ class PollingTests(unittest.TestCase):
     def _offer(self, listing_id: str, stock: int, *, marketplace: bool = False, packaging: str = "unknown") -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO offers (listing_id, fetched_at, stock, marketplace, packaging) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO supply_offers (listing_id, fetched_at, stock, marketplace, packaging) VALUES (%s, %s, %s, %s, %s)",
                 (listing_id, START, stock, marketplace, packaging))
 
     def test_stock_counts_pooled_packaging_once_and_separate_stock_together(self) -> None:
@@ -221,13 +217,13 @@ class PollingTests(unittest.TestCase):
         right = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT", "manual")
         wrong = self.add_listing(watch.part_id, cid, "FAKE-OTHER999-CT", "manual")
         with self.store.connection() as conn:
-            conn.execute("UPDATE listings SET matched_by = 'bom' WHERE id = ANY(%s)", ([right, wrong],))
+            conn.execute("UPDATE supply_listings SET matched_by = 'bom' WHERE id = ANY(%s)", ([right, wrong],))
         self.poller().poll_connector(cid)
-        states = {r["sku"]: (r["match_state"], r["match_reason"]) for r in self.rows("SELECT sku, match_state, match_reason FROM listings")}
+        states = {r["sku"]: (r["match_state"], r["match_reason"]) for r in self.rows("SELECT sku, match_state, match_reason FROM supply_listings")}
         self.assertEqual(states["FAKE-ABC123-CT"][0], "manual")
         self.assertEqual(states["FAKE-OTHER999-CT"][0], "near")
         self.assertIn("OTHER999", states["FAKE-OTHER999-CT"][1])
-        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM offers")], [right], "the other product's figures are not kept")
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM supply_offers")], [right], "the other product's figures are not kept")
 
     def test_the_first_poll_records_the_offer_a_sample_and_the_schedule(self) -> None:
         cid = self.connector()
@@ -237,18 +233,18 @@ class PollingTests(unittest.TestCase):
         self.assertEqual((summary.calls, summary.polled, summary.stopped), (1, 1, None))
 
         expected = self.provider_for(cid).get_offers(["FAKE-ABC123-CT"])[0]
-        (offer,) = self.rows("SELECT * FROM offers")
+        (offer,) = self.rows("SELECT * FROM supply_offers")
         self.assertEqual((offer["stock"], offer["currency"], offer["packaging"]), (expected.stock, "EUR", "cut_tape"))
         self.assertEqual(len(offer["price_breaks"]), 4)
-        (sample,) = self.rows("SELECT * FROM samples")
+        (sample,) = self.rows("SELECT * FROM supply_samples")
         self.assertEqual((sample["stock"], sample["sampled_at"]), (expected.stock, self.clock.now))
-        self.assertEqual(sample["unit_price"], self.pricing.unit_price_at(
-            [(b.quantity, b.unit_price) for b in expected.price_breaks], moq=expected.moq, order_multiple=expected.order_multiple
-        ))
+        self.assertNotIn("unit_price", sample, "the price is kept as the offer's breaks, not on the sample")
+        (kept,) = self.rows("SELECT * FROM supply_price_breaks_history")
+        self.assertEqual((len(kept["breaks"]), kept["since"]), (4, self.clock.now))
         state = self.state_of("FAKE-ABC123-CT")
         self.assertGreater(state["next_poll_at"], self.clock.now)
         self.assertEqual((state["error_streak"], state["last_change_at"]), (0, self.clock.now))
-        self.assertEqual(self.rows("SELECT packaging FROM listings")[0]["packaging"], "cut_tape")
+        self.assertEqual(self.rows("SELECT packaging FROM supply_listings")[0]["packaging"], "cut_tape")
         self.assertIsNotNone(self.connectors.get(cid)["last_ok_at"])
 
     def test_nothing_is_polled_before_it_is_due_and_the_next_run_adds_history(self) -> None:
@@ -262,7 +258,7 @@ class PollingTests(unittest.TestCase):
         self.clock.advance(days=2)
         summary = poller.poll_connector(cid)
         self.assertEqual((summary.calls, summary.polled), (1, 1))
-        self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 2)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples")), 2)
 
     def test_last_change_moves_only_when_the_numbers_do(self) -> None:
         cid = self.connector("csv")
@@ -274,13 +270,13 @@ class PollingTests(unittest.TestCase):
         first = self.state_of("C1")["last_change_at"]
         self.clock.advance(days=2)
         poller.poll_connector(cid)
-        self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 1, "the same upload is one observation")
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples")), 1, "the same upload is one observation")
         self.assertEqual(self.state_of("C1")["last_change_at"], first)
         self.clock.advance(days=1)
         self.imports_file(cid, "sku,mpn,manufacturer,stock\nC1,ABC123,Acme,7\n")
         self.clock.advance(days=2)
         poller.poll_connector(cid)
-        self.assertEqual(len(self.rows("SELECT 1 FROM samples")), 2)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_samples")), 2)
         self.assertGreater(self.state_of("C1")["last_change_at"], first)
 
     def imports_file(self, connector_id: str, text: str) -> None:
@@ -309,7 +305,7 @@ class PollingTests(unittest.TestCase):
         self.add_listing(watched.part_id, cid, "FAKE-WATCHED-RL", state="near")
         summary = self.poller().poll_connector(cid)
         self.assertEqual(summary.polled, 1)
-        self.assertEqual([r["sku"] for r in self.rows("SELECT l.sku FROM offers o JOIN listings l ON l.id = o.listing_id")], ["FAKE-WATCHED-CT"])
+        self.assertEqual([r["sku"] for r in self.rows("SELECT l.sku FROM supply_offers o JOIN supply_listings l ON l.id = o.listing_id")], ["FAKE-WATCHED-CT"])
 
     def test_listings_are_asked_about_in_batches_within_the_budget(self) -> None:
         # 4 calls a day, 2 listings per call. At noon 3 calls have accrued; by evening, all 4.
@@ -320,26 +316,26 @@ class PollingTests(unittest.TestCase):
         summary = self.poller().poll_connector(cid)
         self.assertEqual((summary.calls, summary.polled, summary.stopped), (3, 6, "budget"))
         with self.store.connection() as conn:
-            spent = conn.execute("SELECT spent FROM quota_ledger WHERE connector_id = %s", (cid,)).fetchone()["spent"]
+            spent = conn.execute("SELECT spent FROM supply_quota_ledger WHERE account_id = %s", (cid,)).fetchone()["spent"]
         self.assertEqual(spent, 3)
         self.clock.advance(hours=11)
         later = self.poller().poll_connector(cid)
         self.assertEqual(later.calls, 1)
-        self.assertEqual(len(self.rows("SELECT 1 FROM offers WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'FAKE-P6-CT')")), 1,
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_offers WHERE listing_id IN (SELECT id FROM supply_listings WHERE sku = 'FAKE-P6-CT')")), 1,
                          "the listing that never got a turn is asked about first")
 
     def test_a_connector_with_no_budget_polls_nothing_and_a_free_one_never_spends(self) -> None:
         paid = self.connector("demo_small", daily_budget=0)
         self.add_listing(self.watch("A1").part_id, paid, "FAKE-A1-CT")
         self.assertEqual(self.poller().poll_connector(paid).stopped, "nothing_due", "with no budget nothing is admitted, so it waits")
-        self.assertEqual(self.rows("SELECT * FROM offers"), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_offers"), [])
 
         free = self.connector("csv")
         watch = self.watch("C2")
         self.imports_file(free, "sku,mpn,manufacturer,stock\nC2,C2,Acme,3\n")
         self.discover_csv(watch, free)
         self.assertEqual(self.poller_csv().poll_connector(free).polled, 1)
-        self.assertEqual(self.rows("SELECT * FROM quota_ledger WHERE connector_id = %s", free), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_quota_ledger WHERE account_id = %s", free), [])
 
     def test_a_reading_that_differs_from_the_last_writes_change_events(self) -> None:
         import dataclasses
@@ -361,14 +357,70 @@ class PollingTests(unittest.TestCase):
 
         self.provider_behaviour = Shifts
         self.poller().poll_connector(cid)
-        self.assertEqual(self.rows("SELECT kind FROM events"), [], "a first reading is not a change")
+        self.assertEqual(self.rows("SELECT kind FROM supply_events"), [], "a first reading is not a change")
         changes["now"] = True
         self.clock.advance(days=2)
         self.poller().poll_connector(cid)
-        kinds = sorted(row["kind"] for row in self.rows("SELECT kind FROM events"))
+        kinds = sorted(row["kind"] for row in self.rows("SELECT kind FROM supply_events"))
         self.assertEqual(kinds, ["lifecycle_changed", "moq_jump", "normally_stocking_lost"])
-        (sample,) = self.rows("SELECT moq, order_multiple FROM samples ORDER BY sampled_at DESC LIMIT 1")
+        (sample,) = self.rows("SELECT moq, order_multiple FROM supply_samples ORDER BY sampled_at DESC LIMIT 1")
         self.assertEqual(sample["moq"], 1000)
+
+    def test_substances_listed_with_an_offer_become_the_distributors_declarations(self) -> None:
+        import dataclasses
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        listed = {"now": ("Lead (CAS 7439-92-1)",)}
+
+        class Lists:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus):
+                return [dataclasses.replace(o, substances=listed["now"]) for o in self.inner.get_offers(skus)]
+
+        self.provider_behaviour = Lists
+        self.poller().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT cas, declared_by FROM supply_part_substances"), [{"cas": "7439-92-1", "declared_by": "distributor:fake"}])
+        listed["now"] = None
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        self.assertEqual(len(self.rows("SELECT cas FROM supply_part_substances")), 1, "an answer that states nothing changes nothing")
+        listed["now"] = ()
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT cas FROM supply_part_substances"), [])
+        self.assertEqual(self.rows("SELECT value FROM supply_part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])
+
+    def test_a_change_is_seen_when_the_samples_before_it_were_deleted(self) -> None:
+        import dataclasses
+
+        from app.services.supply.vocabulary import Lifecycle
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        changes = {"now": False}
+
+        class Shifts:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus):
+                found = self.inner.get_offers(skus)
+                if not changes["now"]:
+                    return [dataclasses.replace(o, lifecycle=Lifecycle.ACTIVE) for o in found]
+                return [dataclasses.replace(o, lifecycle=Lifecycle.NRND, stock=0) for o in found]
+
+        self.provider_behaviour = Shifts
+        self.poller().poll_connector(cid)
+        # Retention took every sample (a short history setting, or a listing read less often than samples are kept).
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM supply_samples")
+        changes["now"] = True
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        kinds = sorted(row["kind"] for row in self.rows("SELECT kind FROM supply_events"))
+        self.assertEqual(kinds, ["lifecycle_changed"])
+        self.assertEqual([row["kind"] for row in self.rows("SELECT kind FROM supply_stock_events")], ["stock_out"])
 
     def test_a_datasheet_address_in_an_offer_is_kept_for_the_part_once(self) -> None:
         import dataclasses
@@ -384,7 +436,7 @@ class PollingTests(unittest.TestCase):
 
         self.provider_behaviour = GivesDatasheet
         self.poller().poll_connector(cid)
-        self.assertEqual(self.rows("SELECT datasheet_url FROM parts")[0]["datasheet_url"], "https://acme.example/abc123.pdf")
+        self.assertEqual(self.rows("SELECT datasheet_url FROM supply_parts")[0]["datasheet_url"], "https://acme.example/abc123.pdf")
 
     def test_a_listing_missing_three_times_is_marked_gone(self) -> None:
         cid = self.connector()
@@ -418,18 +470,18 @@ class PollingTests(unittest.TestCase):
         poller = self.poller()
         self.assertEqual(poller.poll_connector(cid).polled, 1, "a listing never read goes out at once")
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
         held = poller.poll_connector(cid)
         self.assertEqual((held.polled, held.holding, held.stopped), (0, 1, "nothing_due"), "due for ten minutes, a batch of one waits")
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET urgency = 0")
+            conn.execute("UPDATE supply_poll_state SET urgency = 0")
         self.assertEqual(poller.poll_connector(cid).polled, 1, "an urgent listing does not wait")
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s, urgency = 2", (self.clock.now - timedelta(hours=2, minutes=1),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s, urgency = 2", (self.clock.now - timedelta(hours=2, minutes=1),))
         self.assertEqual(poller.poll_connector(cid).polled, 1, "nor one that has been due two hours")
         self.clock.now = START.replace(hour=22, minute=30)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
         self.assertEqual(poller.poll_connector(cid).polled, 1, "nor in the last two hours of the day")
 
     def test_a_batch_held_for_company_is_not_sent_alone_by_spare_work_and_its_late_read_counts_to_its_tier(self) -> None:
@@ -440,16 +492,16 @@ class PollingTests(unittest.TestCase):
         poller = self.poller()
         self.assertEqual(poller.poll_connector(cid).polled, 1)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(minutes=10),))
             jobs.refresh_scheduled(conn, cid, self.clock.now)
         self.assertEqual(poller.poll_connector(cid).holding, 1)
         spare = poller.poll_connector(cid, spare="overdue")
         self.assertEqual((spare.polled, spare.holding), (0, 1), "the held batch is not sent alone from spare budget either")
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=2, minutes=1),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=2, minutes=1),))
             jobs.refresh_scheduled(conn, cid, self.clock.now)
         self.assertEqual(poller.poll_connector(cid, spare="overdue").polled, 1, "due two hours: it goes")
-        late = self.rows("SELECT purpose, SUM(calls) AS n FROM call_counts WHERE connector_id = %s GROUP BY purpose ORDER BY purpose", cid)
+        late = self.rows("SELECT purpose, SUM(calls) AS n FROM supply_call_counts WHERE connector_id = %s GROUP BY purpose ORDER BY purpose", cid)
         self.assertEqual([row["purpose"] for row in late], ["tier1"], "a late committed read is tracking spend, also from spare budget")
 
     def test_a_late_committed_read_is_read_from_spare_budget(self) -> None:
@@ -459,16 +511,16 @@ class PollingTests(unittest.TestCase):
         poller = self.poller()
         self.assertEqual(poller.poll_connector(cid).polled, 2)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
-        before = self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM quota_ledger")[0]["n"]
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
+        before = self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM supply_quota_ledger")[0]["n"]
         from app.services.supply import jobs
 
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=5),))
             jobs.refresh_scheduled(conn, cid, self.clock.now)
         summary = poller.poll_connector(cid, spare="overdue")
         self.assertEqual(summary.polled, 2, "both late listings are read")
-        self.assertGreater(self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM quota_ledger")[0]["n"], before)
+        self.assertGreater(self.rows("SELECT COALESCE(SUM(spare_spent), 0) AS n FROM supply_quota_ledger")[0]["n"], before)
         self.assertEqual(poller.poll_connector(cid, spare="overdue").stopped, "nothing_due", "nothing is late any more")
 
     def test_scheduled_work_left_in_the_day_is_counted_in_calls_the_way_the_provider_batches(self) -> None:
@@ -478,13 +530,13 @@ class PollingTests(unittest.TestCase):
         for mpn in ("AAA", "BBB", "CCC"):
             self.add_listing(self.watch(mpn).part_id, cid, f"FAKE-{mpn}-CT")
         with self.store.connection() as conn:
-            conn.execute("UPDATE admissions SET state = 'admitted'")
+            conn.execute("UPDATE supply_admissions SET state = 'admitted'")
             account = accounts.resolve(conn, cid)
             self.assertEqual(demand.scheduled_rest(conn, account, self.clock.now), 2, "three never-read listings, two to a call")
         self.assertEqual(self.poller().poll_connector(cid).polled, 3)
         with self.store.connection() as conn:
             self.assertEqual(demand.scheduled_rest(conn, account, self.clock.now), 0, "the next reads are tomorrow's")
-            conn.execute("UPDATE poll_state SET next_poll_at = %s WHERE listing_id = (SELECT id FROM listings WHERE sku = 'FAKE-AAA-CT')", (self.clock.now + timedelta(hours=1),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s WHERE listing_id = (SELECT id FROM supply_listings WHERE sku = 'FAKE-AAA-CT')", (self.clock.now + timedelta(hours=1),))
             self.assertEqual(demand.scheduled_rest(conn, account, self.clock.now), 1, "one comes due before the reset")
 
     def test_no_calls_are_free_until_the_scheduled_work_has_been_counted_and_not_when_the_count_is_old(self) -> None:
@@ -497,8 +549,8 @@ class PollingTests(unittest.TestCase):
                 account = accounts.resolve(conn, cid)
                 state = ledger.get_state(conn, account.ledger_id, daily_budget=1000, reserve_pct=10, now=self.clock.now)
                 day = quota.provider_day(self.clock.now)
-                conn.execute("INSERT INTO quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING", (account.ledger_id, day))
-                row = conn.execute("SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM quota_ledger WHERE connector_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
+                conn.execute("INSERT INTO supply_quota_ledger (account_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING", (account.ledger_id, day))
+                row = conn.execute("SELECT scheduled_rest, scheduled_at, spare_hour, spare_hour_spent FROM supply_quota_ledger WHERE account_id = %s AND day = %s", (account.ledger_id, day)).fetchone()
                 return ledger.free_calls(conn, account.ledger_id, state, row, self.clock.now, reset_time=account.reset_time, reset_tz=account.reset_tz)
 
         self.assertEqual(free(), 0, "nothing counted yet")
@@ -515,7 +567,7 @@ class PollingTests(unittest.TestCase):
         watch = self.watch()
         self.add_listing(watch.part_id, cid, "FAKE-GHOST-CT")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (watch.part_id, cid, self.clock.now))
+            conn.execute("INSERT INTO supply_discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)", (watch.part_id, cid, self.clock.now))
 
         class DropsAll:
             def __init__(self, inner): self.inner = inner
@@ -527,10 +579,10 @@ class PollingTests(unittest.TestCase):
             poller.poll_connector(cid)
             self.clock.advance(hours=2)
         self.assertEqual(self.state_of("FAKE-GHOST-CT")["match_state"], "gone")
-        self.assertEqual(self.rows("SELECT found FROM discovery_runs")[0]["found"], 0, "nothing counted is left here")
+        self.assertEqual(self.rows("SELECT found FROM supply_discovery_runs")[0]["found"], 0, "nothing counted is left here")
         with self.store.connection() as conn:
             self.assertEqual(discoverer.pending_parts(conn, cid, self.clock.now, 10), [], "searched six hours ago")
-            conn.execute("UPDATE discovery_runs SET last_run_at = %s", (self.clock.now - timedelta(days=15),))
+            conn.execute("UPDATE supply_discovery_runs SET last_run_at = %s", (self.clock.now - timedelta(days=15),))
             self.assertEqual([p.part_id for p in discoverer.pending_parts(conn, cid, self.clock.now, 10)], [watch.part_id], "a part not found is searched after 14 days, not 30")
 
     def test_a_listing_found_after_a_pick_is_read_once_and_a_picked_listing_still_wins_the_rest(self) -> None:
@@ -547,14 +599,14 @@ class PollingTests(unittest.TestCase):
         picked = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-RL")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (watch.part_id, cid, picked))
-            conn.execute("UPDATE admissions SET state = 'admitted'")
+            conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (watch.part_id, cid, picked))
+            conn.execute("UPDATE supply_admissions SET state = 'admitted'")
         poller = self.poller()
         first = poller.poll_connector(cid)
         self.assertEqual(first.polled, 2, "the listing nobody read yet is read once whatever the pick")
         self.clock.advance(days=2)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
         self.assertEqual(poller.poll_connector(cid).polled, 1, "afterwards only the picked one")
 
     def test_where_a_listing_costs_a_place_in_a_batch_and_not_a_call_a_pick_does_not_limit_what_is_read(self) -> None:
@@ -563,13 +615,13 @@ class PollingTests(unittest.TestCase):
         picked = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
         self.add_listing(watch.part_id, cid, "FAKE-ABC123-RL")
         with self.store.connection() as conn:
-            conn.execute("INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (watch.part_id, cid, picked))
-            conn.execute("UPDATE admissions SET state = 'admitted'")
+            conn.execute("INSERT INTO supply_packaging_picks (part_id, connector_id, listing_id, picked_by) VALUES (%s, %s, %s, 'auto')", (watch.part_id, cid, picked))
+            conn.execute("UPDATE supply_admissions SET state = 'admitted'")
         poller = self.poller()
         self.assertEqual(poller.poll_connector(cid).polled, 2)
         self.clock.advance(days=2)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=3),))
         self.assertEqual(poller.poll_connector(cid).polled, 2, "both listings are read again")
 
     def test_a_returning_listing_clears_its_misses(self) -> None:
@@ -609,7 +661,7 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(summary.stopped, "rate_limited")
         self.assertEqual(self.connectors.get(cid)["last_error_code"], "rate_limited")
         self.assertEqual(self.poller().poll_connector(cid).stopped, "cooling_down")
-        self.assertEqual(self.rows("SELECT * FROM poll_state"), [], "the listing is not blamed")
+        self.assertEqual(self.rows("SELECT * FROM supply_poll_state"), [], "the listing is not blamed")
         self.clock.advance(minutes=11)
         self.provider_behaviour = None
         self.assertEqual(self.poller().poll_connector(cid).polled, 1)
@@ -638,7 +690,7 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(connector["paused_reason"], "The provider rejected the credentials.")
         self.assertEqual(connector["last_error_code"], "auth_failed")
         self.assertEqual(self.poller().poll_connector(cid).stopped, "inactive")
-        actor = self.rows("SELECT actor FROM audit_events WHERE action = 'connector.pause'")[0]["actor"]
+        actor = self.rows("SELECT actor FROM supply_audit_events WHERE action = 'connector.pause'")[0]["actor"]
         self.assertEqual(actor, "system:poller")
 
     def test_other_provider_errors_back_the_batch_off_and_stop_the_run(self) -> None:
@@ -651,7 +703,7 @@ class PollingTests(unittest.TestCase):
         self._failing(Unavailable("down"))
         summary = self.poller().poll_connector(cid)
         self.assertEqual((summary.calls, summary.stopped), (1, "error"), "later batches are not tried")
-        failed = [r for r in self.rows("SELECT * FROM poll_state")]
+        failed = [r for r in self.rows("SELECT * FROM supply_poll_state")]
         self.assertEqual(len(failed), 2)
         self.assertTrue(all(r["error_streak"] == 1 and r["last_error_code"] == "unavailable" for r in failed))
         self.assertTrue(all(r["next_poll_at"] >= self.clock.now + timedelta(minutes=5) for r in failed))
@@ -660,7 +712,7 @@ class PollingTests(unittest.TestCase):
         self.clock.advance(minutes=8)  # the rest is 5 minutes plus up to half again
         self.provider_behaviour = None
         self.poller().poll_connector(cid)
-        states = self.rows("SELECT error_streak, last_error_code FROM poll_state")
+        states = self.rows("SELECT error_streak, last_error_code FROM supply_poll_state")
         self.assertEqual(len(states), 4, "the batch that was never reached is asked about too")
         self.assertTrue(all(r["error_streak"] == 0 and r["last_error_code"] == "" for r in states), "failures are forgiven")
 
@@ -688,7 +740,7 @@ class PollingTests(unittest.TestCase):
         self.connectors.update(cid, actor=ACTOR, enabled=True)
         self.connectors.pause(cid, actor=ACTOR, reason="maintenance")
         self.assertEqual(self.poller().poll_connector(cid).stopped, "inactive")
-        self.assertEqual(self.rows("SELECT * FROM offers"), [])
+        self.assertEqual(self.rows("SELECT * FROM supply_offers"), [])
 
     # --- risk sets the order, not the rate ---------------------------------
 
@@ -726,11 +778,11 @@ class PollingTests(unittest.TestCase):
             self.add_listing(watch.part_id, cid, sku)
         self.clock.now = START.replace(hour=23, minute=59)  # the whole day's allowance has accrued
         self.poller().poll_connector(cid)
-        self.assertEqual(len(self.rows("SELECT 1 FROM offers")), 2)
+        self.assertEqual(len(self.rows("SELECT 1 FROM supply_offers")), 2)
         self.clock.advance(days=2)
         with self.store.connection() as conn:
-            conn.execute("UPDATE poll_state SET urgency = 2 WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'FAKE-QUIET-CT')")
-            conn.execute("UPDATE poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=1),))
+            conn.execute("UPDATE supply_poll_state SET urgency = 2 WHERE listing_id IN (SELECT id FROM supply_listings WHERE sku = 'FAKE-QUIET-CT')")
+            conn.execute("UPDATE supply_poll_state SET next_poll_at = %s", (self.clock.now - timedelta(hours=1),))
         with self.store.connection() as conn:
             due = self.poller_module.due_listings(conn, cid, self.clock.now, 10)
         self.assertEqual([item.sku for item in due], ["FAKE-URGENT-CT", "FAKE-QUIET-CT"])

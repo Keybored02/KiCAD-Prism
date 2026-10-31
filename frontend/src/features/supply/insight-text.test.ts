@@ -2,14 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { SupplyInsight } from "@/types/supply";
 import { confidenceLabel, insightBasis, insightLines } from "./insight-text";
+import { insightFixture } from "./supply-test-fixtures";
 
 function insight(overrides: Partial<SupplyInsight> = {}): SupplyInsight {
-  return {
-    confidence: "medium", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,
-    restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
-    inputs: { points: 12, span_days: 11, points_in_run: 12, current: 300 },
-    ...overrides,
-  };
+  return insightFixture({ confidence: "medium", inputs: { points: 12, span_days: 11, points_in_run: 12, current: 300 }, ...overrides });
 }
 
 describe("insight text", () => {
@@ -78,7 +74,7 @@ describe("insight text", () => {
     }));
     expect(lines).toEqual([
       "Stock is steady.",
-      "The quoted lead time went from 28 to 70 days since 2026-08-01.",
+      "The quoted lead time went from 4 w to 10 w since 2026-08-01.",
       "On 2026-10-01 stock fell from 960 to 100 in one step, which ordinary use does not do.",
       "Over the year it runs highest in November and lowest in January.",
     ]);

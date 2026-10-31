@@ -13,6 +13,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.services.supply import compliance  # noqa: E402
 from supply_api_helpers import request as _request  # noqa: E402
 
@@ -104,6 +105,7 @@ class ComplianceApiTests(unittest.TestCase):
         ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
         cls.app = FastAPI()
+        install_error_handlers(cls.app)
         cls.app.include_router(supply_compliance.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
@@ -118,10 +120,10 @@ class ComplianceApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("rohs_exemptions", "part_substances", "svhc_list", "svhc_substances", "offers", "listings", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("supply_rohs_exemptions", "supply_part_facts", "supply_part_substances", "supply_svhc_list", "supply_svhc_substances", "supply_offers", "supply_listings", "supply_parts", "supply_manufacturers", "supply_connectors", "supply_audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-            conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
-            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+            conn.execute("INSERT INTO supply_manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
+            conn.execute("INSERT INTO supply_connectors (id, provider) VALUES ('c1', 'fake')")
             self.part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com").id
 
     def test_the_list_can_be_sent_as_an_excel_file(self) -> None:
@@ -144,9 +146,9 @@ class ComplianceApiTests(unittest.TestCase):
     def offer(self, *, rohs=None, reach=None) -> None:
         with self.store.connection() as conn:
             conn.execute(
-                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'A', %s, 'x', 'Acme', 'exact')",
+                "INSERT INTO supply_listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) VALUES ('l1', 'c1', 'A', %s, 'x', 'Acme', 'exact')",
                 (self.part,))
-            conn.execute("INSERT INTO offers (listing_id, fetched_at, stock, rohs, reach_affected) VALUES ('l1', %s, 100, %s, %s)", (NOW, rohs, reach))
+            conn.execute("INSERT INTO supply_offers (listing_id, fetched_at, stock, rohs, reach_affected) VALUES ('l1', %s, 100, %s, %s)", (NOW, rohs, reach))
 
     def call(self, method, path, *, role="admin", body=None):
         return _request(self.app, method, path, user=self.users[role], body=body)
@@ -202,6 +204,21 @@ class ComplianceApiTests(unittest.TestCase):
         self.assertEqual(self.findings()["reach_svhc"], "reach_flag")
         view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
         self.assertEqual((view["rohs"]["state"], view["reach"]["state"]), ("compliant", "affected"))
+
+    def test_rohs_is_the_offers_and_the_stated_status_only_when_no_offer_says(self) -> None:
+        self.offer()
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO supply_part_facts (part_id, provider, name, value, observed_at) VALUES (%s, 'digikey', 'rohs_status', 'Non-compliant', %s)",
+                (self.part, NOW))
+        view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
+        self.assertEqual(view["rohs"]["state"], "not_compliant")
+        self.assertEqual(self.findings()["rohs_noncompliant"], "rohs_false")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE supply_offers SET rohs = true")
+        view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
+        self.assertEqual(view["rohs"]["state"], "compliant")
+        self.assertNotIn("rohs_noncompliant", self.findings())
 
     def test_without_any_word_on_reach_it_is_unknown_and_there_is_no_finding(self) -> None:
         self.offer()

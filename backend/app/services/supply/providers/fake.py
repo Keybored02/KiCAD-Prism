@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable, Sequence
 
+from app.services.supply import clock as supply_clock
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_BATCH,
@@ -66,7 +67,7 @@ class FakeProvider:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._currency = (config.currency or "USD").upper()
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or supply_clock.now
 
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
         key = _key(mpn)

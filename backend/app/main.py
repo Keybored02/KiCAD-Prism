@@ -52,6 +52,7 @@ from app.api.supply_connectors import router as supply_connectors_router
 from app.api.supply_review import router as supply_review_router
 from app.api.search_parts import router as search_parts_router
 from app.api.supply_ending import router as supply_ending_router
+from app.api.supply_work_items import router as supply_work_items_router
 from app.api.supply_forecast import router as supply_forecast_router
 from app.services.catalog import dbl_export
 from app.services.supply import ending_parts
@@ -59,7 +60,9 @@ from app.api.supply_parts import router as supply_parts_router
 from app.api.supply_alerts import router as supply_alerts_router
 from app.api.supply_bom import router as supply_bom_router
 from app.api.supply_fill import router as supply_fill_router
-from app.api.supply_component_watch import router as supply_component_watch_router
+from app.api.supply_component_parts import router as supply_component_parts_router
+from app.api.supply_inventory import router as supply_inventory_router
+from app.api.supply_push import router as supply_push_router
 from app.api.supply_health import router as supply_health_router
 from app.api.supply_fx import router as supply_fx_router
 from app.api.supply_datasheets import router as supply_datasheets_router
@@ -70,7 +73,6 @@ from app.api.supply_pcn import router as supply_pcn_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_bom_comments import router as supply_bom_comments_router
 from app.api.supply_checks import router as supply_checks_router
-from app.api.supply_mcp import router as supply_mcp_router
 from app.api.supply_packaging import router as supply_packaging_router
 from app.api.supply_tracking import budget_router as supply_budget_router, router as supply_tracking_router
 from app.api.supply_release import router as supply_release_router
@@ -443,13 +445,16 @@ app.include_router(supply_review_router)
 app.include_router(supply_parts_router)
 app.include_router(search_parts_router)
 app.include_router(supply_ending_router)
+app.include_router(supply_work_items_router)
 app.include_router(supply_forecast_router)
 # The KiCad database shows "Not for new designs" in Status for components the library marked.
 dbl_export.set_status_marks(ending_parts.status_marks)
 app.include_router(supply_alerts_router)
 app.include_router(supply_bom_router)
 app.include_router(supply_fill_router)
-app.include_router(supply_component_watch_router)
+app.include_router(supply_component_parts_router)
+app.include_router(supply_inventory_router)
+app.include_router(supply_push_router)
 app.include_router(supply_health_router)
 app.include_router(supply_fx_router)
 app.include_router(supply_datasheets_router)
@@ -464,7 +469,6 @@ app.include_router(supply_tracking_router)
 app.include_router(supply_budget_router)
 app.include_router(supply_packaging_router)
 app.include_router(supply_checks_router)
-app.include_router(supply_mcp_router)
 app.include_router(supply_settings_router)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
