@@ -78,6 +78,7 @@ from app.api.supply_packaging import router as supply_packaging_router
 from app.api.supply_tracking import budget_router as supply_budget_router, router as supply_tracking_router
 from app.api.supply_release import router as supply_release_router
 from app.api.supply_settings import router as supply_settings_router
+from app.api.repo_discovery import router as repo_discovery_router
 from app.api.project_trackers import router as project_trackers_router
 from app.api.tracker_sync import router as tracker_sync_router
 from app.api.tracker_webhooks import router as tracker_webhooks_router
@@ -483,6 +484,7 @@ app.include_router(supply_budget_router)
 app.include_router(supply_packaging_router)
 app.include_router(supply_checks_router)
 app.include_router(supply_settings_router)
+app.include_router(repo_discovery_router)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
 app.include_router(project_trackers_router)

@@ -17,94 +17,31 @@ import { toast } from "sonner";
 import { fetchJson } from "@/lib/api";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 import { cancelPrismJob, isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
+import { classifyImportUrl, loadDiscoverySources, type DiscoverySource } from "@/lib/repo-discovery";
+import { RepoDiscoveryFlow } from "@/components/repo-discovery/repo-discovery-flow";
+import {
+  analysisResultOf,
+  importNotices,
+  importedProjectIdsOf,
+  isProjectAlreadyImported,
+  projectKeyOf,
+  projectsPerDirectory,
+  selectableProjectKeys,
+  type AnalysisResult,
+  type DiscoveredProject,
+} from "@/lib/import-analysis";
 
-export interface DiscoveredProject {
-  name: string;
-  relative_path: string;
-  /**
-   * Identifies one project. A directory can hold several KiCad projects, so the
-   * directory alone cannot: selecting by `relative_path` used to tick every
-   * project sharing a directory at once. Older backends do not send this.
-   */
-  project_key?: string;
-  /** The project's own .kicad_pro (or board) file within `relative_path`. */
-  project_file?: string;
-  has_schematic: boolean;
-  has_pcb: boolean;
-  has_project_file?: boolean;
-}
-
-/** The key a project is selected by, falling back to pre-`project_key` behaviour. */
-export const projectKeyOf = (project: DiscoveredProject): string =>
-  project.project_key ?? project.relative_path;
-
-/** How many discovered projects share each directory. */
-export function projectsPerDirectory(
-  projects: DiscoveredProject[],
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const project of projects) {
-    counts.set(project.relative_path, (counts.get(project.relative_path) ?? 0) + 1);
-  }
-  return counts;
-}
-
-export function isProjectAlreadyImported(
-  project: DiscoveredProject,
-  importedPaths: Set<string>,
-  perDirectory: Map<string, number>,
-): boolean {
-  if (importedPaths.has(projectKeyOf(project))) {
-    return true;
-  }
-  // A project registered before Prism recorded project files reports its bare
-  // directory. It stands for that directory's one project, so it must not mark
-  // a sibling that shares the directory as imported.
-  return (
-    importedPaths.has(project.relative_path) &&
-    perDirectory.get(project.relative_path) === 1
-  );
-}
-
-/** The keys of the projects the user can still choose to import. */
-export function selectableProjectKeys(
-  projects: DiscoveredProject[],
-  importedPaths: Set<string>,
-): string[] {
-  const perDirectory = projectsPerDirectory(projects);
-  return projects.flatMap((project) =>
-    isProjectAlreadyImported(project, importedPaths, perDirectory)
-      ? []
-      : [projectKeyOf(project)],
-  );
-}
-
-interface AnalysisResult {
-  repo_name: string;
-  repo_url: string;
-  import_type: "type1" | "type2";
-  projects: DiscoveredProject[];
-  /** Present only when nothing was found, explaining what was looked for. */
-  empty_reason?: string;
-  branches?: string[];
-  default_branch?: string | null;
-  ref?: string | null;
-  already_imported?: boolean;
-  /** Project keys already registered, so they can be shown as done. */
-  imported_paths?: string[];
-  uses_lfs?: boolean;
-}
-
-/** Things worth knowing before importing, beyond the project list itself. */
-export function importNotices(analysis: Pick<AnalysisResult, "uses_lfs">): string[] {
-  const notices: string[] = [];
-  if (analysis.uses_lfs) {
-    notices.push(
-      "This repository uses Git LFS. Large files are downloaded during import unless the server has LFS turned off.",
-    );
-  }
-  return notices;
-}
+// The dialog's tests import these from here.
+export {
+  analysisResultOf,
+  importNotices,
+  importedProjectIdsOf,
+  isProjectAlreadyImported,
+  projectKeyOf,
+  projectsPerDirectory,
+  selectableProjectKeys,
+};
+export type { DiscoveredProject };
 
 export function importReviewTitle(
   analysis: Pick<AnalysisResult, "import_type" | "projects">,
@@ -117,17 +54,6 @@ export function importReviewTitle(
 
 /** Job error code for a failure the user can fix by granting Prism access. */
 const GIT_ACCESS_ERROR_CODE = "git_access";
-
-/** The analysis a completed analyse job left in its result metadata. */
-export function analysisResultOf(job: PrismJobStatus): AnalysisResult | undefined {
-  return job.result_metadata?.result as AnalysisResult | undefined;
-}
-
-/** Project ids a completed import job registered. */
-export function importedProjectIdsOf(job: PrismJobStatus): string[] {
-  const ids = job.result_metadata?.project_ids;
-  return Array.isArray(ids) ? ids.map(String) : [];
-}
 
 /** Whether a failed job is one the user can fix by granting Prism access. */
 export function isAccessFailure(job: PrismJobStatus): boolean {
@@ -184,7 +110,8 @@ interface ImportDialogProps {
 
 type ImportState =
   | { step: "input" }
-  | { step: "input" }
+  /** A host address was pasted: pick several of its repositories. */
+  | { step: "discover"; source: DiscoverySource; scope: string }
   | { step: "analyzing"; url: string; jobId?: string; status?: PrismJobStatus }
   | { step: "review"; url: string; analysis: AnalysisResult }
   | { step: "importing"; url: string; jobId: string; status: PrismJobStatus }
@@ -231,6 +158,8 @@ export function ImportDialog({
 }: ImportDialogProps) {
   const [state, setState] = useState<ImportState>({ step: "input" });
   const [url, setUrl] = useState("");
+  // Hosts that can be listed. Failing to read them only means every address is treated as a repository.
+  const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   // Empty means "whatever the remote's HEAD points at". The value feeds the
   // next analysis request but never the screen, so it is not state.
@@ -254,6 +183,32 @@ export function ImportDialog({
       stopPolling();
     }
   }, [open, stopPolling]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadDiscoverySources()
+      .then((found) => {
+        if (!cancelled) setSources(found);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // What the address in the box asks for: one repository, or a connected host's repositories.
+  const target = classifyImportUrl(url, sources);
+
+  /** The one button for both paths: list a host's repositories, or analyse the one repository. */
+  const continueFromInput = () => {
+    if (target.kind === "discover") {
+      setState({ step: "discover", source: target.source, scope: target.scope });
+      return;
+    }
+    if (target.kind === "empty" || target.kind === "unknown-host") return;
+    void analyzeRepo();
+  };
 
   const reset = () => {
     stopPolling();
@@ -507,7 +462,7 @@ export function ImportDialog({
 
     if (state.step === "input" && url.trim()) {
       event.preventDefault();
-      void analyzeRepo();
+      continueFromInput();
       return;
     }
 
@@ -536,13 +491,17 @@ export function ImportDialog({
         else onOpenChange(true);
       }}
     >
-      <DialogContent className="max-w-lg" onKeyDown={handleDialogKeyDown}>
+      <DialogContent
+        className={state.step === "discover" ? "max-w-3xl" : "max-w-lg"}
+        onKeyDown={handleDialogKeyDown}
+      >
         {state.step === "input" && (
           <>
             <DialogHeader>
               <DialogTitle>Import Project</DialogTitle>
               <DialogDescription>
                 Enter the URL of a Git repository containing KiCad projects. GitHub, GitLab and self-hosted remotes are all supported.
+                Enter the address of a connected host instead to pick from all of its repositories.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -559,21 +518,48 @@ export function ImportDialog({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
                       e.preventDefault();
-                      void analyzeRepo();
+                      continueFromInput();
                     }
                   }}
                 />
+                {target.kind === "discover" && (
+                  <p className="col-span-3 col-start-2 text-xs text-muted-foreground">
+                    {target.source.displayName || target.source.host} is a connected host.{" "}
+                    {target.scope
+                      ? `Prism will list the repositories under ${target.scope}.`
+                      : "Prism will list its repositories so you can pick several."}
+                  </p>
+                )}
+                {target.kind === "unknown-host" && (
+                  <p className="col-span-3 col-start-2 text-xs text-destructive">
+                    {target.host} is not a connected host. Add a repository path to import one repository, or an
+                    administrator can connect the host in Settings, under Code hosts.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button onClick={() => void analyzeRepo()} disabled={!url.trim()}>
-                Analyze
+              <Button
+                onClick={continueFromInput}
+                disabled={target.kind === "empty" || target.kind === "unknown-host"}
+              >
+                {target.kind === "discover" ? "Find repositories" : "Analyze"}
               </Button>
             </div>
           </>
+        )}
+
+        {state.step === "discover" && (
+          <RepoDiscoveryFlow
+            source={state.source}
+            scope={state.scope}
+            onBack={() => setState({ step: "input" })}
+            onClose={handleClose}
+            onImported={onImportComplete}
+          />
         )}
 
         {state.step === "analyzing" && (

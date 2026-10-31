@@ -58,8 +58,8 @@ class WebhookCodec:
 
 
 @dataclass(frozen=True)
-class ProviderKit:
-    """Everything the runtime needs from one issue-capable provider.
+class CredentialKit:
+    """The installation credential of one provider: what is stored, encrypted, and when it is complete.
 
     ``credential_fields`` are the keys of the encrypted installation envelope;
     all are required once any is given. Webhook secrets and OAuth clients are
@@ -70,14 +70,6 @@ class ProviderKit:
     credential_fields: tuple[str, ...]
     credential_aliases: Mapping[str, str]
     credential_error: str
-    issue_adapter: Callable[[Mapping[str, Any], Mapping[str, Any], Any], Any]
-    comment_adapter: Callable[[Any, Mapping[str, Any]], Any]
-    test_connection: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
-    list_repositories: Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
-    # (connector, container path, issue number) -> the issue's web page.
-    issue_web_url: Callable[[Mapping[str, Any], str, Any], str]
-    # (connector, container path, issue number, external comment id) -> the comment's web page.
-    comment_web_url: Callable[[Mapping[str, Any], str, Any, str], str]
 
     def credential_payload(self, credentials: Mapping[str, Any]) -> dict[str, str]:
         """Envelope fields from an admin request, accepting snake_case aliases."""
@@ -94,6 +86,32 @@ class ProviderKit:
     def require_complete(self, payload: Mapping[str, str]) -> None:
         if not all(str(payload.get(field) or "") for field in self.credential_fields):
             raise ProviderError("invalid_request", self.credential_error)
+
+
+@dataclass(frozen=True)
+class DiscoveryKit(CredentialKit):
+    """A host that only lists repositories for discovery: a credential and a lister, no issues."""
+
+    list_readable_repositories: Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
+
+
+@dataclass(frozen=True)
+class ProviderKit(CredentialKit):
+    """Everything the runtime needs from one issue-capable provider."""
+
+    issue_adapter: Callable[[Mapping[str, Any], Mapping[str, Any], Any], Any]
+    comment_adapter: Callable[[Any, Mapping[str, Any]], Any]
+    test_connection: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
+    list_repositories: Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
+    # (connector, container path, issue number) -> the issue's web page.
+    issue_web_url: Callable[[Mapping[str, Any], str, Any], str]
+    # (connector, container path, issue number, external comment id) -> the comment's web page.
+    comment_web_url: Callable[[Mapping[str, Any], str, Any, str], str]
+    # Every repository the credential can read, with clone URLs, for repository
+    # discovery. Unset where a provider has no such lister yet.
+    list_readable_repositories: Optional[
+        Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
+    ] = None
 
 
 # --- GitHub -----------------------------------------------------------------
@@ -190,6 +208,17 @@ GITHUB = ProviderKit(
 # --- GitLab (gitlab.com and self-managed) ------------------------------------
 
 GITLAB_REPOSITORY_LIMIT = 1000
+GITLAB_READABLE_REPOSITORY_LIMIT = 5000
+GITEA_READABLE_REPOSITORY_LIMIT = 5000
+
+
+def _size_bytes(value: Any, *, unit: int = 1) -> Optional[int]:
+    """A repository size in bytes from the host's number, or ``None`` when it did not report one."""
+
+    try:
+        return int(value) * unit
+    except (TypeError, ValueError):
+        return None
 
 
 def _gitlab_auth(connector: Mapping[str, Any], material: Mapping[str, Any], http: Any = None) -> Any:
@@ -255,20 +284,53 @@ def _gitlab_test(connector: Mapping[str, Any], material: Mapping[str, Any]) -> d
 def _gitlab_repositories(connector: Mapping[str, Any], material: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Projects the bot can write issues in (Reporter or above), for the picker."""
 
+    return _gitlab_project_pages(
+        connector,
+        material,
+        {
+            "membership": "true",
+            # Developer, the level the connection test requires to publish.
+            "min_access_level": 30,
+            "archived": "false",
+            "simple": "true",
+        },
+        limit=GITLAB_REPOSITORY_LIMIT,
+    )
+
+
+def _gitlab_readable_repositories(connector: Mapping[str, Any], material: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Projects the token's user can read (Reporter or above), with clone URLs.
+
+    Archived projects are included and marked, so discovery can show or hide
+    them. ``simple`` is left off because it omits ``archived`` and ``empty_repo``.
+    """
+
+    return _gitlab_project_pages(
+        connector,
+        material,
+        {
+            "membership": "true",
+            # Reporter, the lowest level that can clone.
+            "min_access_level": 20,
+            # Adds ``statistics.repository_size``, which the review screen shows.
+            "statistics": "true",
+        },
+        limit=GITLAB_READABLE_REPOSITORY_LIMIT,
+    )
+
+
+def _gitlab_project_pages(
+    connector: Mapping[str, Any],
+    material: Mapping[str, Any],
+    filters: dict[str, Any],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
     auth = _gitlab_auth(connector, material)
     url: Optional[str] = auth.url("/projects")
-    params: Optional[dict[str, Any]] = {
-        "membership": "true",
-        # Developer, the level the connection test requires to publish.
-        "min_access_level": 30,
-        "archived": "false",
-        "simple": "true",
-        "order_by": "path",
-        "sort": "asc",
-        "per_page": 100,
-    }
+    params: Optional[dict[str, Any]] = {**filters, "order_by": "path", "sort": "asc", "per_page": 100}
     repositories: list[dict[str, Any]] = []
-    while url and len(repositories) < GITLAB_REPOSITORY_LIMIT:
+    while url and len(repositories) < limit:
         response = auth.http.outcome(auth.http.request("GET", url, headers=auth.bot_headers(), params=params))
         params = None
         payload = response.json() if response.content else []
@@ -283,10 +345,67 @@ def _gitlab_repositories(connector: Mapping[str, Any], material: Mapping[str, An
                     "private": str(item.get("visibility") or "private") != "public",
                     "archived": bool(item.get("archived")),
                     "htmlUrl": str(item.get("web_url") or ""),
+                    "sshUrl": str(item.get("ssh_url_to_repo") or ""),
+                    "cloneUrl": str(item.get("http_url_to_repo") or ""),
+                    "defaultBranch": str(item.get("default_branch") or ""),
+                    "emptyRepo": bool(item.get("empty_repo")),
+                    "sizeBytes": _size_bytes((item.get("statistics") or {}).get("repository_size")),
                 }
             )
         url = response.next_page()
-    return repositories
+    return repositories[:limit]
+
+
+def _gitea_readable_repositories(connector: Mapping[str, Any], material: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Every repository the token's user can read on a Gitea or Forgejo server, with clone URLs."""
+
+    from urllib.parse import urlsplit
+
+    from app.services.trackers.gitea_identity import web_root_for
+    from app.services.trackers.http import TrackerHttp
+
+    root = web_root_for(str(connector.get("base_url") or ""))
+    host = urlsplit(root).hostname
+    http = TrackerHttp(extra_hosts=(host,) if host else ())
+    token = str(material.get("accessToken") or material.get("access_token") or "")
+    headers = {"Authorization": f"token {token}", "Accept": "application/json"}
+    url: Optional[str] = f"{root}/api/v1/repos/search"
+    params: Optional[dict[str, Any]] = {"limit": 50, "sort": "alpha"}
+    repositories: list[dict[str, Any]] = []
+    while url and len(repositories) < GITEA_READABLE_REPOSITORY_LIMIT:
+        response = http.outcome(http.request("GET", url, headers=headers, params=params))
+        params = None
+        payload = response.json() if response.content else {}
+        items = payload.get("data") if isinstance(payload, dict) else None
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict) or item.get("id") is None:
+                continue
+            repositories.append(
+                {
+                    "id": str(item["id"]),
+                    "fullName": str(item.get("full_name") or ""),
+                    "private": bool(item.get("private")),
+                    "archived": bool(item.get("archived")),
+                    "htmlUrl": str(item.get("html_url") or ""),
+                    "sshUrl": str(item.get("ssh_url") or ""),
+                    "cloneUrl": str(item.get("clone_url") or ""),
+                    "defaultBranch": str(item.get("default_branch") or ""),
+                    "emptyRepo": bool(item.get("empty")),
+                    # Gitea reports the size in KiB.
+                    "sizeBytes": _size_bytes(item.get("size"), unit=1024),
+                }
+            )
+        url = response.next_page()
+    return repositories[:GITEA_READABLE_REPOSITORY_LIMIT]
+
+
+GITEA = DiscoveryKit(
+    provider="gitea",
+    credential_fields=("accessToken",),
+    credential_aliases={"accessToken": "access_token"},
+    credential_error="A Gitea access token is required.",
+    list_readable_repositories=_gitea_readable_repositories,
+)
 
 
 def _gitlab_webhook() -> WebhookCodec:
@@ -311,6 +430,7 @@ GITLAB = ProviderKit(
     list_repositories=_gitlab_repositories,
     issue_web_url=_gitlab_issue_url,
     comment_web_url=_gitlab_comment_url,
+    list_readable_repositories=_gitlab_readable_repositories,
 )
 
 
@@ -338,6 +458,8 @@ class HostKit:
     # credentials it counts as revoked.
     links_without_credentials: bool = True
     issues: Optional[ProviderKit] = None
+    # For a host that cannot publish issues but can still be searched for repositories.
+    discovery: Optional[DiscoveryKit] = None
 
     @property
     def linking_only(self) -> bool:
@@ -441,6 +563,7 @@ GITEA_HOST = HostKit(
     validate_instance=_gitea_validate,
     oauth_app=_gitea_oauth_app,
     identity_adapter=_gitea_identity,
+    discovery=GITEA,
 )
 
 
@@ -480,6 +603,34 @@ def kit_for(provider: str | None) -> ProviderKit:
             f"Issue publishing is not available for {display_name(provider)} yet; this host is for account linking.",
         )
     raise ProviderError("invalid_request", f"Unknown tracker provider {provider!r}.")
+
+
+def credential_kit(provider: str | None) -> Optional[CredentialKit]:
+    """The kit that stores this provider's installation credential, if it takes one."""
+
+    host = _HOSTS.get(provider or "")
+    if host is None:
+        return None
+    return host.issues or host.discovery
+
+
+def readable_lister(
+    provider: str | None,
+) -> Optional[Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]]:
+    """How repository discovery lists this provider's repositories; ``None`` where it cannot."""
+
+    host = _HOSTS.get(provider or "")
+    if host is None:
+        return None
+    if host.discovery is not None:
+        return host.discovery.list_readable_repositories
+    return host.issues.list_readable_repositories if host.issues is not None else None
+
+
+def can_list_readable_repositories(provider: str | None) -> bool:
+    """Whether repository discovery can list this provider's repositories."""
+
+    return readable_lister(provider) is not None
 
 
 def webhook_codec(provider: str | None) -> Optional[WebhookCodec]:

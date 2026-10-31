@@ -63,6 +63,7 @@ from app.services.workspace_migrations import m139_ops_instrumentation
 from app.services.workspace_migrations import m140_ops_workers_settings
 from app.services.workspace_migrations import m141_pg_stat_statements
 from app.services.workspace_migrations import m142_ops_profiles
+from app.services.workspace_migrations import m157_repo_discovery
 
 
 Migration = Callable[[Any], None]
@@ -429,6 +430,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (154, "manufacturing_capability_config", _manufacturing_capability_config),
     (155, "manufacturing_one_spec_per_manufacturer", _manufacturing_one_spec_per_manufacturer),
     (156, "manufacturing_defect_disposition", _manufacturing_defect_disposition),
+    (157, "repo_discovery", m157_repo_discovery.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
@@ -438,6 +440,7 @@ RENUMBERED: tuple[tuple[str, int, int], ...] = (
     ("sim_studio_setups", 9056, 120),
     ("sim_studio_runs", 9057, 121),
     ("sim_studio_layouts", 9058, 122),
+    ("repo_discovery", 143, 157),
     ("manufacturing_spec_config", 26, 143),
     ("manufacturing_spec_config", 55, 143),
     ("manufacturing_spec_config", 9055, 143),

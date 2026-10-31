@@ -157,19 +157,23 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     """
     Discover KiCAD projects by inspecting the Git tree directly (no-checkout).
     Returns list of DiscoveredProject.
+    """
+    try:
+        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
+    except Exception:
+        # Fallback for empty repos or other issues
+        return []
+    return discover_projects_from_paths(all_files)
+
+
+def discover_projects_from_paths(all_files: Sequence[str]) -> List[DiscoveredProject]:
+    """Discover KiCAD projects among a repository's file paths (relative to its root).
 
     A directory counts as a project when it holds a ``.kicad_pro``, a
     ``.kicad_pcb`` or a ``.kicad_sch``. Requiring ``.kicad_pro`` used to make
     whole repositories import as nothing at all, because KiCad rewrites that
     file on every open and teams routinely gitignore it.
     """
-    # Get all files in the repo recursively
-    try:
-        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
-    except Exception:
-        # Fallback for empty repos or other issues
-        return []
-
     # Map directory -> list of filenames
     dir_map: dict[str, list[str]] = {}
     for fpath in all_files:
@@ -774,18 +778,65 @@ def _discover_remote_projects(
     needed, so this stays cheap even against a repository with gigabytes of
     history.
     """
-    temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
-    clone_path = Path(temp_dir) / parsed.repo_name
     context.progress(
         stage=stage,
         message=f"Cloning repository metadata ({ref})" if ref else "Cloning repository metadata",
         percent=0,
         force=True,
     )
+
+    def cloned() -> None:
+        context.check_cancelled()
+        context.progress(
+            stage="discover-projects",
+            message="Discovering KiCad projects",
+            percent=percent_ceiling,
+            force=True,
+        )
+
+    projects, uses_lfs = _clone_and_discover(
+        parsed,
+        ref=ref,
+        progress=V3CloneProgress(context, stage=stage),
+        on_cloned=cloned,
+    )
+    return RemoteDiscovery(
+        projects=projects, import_type=classify_import_type(projects), uses_lfs=uses_lfs
+    )
+
+
+def clone_and_discover_projects(
+    parsed: ParsedRemote,
+    *,
+    ref: Optional[str] = None,
+    progress: Optional[RemoteProgress] = None,
+    on_cloned: Optional[Callable[[], None]] = None,
+) -> List[DiscoveredProject]:
+    """The projects in a remote's branch; see ``_clone_and_discover``."""
+    return _clone_and_discover(parsed, ref=ref, progress=progress, on_cloned=on_cloned)[0]
+
+
+def _clone_and_discover(
+    parsed: ParsedRemote,
+    *,
+    ref: Optional[str] = None,
+    progress: Optional[RemoteProgress] = None,
+    on_cloned: Optional[Callable[[], None]] = None,
+) -> tuple[List[DiscoveredProject], bool]:
+    """The projects in a remote's branch (its HEAD by default), and whether it tracks LFS, from a metadata-only clone.
+
+    Shared by the analyze job and repository discovery, so both call a
+    repository valid on exactly the same grounds. Anything git refuses is raised
+    as a ``GitAccessError``.
+    """
+    temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
+    clone_path = Path(temp_dir) / parsed.repo_name
     try:
         clone_options = {}
         if ref:
             clone_options["branch"] = ref
+        if progress is not None:
+            clone_options["progress"] = progress
         try:
             repo = Repo.clone_from(
                 parsed.url,
@@ -795,7 +846,6 @@ def _discover_remote_projects(
                 no_checkout=True,
                 filter="blob:none",
                 **GITPYTHON_CLONE_KWARGS,
-                progress=V3CloneProgress(context, stage=stage),
                 env=git_remote_access.git_env(),
                 **clone_options,
             )
@@ -805,20 +855,11 @@ def _discover_remote_projects(
             raise as_access_error(
                 error, target=git_remote_access.describe_target(parsed), host=parsed.host
             ) from error
-        context.check_cancelled()
-        context.progress(
-            stage="discover-projects",
-            message="Discovering KiCad projects",
-            percent=percent_ceiling,
-            force=True,
-        )
+        if on_cloned is not None:
+            on_cloned()
         projects = discover_projects_from_repo(repo)
-        return RemoteDiscovery(
-            projects=projects,
-            import_type=classify_import_type(projects),
-            uses_lfs=git_checkout_service.tracks_lfs(
-                repo.working_tree_dir, git_env(), ref="HEAD"
-            ),
+        return projects, git_checkout_service.tracks_lfs(
+            repo.working_tree_dir, git_remote_access.git_env(), ref="HEAD"
         )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

@@ -21,6 +21,17 @@ def discover(paths: list[str]):
     return project_import_service.discover_projects_from_repo(repo)
 
 
+class DiscoversFromPathsAlone(unittest.TestCase):
+    def test_paths_and_repo_give_the_same_answer(self) -> None:
+        paths = ["a/a.kicad_pro", "a/a.kicad_pcb", "b/b.kicad_sch", "docs/readme.md"]
+        from_paths = project_import_service.discover_projects_from_paths(paths)
+        self.assertEqual(from_paths, discover(paths))
+        self.assertEqual([project.name for project in from_paths], ["a", "b"])
+
+    def test_no_paths_is_no_projects(self) -> None:
+        self.assertEqual(project_import_service.discover_projects_from_paths([]), [])
+
+
 class FindsProjectsWithoutAProjectFile(unittest.TestCase):
     def test_board_without_kicad_pro_is_found(self) -> None:
         projects = discover(["board.kicad_pcb", "board.kicad_sch", ".gitignore"])

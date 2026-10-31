@@ -35,6 +35,8 @@ class ConnectorCredentials(BaseModel):
     appId: str = ""
     installationId: str = ""
     privateKey: str = ""
+    # Gitea and GitLab: the access token repository discovery lists with.
+    accessToken: str = ""
     webhookSecret: str = ""
     oauthClientId: str = ""
     oauthClientSecret: str = ""
