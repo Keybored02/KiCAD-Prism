@@ -172,6 +172,8 @@ class ContractChecks:
     currency: ClassVar[str] = ""
     # Credentials by field name, where the adapter wants a value of a certain form; the rest are made up.
     credentials: ClassVar[Mapping[str, str]] = {}
+    # A service that takes no key (LCSC, JLCPCB): a refusal is its bot filter, so it is a block, not a rejected credential.
+    keyless: ClassVar[bool] = False
 
     def setUp(self) -> None:  # noqa: N802 - unittest
         super().setUp()  # type: ignore[misc]
@@ -258,7 +260,7 @@ class ContractChecks:
         return caught.exception
 
     def test_a_refusal_is_an_auth_error(self) -> None:
-        self.failing(AnswerAllTransport(401), AuthError)
+        self.failing(AnswerAllTransport(401), Blocked if self.keyless else AuthError)
 
     def test_a_limit_is_rate_limited_with_its_wait(self) -> None:
         error = self.failing(AnswerAllTransport(429, headers={"retry-after": "30"}), RateLimited)

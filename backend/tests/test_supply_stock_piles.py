@@ -71,7 +71,7 @@ class PileTests(unittest.TestCase):
             registry.unregister("pick_demo")
         self.assertIn("'pick_demo'", sql)
         self.assertNotIn("'farnell'", sql)
-        self.assertNotIn("'lcsc'", sql, "a CSV-fed connector is not pick-limited: a pick saves it no calls")
+        self.assertIn("'lcsc'", sql, "LCSC reads each listing, so a pick saves it calls")
 
 
 if __name__ == "__main__":

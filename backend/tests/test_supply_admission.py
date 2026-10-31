@@ -19,7 +19,7 @@ ACTOR = "ana@example.com"
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 
 # Listings per part at each metered provider, the dev data's averages (plan 4.4).
-AVERAGE_LISTINGS = {"digikey": 2.9, "farnell": 2.2, "mouser": 1.0, "tme": 1.1}
+AVERAGE_LISTINGS = {"digikey": 2.9, "lcsc": 2.1, "farnell": 2.2, "mouser": 1.0, "tme": 1.1}
 
 
 class CostTests(unittest.TestCase):
@@ -30,20 +30,21 @@ class CostTests(unittest.TestCase):
         return budget.cost(registry.get_spec(provider), tier, rate, listings)
 
     def test_tier_one_costs_match_the_plan_table(self) -> None:
-        for provider, expected in (("digikey", 1.033), ("farnell", 0.25), ("mouser", 0.103), ("tme", 0.045)):
+        for provider, expected in (("digikey", 1.033), ("lcsc", 2.13), ("farnell", 0.25), ("mouser", 0.103), ("tme", 0.045)):
             self.assertAlmostEqual(self.cost(provider, 1, "daily", AVERAGE_LISTINGS[provider]), expected, delta=0.005, msg=provider)
 
     def test_a_packaging_pick_cuts_the_cost_of_a_provider_that_reads_each_listing(self) -> None:
-        for provider, expected in (("digikey", 1.033), ("farnell", 0.13), ("mouser", 0.103), ("tme", 0.04)):
+        for provider, expected in (("digikey", 1.033), ("lcsc", 1.03), ("farnell", 0.13), ("mouser", 0.103), ("tme", 0.04)):
             self.assertAlmostEqual(self.cost(provider, 1, "daily", 1), expected, delta=0.005, msg=provider)
 
     def test_tier_two_weekly_costs_after_a_pick_match_the_plan_table(self) -> None:
-        for provider, expected in (("digikey", 0.154), ("farnell", 0.03), ("mouser", 0.02), ("tme", 0.01)):
+        for provider, expected in (("digikey", 0.154), ("lcsc", 0.15), ("farnell", 0.03), ("mouser", 0.02), ("tme", 0.01)):
             self.assertAlmostEqual(self.cost(provider, 2, "weekly", 1), expected, delta=0.005, msg=provider)
 
     def test_how_many_tier_one_parts_900_committed_calls_hold(self) -> None:
-        held = {provider: int(900 / self.cost(provider, 1, "daily", 1)) for provider in ("digikey", "farnell", "mouser", "tme")}
+        held = {provider: int(900 / self.cost(provider, 1, "daily", 1)) for provider in ("digikey", "lcsc", "farnell", "mouser", "tme")}
         self.assertAlmostEqual(held["digikey"], 870, delta=10)
+        self.assertAlmostEqual(held["lcsc"], 870, delta=10)
         self.assertAlmostEqual(held["farnell"], 6800, delta=100)
         self.assertAlmostEqual(held["mouser"], 8700, delta=100, msg="substances come with the offer: no call of their own")
 
@@ -55,7 +56,7 @@ class CostTests(unittest.TestCase):
         from app.services.supply.providers import registry
 
         self.assertLess(self.cost("farnell", 2, "monthly", 2), self.cost("farnell", 2, "weekly", 2))
-        for key in ("csv", "lcsc", "jlcpcb"):
+        for key in ("csv",):
             self.assertEqual(budget.cost(registry.get_spec(key), 1, "daily", 5), 0.0, key)
 
     def test_the_committed_share_is_at_most_ninety_percent(self) -> None:
@@ -80,7 +81,7 @@ class CostTests(unittest.TestCase):
             registry.unregister("pick_demo")
         self.assertEqual(budget.pick_saving(registry.get_spec("digikey"), 1, "daily", 3), 0.0, "DigiKey reads a part in one call")
         self.assertEqual(budget.pick_saving(registry.get_spec("farnell"), 1, "daily", 3), 0.0, "a listing costs a place in a batch, not a call")
-        self.assertEqual(budget.pick_saving(registry.get_spec("lcsc"), 1, "daily", 3), 0.0, "a CSV-fed connector spends no calls")
+        self.assertAlmostEqual(budget.pick_saving(registry.get_spec("lcsc"), 1, "daily", 2), 1.0, places=4, msg="LCSC reads each listing")
 
 
 @unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply database tests")

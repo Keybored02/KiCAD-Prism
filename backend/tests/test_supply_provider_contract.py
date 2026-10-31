@@ -7,6 +7,7 @@ documentation (no key was available to record them); replace them with recording
 
 from __future__ import annotations
 
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -14,9 +15,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app.services.supply.providers import arrow, avnet, digikey, farnell, mouser, registry, template, tme  # noqa: E402
+from app.services.supply.providers import arrow, avnet, digikey, farnell, jlcpcb, lcsc, mouser, registry, template, tme  # noqa: E402
 from app.services.supply.providers.base import CAPABILITIES, CAP_OFFERS, CAP_SEARCH, ProviderConfig  # noqa: E402
-from supply_provider_kit import ContractChecks, load_recording  # noqa: E402
+from app.services.supply.identity import keep_family, match_key  # noqa: E402
+from supply_provider_kit import RECORDED_OFFERS, ContractChecks, load_recording  # noqa: E402
 from test_supply_arrow import answer as arrow_answer, item as arrow_item, source as arrow_source, source_part  # noqa: E402
 from test_supply_avnet import PRICE_PATH, line as avnet_line  # noqa: E402
 from test_supply_digikey_farnell import dk_details, dk_product, variation  # noqa: E402
@@ -166,6 +168,47 @@ class AvnetContract(ContractChecks, unittest.TestCase):
     recordings = (_avnet_recording(),)
 
 
+def _lcsc_recording() -> dict:
+    """The search recorded on 2026-10, then a product detail for each number the kit reads (the recorded detail, shown under each number) and one for the part data."""
+
+    live = load_recording("lcsc_live_74ahc1g09gv.json")
+    search, detail = live["calls"][0], live["calls"][1]
+    wanted = match_key(live["mpn"])
+    numbers = [item["number"].upper() for item in keep_family(search["answer"]["result"]["productList"], wanted, lambda item: item["mpn"])]
+    reads = []
+    for number in numbers[:RECORDED_OFFERS] + numbers[:1]:
+        answer = copy.deepcopy(detail["answer"])
+        answer["result"]["productCode"] = number
+        reads.append({"method": "GET", "path": detail["path"], "answer": answer})
+    return {"name": "lcsc search and details", "provider": "lcsc", "mpn": live["mpn"], "calls": [search, *reads]}
+
+
+class LcscContract(ContractChecks, unittest.TestCase):
+    spec = lcsc.SPEC
+    build = staticmethod(lcsc.LcscProvider)
+    recordings = (_lcsc_recording(),)
+    keyless = True
+
+
+def _jlcpcb_recording() -> dict:
+    live = load_recording("jlcpcb_live_lm358dr.json")["answer"]
+    path = "/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList"
+    items = live["data"]["componentPageInfo"]["list"]
+    kept = keep_family([item for item in items if "jlcpcb assembly" not in item["componentBrandEn"].lower()], match_key("LM358DR"), lambda item: item["componentModelEn"])
+    # One search to find the part, then one for each number the kit reads: the search is the read.
+    reads = min(len({item["componentCode"] for item in kept}), RECORDED_OFFERS)
+    return {"name": "jlcpcb parts search", "provider": "jlcpcb", "mpn": "LM358DR", "calls": [
+        {"method": "POST", "path": path, "answer": live} for _ in range(1 + reads)
+    ]}
+
+
+class JlcpcbContract(ContractChecks, unittest.TestCase):
+    spec = jlcpcb.SPEC
+    build = staticmethod(jlcpcb.JlcpcbProvider)
+    recordings = (_jlcpcb_recording(),)
+    keyless = True
+
+
 class ArrowContract(ContractChecks, unittest.TestCase):
     spec = arrow.SPEC
     build = staticmethod(arrow.ArrowProvider)
@@ -173,7 +216,7 @@ class ArrowContract(ContractChecks, unittest.TestCase):
     credentials = {"remote_ip": "198.51.100.7"}
 
 
-CONTRACTS = (DigiKeyContract, MouserContract, FarnellContract, TmeContract, AvnetContract, ArrowContract)
+CONTRACTS = (DigiKeyContract, MouserContract, FarnellContract, TmeContract, AvnetContract, LcscContract, JlcpcbContract, ArrowContract)
 
 
 class EveryAdapterTests(unittest.TestCase):
