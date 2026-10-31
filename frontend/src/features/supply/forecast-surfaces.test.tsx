@@ -121,8 +121,10 @@ describe("Insights' forecasts", () => {
     },
   };
 
-  it("shows only the cards with something to say, and the track record in full", () => {
-    render(<ForecastInsightsSection page={page} onOpenPart={vi.fn()} />);
+  it("shows the families, early warnings and prices, and the track record in full", async () => {
+    mocked.getForecastInsights.mockResolvedValue(page);
+    render(<ForecastInsightsSection onOpenPart={vi.fn()} />);
+    expect(await screen.findByText("Stretching")).toBeTruthy();
     expect(screen.getByText(/MLCC/)).toBeTruthy();
     expect(screen.getByText(/out of stock up from 4% to 11% since 2026-10-02/)).toBeTruthy();
     expect(screen.getByText(/8 of 10 parts are likely to stay flat/)).toBeTruthy();
@@ -130,7 +132,12 @@ describe("Insights' forecasts", () => {
     expect(screen.getByText("23 of 60 checks")).toBeTruthy();
     expect(screen.getByText(/said 70%, happened 68% \(40\)/)).toBeTruthy();
     expect(screen.getByText(/4 of the 30 lifecycle changes needed have been seen/)).toBeTruthy();
-    expect(screen.queryByText("Lead times ahead"), "its forecast is still learning").toBeNull();
-    expect(screen.queryByText("Coming up"), "its forecast is still learning").toBeNull();
+    expect(screen.getByText(/Expected runouts and price moves are listed here once/)).toBeTruthy();
+  });
+
+  it("says why when it could not load", async () => {
+    mocked.getForecastInsights.mockRejectedValue(new Error("Could not load the forecasts"));
+    render(<ForecastInsightsSection onOpenPart={vi.fn()} />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
   });
 });

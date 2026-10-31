@@ -4,7 +4,6 @@ import { BarList } from "./bar-list";
 import { ChartCard } from "./chart-card";
 import { DistributorsSection } from "./distributors-section";
 import { HoldersCard } from "./holders-card";
-import type { InsightsPanels } from "./insights-shown";
 import { vendorColor } from "./vendor-colors";
 
 type OpenParts = (filter: PartsFilter) => void;
@@ -18,17 +17,17 @@ const COVERAGE = [
 const COVERAGE_FILTER = { listed: "listed", in_stock: "stocked", cheapest: "cheapest" } as const;
 
 /** Which distributors carry the BOM: how many tracked parts each lists, holds in stock, and is cheapest for. */
-export function SourcingSection({ page, panels, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpen: OpenParts }) {
+export function SourcingSection({ page, onOpen }: { page: SupplyInsightsPage; onOpen: OpenParts }) {
   const { coverage, resilience } = page.sourcing;
   const behaviour = page.distributors.repricing.length + page.distributors.leaders.length + page.distributors.restock_first.length > 0 || page.distributors.arrivals !== null;
   const largest = Math.max(1, ...coverage.flatMap((item) => [item.listed, item.in_stock, item.cheapest]));
   return (
     <div className="space-y-3">
       <div className="grid gap-3 lg:grid-cols-2">
-        {panels.coverage ? <ChartCard
+        <ChartCard
           title="Distributor coverage"
           info="Of the parts you track: how many each distributor lists, how many it holds in stock, and how many it is the cheapest for at 100 pieces."
-          answer={`${coverage[0].name} lists ${coverage[0].listed.toLocaleString()} of ${coverage[0].tracked.toLocaleString()} parts`}
+          answer={coverage.length === 0 ? "No distributor has been read yet" : `${coverage[0].name} lists ${coverage[0].listed.toLocaleString()} of ${coverage[0].tracked.toLocaleString()} parts`}
         >
           <div className="space-y-1.5 text-xs">
             <div className="grid grid-cols-[6rem_repeat(3,1fr)] gap-2 text-muted-foreground">
@@ -52,7 +51,7 @@ export function SourcingSection({ page, panels, onOpen }: { page: SupplyInsights
               </div>
             ))}
           </div>
-        </ChartCard> : null}
+        </ChartCard>
         <HoldersCard
           holders={resilience}
           onOpen={(key) => onOpen(key === "none" ? "out_of_stock" : key === "one" ? "one_distributor" : key === "unknown" ? "few_readings" : "")}
@@ -79,7 +78,7 @@ const OUTLOOK: Array<{ key: keyof SupplyInsightsPage["lifecycle"]["outlook"]; la
 ];
 
 /** How old the BOM is, when parts will end, and whether it can ship (RoHS and REACH). Unknown stays its own bar. */
-export function LifecycleSection({ page, panels, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpen: OpenParts }) {
+export function LifecycleSection({ page, onOpen }: { page: SupplyInsightsPage; onOpen: OpenParts }) {
   const { mix, outlook, compliance } = page.lifecycle;
   const ending = mix.nrnd + mix.last_time_buy + mix.obsolete;
   const bad = compliance.rohs.not_compliant + compliance.reach.affected;
@@ -97,7 +96,7 @@ export function LifecycleSection({ page, panels, onOpen }: { page: SupplyInsight
       >
         <BarList rows={OUTLOOK.map((item) => ({ key: item.key, label: item.label, value: outlook[item.key], tone: item.tone, onClick: () => onOpen(`outlook_${item.key}`) }))} labelWidth="11rem" />
       </ChartCard>
-      {panels.compliance ? <ChartCard
+      <ChartCard
         title="Compliance"
         answer={bad === 0 ? "No distributor reports a RoHS or REACH problem" : `${bad.toLocaleString()} ${bad === 1 ? "report" : "reports"} of a RoHS or REACH problem`}
         className="lg:col-span-2"
@@ -123,7 +122,7 @@ export function LifecycleSection({ page, panels, onOpen }: { page: SupplyInsight
             ]} />
           </div>
         </div>
-      </ChartCard> : null}
+      </ChartCard>
     </div>
   );
 }
@@ -133,11 +132,12 @@ const BUCKETS: Record<SupplyInsightsPage["lead_times"][number]["bucket"], string
 };
 
 /** How long waiting takes, and what got dearer or cheaper. */
-export function LeadAndPricesSection({ page, panels, onOpenPart, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
+export function LeadAndPricesSection({ page, onOpenPart, onOpen }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
   const long = page.lead_times.filter((item) => item.bucket === "16_to_26w" || item.bucket === "over_26w").reduce((sum, item) => sum + item.parts, 0);
-  const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"]) => (
+  const movers = (title: string, rows: SupplyInsightsPage["price_movers"]["up"], empty: string) => (
     <ChartCard title={title}>
-      <ul className="max-h-64 divide-y themed-scrollbar overflow-y-auto text-sm">
+      {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : (
+        <ul className="max-h-64 divide-y themed-scrollbar overflow-y-auto text-sm">
           {rows.map((row) => (
             <li key={row.part_id} className="flex items-baseline justify-between gap-3 py-1">
               <button type="button" className="font-medium hover:underline" onClick={() => onOpenPart(row.part_id)}>{row.mpn}</button>
@@ -146,29 +146,30 @@ export function LeadAndPricesSection({ page, panels, onOpenPart, onOpen }: { pag
             </li>
           ))}
       </ul>
+      )}
     </ChartCard>
   );
   return (
     <div className="grid gap-3 lg:grid-cols-3">
-      {panels.leadTimes ? <ChartCard
+      <ChartCard
         title="Lead times"
         info="The shortest lead time any distributor quotes for each part."
         answer={long === 0 ? "No part is quoted over 16 weeks" : `${long.toLocaleString()} ${long === 1 ? "part is" : "parts are"} quoted over 16 weeks`}
       >
         <BarList rows={page.lead_times.map((item) => ({ key: item.bucket, label: BUCKETS[item.bucket], value: item.parts, tone: item.bucket === "none" ? GREY : undefined, onClick: () => onOpen(`lead_${item.bucket}`) }))} labelWidth="8rem" />
-      </ChartCard> : null}
-      {panels.pricesUp ? movers("Prices up, 30 days", page.price_movers.up) : null}
-      {panels.pricesDown ? movers("Prices down, 30 days", page.price_movers.down) : null}
+      </ChartCard>
+      {movers("Prices up, 30 days", page.price_movers.up, "No price went up by 5% or more.")}
+      {movers("Prices down, 30 days", page.price_movers.down, "No price went down by 5% or more.")}
     </div>
   );
 }
 
 /** Where the tracked parts come from and which are export controlled. */
-export function TradeSection({ page, panels, onOpenPart, onOpen }: { page: SupplyInsightsPage; panels: InsightsPanels; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
+export function TradeSection({ page, onOpenPart, onOpen }: { page: SupplyInsightsPage; onOpenPart: (partId: string) => void; onOpen: OpenParts }) {
   const { origins, other_origins: other, control, controlled } = page.trade;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      {panels.origins ? <ChartCard
+      <ChartCard
         title="Country of origin"
         info="What distributors state. A part with several answers is counted as Several."
       >
@@ -176,8 +177,8 @@ export function TradeSection({ page, panels, onOpenPart, onOpen }: { page: Suppl
           ...origins.map((item) => ({ key: item.country, label: item.country, value: item.parts, tone: item.country === "Unknown" || item.country === "Several" ? GREY : undefined, onClick: () => onOpen(`origin:${item.country}`) })),
           ...(other > 0 ? [{ key: "other", label: "Other countries", value: other }] : []),
         ]} />
-      </ChartCard> : null}
-      {panels.control ? <ChartCard
+      </ChartCard>
+      <ChartCard
         title="Export control"
         info="The ECCN distributors give; EAR99 is no control. A mark set on a part's sheet wins."
       >
@@ -198,7 +199,7 @@ export function TradeSection({ page, panels, onOpenPart, onOpen }: { page: Suppl
             ))}
           </ul>
         ) : null}
-      </ChartCard> : null}
+      </ChartCard>
     </div>
   );
 }

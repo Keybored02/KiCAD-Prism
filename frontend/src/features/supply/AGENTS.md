@@ -89,7 +89,7 @@ Tracking a project is the `track-*.tsx` dialog steps and
 `use-track-project.ts`.
 
 **Insights** — `insights-view.tsx`, `insights-sections.tsx`,
-`insights-shown.ts` (which sections have data), `runway-*.tsx`,
+`runway-*.tsx`,
 `market-*.ts(x)`, `sourcing-panel.tsx`, `scorecard-table.tsx`,
 `forecast-insights.tsx`.
 

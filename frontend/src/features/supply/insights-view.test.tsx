@@ -93,26 +93,23 @@ describe("the insights page", () => {
   it("has a section for each question, with a way to jump to it", async () => {
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });
-    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Sourcing", "Lead times and prices", "Stock risk", "Market", "Trade", "Compliance", "Export"]);
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Signals", "Sourcing", "Lead times and prices", "Stock risk", "Market", "Forecasts", "Trade", "Compliance", "Export"]);
     expect(screen.getByText("TI: 50% of the parts you follow are out of stock, up from 10%.")).toBeTruthy();
   });
 
-  it("leaves out the panels and sections with nothing in them", async () => {
+  it("keeps every panel and section when there is little to show, each saying so", async () => {
     const empty = page();
     mocked.getSupplyInsights.mockResolvedValue({
       ...empty,
       counts: {}, scatter: [], price_movers: { up: [], down: [] },
-      lead_times: empty.lead_times.map((item) => ({ ...item, parts: item.bucket === "none" ? 6 : 0 })),
       market: { ...empty.market, compared_with: null, signals: [], scopes: [{ scope: "All followed parts", kind: "all", sample: 6, metrics: { out_of_stock: { value: 0, before: null }, price_index: { value: 100, before: null } } }] },
-      trade: { ...empty.trade, origins: [{ country: "Unknown", parts: 6 }], control: { controlled: 0, none: 0, disputed: 0, unknown: 6 }, controlled: [] },
-      lifecycle: { ...empty.lifecycle, compliance: { rohs: { compliant: 0, not_compliant: 0, disputed: 0, not_applicable: 0, unknown: 6 }, reach: { compliant: 0, affected: 0, not_applicable: 0, unknown: 6 } } },
     });
     renderView();
     const nav = await screen.findByRole("navigation", { name: "Insights" });
-    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Sourcing", "Market", "Compliance", "Export"]);
-    expect(screen.queryByText("Price index")).toBeNull();
-    expect(screen.queryByText("no data")).toBeNull();
-    expect(screen.queryByText("RoHS")).toBeNull();
+    expect(within(nav).getAllByRole("button").map((button) => button.textContent)).toEqual(["Sourcing", "Lead times and prices", "Stock risk", "Market", "Forecasts", "Trade", "Compliance", "Export"]);
+    expect(screen.getByText("No price went up by 5% or more.")).toBeTruthy();
+    expect(await screen.findByText("Not enough readings yet")).toBeTruthy();
+    expect(screen.getAllByText("no data").length).toBeGreaterThan(0);
   });
 
   it("exports the risk of every tracked part as a CSV", async () => {
