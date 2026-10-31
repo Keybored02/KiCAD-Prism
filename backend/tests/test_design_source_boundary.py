@@ -70,6 +70,10 @@ _LIBRARY_TEXT = "the catalog library reader and its writers"
 
 #: Module -> what it may do and why. Exact modules, not packages.
 KICAD_IMPORT_SITES: dict[str, Site] = {
+    "app.services.git_service": Site(
+        "the commit summary: lists the components, nets, zones and tracks a commit changed by scanning the committed files' text",
+        text=True,
+    ),
     "app.services.design_bundle.kicad_steps": Site(
         "the design-bundle builder's KiCad steps: the seeded-upgrade step reads a "
         "file's sheet names to hand it to KiCad; the parse itself is prism-kicad's",
