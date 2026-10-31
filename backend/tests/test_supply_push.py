@@ -225,9 +225,8 @@ class PushLevelsTests(unittest.TestCase):
         self.addCleanup(self.catalog.deactivate_component, str(component["id"]), actor=ACTOR, reason="push test cleanup")
         return component
 
-    def _source(self, kind: str = "push") -> str:
-        body = {"kind": kind, "display_name": "Stores"} | ({"base_url": "https://stock.example.com", "token": "unused"} if kind == "inventree" else {})
-        made = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body=body)
+    def _source(self) -> str:
+        made = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body={"kind": "push", "display_name": "Stores"})
         self.assertEqual(made.status, 201, made.text)
         self.addCleanup(self._drop, made.json["id"])
         return made.json["id"]
@@ -270,7 +269,11 @@ class PushLevelsTests(unittest.TestCase):
         self.assertEqual(_request(self.app, "POST", path, user=self.users["admin"], body={"items": items}, headers=_bearer("prism_push_" + "x" * 40)).status, 401)
 
     def test_a_source_prism_reads_takes_no_push(self) -> None:
-        source_id = self._source("inventree")
+        # A server source from before Prism stopped reading them: the table still allows the kind.
+        source_id = uuid.uuid4().hex
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO inventory_sources (id, kind, display_name, base_url, created_by) VALUES (%s, 'inventree', 'Old server', 'https://stock.example.com', %s)", (source_id, ACTOR))
+        self.addCleanup(self._drop, source_id)
         pushed = _request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/levels", user=self.users["admin"], body={"items": []})
         self.assertEqual((pushed.status, pushed.json["code"]), (400, "not_push"))
         self.assertEqual(_request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/push-token", user=self.users["admin"]).status, 400)

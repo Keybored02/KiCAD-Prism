@@ -189,11 +189,6 @@
     "path": "/api/v1/settings/git-access/check",
     "typed": true
   },
-  "check_inventory_source": {
-    "method": "POST",
-    "path": "/api/v1/supply/inventory-sources/{source_id}/check",
-    "typed": true
-  },
   "check_notices": {
     "method": "POST",
     "path": "/api/v1/supply/parts/{part_id}/check-notices",

@@ -1,7 +1,7 @@
-/** Typed client for `/api/supply/inventory-sources`: local inventory servers. */
+/** Typed client for `/api/supply/inventory-sources`: local inventory sources. */
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
-import type { InventoryServerCheck, InventorySource, InventorySourceInput, InventorySyncResult, InventoryUnmatchedPart } from "@/types/supply";
+import type { InventorySource, InventorySourceInput, InventorySyncResult, InventoryUnmatchedPart } from "@/types/supply";
 import { changesSupply } from "./supply-writes";
 
 const BASE = "/api/supply/inventory-sources";
@@ -23,14 +23,6 @@ function updateInventorySourceRequest(id: string, input: InventorySourceInput): 
 async function deleteInventorySourceRequest(id: string): Promise<void> {
   const response = await fetchApi(path(id), { method: "DELETE" });
   if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, "Could not delete the source"));
-}
-
-export function checkInventorySource(id: string): Promise<InventoryServerCheck> {
-  return fetchJson<InventoryServerCheck>(path(id, "check"), { method: "POST" }, "Could not reach the server");
-}
-
-function syncInventorySourceRequest(id: string): Promise<InventorySyncResult> {
-  return fetchJson<InventorySyncResult>(path(id, "sync"), { method: "POST" }, "Could not read the server");
 }
 
 /** The groups unmatched stock is sorted into: waiting (in all, or for one reason), linked, or set aside. */
@@ -65,6 +57,5 @@ function linkUnmatchedPartRequest(id: string, remotePart: string, componentId: s
 export const createInventorySource = changesSupply(createInventorySourceRequest);
 export const updateInventorySource = changesSupply(updateInventorySourceRequest);
 export const deleteInventorySource = changesSupply(deleteInventorySourceRequest);
-export const syncInventorySource = changesSupply(syncInventorySourceRequest);
 export const setUnmatchedIgnored = changesSupply(setUnmatchedIgnoredRequest);
 export const linkUnmatchedPart = changesSupply(linkUnmatchedPartRequest);

@@ -1,10 +1,12 @@
-"""Local inventory sources (decision D15): the InvenTree client, the sync into ``inventory_levels``, and the API.
+"""Local inventory sources (decision D15): the sync into ``inventory_levels`` and the API.
 
-The client tests need nothing. The sync and API tests need ``TEST_POSTGRES_URL``: stock lands on catalog components.
+Prism ships no reader for a stock server at the moment, so the sync is exercised through ``TableReader``, an
+``InventoryReader`` that serves rows shaped like a stock server's lists. The tests need ``TEST_POSTGRES_URL``: stock lands on catalog components.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import sys
@@ -14,7 +16,7 @@ import unittest.mock
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -32,187 +34,70 @@ def _token() -> str:
     return "-".join(("test", uuid.uuid4().hex))
 
 
-class FakeServer:
-    """Answers InvenTree's list endpoints from tables, paging by limit and offset as InvenTree does."""
+def _text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
 
-    def refused(self, path: str, query: dict) -> str:
-        return ""
 
-    def __init__(self, tables: dict[str, list[dict]], *, api: dict | None = None) -> None:
+class TableReader:
+    """An ``InventoryReader`` over tables of rows (``part/``, ``company/part/manufacturer/``, ``company/part/``, ``stock/location/``,
+    ``stock/``) as a stock server lists them. ``fail`` is raised by a read; ``asked`` keeps the category of each read."""
+
+    def __init__(self, tables: dict[str, list[dict]], *, fail: Exception | None = None) -> None:
         self.tables = tables
-        self.api = api if api is not None else {"server": "InvenTree", "apiVersion": 566, "instance": "Test"}
-        self.sent: list[dict] = []
+        self.fail = fail
+        self.asked: list[int | None] = []
 
-    def send(self, *, method, target, headers, body, timeout, max_bytes):
-        from app.services.supply.http_client import HttpResponse
+    def close(self) -> None:
+        pass
 
-        url = urlsplit(target.url)
-        query = dict(parse_qsl(url.query))
-        self.sent.append({"method": method, "path": url.path, "port": url.port, "query": query, "headers": dict(headers)})
-        refused = self.refused(url.path.removeprefix("/api/"), query)
-        if refused:
-            return HttpResponse(400, {"content-type": "application/json"}, json.dumps({"detail": f"Unsupported filter: {refused}"}).encode())
-        if url.path == "/api/":
-            answer = self.api
-        else:
-            rows = self.tables.get(url.path.removeprefix("/api/"), [])
-            offset, limit = int(query.get("offset", 0)), int(query.get("limit", 100))
-            answer = {"count": len(rows), "next": None, "previous": None, "results": rows[offset:offset + limit]}
-        return HttpResponse(200, {"content-type": "application/json"}, json.dumps(answer).encode())
+    def read(self, category: int | None):
+        from app.services.supply.inventory.base import STATUS_NAMES, STATUS_OK, InventoryRead, Location, Part, StockRecord
 
-
-class ShortServer(FakeServer):
-    """Says ``count`` rows of ``stock/`` but answers only what it holds, or a row that is not a record."""
-
-    def __init__(self, tables: dict[str, list], *, count: int | None = None, **kwargs) -> None:
-        super().__init__(tables, **kwargs)
-        self.count = count
-
-    def send(self, **kwargs):
-        from app.services.supply.http_client import HttpResponse
-
-        answer = super().send(**kwargs)
-        if "/api/stock/" not in kwargs["target"].url:
-            return answer
-        body = json.loads(answer.body)
-        body["count"] = self.count if self.count is not None else body["count"]
-        return HttpResponse(200, {"content-type": "application/json"}, json.dumps(body).encode())
-
-
-class SubsetServer(FakeServer):
-    """A compatible server that implements only part of InvenTree's filters: any filter outside its set is answered with 400."""
-
-    FILTERS = {
-        "": set(),
-        "part/category/": {"parent", "search"},
-        "part/": {"category", "cascade", "IPN", "search", "active", "has_stock"},
-        "company/part/manufacturer/": {"part", "MPN", "manufacturer", "search"},
-        "company/part/": {"part", "supplier", "SKU", "search"},
-        "stock/": {
-            "category", "cascade", "part", "IPN", "in_stock", "available", "status", "location",
-            "part_detail", "location_detail", "updated_after", "search",
-        },
-        "stock/location/": {"parent", "external", "search"},
-    }
-
-    def refused(self, path: str, query: dict) -> str:
-        unknown = set(query) - self.FILTERS[path] - {"limit", "offset", "ordering"}
-        return ", ".join(sorted(unknown))
-
-
-def _client(server: FakeServer, token: str = "unused"):
-    from app.services.supply.http_client import SafeHttpClient
-    from app.services.supply.inventory.inventree import InvenTreeClient
-
-    return InvenTreeClient(f"https://{HOST}", token, client=SafeHttpClient((HOST,), transport=server, resolve=lambda host: ["93.184.216.34"]))
-
-
-class InvenTreeClientTests(unittest.TestCase):
-    def test_it_sends_the_token_and_pages_by_offset(self) -> None:
-        from app.services.supply.inventory import inventree
-
-        token = _token()
-        server = FakeServer({"stock/": [{"pk": n, "part": 1, "quantity": n, "status": 10} for n in range(1, 6)]})
-        with unittest.mock.patch.object(inventree, "PAGE", 2):
-            records = _client(server, token).stock(7)
-        self.assertEqual([record.pk for record in records], [1, 2, 3, 4, 5])
-        self.assertEqual([call["query"]["offset"] for call in server.sent], ["0", "2", "4"])
-        self.assertEqual({call["headers"]["Authorization"] for call in server.sent}, {f"Token {token}"})
-        self.assertEqual((server.sent[0]["query"]["category"], server.sent[0]["query"]["in_stock"]), ("7", "true"))
-
-    def test_a_list_that_stops_short_or_holds_a_non_record_is_a_failed_read(self) -> None:
-        from app.services.supply.inventory import inventree
-
-        rows = [{"pk": n, "part": 1, "quantity": n, "status": 10} for n in range(1, 4)]
-        with unittest.mock.patch.object(inventree, "PAGE", 2):
-            with self.assertRaisesRegex(inventree.InvenTreeError, "stopped at 0 of 9"):
-                _client(ShortServer({"stock/": []}, count=9)).stock(7)
-            with self.assertRaisesRegex(inventree.InvenTreeError, "stopped at 3 of 9"):
-                _client(ShortServer({"stock/": rows}, count=9)).stock(7)
-            with self.assertRaisesRegex(inventree.InvenTreeError, "not records"):
-                _client(ShortServer({"stock/": [rows[0], "oops"]})).stock(7)
-
-    def test_parts_carry_their_manufacturer_part_numbers(self) -> None:
-        server = FakeServer({
-            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "10042", "units": ""}, {"pk": 2, "name": "CAP", "IPN": None}],
-            "company/part/manufacturer/": [
-                {"pk": 9, "part": 1, "MPN": "TNPW060310K0BEEA", "manufacturer_detail": {"pk": 3, "name": "Vishay"}},
-                {"pk": 10, "part": 99, "MPN": "OUTSIDE"},
-            ],
-        })
-        parts = _client(server).parts(7)
-        self.assertEqual(parts[1].mpns, (("Vishay", "TNPW060310K0BEEA"),))
-        self.assertEqual((parts[2].ipn, parts[2].mpns), ("", ()), "a part outside the category's list is ignored")
-
-    def test_a_whole_read_sends_only_the_filters_a_subset_server_serves(self) -> None:
-        from app.services.supply.inventory import sync
-
-        server = SubsetServer({
-            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "10042"}],
-            "company/part/manufacturer/": [
-                {"pk": 1, "part": 1, "MPN": "TNPW060310K0BEEA", "manufacturer": 1,
-                 "manufacturer_detail": {"pk": 1, "name": "Unknown manufacturer"}},
-            ],
-            "stock/location/": [{"pk": 5, "name": "VENDOR", "pathstring": "Main/VENDOR", "external": True}],
-            "stock/": [{"pk": 3, "part": 1, "quantity": 4.0, "allocated": 4.0, "status": 75, "status_custom_key": 1001,
-                        "status_text": "On hold", "location": 5}],
-        }, api={"server": "Stores", "apiVersion": 566, "instance": "Test"})
-        for category in (1, None):
-            found = _client(server).read(category)
-            self.assertEqual((found.server, found.parts[1].mpns), ("Stores", (("Unknown manufacturer", "TNPW060310K0BEEA"),)))
-            self.assertEqual((found.stock[0].status_text, found.locations[5].external), ("On hold", True))
-
-    def test_the_whole_inventory_is_read_without_a_category_with_supplier_numbers(self) -> None:
-        from app.services.supply.inventory.base import InventoryReader
-
-        server = SubsetServer({
-            "part/": [{"pk": 1, "name": "RES 10K", "IPN": "10042"}, {"pk": 2, "name": "OP AMP", "IPN": ""}],
-            "company/part/": [
-                {"pk": 4, "part": 2, "SKU": "296-1395-1-ND", "supplier_detail": {"pk": 8, "name": "DigiKey"}},
-                {"pk": 5, "part": 99, "SKU": "ELSEWHERE"},
-            ],
-            "stock/": [{"pk": 3, "part": 2, "quantity": 9, "status": 10}],
-        })
-        client = _client(server)
-        self.assertIsInstance(client, InventoryReader)
-        found = client.read(None)
-        self.assertEqual(found.parts[2].skus, (("DigiKey", "296-1395-1-ND"),))
-        self.assertEqual(found.parts[1].skus, ())
-        self.assertFalse([call for call in server.sent if "category" in call["query"]], "no category: the whole inventory")
-
-    def test_a_private_server_on_its_own_port_is_reached_there(self) -> None:
-        from app.services.supply.http_client import SafeHttpClient
-        from app.services.supply.inventory.inventree import InvenTreeClient
-
-        server = FakeServer({"part/": []})
-        client = InvenTreeClient(
-            f"https://{HOST}:8443", "unused",
-            client=SafeHttpClient((HOST,), transport=server, resolve=lambda host: ["10.1.2.3"], private_hosts=(HOST,)),
-        )
-        client.server()
-        self.assertEqual((server.sent[0]["port"], server.sent[0]["path"]), (8443, "/api/"))
-
-    def test_a_server_that_is_not_inventree_is_refused(self) -> None:
-        from app.services.supply.inventory.inventree import InvenTreeError, base_url
-
-        with self.assertRaises(InvenTreeError):
-            _client(FakeServer({}, api={"hello": "world"})).server()
-        with self.assertRaises(InvenTreeError):
-            base_url(f"http://{HOST}")
-        self.assertEqual(base_url(f"https://{HOST}/inventree/api/"), f"https://{HOST}/inventree")
+        self.asked.append(category)
+        if self.fail is not None:
+            raise self.fail
+        rows = lambda name: self.tables.get(name, [])  # noqa: E731
+        mpns: dict[int, list[tuple[str, str]]] = {}
+        for row in rows("company/part/manufacturer/"):
+            detail = row.get("manufacturer_detail")
+            mpns.setdefault(row["part"], []).append((_text(detail.get("name")) if isinstance(detail, dict) else "", _text(row.get("MPN"))))
+        skus: dict[int, list[tuple[str, str]]] = {}
+        for row in rows("company/part/"):
+            detail = row.get("supplier_detail")
+            skus.setdefault(row["part"], []).append((_text(detail.get("name")) if isinstance(detail, dict) else "", _text(row.get("SKU"))))
+        parts = {
+            row["pk"]: Part(
+                pk=row["pk"], name=_text(row.get("name")), ipn=_text(row.get("IPN")), units=_text(row.get("units")),
+                mpns=tuple(mpns.get(row["pk"], ())), skus=tuple(skus.get(row["pk"], ())),
+            )
+            for row in rows("part/")
+        }
+        locations = {
+            row["pk"]: Location(pk=row["pk"], pathstring=_text(row.get("pathstring")), external=row.get("external") is True)
+            for row in rows("stock/location/")
+        }
+        stock = [
+            StockRecord(
+                pk=row["pk"], part=row["part"], quantity=float(row.get("quantity") or 0), allocated=float(row.get("allocated") or 0),
+                status=row.get("status", STATUS_OK), status_text=_text(row.get("status_text")) or STATUS_NAMES.get(row.get("status", STATUS_OK), ""),
+                location=row.get("location"), batch=_text(row.get("batch")), updated="",
+            )
+            for row in rows("stock/")
+        ]
+        return InventoryRead(server="Stores", api_version=1, parts=parts, locations=locations, stock=stock)
 
 
 @requires_scratch_postgres("inventory sources")
 class InventoryKindTests(unittest.TestCase):
-    def test_inventree_is_read_push_pushes_and_csv_is_fed(self) -> None:
+    def test_push_pushes_and_csv_is_fed_and_no_server_is_read_yet(self) -> None:
         from app.services.supply.inventory import registry, sources
 
         self.assertEqual(
             [(spec.kind, spec.pulled, spec.pushed) for spec in registry.list_specs()],
-            [("csv", False, False), ("inventree", True, False), ("push", False, True)],
+            [("csv", False, False), ("push", False, True)],
         )
-        self.assertEqual((sources._kind("inventree"), sources._kind("push")), ("inventree", "push"))
-        for kind in ("csv", "partdb"):
+        self.assertEqual(sources._kind("push"), "push")
+        for kind in ("csv", "inventree", "partdb"):
             with self.assertRaises(sources.SourceError):
                 sources._kind(kind)
 
@@ -242,9 +127,19 @@ class InventorySyncTests(unittest.TestCase):
         service = type("S", (), {"store": cls.store, "keyring": lambda self: cls.ring})()
         cls.service_patch = unittest.mock.patch.object(supply_connectors, "service", service)
         cls.service_patch.start()
+        # No reader ships, so the sync is read through a kind of the tests' own (the table's check still names this one).
+        from app.services.supply.inventory import registry
+        from app.services.supply.inventory.base import InventorySourceSpec
+
+        reading = InventorySourceSpec(
+            kind="inventree", label="Test server", level_source="inventree", factory=lambda url, token: TableReader({}), categories=True,
+        )
+        cls.kind_patch = unittest.mock.patch.dict(registry._specs, {"inventree": reading})
+        cls.kind_patch.start()
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.kind_patch.stop()
         cls.service_patch.stop()
         cls.tempdir.cleanup()
 
@@ -261,7 +156,9 @@ class InventorySyncTests(unittest.TestCase):
         from app.services.supply.inventory import sources
 
         with self.store.connection() as conn:
-            row = sources.create(conn, self.ring, AUTHOR, display_name="Stock", url=f"https://{HOST}", token=_token(), category_id=category_id)
+            row = sources.create(
+                conn, self.ring, AUTHOR, display_name="Stock", url=f"https://{HOST}", token=_token(), category_id=category_id, kind="inventree",
+            )
         self.addCleanup(self._drop_source, row["id"])
         return row["id"]
 
@@ -272,10 +169,10 @@ class InventorySyncTests(unittest.TestCase):
             if conn.execute("SELECT 1 FROM inventory_sources WHERE id = %s", (source_id,)).fetchone():
                 sources.delete(conn, source_id, AUTHOR)
 
-    def _sync(self, source_id: str, server: FakeServer, now: datetime = NOW) -> dict:
+    def _sync(self, source_id: str, server: TableReader, now: datetime = NOW) -> dict:
         from app.services.supply.inventory import sync
 
-        return sync.sync(self.store, self.ring, source_id, client_factory=lambda url, token: _client(server, token), now=now)
+        return sync.sync(self.store, self.ring, source_id, client_factory=lambda url, token: server, now=now)
 
     def _levels(self, source_id: str) -> list[dict]:
         with self.store.connection() as conn:
@@ -288,8 +185,8 @@ class InventorySyncTests(unittest.TestCase):
             return {row["remote_part"]: row["reason"] for row in conn.execute(
                 "SELECT remote_part, reason FROM inventory_unmatched WHERE source_id = %s", (source_id,)).fetchall()}
 
-    def _server(self, sap: str, mpn: str, shared: str, stock: list[dict]) -> FakeServer:
-        return FakeServer({
+    def _server(self, sap: str, mpn: str, shared: str, stock: list[dict]) -> TableReader:
+        return TableReader({
             "part/": [
                 {"pk": 1, "name": "By SAP code", "IPN": sap}, {"pk": 2, "name": "By MPN", "IPN": ""},
                 {"pk": 3, "name": "Shared MPN", "IPN": ""}, {"pk": 4, "name": "Unknown", "IPN": "99999999"},
@@ -354,7 +251,7 @@ class InventorySyncTests(unittest.TestCase):
             from app.services.supply.inventory import sync
 
             self.assertIn(source_id, sync.due(conn, NOW), "a source without a category is read, whole")
-        server = FakeServer({
+        server = TableReader({
             "part/": [{"pk": 1, "name": "By id", "IPN": str(by_id["id"])}, {"pk": 2, "name": "By SKU", "IPN": ""}],
             "company/part/": [{"pk": 7, "part": 2, "SKU": sku.lower(), "supplier_detail": {"name": "Somewhere"}}],
             "stock/": [{"pk": 201, "part": 1, "quantity": 5, "status": 10}, {"pk": 202, "part": 2, "quantity": 6, "status": 10}],
@@ -365,14 +262,14 @@ class InventorySyncTests(unittest.TestCase):
             [(row["component_id"], row["source_record_id"]) for row in self._levels(source_id)],
             [(str(by_id["id"]), "201"), (str(by_sku["id"]), "202")],
         )
-        self.assertFalse([call for call in server.sent if "category" in call["query"]])
+        self.assertEqual(server.asked, [None], "a source without a category reads the whole inventory")
 
     def _drop_connector(self, connector: str) -> None:
         with self.store.connection() as conn:
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector,))
 
     def test_a_read_replaces_the_stock_and_a_failed_read_keeps_it_stale(self) -> None:
-        from app.services.supply.providers.base import Unavailable
+        from app.services.supply.providers.base import ProviderError, Unavailable
 
         sap = str(uuid.uuid4().int)[:9]
         self._component(sap_code=sap)
@@ -382,14 +279,12 @@ class InventorySyncTests(unittest.TestCase):
         self._sync(source_id, self._server(sap, "X", "Y", first[:1]), NOW + timedelta(days=1))
         self.assertEqual([row["source_record_id"] for row in self._levels(source_id)], ["201"], "a record that left stock is gone")
 
-        class Down(FakeServer):
-            def send(self, **kwargs):
-                raise Unavailable("down")
-
-        result = self._sync(source_id, Down({}), NOW + timedelta(days=2))
+        result = self._sync(source_id, TableReader({}, fail=Unavailable("down")), NOW + timedelta(days=2))
         self.assertEqual(result["status"], "error")
         self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("201", "error")])
-        result = self._sync(source_id, ShortServer(self._server(sap, "X", "Y", []).tables, count=9), NOW + timedelta(days=2))
+        result = self._sync(
+            source_id, TableReader(self._server(sap, "X", "Y", []).tables, fail=ProviderError("stock stopped at 0 of 9 rows")), NOW + timedelta(days=2),
+        )
         self.assertEqual(result["status"], "error", "a short page is a failed read")
         self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("201", "error")],
                          "not an empty inventory")
@@ -472,15 +367,15 @@ class InventorySyncTests(unittest.TestCase):
         self._sync(source_id, self._server(sap, "X", "Y", [{"pk": 501, "part": 1, "quantity": 5, "status": 10}]))
         store, ring = self.store, self.ring
 
-        def edited_meanwhile(server: FakeServer) -> FakeServer:
+        def edited_meanwhile(server: TableReader) -> TableReader:
             # The edit lands between reading the source's settings and storing what was read under them.
             class Edited(type(server)):  # type: ignore[misc]
-                def send(self, **kwargs):
+                def read(self, category):
                     if not getattr(self, "edited", False):
                         self.edited = True
                         with store.connection() as conn:
                             sources.update(conn, ring, source_id, AUTHOR, category_id=9)
-                    return super().send(**kwargs)
+                    return super().read(category)
 
             server.__class__ = Edited
             return server
@@ -492,8 +387,8 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual([(row["source_record_id"], row["fetch_status"]) for row in self._levels(source_id)], [("501", "error")],
                          "the old category's stock is not published as fresh")
 
-        class EditedThenDown(FakeServer):
-            def send(self, **kwargs):
+        class EditedThenDown(TableReader):
+            def read(self, category):
                 with store.connection() as conn:
                     sources.update(conn, ring, source_id, AUTHOR, category_id=10)
                 raise Unavailable("down")
@@ -513,7 +408,7 @@ class InventorySyncTests(unittest.TestCase):
                 "INSERT INTO supply_manufacturer_aliases (alias_key, alias_text, manufacturer_id, status, confirmed_by) "
                 "VALUES ('ti', 'TI', %s, 'confirmed', %s) ON CONFLICT (alias_key) DO NOTHING", (maker, AUTHOR))
         source_id = self._source()
-        server = FakeServer({
+        server = TableReader({
             "part/": [{"pk": 9, "name": "Op amp", "IPN": ""}],
             "company/part/manufacturer/": [{"pk": 19, "part": 9, "MPN": mpn, "manufacturer_detail": {"name": "TI"}}],
             "stock/location/": [{"pk": 50, "pathstring": "WH1/A/01"}],
@@ -564,44 +459,19 @@ class InventorySyncTests(unittest.TestCase):
             conn.execute("UPDATE inventory_sources SET last_sync_at = %s WHERE id = %s", (NOW - timedelta(hours=2), source_id))
             self.assertNotIn(source_id, sync.due(conn, NOW), "read two hours ago, every 24 hours")
 
-    def test_admins_manage_sources_and_the_token_never_comes_back(self) -> None:
-        body = {"display_name": "Stores", "base_url": f"https://{HOST}/", "token": _token(), "category_id": 7}
+    def test_admins_add_push_sources_and_no_server_kind_can_be_added(self) -> None:
+        body = {"display_name": "Stores", "kind": "push"}
         self.assertEqual(_request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["designer"], body=body).status, 403)
         made = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body=body)
         self.assertEqual(made.status, 201)
         self.addCleanup(self._drop_source, made.json["id"])
-        self.assertNotIn(body["token"], json.dumps(made.json))
-        self.assertEqual((made.json["base_url"], made.json["has_token"]), (f"https://{HOST}", True))
+        self.assertEqual((made.json["kind"], made.json["base_url"], made.json["has_token"]), ("push", "", False))
         listed = _request(self.app, "GET", "/api/supply/inventory-sources", user=self.users["designer"])
         self.assertIn(made.json["id"], [row["id"] for row in listed.json])
-        cleared = _request(self.app, "PATCH", f"/api/supply/inventory-sources/{made.json['id']}", user=self.users["admin"], body={"token": ""})
-        self.assertFalse(cleared.json["has_token"])
-        bad = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body={**body, "base_url": f"http://{HOST}"})
-        self.assertEqual((bad.status, bad.json["code"]), (400, "invalid_source"))
-
-    def test_a_server_that_cannot_be_reached_says_why(self) -> None:
-        from app.api import supply_inventory
-        from app.services.supply.providers.base import Unavailable
-
-        source_id = self._source()
-
-        class Down:
-            def __init__(self, url, token):
-                pass
-
-            def server(self):
-                raise Unavailable("connection refused")
-
-            def close(self):
-                pass
-
-        with unittest.mock.patch.object(supply_inventory, "InvenTreeClient", Down):
-            answer = _request(self.app, "POST", f"/api/supply/inventory-sources/{source_id}/check", user=self.users["admin"])
-        self.assertEqual((answer.status, answer.json["code"], answer.json["detail"]), (502, "unavailable", "connection refused"))
+        server = _request(self.app, "POST", "/api/supply/inventory-sources", user=self.users["admin"], body={**body, "kind": "inventree", "base_url": f"https://{HOST}"})
+        self.assertEqual(server.status, 422, "Prism reads no stock server at the moment")
 
     def test_qa_links_an_unmatched_part_and_its_stock_lands_at_once(self) -> None:
-        import dataclasses
-
         from app.services.supply.inventory import registry
 
         component = self._component()
@@ -612,7 +482,7 @@ class InventorySyncTests(unittest.TestCase):
         self.assertEqual(_request(self.app, "POST", path, user=self.users["designer"], body={"component_id": str(component["id"])}).status, 403)
         missing = _request(self.app, "POST", path, user=self.users["qa"], body={"component_id": "no-such-component"})
         self.assertEqual((missing.status, missing.json["code"]), (400, "invalid_source"))
-        reading = dataclasses.replace(registry.get_spec("inventree"), factory=lambda url, token: _client(server, token))
+        reading = dataclasses.replace(registry.get_spec("inventree"), factory=lambda url, token: server)
         with unittest.mock.patch.dict(registry._specs, {"inventree": reading}):
             linked = _request(self.app, "POST", path, user=self.users["qa"], body={"component_id": str(component["id"])})
         self.assertEqual((linked.status, linked.json["matched"], linked.json["unmatched"]), (200, 1, 0))

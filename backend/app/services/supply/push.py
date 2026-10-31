@@ -7,7 +7,7 @@ Two targets take a push, each with a token of its own that can push there and no
   the one write path (``Poller.record_search_offers`` and ``persist``). New SKUs are matched to parts by the next discovery,
   as an upload's are. Uploading a CSV file is a push that replaces every row.
 - a **push inventory source** takes stock levels: the whole stock it holds, which replaces what it pushed before. The
-  levels are matched and stored as an InvenTree read is (``inventory.sync.apply``).
+  levels are matched and stored as a read of a server is (``inventory.sync.apply``).
 
 A token is ``prism_push_`` and 40 random characters, shown once; only its hash is kept. A new token replaces the old one.
 """
@@ -27,7 +27,7 @@ from app.services.supply.csv_offers import CsvOfferStore
 from app.services.supply.inventory import registry as inventory_registry
 from app.services.supply.inventory import sources, sync
 from app.services.supply.inventory.base import InventoryRead, Location, Part, StockRecord
-from app.services.supply.inventory.inventree import STATUS_OK
+from app.services.supply.inventory.base import STATUS_OK
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import ProviderSpec
 from app.services.supply.store import SupplyStore

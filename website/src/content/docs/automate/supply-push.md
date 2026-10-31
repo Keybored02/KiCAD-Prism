@@ -76,7 +76,7 @@ curl -X POST "https://prism.example.com/api/v1/supply/inventory-sources/$SOURCE/
 | `status` | blank or `ok` for usable stock; any other word, such as `on hold`, counts as held |
 | `batch`, `updated` | kept with the record |
 
-Parts are matched to library components as an InvenTree read's are. Parts that
+Parts are matched to library components as any source's are. Parts that
 match nothing wait under **Unmatched local stock** in **Library Manager →
 Review**. The answer gives the number of `records`, and of parts `matched` and
 `unmatched`.

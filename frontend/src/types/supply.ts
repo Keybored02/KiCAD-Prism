@@ -1,4 +1,4 @@
-import type { AssessmentSettings, ComponentRestriction, ReleaseCheckResult, ReleaseCheckUnavailable, ServerCheck, SupplyAlert, SupplyConnector, SupplyNotice, SupplyPartRow, SupplyPartsPage, SyncResult, UnmatchedPart } from "./supply.generated";
+import type { AssessmentSettings, ComponentRestriction, ReleaseCheckResult, ReleaseCheckUnavailable, SupplyAlert, SupplyConnector, SupplyNotice, SupplyPartRow, SupplyPartsPage, SyncResult, UnmatchedPart } from "./supply.generated";
 
 export type {
   AlertDetail, AlertRules, AssessmentSettings, AssessmentSettingsView, BudgetCall, BudgetConnector, BudgetLibrary, BudgetNotices, BudgetShare, CheckProgress, CheckStarted, ComponentPart, ComponentParts, ComponentRestriction, CreateSupplyConnectorInput, CrossReference, DecisionState, EndingPart, EndingParts, FillCandidate, FillDetails, FillSearchResult, ForecastChance, ForecastEvent, ForecastInsights, ForecastModelState, InventorySource, IssuedPushToken, JlcClass, JobProgress, LocalStock, LocalStockRow, MarketBehaviour, NoticeAdded, PackagingListing, PackagingOptions, PackagingPicked, PackagingProposal, PackagingProposals, PackagingSeveral, PackagingSimilar, PartAlertRules, PartForecast, PartHistory, PartTracking, PicksMade, ProjectCostPoint, ProjectMoney, ProjectPartsPage, ProjectSupply, ProjectSupplyPart, ProjectSupplyRelease, ProjectTrackingPreview, ProjectTrackingState, PushToken, ReleaseBomKept, ReleaseCheckLine, ReleaseCheckResult, ReleaseCheckUnavailable, ReleaseSnapshot, RestockRecord, RowForecast, RulesRequest, ScheduleSettings, ScorecardRow, StoresState, SubstitutesAsked, SupplyAlert, SupplyAssessment, SupplyBomAlternate, SupplyBomBuy, SupplyBomComment, SupplyBomLineResult, SupplyBomLookup, SupplyBomRollup, SupplyBomWatchResult, SupplyChoice, SupplyChoiceOption, SupplyCompliance, SupplyComplianceState, SupplyComponentStanding, SupplyComponentWatch, SupplyConnector, SupplyConnectorCheck, SupplyCredentialField, SupplyCsvImport, SupplyCsvResult, SupplyDashboard, SupplyDistributorBehaviour, SupplyFact, SupplyFinding, SupplyGroupStats, SupplyHeadlinePrice, SupplyHealth, SupplyInsight, SupplyInsightsPage, SupplyListing, SupplyMakerGroup, SupplyManufacturer, SupplyMarket, SupplyMarketHistory, SupplyMarketMetric, SupplyMarketScope, SupplyMatched, SupplyNotice, SupplyNoticeCheck, SupplyOffer, SupplyOtherNumberGroup, SupplyOutlook, SupplyParameter, SupplyPartDetail, SupplyPartGroup, SupplyPartGroups, SupplyPartRow, SupplyPartsPage, SupplyProvider, SupplyRecentChange, SupplyReviewAlias, SupplyReviewListing, SupplyReviewQueue, SupplyRowOffer, SupplyScorecard, SupplySignin, SupplySubScore, SupplySvhcList, SupplyToApprove, SupplyWaiver, SupplyWatch, SupplyWatchSummary, TrackProgress, TrackRecord, TrackRecordModel, TrackingPreview, TrackingReason, TrackingRoom, TrackingRoomAccount, UpdateSupplyConnectorInput,
@@ -71,20 +71,13 @@ export type FindingSeverity = "warning" | "error" | "fatal" | "ok";
 export type ReleaseCheck = ReleaseCheckResult | ReleaseCheckUnavailable;
 
 export interface InventorySourceInput {
-  kind?: "inventree" | "push";
+  kind?: "push";
   display_name?: string;
-  base_url?: string;
-  /** Empty removes the token; left out keeps it. */
-  token?: string;
-  category_id?: number | null;
-  interval_hours?: number;
   enabled?: boolean;
 }
 
 /** What can be pushed to: a file-fed connector (offers) or a push inventory source (stock levels). */
 export type PushTarget = "connector" | "inventory_source";
-
-export type InventoryServerCheck = ServerCheck;
 
 export type InventorySyncResult = SyncResult;
 

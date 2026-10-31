@@ -26,8 +26,7 @@ from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key, match_key
 from app.services.supply.inventory import registry, sources
-from app.services.supply.inventory.base import InventoryRead, InventoryReader, Part, StockRecord
-from app.services.supply.inventory.inventree import STATUS_NAMES, STATUS_OK
+from app.services.supply.inventory.base import STATUS_NAMES, STATUS_OK, InventoryRead, InventoryReader, Part, StockRecord
 from app.services.supply.providers.base import ProviderError
 from app.services.supply.store import SupplyStore
 
@@ -184,7 +183,14 @@ def sync(
     with store.connection() as conn:
         row = sources.get(conn, source_id)
     read_as = _settings(row)
-    spec = registry.get_spec(row["kind"])
+    try:
+        spec = registry.get_spec(row["kind"])
+    except registry.UnknownKind:
+        # A source kind Prism no longer reads (its row stays until an administrator removes it).
+        message = "invalid: Prism does not read this kind of source any more."
+        with store.connection() as conn:
+            fail(conn, source_id, message, moment)
+        return {"status": "error", "error": message}
     try:
         factory = client_factory or spec.factory
         if factory is None:

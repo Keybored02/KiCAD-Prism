@@ -1,6 +1,6 @@
 """The contract between Prism and a local inventory source, beside the distributor contract (``providers/base.py``).
 
-An ``InventorySourceSpec`` says what kind of source it is: one Prism reads on a schedule (an InvenTree-compatible server),
+An ``InventorySourceSpec`` says what kind of source it is: one Prism reads on a schedule (a server with a reader module),
 one that pushes its stock to Prism (``push.py``), or one that is fed by the catalog's CSV upload. A read source has a ``factory`` that turns its address and token into an
 ``InventoryReader``; ``read`` returns every part with its numbers, the locations and the stock records in one
 ``InventoryRead``. Matching the parts to library components, and storing the stock, is Prism's (``sync.py``).
@@ -18,8 +18,14 @@ from typing import Callable, Mapping, Protocol, runtime_checkable
 _KIND = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 
 
-# A server's own id for a record: InvenTree's are numbers, a push names its parts as it likes.
+# A server's own id for a record: a server may number them, a push names its parts as it likes.
 RemoteId = int | str
+
+# Stock statuses as numbered by the servers Prism has read (InvenTree's base statuses). Only OK stock counts as available.
+STATUS_OK = 10
+STATUS_NAMES = {
+    10: "ok", 50: "attention", 55: "damaged", 60: "destroyed", 65: "rejected", 70: "lost", 75: "quarantined", 85: "returned",
+}
 
 
 @dataclass(frozen=True, slots=True)

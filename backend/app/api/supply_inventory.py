@@ -1,4 +1,4 @@
-"""Local inventory sources API: InvenTree-compatible servers, and sources that push their stock, filling the catalog (D15).
+"""Local inventory sources API: sources that push their stock to Prism, filling the catalog (D15).
 
 Administrators add, change, check, read and remove sources. Everyone who reads supply data sees which parts a source
 could not match; QA and administrators link them to a component in Supply > Review.
@@ -17,7 +17,6 @@ from app.api import supply_connectors
 from app.api.supply_call import run_supply
 from app.core.security import AuthenticatedUser, require_admin, require_supply_approver, require_supply_reader
 from app.services.supply.inventory import sources, sync
-from app.services.supply.inventory.inventree import InvenTreeClient
 
 router = APIRouter(prefix="/api/supply/inventory-sources", tags=["supply"])
 _run = partial(run_supply, upstream=True)
@@ -54,7 +53,7 @@ class CreateSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # "push": the source sends its stock itself (``POST /api/supply/inventory-sources/{id}/levels``) and has no server.
-    kind: Literal["inventree", "push"] = "inventree"
+    kind: Literal["push"] = "push"
     display_name: str = Field(min_length=1, max_length=sources.MAX_NAME)
     base_url: str = Field(default="", max_length=500)
     token: str = Field(default="", max_length=500)
@@ -72,20 +71,6 @@ class UpdateSourceRequest(BaseModel):
     category_id: Optional[int] = None
     interval_hours: Optional[int] = Field(default=None, ge=1, le=168)
     enabled: Optional[bool] = None
-
-
-class ServerCategory(BaseModel):
-    pk: int
-    name: str
-    pathstring: str
-    parent: Optional[int]
-
-
-class ServerCheck(BaseModel):
-    server: str
-    api_version: int
-    instance: str
-    categories: list[ServerCategory]
 
 
 class SyncResult(BaseModel):
@@ -160,24 +145,6 @@ async def delete_inventory_source(source_id: str, admin: AuthenticatedUser = Dep
 
     await _run(run)
     return Response(status_code=204)
-
-
-@router.post("/{source_id}/check")
-async def check_inventory_source(source_id: str, _admin: AuthenticatedUser = Depends(require_admin)) -> ServerCheck:
-    """Ask the server who it is and which categories it has, with the stored token. Changes nothing."""
-
-    def run() -> ServerCheck:
-        with _store().connection() as conn:
-            row = sources.get(conn, source_id)
-        client = InvenTreeClient(row["base_url"], sources.token_of(_keyring(), row))
-        try:
-            info = client.server()
-            categories = [ServerCategory(pk=c.pk, name=c.name, pathstring=c.pathstring, parent=c.parent) for c in client.categories()]
-        finally:
-            client.close()
-        return ServerCheck(server=info.server, api_version=info.api_version, instance=info.instance, categories=categories)
-
-    return await _run(run)
 
 
 @router.post("/{source_id}/sync")

@@ -1,6 +1,6 @@
 ---
 title: Connect distributors and inventory
-description: Give Prism's supply data its sources, distributor accounts and an InvenTree-compatible inventory, and keep their daily call limits and history in hand.
+description: Give Prism's supply data its sources, distributor accounts and a local inventory that pushes its stock, and keep their daily call limits and history in hand.
 sidebar:
   order: 8
 ---
@@ -133,51 +133,28 @@ prices from their India sites are read as rupees.
 
 ## Connect your inventory
 
-Prism reads stock from any server that speaks InvenTree's REST API, including
-InvenTree itself. It only reads; it never changes your inventory.
+Prism does not read a stock server at the moment. Your inventory can send its
+stock to Prism instead, with a push source.
 
-### Prepare the server
-
-1. Create a user for Prism that can read parts, stock, stock locations,
-   manufacturer parts and supplier parts. It needs no write access.
-2. Create an API token for that user (in InvenTree, under the user's account
-   settings). Prism sends it as `Authorization: Token …`.
-3. Give each part the numbers Prism matches on: its **IPN** set to the library
-   component's Prism id or SAP code, its manufacturer parts (maker and MPN),
-   or its supplier parts with the distributor's part number (**SKU**).
-5. Mark locations that hold stock outside your premises, such as at a
-   contract manufacturer, as **external**.
-
-### Add the source
+### Add a push source
 
 1. In **Supply → Sources**, under **Local inventory**, choose
    **Add source**.
-2. Keep **Kind** at **InvenTree server**. Enter a **Name**, the **Server**
-   address (`https://…`, without `/api`), the **API token**, and how often to
-   read it in **Read every (hours)** (1 to 168, 24 unless changed). Choose
-   **Add**.
-3. In **What to read**, which opens next, check that Prism shows your
-   server's name and API version. Keep **Whole inventory**, or choose one
-   category (its subcategories are included), and choose **Read**.
-4. Choose **Read now** on the source's card for the first read. It reports how
-   many stock records it read and how many parts matched.
+2. Enter a **Name** and choose **Add**. **Push token** opens next: choose
+   **Create token** and give the token to whatever sends the stock. See
+   [Push offers and stock](/KiCAD-Prism/automate/supply-push/).
+3. Give each part the numbers Prism matches on: its IPN set to the library
+   component's Prism id or SAP code, its manufacturer parts (maker and MPN),
+   or its supplier parts with the distributor's part number (SKU). Mark
+   locations that hold stock outside your premises, such as at a contract
+   manufacturer, as external.
 
-For an inventory Prism cannot read, choose **Push** as the **Kind**, enter a
-**Name** and choose **Add**. **Push token** opens next: choose
-**Create token** and give the token to whatever sends the stock. See
-[Push offers and stock](/KiCAD-Prism/automate/supply-push/).
-
-:::note
-The server must be reachable over HTTPS. Prism refuses private and local
-addresses, and any port but 443, unless the server's host name is listed in
-`SUPPLY_INVENTORY_PRIVATE_HOSTS_STR`, for an inventory on your own network.
-A listed server may use its own port, as in `https://inventory.example.internal:8443`. See
-the [Configuration reference](/KiCAD-Prism/admin/configuration/#supply).
-:::
+A source that reads a server and was added earlier stays listed as **Not read
+any more** until you delete it.
 
 ### How stock is matched and counted
 
-Each part on the server is matched to one library component, first match
+Each part the source sends is matched to one library component, first match
 wins:
 
 1. a link a person made in **Review**;
@@ -211,8 +188,6 @@ stale on each component. See
 | **Paused** with a reason | Prism got a web page or a challenge where it expected data, or someone paused it. Check the proxy (`SUPPLY_HTTPS_PROXY`) and the distributor's status, then **Resume**. |
 | Farnell or element14 offers have no price | Set the connector's **Currency** to the store's. |
 | Calls run out before the day ends | Raise the **Daily call budget** to what the distributor allows, check **Provider's day begins at** and **Time zone** match its reset, or pick one packaging per distributor so fewer listings are read. |
-| An inventory source shows **No token** or **No category** | Edit it and set the token, or choose **Category** in its menu. |
-| An inventory source shows **Read failed** | The card shows the error. Check the server address (no `/api`), that the token's user can read the category, and that the server is reachable over HTTPS from Prism. |
 | Stock is on the server but not on the component | The part is unmatched (see **Review**), its stock is not OK status, it is allocated, or it is at an external location. |
 
 ## Look after it

@@ -6,10 +6,8 @@ import type { InventorySource } from "@/types/supply";
 const listInventorySources = vi.fn();
 vi.mock("./inventory-api", () => ({
   listInventorySources: () => listInventorySources(),
-  syncInventorySource: vi.fn(),
   updateInventorySource: vi.fn(),
   deleteInventorySource: vi.fn(),
-  checkInventorySource: vi.fn(),
   createInventorySource: vi.fn(),
 }));
 
@@ -28,11 +26,7 @@ function source(extra: Partial<InventorySource> = {}): InventorySource {
 describe("local inventory sources", () => {
   it("says the worst thing about a source first", () => {
     expect(sourceState(source({ enabled: false, has_token: false })).label).toBe("Disabled");
-    expect(sourceState(source({ has_token: false })).label).toBe("No token");
-    expect(sourceState(source({ category_id: null, last_sync_at: null, last_status: "" })).label).toBe("Not read yet");
-    expect(sourceState(source({ last_status: "error" })).label).toBe("Read failed");
-    expect(sourceState(source({ last_sync_at: null, last_status: "" })).label).toBe("Not read yet");
-    expect(sourceState(source()).label).toBe("Reading");
+    expect(sourceState(source()).label).toBe("Not read any more");
     expect(sourceState(source({ kind: "push", has_token: false, last_sync_at: null })).label).toBe("Not pushed yet");
     expect(sourceState(source({ kind: "push", has_token: false })).label).toBe("Pushed");
   });

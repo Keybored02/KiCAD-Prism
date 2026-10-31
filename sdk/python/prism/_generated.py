@@ -5712,20 +5712,6 @@ class SemanticIndexStatus(TypedDict, total=True):
     sourceRevisionKey: str
 
 
-class ServerCategory(TypedDict, total=True):
-    name: str
-    parent: int | None
-    pathstring: str
-    pk: int
-
-
-class ServerCheck(TypedDict, total=True):
-    api_version: int
-    categories: list[ServerCategory]
-    instance: str
-    server: str
-
-
 class ServerFolderImportRequest(TypedDict, total=False):
     display_name: str
     root_name: str
@@ -7919,14 +7905,6 @@ class GeneratedClient:
             "POST",
             "/api/v1/settings/git-access/check",
             body=body,
-        )
-
-    def check_inventory_source(self, source_id: str) -> ServerCheck:
-        """Check Inventory Source"""
-        return self._request(
-            "POST",
-            "/api/v1/supply/inventory-sources/{source_id}/check",
-            path_params={"source_id": source_id},
         )
 
     def check_notices(self, part_id: str) -> SupplyNoticeCheck:

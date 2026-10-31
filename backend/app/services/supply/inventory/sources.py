@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.inventory import registry
-from app.services.supply.inventory.inventree import InvenTreeError, base_url
 from app.services.supply.errors import Missing, Refused
 
-KIND_INVENTREE = "inventree"
+KIND_PUSH = "push"
 TOKEN_FIELD = "inventory_token"
 MAX_NAME = 120
 
@@ -38,10 +38,12 @@ def _name(value: Any) -> str:
 
 
 def _url(value: Any) -> str:
-    try:
-        return base_url(str(value or ""))
-    except InvenTreeError as exc:
-        raise SourceError(str(exc)) from exc
+    parts = urlsplit(str(value or "").strip())
+    if parts.scheme != "https" or not parts.hostname:
+        raise SourceError("The server address must be an https:// URL.")
+    if parts.query or parts.fragment or parts.username or parts.password:
+        raise SourceError("The server address cannot carry a query, a fragment or credentials.")
+    return f"https://{parts.netloc}{parts.path.rstrip('/')}"
 
 
 def _interval(value: Any) -> int:
@@ -93,7 +95,7 @@ def list_sources(conn) -> list[dict[str, Any]]:
 
 def create(
     conn, keyring: sealed.CredentialKeyring, actor: str, *, display_name: str, url: str, token: str,
-    category_id: int | None = None, interval_hours: int = 24, kind: str = KIND_INVENTREE,
+    category_id: int | None = None, interval_hours: int = 24, kind: str = KIND_PUSH,
 ) -> dict[str, Any]:
     """A new source. Without a category it reads the whole inventory. A push source has no server, token or schedule."""
 

@@ -9976,11 +9976,8 @@
             "type": "integer"
           },
           "kind": {
-            "default": "inventree",
-            "enum": [
-              "inventree",
-              "push"
-            ],
+            "const": "push",
+            "default": "push",
             "title": "Kind",
             "type": "string"
           },
@@ -31124,72 +31121,6 @@
           "generator"
         ],
         "title": "SemanticIndexStatus",
-        "type": "object"
-      },
-      "ServerCategory": {
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "parent": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent"
-          },
-          "pathstring": {
-            "title": "Pathstring",
-            "type": "string"
-          },
-          "pk": {
-            "title": "Pk",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "pk",
-          "name",
-          "pathstring",
-          "parent"
-        ],
-        "title": "ServerCategory",
-        "type": "object"
-      },
-      "ServerCheck": {
-        "properties": {
-          "api_version": {
-            "title": "Api Version",
-            "type": "integer"
-          },
-          "categories": {
-            "items": {
-              "$ref": "#/components/schemas/ServerCategory"
-            },
-            "title": "Categories",
-            "type": "array"
-          },
-          "instance": {
-            "title": "Instance",
-            "type": "string"
-          },
-          "server": {
-            "title": "Server",
-            "type": "string"
-          }
-        },
-        "required": [
-          "server",
-          "api_version",
-          "instance",
-          "categories"
-        ],
-        "title": "ServerCheck",
         "type": "object"
       },
       "ServerFolderImportRequest": {
@@ -62062,49 +61993,6 @@
           }
         },
         "summary": "Update Inventory Source",
-        "tags": [
-          "supply"
-        ]
-      }
-    },
-    "/api/v1/supply/inventory-sources/{source_id}/check": {
-      "post": {
-        "description": "Ask the server who it is and which categories it has, with the stored token. Changes nothing.",
-        "operationId": "check_inventory_source",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "source_id",
-            "required": true,
-            "schema": {
-              "title": "Source Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerCheck"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Check Inventory Source",
         "tags": [
           "supply"
         ]

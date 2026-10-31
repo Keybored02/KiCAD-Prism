@@ -478,7 +478,7 @@ export interface CreateSourceRequest {
   category_id?: number | null;
   display_name: string;
   interval_hours?: number;
-  kind?: "inventree" | "push";
+  kind?: "push";
   token?: string;
 }
 
@@ -2254,20 +2254,6 @@ export interface Seasonality {
   index: Record<string, number>;
   peak: number;
   trough: number;
-}
-
-export interface ServerCategory {
-  name: string;
-  parent: number | null;
-  pathstring: string;
-  pk: number;
-}
-
-export interface ServerCheck {
-  api_version: number;
-  categories: ServerCategory[];
-  instance: string;
-  server: string;
 }
 
 export interface SettingsRanges {
