@@ -19,7 +19,7 @@ from urllib.parse import urlencode, urlsplit
 
 from app.services.trackers.contracts import ForgeUser, IdentityToken
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.http import TrackerHttp
+from app.services.trackers.http import TrackerHttp, forge_schemes
 
 ACCEPT = "application/json"
 DEFAULT_SCOPES: tuple[str, ...] = ("read:user",)
@@ -32,7 +32,7 @@ def web_root_for(base_url: str) -> str:
     if not raw:
         raise ProviderError("invalid_request", "Gitea connectors require an https base URL.")
     parsed = urlsplit(raw)
-    if parsed.scheme.casefold() != "https" or not parsed.netloc:
+    if parsed.scheme.casefold() not in forge_schemes() or not parsed.netloc:
         raise ProviderError("invalid_request", "Gitea base URL must be https.")
     if parsed.query or parsed.fragment:
         raise ProviderError("invalid_request", "Gitea base URL must not carry a query or fragment.")

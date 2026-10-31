@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 from app.services.trackers.capabilities import ProviderCapabilities
 from app.services.trackers.contracts import Container
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.http import TrackerHttp
+from app.services.trackers.http import TrackerHttp, forge_schemes
 
 GITLAB_COM_API = "https://gitlab.com/api/v4"
 GITLAB_COM_WEB = "https://gitlab.com"
@@ -60,7 +60,7 @@ def api_root_for(*, instance_kind: str, base_url: str = "") -> str:
                 "Self-hosted GitLab connectors require an https API base URL.",
             )
         parsed = urlsplit(raw)
-        if parsed.scheme.casefold() != "https" or not parsed.netloc:
+        if parsed.scheme.casefold() not in forge_schemes() or not parsed.netloc:
             raise ProviderError("invalid_request", "GitLab API base URL must be https.")
         if parsed.hostname and parsed.hostname.casefold() in {"gitlab.com", "www.gitlab.com"}:
             raise ProviderError("invalid_request", "Self-hosted base URL cannot point at gitlab.com.")
@@ -78,7 +78,7 @@ def web_root_for(*, instance_kind: str, base_url: str = "", web_url: str = "") -
     explicit = (web_url or "").strip().rstrip("/")
     if explicit:
         parsed = urlsplit(explicit)
-        if parsed.scheme.casefold() != "https" or not parsed.netloc:
+        if parsed.scheme.casefold() not in forge_schemes() or not parsed.netloc:
             raise ProviderError("invalid_request", "GitLab web URL must be https.")
         return explicit
     kind = (instance_kind or "").strip().casefold()

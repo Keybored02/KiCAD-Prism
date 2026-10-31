@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 import requests
 
+from app.core.config import settings
 from app.services.forge_hosts import allowed_request_hosts
 from app.services.trackers.errors import ProviderError, classify_read_status
 
@@ -141,6 +142,12 @@ def send(
     )
 
 
+def forge_schemes() -> frozenset[str]:
+    """https always; http only when the operator allows plaintext for an internal forge."""
+
+    return frozenset({"https", "http"}) if settings.IMPORT_ALLOW_INSECURE_HTTP else frozenset({"https"})
+
+
 class TrackerHttp:
     """Allowlisted tracker calls that classify 304/401/403/404/410/429/3xx."""
 
@@ -205,7 +212,7 @@ class TrackerHttp:
     def require_allowed_url(self, url: str) -> None:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").casefold()
-        if parsed.scheme.casefold() != "https" or not host:
+        if parsed.scheme.casefold() not in forge_schemes() or not host:
             raise ProviderError("invalid_request", "Tracker HTTP requires an https URL.")
         if parsed.username or parsed.password:
             raise ProviderError("invalid_request", "Tracker HTTP URLs cannot embed credentials.")

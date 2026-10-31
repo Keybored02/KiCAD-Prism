@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import unittest
 from contextlib import contextmanager
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from app.api import tracker_identity as identity_api
+from app.core.config import settings as app_settings
 from app.services.trackers.connector_service import ConnectorService
 from app.services.trackers.contracts import ForgeUser, IdentityToken
 from app.services.trackers.errors import ProviderError
@@ -82,7 +84,7 @@ class GiteaIdentityAdapterTests(unittest.TestCase):
         self.assertEqual(raised.exception.class_, "auth_lost")
 
     def test_base_url_must_be_https(self) -> None:
-        with self.assertRaises(ProviderError):
+        with patch.object(app_settings, "IMPORT_ALLOW_INSECURE_HTTP", False), self.assertRaises(ProviderError):
             self._adapter("http://gitea.internal")
 
 
