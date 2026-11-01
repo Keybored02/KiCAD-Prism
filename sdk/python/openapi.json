@@ -1797,6 +1797,15 @@
       "BackInStock": {
         "additionalProperties": true,
         "properties": {
+          "basis": {
+            "description": "What the range is drawn from: earlier stock-outs, or the quoted lead time.",
+            "enum": [
+              "outages",
+              "quote"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
           "beyond_share": {
             "title": "Beyond Share",
             "type": "number"
@@ -1820,6 +1829,11 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "pooled": {
+            "description": "The stock-outs are every distributor's, this one having too few of its own.",
+            "title": "Pooled",
+            "type": "boolean"
           },
           "provider": {
             "title": "Provider",
@@ -1861,6 +1875,8 @@
           "quote_days",
           "ratio",
           "beyond_share",
+          "basis",
+          "pooled",
           "state"
         ],
         "title": "BackInStock",
@@ -10617,20 +10633,15 @@
             "type": "boolean"
           },
           "main_part_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "description": "The main part the decider was shown (empty for none); the decision is refused (409) when it has changed since.",
-            "title": "Main Part Id"
+            "maxLength": 64,
+            "title": "Main Part Id",
+            "type": "string"
           }
         },
         "required": [
-          "approve"
+          "approve",
+          "main_part_id"
         ],
         "title": "DecisionRequest",
         "type": "object"
@@ -27197,6 +27208,29 @@
           "proposed_by": {
             "title": "Proposed By",
             "type": "string"
+          },
+          "reviewed_against_mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Against Mpn"
+          },
+          "reviewed_against_part_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The main part it was proposed or last decided against: when it differs from main_part_id, the main part changed since. Null for proposals from before this was kept; empty for none.",
+            "title": "Reviewed Against Part Id"
           }
         },
         "required": [
@@ -27209,7 +27243,9 @@
           "proposed_by",
           "proposed_at",
           "main_part_id",
-          "main_mpn"
+          "main_mpn",
+          "reviewed_against_part_id",
+          "reviewed_against_mpn"
         ],
         "title": "ProposedAlternate",
         "type": "object"
@@ -28265,6 +28301,18 @@
             "title": "Attention",
             "type": "array"
           },
+          "boards": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The build the parts were assessed for; none on snapshots taken before it was kept.",
+            "title": "Boards"
+          },
           "health": {
             "anyOf": [
               {
@@ -28487,6 +28535,18 @@
             "const": true,
             "title": "Available",
             "type": "boolean"
+          },
+          "boards": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The build the parts were assessed for; none on snapshots taken before it was kept.",
+            "title": "Boards"
           },
           "health": {
             "anyOf": [
@@ -33320,6 +33380,15 @@
             "description": "0 to 10, weighted by units needed; null when nothing has data.",
             "title": "Health"
           },
+          "health_assessed": {
+            "description": "Parts the health is made of; the others have nothing read yet.",
+            "title": "Health Assessed",
+            "type": "integer"
+          },
+          "health_parts": {
+            "title": "Health Parts",
+            "type": "integer"
+          },
           "health_status": {
             "enum": [
               "ok",
@@ -33398,6 +33467,11 @@
             "title": "Tracked",
             "type": "integer"
           },
+          "unchecked": {
+            "description": "Lines with no tracked part or no stock reading; can_build is unconfirmed while any is.",
+            "title": "Unchecked",
+            "type": "integer"
+          },
           "waste_cost": {
             "anyOf": [
               {
@@ -33439,9 +33513,12 @@
           "can_build",
           "limited_by",
           "without_stock_data",
+          "unchecked",
           "parts",
           "health",
-          "health_status"
+          "health_status",
+          "health_assessed",
+          "health_parts"
         ],
         "title": "SupplyBomRollup",
         "type": "object"
@@ -38092,6 +38169,11 @@
               }
             ],
             "title": "Started At"
+          },
+          "stuck": {
+            "description": "The last run started over an hour (or three intervals) ago and never ended: its worker died.",
+            "title": "Stuck",
+            "type": "boolean"
           }
         },
         "required": [
@@ -38101,7 +38183,8 @@
           "last_ok_at",
           "last_error_at",
           "next_at",
-          "last_error"
+          "last_error",
+          "stuck"
         ],
         "title": "TaskRun",
         "type": "object"
@@ -58945,7 +59028,7 @@
     },
     "/api/v1/remote-provider/supply/parts/{part_id}/refresh": {
       "post": {
-        "description": "Read one tracked part from its distributors now. Allowed under the read scope: it changes nothing a person sees.",
+        "description": "Read one tracked part from its distributors now. It spends the account's calls, so it takes what following a part takes:\na supply role and a person or a token that may write; read-only and KiCad provider tokens are refused.",
         "operationId": "refresh_supply_part",
         "parameters": [
           {
@@ -60175,7 +60258,7 @@
     },
     "/api/v1/supply/bom/usage/refresh": {
       "post": {
-        "description": "Read where parts are used from the projects' existing semantic indexes. Builds none, so it is cheap.",
+        "description": "Read where parts are used from the projects' existing semantic indexes. Builds none, so it is cheap, but it writes: a\nread-only token may not ask (the roles are a reader's).",
         "operationId": "refresh_usage",
         "responses": {
           "200": {
@@ -64039,7 +64122,7 @@
     },
     "/api/v1/supply/parts/{part_id}/refresh": {
       "post": {
-        "description": "Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part.",
+        "description": "Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part. Every\nsupply role may, as from the KiCad panel; a token needs to be one that may write.",
         "operationId": "read_part_now",
         "parameters": [
           {
@@ -64250,7 +64333,7 @@
     },
     "/api/v1/supply/parts/{part_id}/view-read": {
       "post": {
-        "description": "Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part.",
+        "description": "Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part.\nIt spends distributor calls, so a read-only token may not ask (the roles are a reader's).",
         "operationId": "read_part_on_view",
         "parameters": [
           {

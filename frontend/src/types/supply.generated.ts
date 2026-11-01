@@ -160,12 +160,16 @@ export interface AssessmentSettingsView {
 }
 
 export interface BackInStock {
+  /** What the range is drawn from: earlier stock-outs, or the quoted lead time. */
+  basis: "outages" | "quote";
   beyond_share: number;
   connector_id: string;
   high: string;
   low: string;
   median: string;
   name: string;
+  /** The stock-outs are every distributor's, this one having too few of its own. */
+  pooled: boolean;
   provider: string;
   quote_days: number | null;
   ratio: number | null;
@@ -548,7 +552,7 @@ export interface Deadline {
 export interface DecisionRequest {
   approve: boolean;
   /** The main part the decider was shown (empty for none); the decision is refused (409) when it has changed since. */
-  main_part_id?: string | null;
+  main_part_id: string;
 }
 
 /** A decision someone asked for: an approver's stands (``approved``), anyone else's waits for one (``proposed``). */
@@ -1860,6 +1864,9 @@ export interface ProposedAlternate {
   part_id: string;
   proposed_at: string;
   proposed_by: string;
+  reviewed_against_mpn: string | null;
+  /** The main part it was proposed or last decided against: when it differs from main_part_id, the main part changed since. Null for proposals from before this was kept; empty for none. */
+  reviewed_against_part_id: string | null;
 }
 
 export interface ProposedDismissal {
@@ -1982,6 +1989,8 @@ export interface RejectManyRequest {
 
 export interface ReleaseAssessment {
   attention: ReleaseCheckLine[];
+  /** The build the parts were assessed for; none on snapshots taken before it was kept. */
+  boards?: number | null;
   health: number | null;
   lines: ReleaseCheckLine[];
   needing_a_look: number;
@@ -2018,6 +2027,8 @@ export interface ReleaseCheckLine {
 export interface ReleaseCheckResult {
   attention: ReleaseCheckLine[];
   available: true;
+  /** The build the parts were assessed for; none on snapshots taken before it was kept. */
+  boards?: number | null;
   health: number | null;
   lines: ReleaseCheckLine[];
   needing_a_look: number;
@@ -2513,6 +2524,9 @@ export interface SupplyBomRollup {
   currency: string | null;
   /** 0 to 10, weighted by units needed; null when nothing has data. */
   health: number | null;
+  /** Parts the health is made of; the others have nothing read yet. */
+  health_assessed: number;
+  health_parts: number;
   health_status: "ok" | "warning" | "error" | "fatal" | "unknown";
   limited_by: string | null;
   lines: number;
@@ -2528,6 +2542,8 @@ export interface SupplyBomRollup {
   short: number;
   test_data: boolean;
   tracked: number;
+  /** Lines with no tracked part or no stock reading; can_build is unconfirmed while any is. */
+  unchecked: number;
   waste_cost: string | null;
   watched: number;
   without_stock_data: number;
@@ -3345,6 +3361,8 @@ export interface TaskRun {
   name: string;
   next_at: string | null;
   started_at: string | null;
+  /** The last run started over an hour (or three intervals) ago and never ended: its worker died. */
+  stuck: boolean;
 }
 
 export interface TierShare {

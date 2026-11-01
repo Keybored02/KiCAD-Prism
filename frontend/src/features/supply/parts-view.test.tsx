@@ -133,7 +133,7 @@ describe("the parts list", () => {
     });
     renderView();
     const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;
-    expect(within(row).getByText("None yet")).toBeTruthy();
+    expect(within(row).getByText("Not read")).toBeTruthy();
     expect(within(row).getByRole("img", { name: "No data" })).toBeTruthy();
   });
 
@@ -377,9 +377,10 @@ describe("a part", () => {
   });
 
   it("closes on one Escape, even with a hover popover open", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ outlook: { band: "warning_signs", label: "Warning signs", method: "rule-based", signals: [{ text: "Fewer distributors", source: "distributors", weight: "watch" }] } }));
     renderView("designer", "/?part=p1");
     const sheet = await screen.findByRole("dialog");
-    fireEvent.mouseEnter(await within(sheet).findByRole("button", { name: /Show how the outlook/ }));
+    fireEvent.mouseEnter(await within(sheet).findByRole("button", { name: /Show what the outlook/ }));
     fireEvent.keyDown(document.body, { key: "Escape" });
     await waitFor(() => expect(search()).not.toContain("part="));
   });
@@ -418,10 +419,10 @@ describe("a part", () => {
     expect(chart.getAttribute("data-threshold")).toBe("500");
   });
 
-  it("asks for history rather than drawing a line through nothing", async () => {
+  it("says there is no history rather than drawing a line through nothing", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ distributor_history: { days: 90, currency: "EUR", connectors: [], total: [], events: [] } }));
     renderView("designer", "/?part=p1");
-    expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
+    expect(await screen.findByText("No history yet")).toBeTruthy();
   });
 });
 
@@ -590,11 +591,11 @@ describe("the watch settings", () => {
     expect(mocked.refreshSupplyUsage).not.toHaveBeenCalled();
   });
 
-  it("says why the In use scope is empty", async () => {
+  it("labels an empty In use scope", async () => {
     mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0, next_offset: null, forecast_state: {} });
     renderView("designer", "/?partsScope=in_use");
     expect(await screen.findByText("No parts in use yet")).toBeTruthy();
-    expect(screen.getByText(/Open a project BOM, then watch its parts/)).toBeTruthy();
+    expect(screen.queryByText(/Open a project BOM/)).toBeNull();
   });
 
   it("lists the projects a part is used in, with links", async () => {
@@ -616,14 +617,13 @@ describe("the watch settings", () => {
     expect(title.compareDocumentPosition(used) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("offers Read now to the people who can watch parts, and to nobody else", async () => {
+  it("offers Read now to every supply role, QA included", async () => {
     renderView("designer", "/?part=p1");
     expect(await screen.findByRole("button", { name: /Read now/ })).toBeTruthy();
     cleanup();
     forgetServerState([]);
     renderView("qa", "/?part=p1");
-    await screen.findByRole("region", { name: "Stock" });
-    expect(screen.queryByRole("button", { name: /Read now/ })).toBeNull();
+    expect(await screen.findByRole("button", { name: /Read now/ })).toBeTruthy();
   });
 
   it("shows no Used in section for a part no BOM carries", async () => {

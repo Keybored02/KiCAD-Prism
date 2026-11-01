@@ -18,13 +18,14 @@ import { ProjectSupplyTab } from "./project-supply-tab";
 import * as api from "./supply-api";
 import { keepUsualBuild } from "./tracking-api";
 import { bomRollupFixture, projectLineFixture } from "./supply-test-fixtures";
+import { formatDay } from "./supply-format";
 
 const mocked = vi.mocked(api);
 
 const rollup = bomRollupFixture({
   lines: 3, tracked: 2, not_tracked: 1, watched: 2, at_risk: 1, short: 1, priced: 2, lines_priced: 2, parts: 2,
-  currency: "EUR", cost_build: "12.50", cost_per_board: "12.50", can_build: 400, limited_by: "k1", without_stock_data: 0,
-  health: 7.4, health_status: "warning",
+  currency: "EUR", cost_build: "12.50", cost_per_board: "12.50", can_build: 400, limited_by: "k1", without_stock_data: 0, unchecked: 1,
+  health: 7.4, health_status: "warning", health_assessed: 1, health_parts: 1,
 });
 
 const supply = (overrides: Partial<ProjectSupply> = {}): ProjectSupply => ({
@@ -116,7 +117,7 @@ describe("the project Supply tab", () => {
     }));
     renderTab();
     const history = await screen.findByRole("region", { name: "Cost over time" });
-    expect(within(history).getByText(/up .*1\.5.* since 2026-09-01/)).toBeTruthy();
+    expect(within(history).getByText(new RegExp(`up .*1\\.5.* since ${formatDay("2026-09-01")} · 2 of 3 lines priced`))).toBeTruthy();
     expect(screen.getByText(/3\.20.* left over from minimum orders/)).toBeTruthy();
   });
 
@@ -138,11 +139,11 @@ describe("the project Supply tab", () => {
     }));
     renderTab();
     const curve = await screen.findByRole("region", { name: "Cost per board by build size" });
-    expect(within(curve).getByText(/for one board/)).toBeTruthy();
+    expect(within(curve).getByText(/at 1 board, .* at 100 · 2 of 3 lines priced/)).toBeTruthy();
     const money = screen.getByRole("region", { name: "Cost allocation" });
     expect(within(money).getByText("Other 4 lines · 28%")).toBeTruthy();
     expect(within(money).getByRole("button", { name: /FLAKY-1 · 72%/ })).toBeTruthy();
-    expect(screen.getByText(/Left out as one price read wrong: 2026-09-15/)).toBeTruthy();
+    expect(screen.getByText(/Excluded: 2026-09-15/)).toBeTruthy();
   });
 
   it("asks the server to sort by part, stock or price, as the Parts tab does, and to put the parts running out first", async () => {
@@ -179,9 +180,9 @@ describe("the project Supply tab", () => {
       rollup: bomRollupFixture({ ...rollup, can_build: 0, limited_by: "k1", at_risk: 1, needs_a_look: 2 }),
     }));
     renderTab();
-    // One of the three lines is not tracked, so the answer stays open.
-    expect(await screen.findByText("Unconfirmed")).toBeTruthy();
-    expect(screen.getByText("0 of 100 boards · 1 unchecked")).toBeTruthy();
+    // Short is short, whatever the unchecked line holds.
+    expect(await screen.findByText("0 of 100 boards")).toBeTruthy();
+    expect(screen.queryByText("Unconfirmed")).toBeNull();
     expect(within(screen.getByLabelText("Headline")).getByRole("button", { name: "FLAKY-1" })).toBeTruthy();
     expect(screen.getByText(/1 at risk, 1 more need a look/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Not priced/ })).toBeNull();
@@ -193,6 +194,13 @@ describe("the project Supply tab", () => {
     expect(within(parts).getByText("FLAKY-1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Out of stock/ }));
     await waitFor(() => expect(within(parts).getAllByRole("row")).toHaveLength(3));
+  });
+
+  it("leaves the boards unconfirmed while a line is unchecked and the lines read cover the build", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({ rollup: bomRollupFixture({ ...rollup, can_build: 400 }) }));
+    renderTab();
+    expect(await screen.findByText("Unconfirmed")).toBeTruthy();
+    expect(screen.getByText("100 of 100 boards · 1 unchecked")).toBeTruthy();
   });
 
   it("opens at the project's usual build and offers to keep another size as the usual one", async () => {
@@ -273,7 +281,7 @@ describe("the project Supply tab", () => {
 
   it("is closed to a role without supply access, and never asks", () => {
     renderTab("viewer");
-    expect(screen.getByText(/not available to your role/)).toBeTruthy();
+    expect(screen.getByText("No access")).toBeTruthy();
     expect(mocked.getProjectSupply).not.toHaveBeenCalled();
   });
 

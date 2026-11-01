@@ -39,8 +39,9 @@ MATCHES_PART = """
 """
 
 
-# With the caller's role twice as parameters ([role, role]); None means every project, for internal callers.
-VISIBLE = "(%s::text IS NULL OR %s = ANY(up.visible_roles))"
+# With the projects the caller's role may see now, twice, as parameters (``role_params``); NULL means every project, for internal
+# callers. Read live from the workspace's folder rules, not the roles kept with the usage, which go stale when a folder changes.
+VISIBLE = "(%s::text[] IS NULL OR up.project_id = ANY(%s::text[]))"
 ALL_ROLES: tuple[str, ...] = ("admin", "designer", "qa")
 
 
@@ -55,8 +56,29 @@ def visible_project_ids(role: str | None) -> set[str] | None:
     return {str(row["id"]) for row in workspace.get_all_projects(role)}
 
 
-def role_params(role: str | None) -> list[str | None]:
-    return [role, role]
+def roles_of(row: Mapping[str, Any]) -> list[str]:
+    """The roles whose folder rules let them see this workspace project row: what a stored project's ``visible_roles`` holds."""
+
+    from app.services.workspace_service import workspace
+
+    return [role for role in ALL_ROLES if workspace._is_folder_visible(row, role)]  # noqa: SLF001
+
+
+def project_roles(project_id: str) -> list[str]:
+    """``roles_of`` for one project by id; no role when the project is not in the workspace."""
+
+    from app.services.workspace_service import workspace
+
+    row = next((item for item in workspace.get_all_projects(None) if str(item["id"]) == project_id), None)
+    return [] if row is None else roles_of(row)
+
+
+def role_params(role: str | None) -> list[list[str] | None]:
+    """The two parameters of ``VISIBLE`` for ``role``."""
+
+    visible = visible_project_ids(role)
+    ids = None if visible is None else sorted(visible)
+    return [ids, ids]
 
 
 def part_projects_sql(only_parts: bool) -> str:

@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { canEditSupply, canReviewSupply } from "@/lib/roles";
+import { allowedWorkflowTransitionsFrom, canEditSupply, canReviewSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { EndingPart } from "@/types/supply";
 import { dismissEnding, getEndingParts, retireComponent, setRestriction } from "./ending-api";
 import { StatusDot } from "./status-dot";
-import { formatStock } from "./supply-format";
+import { formatDay, formatStock } from "./supply-format";
 import { WorkItemButton } from "./work-item-dialog";
 import { useLoaded } from "./use-loaded";
 
@@ -35,11 +35,7 @@ function DecisionDialog({ item, decision, onClose, onDone }: { item: EndingPart;
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{retiring ? "Retire" : "Not for new designs"}: {item.component.name}</DialogTitle>
-          <DialogDescription>
-            {retiring
-              ? "The component is archived and leaves the KiCad library. Symbols already placed stop resolving."
-              : "The component stays released and keeps resolving where it is placed. It is marked in the catalog so nobody picks it for a new design."}
-          </DialogDescription>
+          {retiring ? <DialogDescription>Placed symbols stop resolving.</DialogDescription> : null}
         </DialogHeader>
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         {item.projects.length > 0 ? (
@@ -47,7 +43,7 @@ function DecisionDialog({ item, decision, onClose, onDone }: { item: EndingPart;
             <p className="font-medium">{retiring ? "Tracked projects that use it" : "Used by"}</p>
             <ul className="list-disc pl-5 text-muted-foreground">{item.projects.map((project) => <li key={project.project_id}>{project.name}, {project.quantity.toLocaleString()} per board</li>)}</ul>
           </div>
-        ) : <p className="text-sm text-muted-foreground">No tracked project uses it.</p>}
+        ) : <p className="text-sm text-muted-foreground">Not used</p>}
         <div className="space-y-1">
           <Label htmlFor="ending-reason" className="text-xs">Reason</Label>
           <Textarea id="ending-reason" rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
@@ -61,8 +57,8 @@ function DecisionDialog({ item, decision, onClose, onDone }: { item: EndingPart;
   );
 }
 
-function Row({ item, canDecide, canPropose, onOpen, onChanged }: {
-  item: EndingPart; canDecide: boolean; canPropose: boolean; onOpen: () => void; onChanged: () => void;
+function Row({ item, role, canDecide, canPropose, onOpen, onChanged }: {
+  item: EndingPart; role: UserRole | null | undefined; canDecide: boolean; canPropose: boolean; onOpen: () => void; onChanged: () => void;
 }) {
   const [decision, setDecision] = useState<Decision | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,7 +73,7 @@ function Row({ item, canDecide, canPropose, onOpen, onChanged }: {
       .catch((caught: Error) => { toast.error(caught.message); setBusy(false); });
   };
   const used = item.projects.length === 0 ? "No tracked project" : item.projects.slice(0, 2).map((project) => project.name).join(", ") + (item.projects.length > 2 ? ` +${item.projects.length - 2}` : "");
-  const lastBuy = item.last_buy.length > 0 ? `Last buy ${item.last_buy.map((date) => date.value).join(", ")}` : "";
+  const lastBuy = item.last_buy.length > 0 ? `Last buy ${item.last_buy.map((date) => formatDay(date.value)).join(", ")}` : "";
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
       <div className="min-w-0 flex-1">
@@ -93,12 +89,15 @@ function Row({ item, canDecide, canPropose, onOpen, onChanged }: {
         </p>
       </div>
       <span className="inline-flex shrink-0 items-center gap-1.5 tabular-nums" title="Distributor stock">
-        <StatusDot status={item.status} />{item.stock === null ? "not read" : formatStock(item.stock)}
+        <StatusDot status={item.status} />{formatStock(item.stock)}
       </span>
       {canDecide ? (
         <span className="inline-flex shrink-0 gap-1">
           <Button size="sm" variant="outline" onClick={() => setDecision("mark")}>Not for new designs</Button>
-          {item.healthy ? null : <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>}
+          {/* Retiring archives the component: only offered where the catalog lets this role archive it from its stage. */}
+          {item.healthy || !allowedWorkflowTransitionsFrom(role, item.component.stage).includes("archived") ? null : (
+            <Button size="sm" variant="outline" onClick={() => setDecision("retire")}>Retire</Button>
+          )}
           <Button size="sm" variant="ghost" disabled={busy} onClick={dismiss}>Dismiss</Button>
           <WorkItemButton subject={{ kind: "component", id: item.component.id }} title={`${item.component.name || item.component.mpn}: ending`} action="alternate" />
         </span>
@@ -137,7 +136,7 @@ export function EndingNotifications({ role, onOpenComponent }: { role: UserRole 
         {items.length === 1 ? "1 library component's part is ending" : `${items.length} library components' parts are ending`}
       </summary>
       <ul className="divide-y">
-        {items.map((item) => <Row key={item.component.id} item={item} canDecide={canDecide} canPropose={canPropose} onOpen={() => onOpenComponent(item.component.id)} onChanged={() => void loaded.refresh()} />)}
+        {items.map((item) => <Row key={item.component.id} item={item} role={role} canDecide={canDecide} canPropose={canPropose} onOpen={() => onOpenComponent(item.component.id)} onChanged={() => void loaded.refresh()} />)}
       </ul>
       {loaded.data && loaded.data.more > 0 ? <p className="border-t px-3 py-1.5 text-xs text-muted-foreground">{loaded.data.more} more ending parts are not listed.</p> : null}
     </details>

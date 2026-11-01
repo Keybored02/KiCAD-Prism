@@ -6,7 +6,7 @@ import { ChartCard } from "./chart-card";
 import { ComingUpCard } from "./dashboard-forecast";
 import { ModelChip } from "./forecast-chip";
 import { getForecastInsights } from "./supply-api";
-import { formatLeadTime, formatPrice } from "./supply-format";
+import { formatLeadTime, formatPrice, todayIso } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
 const STATE_LABEL = { shown: "Shown", learning: "Learning", paused: "Paused" } as const;
@@ -140,7 +140,7 @@ export function ForecastInsightsSection({ onOpenPart }: { onOpenPart: (partId: s
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       {comingUpState?.state === "shown"
-        ? <ComingUpCard events={page.coming_up} today={new Date().toISOString().slice(0, 10)} onOpenPart={onOpenPart} />
+        ? <ComingUpCard events={page.coming_up} today={todayIso()} onOpenPart={onOpenPart} />
         : <ChartCard title="Coming up" answer={<ModelChip model={comingUpState} />}><p className="text-sm text-muted-foreground">Expected runouts and price moves are listed here once their forecasts have a good record.</p></ChartCard>}
       <LeadTimes page={page} />
       <Warnings page={page} />

@@ -307,12 +307,14 @@ class AuthSuccessResponse(TypedDict, total=True):
 
 
 class BackInStock(TypedDict, total=True):
+    basis: str
     beyond_share: float
     connector_id: str
     high: str
     low: str
     median: str
     name: str
+    pooled: bool
     provider: str
     quote_days: int | None
     ratio: float | None
@@ -1886,9 +1888,9 @@ class DebugLoggingWindow(TypedDict, total=True):
     until: str
 
 
-class DecisionRequest(TypedDict, total=False):
+class DecisionRequest(TypedDict, total=True):
     approve: bool
-    main_part_id: str | None
+    main_part_id: str
 
 
 class DecisionState(TypedDict, total=True):
@@ -4950,6 +4952,8 @@ class ProposedAlternate(TypedDict, total=True):
     part_id: str
     proposed_at: str
     proposed_by: str
+    reviewed_against_mpn: str | None
+    reviewed_against_part_id: str | None
 
 
 class ProposedDismissal(TypedDict, total=True):
@@ -5161,8 +5165,9 @@ class RejectManyRequest(TypedDict, total=True):
     listing_ids: list[str]
 
 
-class ReleaseAssessment(TypedDict, total=True):
+class ReleaseAssessment(TypedDict, total=False):
     attention: list[ReleaseCheckLine]
+    boards: int | None
     health: int | float | None
     lines: list[ReleaseCheckLine]
     needing_a_look: int
@@ -5193,9 +5198,10 @@ class ReleaseCheckLine(TypedDict, total=True):
     waived: int
 
 
-class ReleaseCheckResult(TypedDict, total=True):
+class ReleaseCheckResult(TypedDict, total=False):
     attention: list[ReleaseCheckLine]
     available: bool
+    boards: int | None
     health: int | float | None
     lines: list[ReleaseCheckLine]
     needing_a_look: int
@@ -6106,6 +6112,8 @@ class SupplyBomRollup(TypedDict, total=True):
     cost_per_board: str | None
     currency: str | None
     health: int | float | None
+    health_assessed: int
+    health_parts: int
     health_status: str
     limited_by: str | None
     lines: int
@@ -6119,6 +6127,7 @@ class SupplyBomRollup(TypedDict, total=True):
     short: int
     test_data: bool
     tracked: int
+    unchecked: int
     waste_cost: str | None
     watched: int
     without_stock_data: int
@@ -6852,6 +6861,7 @@ class TaskRun(TypedDict, total=True):
     name: str
     next_at: str | None
     started_at: str | None
+    stuck: bool
 
 
 class ThreadPoolMetrics(TypedDict, total=True):

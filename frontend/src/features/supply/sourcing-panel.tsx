@@ -43,7 +43,7 @@ export default function SourcingPanel({ componentId, manufacturer, mpn, user }: 
         </section>
       ) : (
         <Alert>
-          <AlertDescription>This component needs a manufacturer and a manufacturer part number before the distributors can be asked.</AlertDescription>
+          <AlertDescription>Needs a manufacturer and a manufacturer part number</AlertDescription>
         </Alert>
       )}
     </div>
@@ -88,10 +88,7 @@ function Untracked({ manufacturer, mpn, canEdit, onTracked }: { manufacturer: st
   };
   return (
     <div className="space-y-3 border p-4">
-      <p className="text-sm font-medium">Prism is not tracking {mpn} yet.</p>
-      <p className="text-sm text-muted-foreground">
-        Watch it to read its stock, price and lifecycle from the connected distributors and keep the history.
-      </p>
+      <p className="text-sm font-medium">{mpn}: not tracked</p>
       {canEdit ? <Button size="sm" disabled={busy} onClick={() => void track()}>Watch this part</Button> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
@@ -114,7 +111,7 @@ function Tracked({ partId, componentId, user }: { partId: string; componentId: s
           <span className="font-medium">{STATUS_LABEL[detail.status]}</span>
         </div>
         <span className="flex items-center gap-1">
-          <PartActions detail={detail} canEdit={canEdit} canFollow={canFollowSupply(user?.role)} onChanged={part.refresh} />
+          <PartActions detail={detail} canEdit={canEdit} canFollow={canFollowSupply(user?.role)} canReview={canReviewSupply(user?.role)} onChanged={part.refresh} />
           <Button asChild size="icon" variant="outline" className="h-8 w-8 shrink-0">
             <Link to={`/?section=supply&supplyView=tracking&part=${encodeURIComponent(partId)}`} aria-label="Open in Supply Tracking" title="Open in Supply Tracking">
               <ExternalLink className="h-4 w-4" />
@@ -122,7 +119,7 @@ function Tracked({ partId, componentId, user }: { partId: string; componentId: s
           </Button>
         </span>
       </div>
-      <PartDetailSections detail={detail} canEdit={canEdit} role={user?.role} onChanged={part.refresh} wide />
+      <PartDetailSections detail={detail} canEdit={canEdit} role={user?.role} me={user?.email} onChanged={part.refresh} wide />
     </div>
   );
 }

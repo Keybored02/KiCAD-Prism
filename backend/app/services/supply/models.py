@@ -59,6 +59,9 @@ class Alternate:
             raise ValueError("an alternate needs a part number or a distributor number")
 
 
+MAX_STOCK = 2_147_483_647
+
+
 @dataclass(frozen=True, slots=True)
 class Offer:
     """One distributor listing at one moment."""
@@ -107,6 +110,9 @@ class Offer:
             raise ValueError("provider and sku are required")
         if self.stock < 0:
             raise ValueError("stock must not be negative")
+        if self.stock > MAX_STOCK:
+            # supply_offers.stock is an INTEGER; a distributor's placeholder such as 9999999999 is held at the ceiling.
+            object.__setattr__(self, "stock", MAX_STOCK)
         if self.moq < 1 or self.order_multiple < 1:
             raise ValueError("moq and order multiple must be at least 1")
         if self.lead_time_days is not None and self.lead_time_days < 0:
@@ -121,6 +127,17 @@ class Offer:
         if self.price_up_to is not None and (not quantities or self.price_up_to < quantities[-1]):
             raise ValueError("price_up_to needs price breaks and must not be below the last one")
         _check_utc(self.fetched_at, "fetched_at")
+
+
+MAX_LINK = 2000
+
+
+def https_link(url: str | None) -> str:
+    """A distributor's link as Prism shows it: an https address, else none. A page renders it as a link, so a ``javascript:``
+    or plain-http address from a provider's answer (or an offers file) never reaches one."""
+
+    text = (url or "").strip()
+    return text if text.lower().startswith("https://") and len(text) <= MAX_LINK and not any(c.isspace() for c in text) else ""
 
 
 @dataclass(frozen=True, slots=True)

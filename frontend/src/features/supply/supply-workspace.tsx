@@ -9,6 +9,7 @@ import type { User } from "@/types/auth";
 import { getLibraryComponentOf } from "./supply-api";
 import { useReviewWaiting } from "./review-page";
 import { resolvePlace, type SupplyTab } from "./supply-views";
+import { OutOfDateChip } from "./out-of-date-chip";
 
 const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ default: module.DashboardView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
@@ -65,7 +66,6 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <ShieldAlert className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm font-medium">Supply data is not available to your role</p>
-        <p className="max-w-md text-sm text-muted-foreground">Designers, QA and administrators can open it.</p>
       </div>
     );
   }
@@ -106,7 +106,10 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           <current.icon className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-semibold">{current.title}</h2>
         </div>
-        <div ref={setHeaderSlot} className="flex items-center gap-2" />
+        <div className="flex items-center gap-2">
+          <OutOfDateChip />
+          <div ref={setHeaderSlot} className="flex items-center gap-2" />
+        </div>
       </header>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
