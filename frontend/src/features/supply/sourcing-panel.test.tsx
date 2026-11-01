@@ -13,6 +13,11 @@ vi.mock("./supply-api", async (importOriginal) => ({
   getSupplyPart: vi.fn(),
   getSupplyAssessment: vi.fn(),
 }));
+// The "Not for new designs" mark reads the catalog status; an unmarked component here.
+vi.mock("./catalog-supply-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./catalog-supply-api")>()),
+  getComponentsStatus: vi.fn(async () => ({})),
+}));
 vi.mock("./tracking-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./tracking-api")>()),
   followNumber: vi.fn(),
@@ -83,7 +88,7 @@ describe("the Supply tab", () => {
 
   it("asks for a part number before it looks anything up", () => {
     renderPanel("designer", "Texas Instruments", " ");
-    expect(screen.getByText(/needs a manufacturer and a manufacturer part number/)).toBeTruthy();
+    expect(screen.getByText(/Needs a manufacturer and a manufacturer part number/)).toBeTruthy();
     expect(mocked.findSupplyPart).not.toHaveBeenCalled();
   });
 

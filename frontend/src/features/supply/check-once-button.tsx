@@ -3,9 +3,10 @@ import { ScanSearch } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { CheckProgress } from "@/types/supply";
 import { getCheck, startCheck } from "./tracking-api";
+import { ReadFailed } from "./read-failed";
 import { isRunning, useLoaded } from "./use-loaded";
 
 const EVERY_MS = 5000;
@@ -34,7 +35,13 @@ export function CheckOnceButton({
     setBusy(true);
     startCheck("bom", projectId, lines)
       .then((made) => {
-        if (made.parts === 0) { setOpen(false); toast.success("Nothing to check", { description: "Every part is already tracked." }); return; }
+        if (made.parts === 0) {
+          // Nothing was asked for: every line is tracked already, or the lines left need a maker or a number first.
+          setOpen(false);
+          if (made.skipped.length > 0) toast.warning("Nothing to check", { description: `${made.skipped.length} to settle first` });
+          else toast.success("Nothing to check", { description: "All tracked" });
+          return;
+        }
         setRequestId(made.id);
         setStarted(made.progress);
         setSkipped(made.skipped.length);
@@ -44,6 +51,11 @@ export function CheckOnceButton({
   };
 
   const running = progress !== null && !finished;
+  // A finished check is put away when the button is used again, so a new one can start.
+  const openNew = () => {
+    if (finished) { setRequestId(""); setStarted(null); setSkipped(0); }
+    setOpen(true);
+  };
   const share = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
   if (lines.length === 0 && !running) return null;
   return (
@@ -55,7 +67,7 @@ export function CheckOnceButton({
           </button>
         </span>
       ) : (
-        <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setOpen(true)}>
+        <Button type="button" size="sm" variant="outline" className="h-7" onClick={openNew}>
           <ScanSearch className="h-3.5 w-3.5" />Check once ({lines.length})
         </Button>
       )}
@@ -63,7 +75,6 @@ export function CheckOnceButton({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{running ? "Checking Parts" : finished ? "Check Finished" : "Check Once"}</DialogTitle>
-            <DialogDescription>{running || finished ? "Read once at every distributor, not tracked." : "Read the parts nobody reads yet, once, without tracking them."}</DialogDescription>
           </DialogHeader>
           {progress ? (
             <div className="space-y-3">
@@ -75,7 +86,8 @@ export function CheckOnceButton({
                 {progress.failed > 0 ? <span className="bg-warning/15 px-2 py-0.5 text-warning">{progress.failed} failed</span> : null}
                 {skipped > 0 ? <span className="bg-secondary px-2 py-0.5">{skipped} to settle first</span> : null}
               </div>
-              <p className="text-xs text-muted-foreground">{running ? "Reading continues if you close this." : "Done."}</p>
+              {read.status === "error" ? <ReadFailed error={read.error} onRetry={read.retry} className="px-0" /> : null}
+              <p className="text-xs text-muted-foreground">{running ? "Reading" : "Done"}</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2 text-xs">

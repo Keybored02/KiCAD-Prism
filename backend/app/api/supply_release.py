@@ -144,7 +144,7 @@ async def release_check_for(
         except (release_source.NoBuildBom, release_bom.BomReadError) as exc:
             return {"available": False, "reason": str(exc)}
         with _store().connection() as conn:
-            return {"available": True, **release_check.check(conn, read_bom.lines, without_number=read_bom.without_number)}
+            return {"available": True, **release_check.check(conn, read_bom.lines, without_number=read_bom.without_number, project_id=project_id)}
 
     return await _run(read)
 
@@ -168,7 +168,7 @@ async def read_release_bom(
         with _store().connection() as conn:
             stored = usage.store_project(
                 conn, project_id, project.name or project_id, f"release:{build_id}|u{usage.USAGE_VERSION}", read_bom.lines,
-                clock.now(),
+                clock.now(), usage.project_roles(project_id),
             )
         return {"stored": stored, "parts": len(read_bom.lines), "without_number": read_bom.without_number}
 

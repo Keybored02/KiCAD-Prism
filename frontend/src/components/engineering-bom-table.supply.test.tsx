@@ -81,7 +81,7 @@ function lookupFor(build: number): SupplyBomLookup {
     },
     rollup: bomRollupFixture({
       lines: 4, tracked: 2, not_tracked: 2, watched: 1, at_risk: 1, short: 1, priced: 1, lines_priced: 1, parts: 2, currency: "EUR",
-      cost_build: "5.00", cost_per_board: "0.5000", can_build: 3, limited_by: key("Acme", "C-100N"), without_stock_data: 0, health: 7.5, health_status: "ok",
+      cost_build: "5.00", cost_per_board: "0.5000", can_build: 3, limited_by: key("Acme", "C-100N"), without_stock_data: 0, unchecked: 0, health: 7.5, health_status: "ok", health_assessed: 1, health_parts: 1,
     }),
   };
 }
@@ -184,7 +184,7 @@ describe("supply columns on the BOM", () => {
 
   it("is plain at a commit checked out from History, and looks nothing up", async () => {
     renderTable("designer", undefined, false);
-    expect(screen.getByText("Supply data shows on the latest revision only.")).toBeTruthy();
+    expect(screen.getByText("Supply: latest revision only")).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
     expect(mocked.lookupSupplyBom).not.toHaveBeenCalled();
   });
@@ -269,7 +269,7 @@ describe("the part drawer", () => {
     expect(within(drawer).getByText("2 parts on this row")).toBeTruthy();
     expect(within(drawer).getByText("R-47K-A")).toBeTruthy();
     expect(within(drawer).getByText("R-47K-B")).toBeTruthy();
-    expect(within(drawer).getAllByText(/does not know this part yet/)).toHaveLength(2);
+    expect(within(drawer).getAllByText("Unknown part.")).toHaveLength(2);
 
     const [first] = within(drawer).getAllByRole("button", { name: /Watch this part/ });
     fireEvent.click(first);
@@ -295,17 +295,17 @@ describe("the part drawer", () => {
     expect(screen.queryByRole("button", { name: "Open part" })).toBeNull();
   });
 
-  it("gives a reader the facts without the watch buttons", async () => {
+  it("lets QA watch from the BOM, as the server allows anyone who opens Supply", async () => {
     renderTable("qa");
     const drawer = await openDetails("47k");
     expect(within(drawer).getByText("2 parts on this row")).toBeTruthy();
-    expect(within(drawer).queryByRole("button", { name: /Watch this part/ })).toBeNull();
+    expect(within(drawer).getAllByRole("button", { name: /Watch this part/ }).length).toBeGreaterThan(0);
   });
 
-  it("explains a part with no number on its symbol", async () => {
+  it("labels a part with no number on its symbol", async () => {
     renderTable("designer");
     const drawer = await openDetails("LM358");
-    expect(within(drawer).getByText(/cannot track it/)).toBeTruthy();
+    expect(within(drawer).getByText("No part number.")).toBeTruthy();
     expect(within(drawer).queryByRole("button", { name: /Watch this part/ })).toBeNull();
   });
 });

@@ -36,7 +36,7 @@ export function ReleaseSupplySummary({ projectId, buildId }: { projectId: string
  */
 export function ReleaseSupplyCheck({ projectId, buildId }: { projectId: string; buildId: string }) {
   const check = useReleaseCheck(projectId, buildId);
-  if (check.status === "loading") return <p className="text-xs text-muted-foreground">Checking the BOM against supply data...</p>;
+  if (check.status === "loading") return <p className="text-xs text-muted-foreground">Checking...</p>;
   if (check.status === "error" || !check.data) return null;
   const data = check.data;
   if (!data.available) return <p className="text-xs text-muted-foreground">{data.reason}</p>;
@@ -53,8 +53,7 @@ export function ReleaseSupplyCheck({ projectId, buildId }: { projectId: string; 
       <p className="text-xs text-muted-foreground">
         {data.tracked} of {data.parts} parts tracked
         {data.not_tracked > 0 ? `, ${data.not_tracked} not yet` : ""}
-        {data.without_number > 0 ? `, ${data.without_number} lines without a part number` : ""}. This is a note for the release; it does not block
-        publishing.
+        {data.without_number > 0 ? `, ${data.without_number} lines without a part number` : ""}
       </p>
       {unread.length > 0 ? <CheckOnceButton projectId={projectId} lines={unread} onFinished={check.refresh} /> : null}
       {data.attention.length > 0 ? (

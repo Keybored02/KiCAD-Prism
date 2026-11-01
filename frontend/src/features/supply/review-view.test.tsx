@@ -69,7 +69,6 @@ describe("the review queue", () => {
   it("lets readers look but not decide", async () => {
     render(<ReviewView user={designer} />);
     await screen.findByRole("article", { name: "Spelling TI" });
-    expect(screen.getByText(/QA and administrators decide\./)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Confirm as this part|Reject|Map|Create and map/ })).toBeNull();
     expect(screen.queryByLabelText("Manufacturer for TI")).toBeNull();
   });
@@ -89,7 +88,7 @@ describe("the review queue", () => {
   it("does not say nothing to review when only an alternate waits", async () => {
     mocked.getSupplyReviewQueue.mockResolvedValue(queue({
       aliases: [], listings: [], counts: { aliases: 0, unresolved: 0, near: 0 },
-      to_approve: toApproveFixture({ alternates: [{ component_id: "cmp-1", component_name: "R 10k 0603", component_mpn: "RC0603", part_id: "p9", mpn: "ERJ-3EKF1002V", manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-20T10:00:00Z", main_part_id: "", main_mpn: "" }] }),
+      to_approve: toApproveFixture({ alternates: [{ component_id: "cmp-1", component_name: "R 10k 0603", component_mpn: "RC0603", part_id: "p9", mpn: "ERJ-3EKF1002V", manufacturer: "Panasonic", proposed_by: "dee@example.com", proposed_at: "2026-10-20T10:00:00Z", main_part_id: "", main_mpn: "", reviewed_against_part_id: "", reviewed_against_mpn: null }] }),
     }));
     render(<MemoryRouter><ReviewView user={qa} /></MemoryRouter>);
     expect(await screen.findByText(/ERJ-3EKF1002V/)).toBeTruthy();
@@ -102,6 +101,13 @@ describe("the review queue", () => {
     expect(await screen.findByText("Could not load the review queue")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("article", { name: "Spelling TI" })).toBeTruthy();
+  });
+
+  it("still shows what reads on its own when the queue cannot be read", async () => {
+    mocked.getSupplyReviewQueue.mockRejectedValueOnce(new Error("Could not load the review queue"));
+    render(<ReviewView user={qa} after={<p>Work items here</p>} />);
+    expect(await screen.findByText("Could not load the review queue")).toBeTruthy();
+    expect(screen.getByText("Work items here")).toBeTruthy();
   });
 });
 

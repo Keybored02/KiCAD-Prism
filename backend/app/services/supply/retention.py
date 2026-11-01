@@ -54,7 +54,8 @@ def compact_samples(conn, now: datetime) -> int:
 
 
 _CUT = "%(now)s - (c.keep_days * INTERVAL '1 day')"
-_CUT_DAY = f"({_CUT})::date"
+# The day of the cut in UTC, as every stored day is, whatever the session's time zone.
+_CUT_DAY = f"(({_CUT}) AT TIME ZONE 'UTC')::date"
 
 # Each listing history and which of its rows are past the cut. A row that still describes today stays: the price breaks
 # held now (no later row ends them), a stock-out not yet over, a promise not yet resolved.
@@ -135,7 +136,15 @@ def drop_unused(conn, now: datetime) -> int:
     gone = [row["id"] for row in rows]
     if not gone:
         return 0
-    for table in ("supply_offers", *_PRICE_HISTORY):
+    # A read may land after the choice above: it was paid for and is kept. Locking the listings holds back new history rows (they
+    # refer to the listing); the offer is deleted only while it is still old, which a concurrent update of it re-checks.
+    conn.execute("SELECT id FROM supply_listings WHERE id = ANY(%s) ORDER BY id FOR UPDATE", (gone,))
+    with_offer = {row["listing_id"] for row in conn.execute("SELECT listing_id FROM supply_offers WHERE listing_id = ANY(%s)", (gone,)).fetchall()}
+    dropped = {row["listing_id"] for row in conn.execute(
+        "DELETE FROM supply_offers WHERE listing_id = ANY(%s) AND fetched_at < %s RETURNING listing_id", (gone, now - READ_WINDOW),
+    ).fetchall()}
+    gone = [listing_id for listing_id in gone if listing_id in dropped or listing_id not in with_offer]
+    for table in _PRICE_HISTORY:
         conn.execute(f"DELETE FROM {table} WHERE listing_id = ANY(%s)", (gone,))
     return len(gone)
 
@@ -172,10 +181,17 @@ def _compact(conn, now: datetime, days: int) -> int:
 
 
 def trim_summaries(conn, now: datetime | None = None) -> int:
-    """Forget kept summaries nobody has read for a week and rollups past the age a reader accepts, then every change mark no kept
+    """Forget kept summaries, forecasts and insights nobody has read for a week and rollups past the age a reader accepts, then every change mark no kept
     answer can still depend on (``freshness.trim``). Returns how many marks were removed."""
 
     now = now or clock.now()
     conn.execute("DELETE FROM supply_part_summaries WHERE computed_at < %s", (now - timedelta(days=7),))
+    # A kept forecast is only read on the day it was made. Insights of followed parts feed the Ending list and stay; the others
+    # are worked out again when read. Neither may hold change marks back for longer than a week.
+    conn.execute("DELETE FROM supply_part_forecasts WHERE computed_at < %s", (now - timedelta(days=7),))
+    conn.execute(
+        "DELETE FROM supply_part_insights i WHERE i.computed_at < %s AND NOT EXISTS (SELECT 1 FROM supply_part_tiers t WHERE t.part_id = i.part_id)",
+        (now - timedelta(days=7),),
+    )
     conn.execute("DELETE FROM supply_project_rollups WHERE computed_at < %s", (now - ROLLUP_MAX_AGE,))
     return freshness.trim(conn)

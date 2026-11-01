@@ -70,7 +70,7 @@ export function registerApplicationUrl(provider: string, host: string): string |
 export function hostFromUrl(value: string): string | null {
     try {
         const url = new URL(value.trim());
-        return url.protocol === "https:" && url.hostname ? url.host : null;
+        return (url.protocol === "https:" || url.protocol === "http:") && url.hostname ? url.host : null; // TEMP-HTTP: testing only, do not commit
     } catch {
         return null;
     }

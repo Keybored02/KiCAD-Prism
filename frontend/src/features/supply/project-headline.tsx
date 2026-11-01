@@ -30,7 +30,6 @@ function BoardsEditor({ boards, usualBuild, onBoards, onKeepUsual }: { boards: n
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 space-y-2 p-3">
         <BoardCount key={boards} boards={boards} onChange={onBoards} />
-        <p className="text-xs normal-case tracking-normal text-muted-foreground">The costing and the download use it. It is not saved unless you keep it.</p>
         {usualBuild != null && usualBuild !== boards ? (
           <Button size="sm" variant="outline" onClick={onKeepUsual}>Keep {boards.toLocaleString()} as the usual build</Button>
         ) : null}
@@ -48,9 +47,10 @@ function BuildTile({ supply, boards, onOpenPart, editor }: { supply: ProjectSupp
     <>limited by{" "}
       {limiting.part_id ? <button type="button" className="text-primary hover:underline" onClick={() => onOpenPart(limiting.part_id as string)}>{limiting.mpn}</button> : limiting.mpn}</>
   ) : null;
-  // A line nobody could check (no part number, an unknown or ambiguous part) leaves the answer open, whatever the rest covers.
-  const unchecked = rollup.not_tracked;
-  if (unchecked > 0) {
+  // A line nobody could check (no part number, an unknown or ambiguous part, no stock reading) leaves the answer open,
+  // unless the build is already short: an unchecked line can only lower the count.
+  const unchecked = rollup.unchecked;
+  if (unchecked > 0 && !short) {
     return (
       <Tile label="Build" bad action={editor}>
         <p className={big(true)}>Unconfirmed</p>
@@ -65,7 +65,7 @@ function BuildTile({ supply, boards, onOpenPart, editor }: { supply: ProjectSupp
     <Tile label="Build" bad={short} action={editor}>
       <p className={big(short)}>{covered === null ? "Not known" : `${Math.min(covered, boards).toLocaleString()} of ${boards.toLocaleString()} boards`}</p>
       <p className="text-xs text-muted-foreground">
-        {covered === null ? "No stock figure yet." : limitedBy ?? `The stock covers ${covered.toLocaleString()}.`}
+        {covered === null ? "No stock figure" : limitedBy ?? `Covers ${covered.toLocaleString()}`}
       </p>
     </Tile>
   );
@@ -75,7 +75,7 @@ function CostTile({ supply, boards }: { supply: ProjectSupply; boards: number })
   const rollup = supply.rollup!;
   const currency = rollup.currency;
   if (!rollup.cost_build || !currency) {
-    return <Tile label="Cost"><p className={big(false)}>No total</p><p className="text-xs text-muted-foreground">Nothing is priced, or the prices cannot be added.</p></Tile>;
+    return <Tile label="Cost"><p className={big(false)}>No total</p></Tile>;
   }
   const waste = rollup.waste_cost && Number(rollup.waste_cost) > 0 ? `${formatPrice(rollup.waste_cost, currency, 2)} left over from minimum orders` : "";
   const spares = supply.attrition_percent === null ? "spares by package" : supply.attrition_percent ? `${supply.attrition_percent}% spares` : "";
@@ -110,6 +110,9 @@ function HealthTile({ supply }: { supply: ProjectSupply }) {
         {rollup.health === null ? "No data" : `${rollup.health.toFixed(1)} of 10`}
         {rollup.health === null ? null : <span className="ml-2 text-xs font-normal text-muted-foreground">{STATUS_LABEL[rollup.health_status]}</span>}
       </p>
+      {rollup.health !== null && rollup.health_assessed < rollup.health_parts ? (
+        <p className="text-xs tabular-nums text-muted-foreground">{rollup.health_assessed} of {rollup.health_parts} assessed</p>
+      ) : null}
       <StatusBar group={{ statuses, count: seen.size }} className="w-full" />
       <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
         {LEGEND.filter((status) => (statuses[status] ?? 0) > 0).map((status) => (
@@ -126,7 +129,8 @@ function HealthTile({ supply }: { supply: ProjectSupply }) {
  *  without a stock figure counts as not covered, so the share is never 100% while a line is unchecked. */
 function CoverageTile({ supply, boards }: { supply: ProjectSupply; boards: number }) {
   const lines = supply.parts ?? [];
-  const known = lines.filter((part) => part.part_id && part.stock !== null);
+  // Known as the build tile's rollup knows it: a tracked part with a stock figure (an untracked part's old reading is unchecked).
+  const known = lines.filter((part) => part.part_id && part.state === "tracked" && part.stock !== null);
   const covered = known.filter((part) => !part.short).length;
   const unknown = lines.length - known.length;
   const share = known.length === 0 ? null : covered / lines.length;
@@ -134,7 +138,7 @@ function CoverageTile({ supply, boards }: { supply: ProjectSupply; boards: numbe
     <Tile label="Stock coverage" bad={share !== null && share < 0.9}>
       <p className={big(share !== null && share < 0.9)}>{share === null ? "No data" : `${Math.round(share * 100)}%`}</p>
       <p className="text-xs text-muted-foreground">
-        {share === null ? "No stock figure yet." : `${covered} of ${lines.length} lines in stock for ${boards.toLocaleString()} boards${known.length > covered ? `, ${known.length - covered} short` : ""}`}
+        {share === null ? "No stock figure" : `${covered} of ${lines.length} lines in stock for ${boards.toLocaleString()} boards${known.length > covered ? `, ${known.length - covered} short` : ""}`}
         {unknown > 0 && share !== null ? `, ${unknown} unknown` : ""}
       </p>
     </Tile>

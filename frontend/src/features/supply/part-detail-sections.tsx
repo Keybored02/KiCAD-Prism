@@ -1,4 +1,4 @@
-import { canReviewSupply } from "@/lib/roles";
+import { canFollowSupply, canReviewSupply } from "@/lib/roles";
 
 import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
@@ -28,12 +28,14 @@ interface PartDetailSectionsProps {
   detail: SupplyPartDetail;
   canEdit: boolean;
   role: UserRole | null | undefined;
+  /** The signed-in person's email, for what is theirs to withdraw. */
+  me?: string;
   onChanged: () => Promise<void>;
   /** Room for two columns: stock beside price, and the listings side by side. */
   wide?: boolean;
 }
 
-export function PartDetailSections({ detail, canEdit, role, onChanged, wide = false }: PartDetailSectionsProps) {
+export function PartDetailSections({ detail, canEdit, role, me, onChanged, wide = false }: PartDetailSectionsProps) {
   // The forecast is made at the part's price quantity.
   const forecast = usePartForecast(detail.part.id, null, detail.price.quantity);
   const history = detail.distributor_history ?? null;
@@ -59,14 +61,14 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
               </HoverDetails>
             ) : null}
           </div>
-          {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
+          {canFollowSupply(role) ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
         <PartHistoryPanel kind="stock" partId={detail.part.id} history={history} threshold={detail.watch?.threshold ?? null} forecast={forecast.data} />
       </section>
 
       <PriceTrend
-        price={detail.price} partId={detail.part.id} canEdit={canEdit} onChanged={onChanged}
+        price={detail.price} partId={detail.part.id} canEdit={canFollowSupply(role)} onChanged={onChanged}
         details={compared.length > 0 ? <ul aria-label="Distributors compared" className="space-y-1 text-sm">{compared.map((line) => <li key={line}>{line}</li>)}</ul> : null}
       >
         <PartHistoryPanel kind="price" partId={detail.part.id} history={history} forecast={forecast.data} />
@@ -79,7 +81,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
         </FoldSection>
       ) : null}
 
-      <OutlookSection outlook={detail.outlook} partId={detail.part.id} role={role} below={<EndOfLifeLine forecast={forecast.data} />} />
+      <OutlookSection outlook={detail.outlook} partId={detail.part.id} role={role} me={me} below={<EndOfLifeLine forecast={forecast.data} />} />
 
       <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 
@@ -87,10 +89,10 @@ export function PartDetailSections({ detail, canEdit, role, onChanged, wide = fa
         title={`Listings (${detail.listings.length})`} startOpen
         actions={detail.listings.length > 0 ? <TryQuantity listings={detail.listings} /> : null}
       >
-        <ListingGroups wide={wide} detail={detail} canDecide={canReviewSupply(role)} canTrack={canEdit} onChanged={onChanged} />
+        <ListingGroups wide={wide} detail={detail} canDecide={canReviewSupply(role)} canTrack={canFollowSupply(role)} onChanged={onChanged} />
       </FoldSection>
 
-      <CrossReferenceSection partId={detail.part.id} canEdit={canEdit} />
+      <CrossReferenceSection partId={detail.part.id} canEdit={canFollowSupply(role)} />
 
       <ComplianceSection partId={detail.part.id} canEdit={canEdit} trade={detail.trade} onChanged={onChanged} />
 

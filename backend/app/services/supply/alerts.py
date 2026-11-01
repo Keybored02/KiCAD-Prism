@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import alert_rules, attention
+from app.services.supply import alert_rules, attention, usage
 from app.services.supply.assessment import settings as checks_ids
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Status
@@ -119,6 +119,7 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
     ids = sorted(set(part_ids))
     if not ids:
         return
+    attention.lock_subjects(conn, attention.PART, ids)
     rules = alert_rules.for_parts(conn, ids)
     result, marks = _assessment_states(conn, ids, now)
     current = {
@@ -215,9 +216,11 @@ def recent_changes(conn, now: datetime, *, days: int = 14, role: str | None = No
         changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": row["part_id"], "mpn": row["mpn"],
                         "manufacturer": row["manufacturer"], "alert": None, "sku": str((row["payload"] or {}).get("sku", "")),
                         "detail": row["payload"] or {}})
+    visible = usage.visible_project_ids(role)
     for row in conn.execute("SELECT at, kind, payload FROM supply_events WHERE kind = 'project_bom_changed' AND at >= %s", (since,)).fetchall():
         payload = row["payload"] or {}
-        if role is not None and role not in (payload.get("visible_roles") or []):
+        # Who may see the project now, not who could when the BOM changed.
+        if visible is not None and str(payload.get("project_id") or "") not in visible:
             continue
         changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": None, "mpn": "", "manufacturer": "", "alert": None,
                         "sku": "", "detail": {key: value for key, value in payload.items() if key != "visible_roles"}})

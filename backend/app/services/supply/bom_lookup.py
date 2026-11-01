@@ -452,7 +452,19 @@ def _entries(
                 "assessment": _assessment_line(assessed[chosen]) if assessed is not None else None,
             }
         results[line.key] = entry
+    _share_shortage(loaded.first_line, results, needs)
     return results
+
+
+def alternate_needs(needs: Mapping[str, int], alternates: Mapping[str, Sequence[str]]) -> dict[str, int]:
+    """Each part's need for the assessment. An alternate is assessed for the whole need of every line it may stand in for, on top
+    of its own, as it would be bought instead of all of them."""
+
+    total = dict(needs)
+    for part_id, others in alternates.items():
+        for other in others:
+            total[other] = total.get(other, 0) + needs[part_id]
+    return total
 
 
 def _in_library(loaded: Loaded, line: BomLine) -> bool | None:
@@ -468,8 +480,7 @@ def price(conn, loaded: Loaded, build_quantity: int, attrition_percent: float | 
 
     percents = _percents(loaded, attrition_percent)
     needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in loaded.per_board.items()}
-    # An alternate is assessed for the whole need of its line, as it would be bought instead.
-    assessed_needs = needs | {other: needs[part_id] for part_id, others in loaded.alternates.items() for other in others}
+    assessed_needs = alternate_needs(needs, loaded.alternates)
     assessed = assessment.assess_summaries(conn, loaded.items, loaded.offers, assessed_needs, clock.now(), loaded.settings, loaded.extras)
     results = _entries(loaded, build_quantity, attrition_percent, percents, needs, assessed)
     shown = {part_id: assessed[_pick(loaded, part_id, assessed)] for part_id in loaded.per_board}
@@ -548,10 +559,14 @@ def _assessment_line(assessment_dto: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _health_rollup(assessed: Mapping[str, Mapping[str, Any]], needs: Mapping[str, int]) -> dict[str, Any]:
-    """BOM health: the mean of its parts weighted by units needed, capped when any part is fatal."""
+    """BOM health: the mean of its parts weighted by units needed, capped when any part is fatal. ``health_assessed`` of
+    ``health_parts`` says how many parts it is made of: a part with nothing read is left out of the mean, not counted as ok."""
 
     rolled = health_rules.rollup([(a["health"], needs.get(part_id, 1), Status(a["status"])) for part_id, a in assessed.items()])
-    return {"health": rolled.score if rolled.status is not Status.UNKNOWN else None, "health_status": rolled.status.value}
+    return {
+        "health": rolled.score if rolled.status is not Status.UNKNOWN else None, "health_status": rolled.status.value,
+        "health_assessed": sum(1 for a in assessed.values() if a["status"] != Status.UNKNOWN.value), "health_parts": len(assessed),
+    }
 
 
 def _rollup(
@@ -564,9 +579,10 @@ def _rollup(
     rates: fx.Rates | None = None,
     base: str = "EUR",
 ) -> dict[str, Any]:
-    """Counts of lines (``lines``, ``tracked``, ``not_tracked``, ``watched``) and of distinct parts
+    """Counts of lines (``lines``, ``tracked``, ``not_tracked``, ``watched``, ``unchecked``) and of distinct parts
     (``at_risk`` is error or fatal, ``needs_a_look`` adds warnings; ``short``, ``priced``, ``without_stock_data``);
-    ``lines_priced`` is how many lines the cost covers, so one part on two lines counts once."""
+    ``lines_priced`` is how many lines the cost covers, so one part on two lines counts once. ``unchecked`` is how many lines
+    ``can_build`` cannot account for (no tracked part, or no stock reading): while any is, the count is not confirmed."""
 
     tracked = [results[line.key] for line in lines if results[line.key]["state"] == TRACKED]
     leaders = [results[key] for key in first_line.values()]
@@ -597,16 +613,7 @@ def _rollup(
             break
         waste += figure * Decimal(buy["waste_cost"]) / Decimal(buy["extended"])
 
-    can_build = None
-    limiting = None
-    for part_id, key in first_line.items():
-        stock = results[key].get("usable")
-        if stock is None:
-            continue
-        # Boards the stock covers once the spares are set aside.
-        possible = int(Decimal(stock) * 100 // (Decimal(per_board[part_id]) * (Decimal(100) + Decimal(str(percents[part_id])))))
-        if can_build is None or possible < can_build:
-            can_build, limiting = possible, key
+    can_build, limiting = _boards(first_line, results, per_board, percents)
     return {
         "lines": len(lines),
         "tracked": len(tracked),
@@ -635,8 +642,97 @@ def _rollup(
         "can_build": can_build,
         "limited_by": limiting,
         "without_stock_data": sum(1 for entry in leaders if entry.get("usable") is None),
+        "unchecked": sum(
+            1 for line in lines
+            if results[line.key]["state"] != TRACKED or results[first_line[results[line.key]["part_id"]]].get("usable") is None
+        ),
         "parts": len(first_line),
     }
+
+
+# Parts that share stock (an approved alternate on two lines) are counted together; past this many in one cluster, each part
+# is counted alone, as if it had the shared stock to itself.
+_MOST_SHARING = 10
+
+
+def _boards(
+    first_line: Mapping[str, str], results: Mapping[str, Mapping[str, Any]], per_board: Mapping[str, int], percents: Mapping[str, float],
+) -> tuple[int | None, str | None]:
+    """How many boards the stock covers, and the line that limits it. A part draws on its own stock, its approved alternates'
+    and its line's store; when parts share any of that, every set of them must fit in what the set can draw on (Gale's
+    condition), so an alternate's stock is never counted twice. Parts with no stock figure are left out (``unchecked``)."""
+
+    draws = _draws(first_line, results)
+    # One board's need with spares, times 100 so the division stays whole.
+    need = {part_id: Decimal(per_board[part_id]) * (Decimal(100) + Decimal(str(percents[part_id]))) for part_id in draws}
+
+    can_build, limiting = None, None
+    for cluster in _clusters(draws):
+        for members in _sets(cluster):
+            stock: dict[str, Decimal] = {}
+            for member in members:
+                stock |= draws[member]
+            possible = int(sum(stock.values(), Decimal(0)) * 100 // sum(need[member] for member in members))
+            if can_build is None or possible < can_build:
+                # The part that runs out first on its own names the limit of a set.
+                worst = min(members, key=lambda member: sum(draws[member].values(), Decimal(0)) / need[member])
+                can_build, limiting = possible, first_line[worst]
+    return can_build, limiting
+
+
+def _draws(first_line: Mapping[str, str], results: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Decimal]]:
+    """What each part can draw on, by source: its own stock, its line's store and each approved alternate's stock."""
+
+    draws: dict[str, dict[str, Decimal]] = {}
+    for part_id, key in first_line.items():
+        entry = results[key]
+        if entry.get("usable") is None:
+            continue
+        others = sum(Decimal(item["stock"] or 0) for item in entry.get("alternates") or [])
+        on_hand = Decimal(int((entry.get("stores") or {}).get("available") or 0))
+        sources = {part_id: Decimal(entry["usable"]) - others - on_hand, f"store:{key}": on_hand}
+        sources |= {item["part_id"]: Decimal(item["stock"] or 0) for item in entry.get("alternates") or []}
+        draws[part_id] = sources
+    return draws
+
+
+def _clusters(draws: Mapping[str, Mapping[str, Decimal]]) -> list[list[str]]:
+    """The parts that share a source, together; a part that shares nothing is a cluster of its own."""
+
+    clusters: list[list[str]] = []
+    for part_id in draws:
+        joined = [cluster for cluster in clusters if any(draws[part_id].keys() & draws[other].keys() for other in cluster)]
+        merged = [part_id] + [member for cluster in joined for member in cluster]
+        clusters = [cluster for cluster in clusters if cluster not in joined] + [merged]
+    return clusters
+
+
+def _sets(cluster: list[str]) -> list[list[str]]:
+    """Every set of a cluster's parts that must fit in what it can draw on (Gale's condition); one at a time past ``_MOST_SHARING``."""
+
+    if len(cluster) > _MOST_SHARING:
+        return [[member] for member in cluster]
+    return [[member for bit, member in enumerate(cluster) if mask >> bit & 1] for mask in range(1, 1 << len(cluster))]
+
+
+def _share_shortage(first_line: Mapping[str, str], results: dict[str, dict[str, Any]], needs: Mapping[str, int]) -> None:
+    """Mark short every part of a set that shares stock and cannot cover the set's whole need together: each line alone counts a
+    shared alternate's full stock, so two lines leaning on one alternate both look covered when it covers only one."""
+
+    draws = _draws(first_line, results)
+    short: set[str] = set()
+    for cluster in _clusters(draws):
+        if len(cluster) < 2:
+            continue
+        for members in _sets(cluster):
+            stock: dict[str, Decimal] = {}
+            for member in members:
+                stock |= draws[member]
+            if sum(stock.values(), Decimal(0)) < sum(Decimal(needs[member]) for member in members):
+                short.update(members)
+    for entry in results.values():
+        if entry.get("part_id") in short:
+            entry["short"] = True
 
 
 def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:

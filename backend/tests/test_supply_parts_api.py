@@ -261,8 +261,8 @@ class SupplyPartsApiTests(unittest.TestCase):
 
     def test_who_may_read_now_and_an_unknown_part_is_not_found(self) -> None:
         watch = self.watch_via_api("ABC-123")
-        for role in ("qa", "viewer"):
-            self.assertEqual(self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role=role).status, 403, role)
+        self.assertEqual(self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="viewer").status, 403)
+        self.assertEqual(self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="qa").status, 200, "QA reads now, as from the KiCad panel")
         self.assertEqual(self.call("POST", "/api/supply/parts/nope/refresh", role="designer").status, 404)
 
     def test_opening_a_part_nothing_follows_reads_it_once_while_its_prices_have_aged_out(self) -> None:
@@ -784,6 +784,19 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(stock_events.record(conn, listing, 0, 900, None, False, day + timedelta(days=30)), "restock")
             rows = {row["kind"]: row for row in conn.execute("SELECT * FROM supply_stock_events WHERE listing_id = %s", (listing,)).fetchall()}
         self.assertEqual(rows["stock_out"]["resolved_on"], (day + timedelta(days=30)).date(), "the restock ends the open stock-out")
+
+    def test_a_second_stock_out_on_one_day_leaves_the_listing_out(self) -> None:
+        from app.services.supply import stock_events
+
+        cid = self.fake_connector()
+        listing = self.insert_listing(self.watch_via_api("EVT2")["part_id"], cid, "A", stock=0)
+        day = self.now
+        with self.store.connection() as conn:
+            stock_events.record(conn, listing, 10, 0, None, False, day)
+            stock_events.record(conn, listing, 0, 5, None, False, day + timedelta(hours=2))
+            stock_events.record(conn, listing, 5, 0, 30, False, day + timedelta(hours=4))
+            row = conn.execute("SELECT * FROM supply_stock_events WHERE listing_id = %s AND kind = 'stock_out'", (listing,)).fetchone()
+        self.assertEqual((row["resolved_on"], row["quoted_lead_days"]), (None, 30), "out again the same day: the stock-out is open")
 
     def seed_scorecard(self, shared: int) -> tuple[str, str]:
         """``shared`` parts each listed by two distributors; the first always restocks first and keeps its word, the second is late."""

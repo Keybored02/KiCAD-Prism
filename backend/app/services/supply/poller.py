@@ -15,6 +15,7 @@ Reactions to trouble:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Callable, Sequence
@@ -24,7 +25,7 @@ from app.services.supply import accounts, alerts, budget, ledger, persist, tiers
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited, SupplyProvider, calls_made
+from app.services.supply.providers.base import AuthError, Blocked, InternalError, ProviderError, RateLimited, SupplyProvider, calls_made
 from app.services.supply import quota
 from app.services.supply.store import SupplyStore, supply_store
 
@@ -374,7 +375,8 @@ class Poller:
                     extra = calls_made(provider) - before - spec.calls_per_offers_batch
                     if extra > 0 and spec.metered:
                         ledger.record_calls(
-                            self._store, connector_id, extra, now=now, interactive=interactive, kind=ledger.KIND_OFFERS, purpose=purpose
+                            self._store, connector_id, extra, now=now, interactive=paid.interactive, kind=ledger.KIND_OFFERS, purpose=purpose,
+                            spare=paid.spare,
                         )
                         calls += extra
             except ProviderError as exc:
@@ -384,9 +386,19 @@ class Poller:
                     self._record_failure(batch, now, exc.code)
                 stopped = trouble.react(self._connectors, self._store, connector_id, exc, now)
                 break
-            with self._store.connection() as conn:
-                gone += writer.record(conn, batch, offers, now)
-                alerts.evaluate_parts(conn, (row.part_id for row in batch), now)
+            except Exception:  # noqa: BLE001 - settled as an error, so it rests and is seen, rather than failing every minute
+                logging.getLogger(__name__).exception("Reading %s failed", connector_id)
+                stopped = trouble.react(self._connectors, self._store, connector_id, InternalError("The read failed inside Prism."), now)
+                break
+            try:
+                with self._store.connection() as conn:
+                    gone += writer.record(conn, batch, offers, now)
+                    alerts.evaluate_parts(conn, (row.part_id for row in batch), now)
+            except Exception:  # noqa: BLE001 - the call is paid: the batch rests on its error streak rather than being read every minute
+                logging.getLogger(__name__).exception("Storing what %s returned failed", connector_id)
+                self._record_failure(batch, now, "internal_error")
+                stopped = trouble.react(self._connectors, self._store, connector_id, InternalError("The read failed inside Prism."), now)
+                break
             polled += len(batch)
             self._connectors.record_result(connector_id)
         return PollSummary(connector_id, calls=calls, polled=polled, gone=gone, stopped=stopped, holding=holding)

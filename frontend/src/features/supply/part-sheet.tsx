@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canEditSupply, canFollowSupply } from "@/lib/roles";
+import { canEditSupply, canFollowSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
@@ -60,7 +60,7 @@ function PartBody({ partId, user, onWatchChanged }: { partId: string; user: User
   if (status === "loading") {
     return (
       <>
-        <SheetHeader><SheetTitle>Loading part</SheetTitle><SheetDescription>One moment.</SheetDescription></SheetHeader>
+        <SheetHeader><SheetTitle>Loading part</SheetTitle></SheetHeader>
         <Skeleton className="mt-4 h-40 w-full" aria-label="Loading the part" />
       </>
     );
@@ -68,7 +68,7 @@ function PartBody({ partId, user, onWatchChanged }: { partId: string; user: User
   if (status === "error" || !data) {
     return (
       <>
-        <SheetHeader><SheetTitle>Part</SheetTitle><SheetDescription>It could not be loaded.</SheetDescription></SheetHeader>
+        <SheetHeader><SheetTitle>Part</SheetTitle></SheetHeader>
         <Alert variant="destructive" className="mt-4">
           <AlertDescription className="flex items-center justify-between gap-3">
             {error}
@@ -78,10 +78,10 @@ function PartBody({ partId, user, onWatchChanged }: { partId: string; user: User
       </>
     );
   }
-  return <PartDetail detail={data} canEdit={canEditSupply(user?.role)} role={user?.role} onChanged={changed} />;
+  return <PartDetail detail={data} canEdit={canEditSupply(user?.role)} role={user?.role} me={user?.email} onChanged={changed} />;
 }
 
-function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDetail; canEdit: boolean; role: User["role"] | undefined; onChanged: () => Promise<void> }) {
+function PartDetail({ detail, canEdit, role, me, onChanged }: { detail: SupplyPartDetail; canEdit: boolean; role: User["role"] | undefined; me?: string; onChanged: () => Promise<void> }) {
   return (
     <div className="space-y-6">
       <SheetHeader>
@@ -91,20 +91,20 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
               <span className="flex items-center gap-2"><StatusDot status={detail.status} />{detail.part.mpn}</span>
               <span className="text-sm font-normal text-muted-foreground">{detail.part.manufacturer}</span>
               <Badge variant={LIFECYCLE_BADGE[detail.lifecycle]}>{LIFECYCLE_LABEL[detail.lifecycle]}</Badge>
-              <TradeTag show="tag" partId={detail.part.id} trade={detail.trade} canEdit={canEdit} onChanged={onChanged} />
+              <TradeTag show="tag" partId={detail.part.id} trade={detail.trade} canEdit={canFollowSupply(role)} onChanged={onChanged} />
               <JlcIcon jlc={detail.jlc} />
             </SheetTitle>
             <UsedInLinks uses={detail.used_in} />
           </div>
           <span className="flex shrink-0 items-center gap-1">
-            <PartActions detail={detail} canEdit={canEdit} canFollow={canFollowSupply(role)} onChanged={onChanged} />
+            <PartActions detail={detail} canEdit={canEdit} canFollow={canFollowSupply(role)} canReview={canReviewSupply(role)} onChanged={onChanged} />
             <LibraryComponentLink partId={detail.part.id} />
           </span>
         </div>
         <SheetDescription className="sr-only">{detail.part.manufacturer} {detail.part.mpn}</SheetDescription>
       </SheetHeader>
 
-      <PartDetailSections detail={detail} canEdit={canEdit} role={role} onChanged={onChanged} />
+      <PartDetailSections detail={detail} canEdit={canEdit} role={role} me={me} onChanged={onChanged} />
     </div>
   );
 }

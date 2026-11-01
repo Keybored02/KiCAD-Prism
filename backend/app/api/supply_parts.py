@@ -18,7 +18,7 @@ from app.api.supply_parts_models import (
     CrossReference, LibraryComponentOf, PartHistory, PartLookup, PartReadOnView, PriceQuantity, SupplyManufacturer, SupplyPartDetail,
     SupplyPartGroups, SupplyPartsPage, SupplyReadNow,
 )
-from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker, require_supply_writer
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
 from app.services.supply import catalog_read, component_parts, cross_reference, part_history, parts, parts_view, preferences, price_quantity, trade_marks, refresh, review
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
@@ -209,17 +209,19 @@ async def library_component_of(part_id: str, _user: AuthenticatedUser = Depends(
 
 
 @router.post("/parts/{part_id}/view-read", response_model=PartReadOnView)
-async def read_part_on_view(part_id: str, reader: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
-    """Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part."""
+async def read_part_on_view(part_id: str, reader: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Read a part someone opened, when nothing follows it and its prices are older than the read window. Once every 15 minutes per part.
+    It spends distributor calls, so a read-only token may not ask (the roles are a reader's)."""
 
     return await _run(lambda: refresh.read_on_view(supply_connectors.service, [part_id], reader.email))
 
 
 @router.post("/parts/{part_id}/refresh", response_model=SupplyReadNow)
-async def read_part_now(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
-    """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part."""
+async def read_part_now(part_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part. Every
+    supply role may, as from the KiCad panel; a token needs to be one that may write."""
 
-    return await _run(lambda: refresh.read_now(supply_connectors.service, part_id, writer.email))
+    return await _run(lambda: refresh.read_now(supply_connectors.service, part_id, user.email))
 
 
 @router.get("/manufacturers", response_model=Items[SupplyManufacturer])

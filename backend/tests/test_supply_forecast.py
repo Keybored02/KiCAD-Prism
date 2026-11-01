@@ -25,6 +25,17 @@ def holder(values, name="Mouser", quote=None, weekly=False, cid="m"):
     return Holder(cid, name, "mouser", series(values), quote, weekly)
 
 
+class PoolTests(unittest.TestCase):
+    def test_storefronts_on_one_account_are_one_shelf(self) -> None:
+        lines = [
+            {"connector_id": "tme-eu", "pool": "acct1", "stock": [["2026-10-01", 1000]]},
+            {"connector_id": "tme-pl", "pool": "acct1", "stock": [["2026-10-01", 1000], ["2026-10-02", 990]]},
+            {"connector_id": "mouser", "pool": "acct2", "stock": [["2026-10-01", 50]]},
+        ]
+        kept = inputs._one_per_pool(lines)  # noqa: SLF001
+        self.assertEqual([line["connector_id"] for line in kept], ["tme-pl", "mouser"], "the shelf is simulated once, from its longer series")
+
+
 class WordsTests(unittest.TestCase):
     def test_one_scale_of_words(self) -> None:
         words = [store.chance_word(p) for p in (0.95, 0.9, 0.78, 0.5, 0.2, 0.05)]
@@ -90,6 +101,15 @@ class OutageTests(unittest.TestCase):
         self.assertLess(back["high"], 60)
         self.assertEqual(result["weeks"][0], 0.0, "out now, back in a few weeks")
         self.assertGreater(max(result["weeks"][3:7]), 0.2, "back within a few weeks, as often as stock-outs have lasted")
+        self.assertEqual((back["basis"], back["pooled"]), ("outages", False), "drawn from the stock-outs, though a ratio is known too")
+        quoted = models.stock_forecast([holder(out, quote=42)], {"m": model}, {"m": 1.5}, 50)["back"][0]
+        self.assertEqual(quoted["basis"], "outages", "a quote does not change what the range is drawn from")
+
+    def test_the_chance_already_out_is_read_off_the_step_of_the_curve(self) -> None:
+        # Survival 0.6 from day 10, 0.3 from day 20, 0 at day 30. Out 15 days, half of what is left ends at day 20.
+        model = models.OutageModel(np.asarray([10.0, 20.0, 30.0]), np.asarray([0.6, 0.3, 0.0]), 10)
+        draws = models.sample_back(model, None, 1.0, 15.0, np.random.default_rng(0), 20000)
+        self.assertAlmostEqual(float((draws == 5.0).mean()), 0.5, delta=0.02)
 
     def test_a_quote_stands_in_when_there_are_too_few_stock_outs(self) -> None:
         out = [50, 30, 10, 0, 0, 0, 0, 0, 0, 0]
@@ -97,6 +117,7 @@ class OutageTests(unittest.TestCase):
         back = result["back"][0]
         self.assertAlmostEqual(back["median"], 42 * 1.5 - 6, delta=12)
         self.assertEqual(back["quote_days"], 42)
+        self.assertEqual((back["basis"], back["pooled"]), ("quote", False))
 
     def test_without_a_model_or_a_quote_the_return_is_unknown(self) -> None:
         out = [50, 30, 10, 0, 0, 0, 0, 0, 0, 0]

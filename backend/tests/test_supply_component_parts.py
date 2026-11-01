@@ -153,8 +153,10 @@ class ComponentPartsTests(unittest.TestCase):
         self.assertEqual(alternate["approval"], "pending")
 
         decision = f"{base}/alternates/{alternate['part_id']}/decision"
-        self.assertEqual(self._call("designer", "POST", decision, {"approve": True}).status, 403, "designers do not decide")
-        approved = self._call("qa", "POST", decision, {"approve": True})
+        main = listed.json["parts"][0]["part_id"]
+        self.assertEqual(self._call("designer", "POST", decision, {"approve": True, "main_part_id": main}).status, 403, "designers do not decide")
+        self.assertEqual(self._call("qa", "POST", decision, {"approve": True}).status, 422, "a decision says which main part it was shown")
+        approved = self._call("qa", "POST", decision, {"approve": True, "main_part_id": main})
         self.assertEqual((approved.status, approved.json["parts"][1]["approval"]), (200, "approved"))
 
         self.assertEqual(self._call("qa", "DELETE", f"{base}/alternates/{alternate['part_id']}").status, 204)
@@ -208,19 +210,20 @@ class ComponentPartsTests(unittest.TestCase):
     def test_one_off_results_for_non_library_numbers_expire(self) -> None:
         from datetime import datetime, timedelta, timezone
 
-        from app.services.supply import oneoff, parts
+        from app.services.supply import oneoff, parts, work_items
 
         component = self._component()
         now = datetime.now(timezone.utc)
         with self.store.connection() as conn:
             loose = parts.ensure_part(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
             recent = parts.ensure_part(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
+            worked = parts.ensure_part(conn, "Nobody", f"LOOSE-{uuid.uuid4().hex[:8]}", AUTHOR)
             library = self.cp.library_part(conn, component["manufacturer"], component["mpn"], AUTHOR)
             connector = conn.execute(
                 "INSERT INTO supply_connectors (id, provider, display_name) VALUES (%s, 'csv', %s) RETURNING id",
                 (uuid.uuid4().hex, f"expiry {uuid.uuid4().hex[:6]}"),
             ).fetchone()["id"]
-            for part, age in ((loose, 8), (recent, 2), (library, 8)):
+            for part, age in ((loose, 8), (recent, 2), (library, 8), (worked, 8)):
                 request_id = uuid.uuid4().hex
                 conn.execute(
                     "INSERT INTO supply_read_requests (id, kind, requested_by, created_at) VALUES (%s, 'bom', %s, %s)",
@@ -230,11 +233,13 @@ class ComponentPartsTests(unittest.TestCase):
                     "INSERT INTO supply_read_request_work (request_id, part_id, connector_id) VALUES (%s, %s, %s)",
                     (request_id, part.id, connector),
                 )
+            work_items.create(conn, subject_kind="part", subject_id=worked.id, title="Find a second source", action=work_items.ACTIONS[0], actor=AUTHOR)
             oneoff.expire(conn, now)
             left = {row["id"] for row in conn.execute(
-                "SELECT id FROM supply_parts WHERE id = ANY(%s)", ([loose.id, recent.id, library.id],)).fetchall()}
+                "SELECT id FROM supply_parts WHERE id = ANY(%s)", ([loose.id, recent.id, library.id, worked.id],)).fetchall()}
+            conn.execute("DELETE FROM supply_attention WHERE part_id = %s", (worked.id,))
             conn.execute("DELETE FROM supply_connectors WHERE id = %s", (connector,))
-        self.assertEqual(left, {recent.id, library.id}, "only the week-old check of a non-library number is gone")
+        self.assertEqual(left, {recent.id, library.id, worked.id}, "only the week-old check of a non-library number nobody worked on is gone")
 
     def test_a_proposed_alternate_waits_in_review_until_qa_decides(self) -> None:
         from app.services.supply import review
@@ -273,8 +278,18 @@ class ComponentPartsTests(unittest.TestCase):
             with self.assertRaises(Clash):
                 self.cp.decide(conn, component_id, alternate, True, "qa@example.com", main_part_id=shown["main_part_id"])
             self.assertEqual({row["part_id"]: row["approval"] for row in self.cp.parts_of(conn, component_id)}[alternate], "pending")
+            # A fresh queue shows it against the new main part, and that it was proposed against the old one.
             (again,) = [item for item in review.to_approve(conn)["alternates"] if item["component_id"] == component_id]
+            self.assertNotEqual(again["main_part_id"], old_main)
+            self.assertEqual((again["reviewed_against_part_id"], again["reviewed_against_mpn"]), (old_main, component["mpn"]))
             self.cp.decide(conn, component_id, alternate, True, "qa@example.com", main_part_id=again["main_part_id"])
+            audit = conn.execute(
+                "SELECT detail FROM supply_audit_events WHERE action = 'component_part.approved' AND subject_id = %s ORDER BY id DESC LIMIT 1",
+                (component_id,),
+            ).fetchone()["detail"]
+            self.assertEqual((audit["re_review"], audit["reviewed_against"], audit["main_part_id"]), (True, old_main, again["main_part_id"]))
+            stored = conn.execute("SELECT reviewed_against FROM component_parts WHERE component_id = %s AND part_id = %s", (component_id, alternate)).fetchone()
+            self.assertEqual(stored["reviewed_against"], again["main_part_id"], "now decided against the new main part")
 
     def test_a_new_main_part_sends_approved_alternates_back_to_qa(self) -> None:
         component = self._component()

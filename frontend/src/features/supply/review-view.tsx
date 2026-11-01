@@ -4,7 +4,7 @@ import { CheckCheck } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { canReviewSupply } from "@/lib/roles";
+import { canFollowSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { AliasRow } from "./alias-row";
 import { CollapsibleSection } from "./collapsible-section";
@@ -14,6 +14,7 @@ import { MatchedByPrism } from "./matched-by-prism";
 import { OtherNumberPins } from "./other-number-pins";
 import { ListingRow } from "./listing-row";
 import { SeveralListings } from "./several-listings";
+import { reviewCountOf } from "./review-count";
 import { useSupplyReview } from "./use-supply-review";
 
 /** Matches that need a person: manufacturer spellings and listings that are not proven. `after` follows the supply sections;
@@ -25,8 +26,6 @@ export function ReviewView({ user, after, othersWaiting = false }: { user: User 
   return (
     <div className="themed-scrollbar relative h-full overflow-y-auto p-4">
       <div className="space-y-6">
-        {canDecide ? null : <p className="text-sm text-muted-foreground">QA and administrators decide.</p>}
-
         {status === "loading" ? <Skeleton className="h-40 w-full" aria-label="Loading the review queue" /> : null}
         {status === "error" ? (
           <Alert variant="destructive">
@@ -39,13 +38,10 @@ export function ReviewView({ user, after, othersWaiting = false }: { user: User 
         {status === "ready" && queue ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {!othersWaiting && queue.aliases.length === 0 && queue.listings.length === 0 && (queue.other_numbers ?? []).length === 0 && (queue.choices ?? []).length === 0 && !(queue.to_approve?.waivers.length) && !(queue.to_approve?.alternates?.length) && !(queue.to_approve?.dismissals?.length) && !(queue.to_approve?.mutes?.length) ? (
+            {!othersWaiting && reviewCountOf(queue) === 0 ? (
               <div className="flex flex-col items-center gap-2 border border-dashed p-10 text-center">
                 <CheckCheck className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing to review</p>
-                <p className="max-w-md text-sm text-muted-foreground">
-                  Spellings and listings that need a decision appear here.
-                </p>
               </div>
             ) : null}
 
@@ -81,12 +77,13 @@ export function ReviewView({ user, after, othersWaiting = false }: { user: User 
               </CollapsibleSection>
             ) : null}
 
-            <SeveralListings canDecide={canDecide} user={user} />
+            <SeveralListings canDecide={canFollowSupply(user?.role)} user={user} />
 
             <MatchedByPrism matched={queue.matched} canDecide={canDecide} onDecided={refresh} />
           </>
         ) : null}
-        {status === "ready" ? after : null}
+        {/* Work items and local stock read on their own: a failed queue read does not hide them. */}
+        {status === "loading" ? null : after}
       </div>
     </div>
   );

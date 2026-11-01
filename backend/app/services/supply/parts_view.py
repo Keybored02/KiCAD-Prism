@@ -17,6 +17,7 @@ from typing import Any, Callable, Literal, Mapping, Sequence
 from app.services.supply import attention, budget, clock, counted, facts, freshness, fx, headline_price, insights, offer_rules, outlook, params, part_history, part_insights, parts, pcn, preferences, price_behaviour, price_quantity, prices, pricing, promises, scorecard, stock, trade_marks, usage
 from app.services.supply.history import days_sql
 from app.services.supply import settings as supply_settings
+from app.services.supply.models import https_link
 from app.services.supply.forecast import store
 from app.services.supply.providers import registry
 from app.services.supply.tiers import SCHEDULES
@@ -69,12 +70,15 @@ def _like(text: str) -> str:
     return f"%{escaped}%"
 
 
-def _tracking_dto(row) -> dict[str, Any] | None:
-    """Whether Prism follows the part and why: tier 1 or 2, how often, and the reasons (a project, a person, a component)."""
+def _tracking_dto(row, visible: set[str] | None) -> dict[str, Any] | None:
+    """Whether Prism follows the part and why: tier 1 or 2, how often, and the reasons (a project, a person, a component). A project
+    the caller may not see is left out of the reasons (``tracking.visible_reasons``)."""
+
+    from app.services.supply import tracking  # it reads this module
 
     if row["tracking_tier"] is None:
         return None
-    return {"tier": int(row["tracking_tier"]), "rate": row["tracking_rate"], "reasons": row["tracking_reasons"]}
+    return {"tier": int(row["tracking_tier"]), "rate": row["tracking_rate"], "reasons": tracking.visible_reasons(row["tracking_reasons"], visible)}
 
 
 def _watch_dto(row) -> dict[str, Any] | None:
@@ -165,7 +169,8 @@ def offers_by_part(conn, part_ids: list[str], *, every_listing: bool = False) ->
         """.replace("{state}", counted.state_sql()).replace("{read}", counted.read_sql()).replace("{pool}", stock.pool_sql()),
         (part_ids, every_listing),
     ).fetchall():
-        offers[row["part_id"]].append(dict(row))
+        # Checked again on the way out, for what was kept before links were checked on the way in.
+        offers[row["part_id"]].append(dict(row) | {"product_url": https_link(row["product_url"])})
     if not every_listing:
         _one_offer_per_pick(offers)
     return offers
@@ -231,13 +236,15 @@ def _computed(conn, rows, offers: dict[str, list[dict]], money: tuple[str, fx.Ra
     base, rates, priced_with = money or _money(conn)
     quantities = price_quantity.of_parts(conn, [r["id"] for r in rows])
     found, counted = {}, {}
+    # The packaging each part is followed in, a watched component's where the part's own watch says any (``stock.packaging_of``).
+    policies = stock.packagings_of(conn, rows)
     for row in rows:
-        here = [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
+        here = [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], policies[row["id"]])]
         price = headline_price.headline(
             [o for o in here if not o["marketplace"]], quantities[row["id"]], base, rates,
             lambda part_id=row["id"]: prices.last_in_stock(conn, part_id, base, rates, quantities[part_id]),
         )
-        summary = _offer_summary(here, row["watch_packaging"] or "any", problems.get(row["id"]), price)
+        summary = _offer_summary(here, policies[row["id"]], problems.get(row["id"]), price)
         summary["priced_with"] = priced_with
         found[row["id"]] = summary
         counted[row["id"]] = here
@@ -360,14 +367,18 @@ def _bring_up_to_date(conn, where: str, params: list[Any]) -> str:
     current, so normally few), so a list can filter, sort and page on the kept columns. Returns the pricing key."""
 
     money = _money(conn)
+    # Each part is worked out once per call. One whose row another transaction holds is not kept (``_keep``) and would be
+    # selected again on every pass; that transaction is keeping it, so it is left to it rather than worked out in a loop.
+    done: list[str] = []
     while True:
         seen = freshness.seen(conn)
         rows = conn.execute(
             _ROW_SELECT + f"LEFT JOIN supply_part_summaries s ON s.part_id = p.id WHERE {where} AND NOT COALESCE({_current_sql(money[2])}, FALSE) "
-            f"LIMIT {_BATCH}", [*params, clock.now()],
+            f"AND p.id <> ALL(%s) LIMIT {_BATCH}", [*params, clock.now(), done],
         ).fetchall()
         if rows:
             _keep(conn, _computed(conn, rows, offers_by_part(conn, [r["id"] for r in rows]), money), seen)
+            done += [r["id"] for r in rows]
         if len(rows) < _BATCH:
             return money[2]
 
@@ -384,6 +395,7 @@ def _summaries(
     sums = _cached(conn, rows, offers=offers, seen=seen)
     jlc = facts.jlc_classes(conn, ids)
     used = usage.projects_of_parts(conn, ids, role)
+    visible = usage.visible_project_ids(role)
 
     items = []
     for row in rows:
@@ -395,7 +407,7 @@ def _summaries(
             # Written by a person or a BOM and not yet confirmed by a distributor's answer.
             "manufacturer_provisional": bool(row["maker_provisional"]),
             "watch": _watch_dto(row),
-            "tracking": _tracking_dto(row),
+            "tracking": _tracking_dto(row, visible),
             **mine,
             "used_in": len(used.get(row["id"], ())),
             "jlc": jlc.get(row["id"]),
@@ -424,10 +436,8 @@ def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) ->
     seen = freshness.seen(conn)
     rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [list(part_ids)]).fetchall()
     offers = offers_by_part(conn, [row["id"] for row in rows])
-    wanted = {
-        row["id"]: [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
-        for row in rows
-    }
+    policies = stock.packagings_of(conn, rows)
+    wanted = {row["id"]: [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], policies[row["id"]])] for row in rows}
     return _summaries(conn, rows, wanted, role=role, seen=seen), wanted
 
 
@@ -543,13 +553,12 @@ def part_groups(
     groups: dict[str, dict[str, Any]] = {}
     for item in items:
         for project_id in of.get(item["id"]) or {NO_PROJECT}:
-            group = groups.setdefault(project_id, {"project_id": project_id, "count": 0, "statuses": {}})
+            group = groups.setdefault(project_id, {"project_id": project_id, "count": 0, "statuses": {}, "members": []})
             group["count"] += 1
             group["statuses"][item["status"]] = group["statuses"].get(item["status"], 0) + 1
+            group["members"].append(item)
     named = {}
     tracked: set[str] = set()
-    for key, group in groups.items():
-        group["members"] = [item for item in items if key in (of.get(item["id"]) or {NO_PROJECT})]
     real = [key for key in groups if key != NO_PROJECT]
     if real:
         named = {row["project_id"]: row["project_name"] for row in conn.execute(
@@ -637,7 +646,7 @@ def _group_stats(group: dict[str, Any], kept: dict[str, dict[str, Any]], known: 
         stats["currency"] = rollup["currency"]
         stats["boards"] = rollup["can_build"]
         stats["build_quantity"] = int(tracked["build_quantity"])
-        stats["unchecked"] = int(rollup["not_tracked"])
+        stats["unchecked"] = int(rollup["unchecked"])
         # A cost over fewer lines than the BOM has is a subtotal: every summary says how many lines it covers.
         stats["lines"] = int(rollup["lines"])
         stats["lines_priced"] = int(rollup["lines_priced"])
@@ -1029,8 +1038,8 @@ _PAGE_URLS = {"lcsc": "https://www.lcsc.com/product-detail/{}.html", "tme": "htt
 def _page_url(provider: str, sku: str, read_url: str | None) -> str:
     """The distributor's page for a listing: the one its last reading gave, else one built from the number."""
 
-    if read_url:
-        return str(read_url)
+    if https_link(read_url):
+        return https_link(read_url)
     pattern = _PAGE_URLS.get(provider)
     return pattern.format(sku.lower() if provider == "tme" else sku) if pattern and sku and "/" not in sku else ""
 
@@ -1062,7 +1071,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         (part_id,),
     ).fetchall()
 
-    policy = watch_row["watch_packaging"] or "any"
+    policy = stock.packaging_of(conn, part_id)
     # Status, stock, lifecycle, problem and price are the kept summary's, so the sheet and the list agree; the stock by distributor
     # is worked out from the same listings (``counted.listing_sql`` and the watch's packaging).
     kept = _cached(conn, conn.execute(_ROW_SELECT + "WHERE p.id = %s", [part_id]).fetchall())[part_id]
@@ -1109,7 +1118,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
                 "rohs": r["rohs"],
                 "reach_affected": r["reach_affected"],
                 "marketplace": bool(r["marketplace"]),
-                "product_url": r["product_url"],
+                "product_url": https_link(r["product_url"]),
             } if has_offer else None,
             "poll": {
                 "tier": r["tier"],
@@ -1137,7 +1146,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name, "first_seen": _first_seen(conn, part_id)},
         "watch": _watch_dto(watch_row),
-        "tracking": _tracking_dto(watch_row),
+        "tracking": _tracking_dto(watch_row, usage.visible_project_ids(role)),
         "packaging": _packaging_state(conn, part_id),
         "preferred_connector_id": preferences.get(conn, part_id),
         "trade": trade_marks.state(conn, part_id),
