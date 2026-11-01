@@ -180,31 +180,11 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
     # --- guards -----------------------------------------------------------
 
     def test_a_csv_fed_distributor_takes_its_own_offers_file(self) -> None:
-        for provider in ("lcsc", "jlcpcb"):
+        for provider in ("csv",):
             connector = self._connector(provider=provider)
             info, _ = self._import(connector["id"], f"{HEADER}\nS1,M1,Acme,5")
             self.assertEqual(info.row_count, 1, provider)
             self.assertTrue(self.connectors.get(connector["id"])["csv_fed"], provider)
-
-    def test_an_lcsc_upload_keeps_lcsc_as_the_provider(self) -> None:
-        connector = self._connector(provider="lcsc")
-        self._import(connector["id"], f"{HEADER}\nC1,M1,Acme,5")
-        provider = self._provider(connector["id"], provider_key="lcsc")
-        (match,) = provider.lookup_mpn("M1")
-        self.assertEqual(match.provider, "lcsc")
-        (offer,) = provider.get_offers(["C1"])
-        self.assertEqual(offer.provider, "lcsc")
-        self.assertFalse(offer.marketplace)
-
-    def test_a_jlcpcb_upload_is_marketplace_with_its_library_class_as_facts(self) -> None:
-        connector = self._connector(provider="jlcpcb")
-        text = f"{HEADER},jlc_library,jlc_preferred\nC1,M1,Acme,5,Extended,yes\nC2,M2,Acme,9,Basic,no\n"
-        self._import(connector["id"], text)
-        provider = self._provider(connector["id"], provider_key="jlcpcb", marketplace=True)
-        offers = {offer.sku: offer for offer in provider.get_offers(["C1", "C2"])}
-        self.assertTrue(all(offer.marketplace for offer in offers.values()))
-        self.assertEqual(offers["C1"].facts, (("jlc_library", "Extended"), ("jlc_preferred", "Preferred")))
-        self.assertEqual(offers["C2"].facts, (("jlc_library", "Basic"),))
 
     def test_only_csv_fed_connectors_take_a_file(self) -> None:
         from app.services.supply.connectors import ConnectorError, ConnectorNotFound

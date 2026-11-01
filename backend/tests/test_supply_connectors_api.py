@@ -302,10 +302,11 @@ class SupplyConnectorsApiTests(unittest.TestCase):
 
     def test_csv_fed_providers_are_listed_and_unmetered(self) -> None:
         providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json["items"]}
-        for key in ("csv", "lcsc", "jlcpcb"):
-            self.assertFalse(providers[key]["metered"], key)
-            self.assertTrue(providers[key]["csv_fed"], key)
-            self.assertEqual(providers[key]["credential_fields"], [], key)
+        self.assertFalse(providers["csv"]["metered"])
+        self.assertTrue(providers["csv"]["csv_fed"])
+        self.assertEqual(providers["csv"]["credential_fields"], [])
+        for key in ("lcsc", "jlcpcb"):
+            self.assertFalse(providers[key]["csv_fed"], key)
         self.assertTrue(providers["demo_keyed"]["metered"])
         self.assertFalse(providers["demo_keyed"]["csv_fed"])
 
@@ -360,7 +361,7 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual((refused.status, refused.json["code"]), (400, "not_csv"))
         for provider in ("lcsc", "jlcpcb"):
             target = self._create(provider=provider)["id"]
-            self.assertEqual(self._upload(target, self.CSV_OK.encode()).status, 200, provider)
+            self.assertEqual(self._upload(target, self.CSV_OK.encode()).status, 400, provider)
 
     def test_the_connector_currency_is_the_default(self) -> None:
         cid = self._csv_connector()["id"]
