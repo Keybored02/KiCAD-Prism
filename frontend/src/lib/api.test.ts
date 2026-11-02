@@ -198,6 +198,7 @@ describe("one transport", () => {
     "panel/lib/panel-api.ts", // the panel's bearer-token adapter (parses errors with apiErrorFrom)
     "lib/ecad-renderer.ts", // immutable asset text cache
     "lib/kicad-agent-signin.ts", // the local KiCad agent on 127.0.0.1
+    "lib/kicad-agent.ts", // the local KiCad agent on 127.0.0.1
     "components/login-page.tsx", // GitHub releases
     "components/release-studio/shared.tsx", // reads a blob: object URL
   ]);

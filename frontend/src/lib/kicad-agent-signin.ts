@@ -1,3 +1,5 @@
+import { AGENT_PORTS } from "@/lib/kicad-agent";
+
 /**
  * Signing in with the sign-in the KiCad agent already has.
  *
@@ -15,8 +17,6 @@
  * fail to offer a shortcut.
  */
 
-// release, dev. See tools/prism_agent/profiles.py.
-const AGENT_PORTS = [48730, 48731];
 
 // The agent is on loopback, so it answers quickly or it is not there. This only has to
 // outlast the backend round-trip the agent makes to mint the URL.
